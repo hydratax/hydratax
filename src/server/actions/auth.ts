@@ -108,7 +108,7 @@ export async function getSupabaseSessionUser() {
   return data.user;
 }
 
-export function authMode() {
+export async function authMode() {
   if (isSupabaseConfigured()) return "supabase" as const;
   if (isMemoryStore()) return "local" as const;
   return "local" as const;
