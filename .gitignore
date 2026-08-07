@@ -46,3 +46,8 @@ next-env.d.ts
 
 .netlify
 .netlify-*.json
+
+.netlify-deploy-*
+.netlify-update-*
+.nt-status.json
+.netlify-status.json

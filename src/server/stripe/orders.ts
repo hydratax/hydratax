@@ -166,3 +166,30 @@ export async function getCheckoutBySessionId(sessionId: string) {
     .limit(1);
   return rows[0] ?? null;
 }
+
+/**
+ * Fulfill a Checkout Session when the user lands on /checkout/success.
+ * Works without webhooks (local / Netlify before webhook is configured).
+ */
+export async function fulfillCheckoutSession(sessionId: string) {
+  const existing = await getCheckoutBySessionId(sessionId);
+  if (existing) return existing;
+
+  const { getStripe } = await import("@/server/stripe/client");
+  const session = await getStripe().checkout.sessions.retrieve(sessionId);
+
+  if (session.payment_status !== "paid" && session.status !== "complete") {
+    throw new Error("Checkout is not complete yet");
+  }
+
+  // Reuse webhook recorder shape
+  const synthetic = {
+    id: `evt_local_${sessionId}`,
+    object: "event" as const,
+    type: "checkout.session.completed" as const,
+    data: { object: session },
+  } as unknown as Stripe.Event;
+
+  await recordCheckoutEvent(synthetic);
+  return getCheckoutBySessionId(sessionId);
+}

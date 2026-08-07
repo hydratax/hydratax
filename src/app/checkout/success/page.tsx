@@ -3,6 +3,7 @@ import Image from "next/image";
 import { SiteFooter } from "@/components/site-footer";
 import { isStripeConfigured } from "@/lib/env";
 import { getStripe } from "@/server/stripe/client";
+import { fulfillCheckoutSession } from "@/server/stripe/orders";
 
 export const metadata = {
   title: "Payment successful — HydraTax",
@@ -16,12 +17,15 @@ export default async function CheckoutSuccessPage({
   const { session_id: sessionId } = await searchParams;
   let planLabel = "your plan";
   let email: string | null = null;
+  let activated = false;
 
   if (sessionId && isStripeConfigured()) {
     try {
       const session = await getStripe().checkout.sessions.retrieve(sessionId);
       planLabel = session.metadata?.planKey?.replace(":", " · ") ?? planLabel;
       email = session.customer_details?.email ?? session.customer_email;
+      await fulfillCheckoutSession(sessionId);
+      activated = true;
     } catch {
       /* show generic success */
     }
@@ -48,7 +52,8 @@ export default async function CheckoutSuccessPage({
           You&apos;re in
         </h1>
         <p className="mt-4 text-ink-soft">
-          Payment received for <span className="font-semibold text-ink">{planLabel}</span>
+          Payment received for{" "}
+          <span className="font-semibold text-ink">{planLabel}</span>
           {email ? (
             <>
               . We&apos;ll send a receipt to{" "}
@@ -58,12 +63,17 @@ export default async function CheckoutSuccessPage({
             "."
           )}
         </p>
+        {activated && (
+          <p className="mt-2 text-sm text-sea">
+            Your plan is active on this practice desk.
+          </p>
+        )}
         <p className="mt-3 text-sm text-ink-soft">
           Create your practice account to add clients, upload documents, and
           connect HMRC.
         </p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
-          <Link href="/sign-up" className="btn btn-primary">
+          <Link href="/create-account" className="btn btn-primary">
             Create practice account
           </Link>
           <Link href="/dashboard" className="btn btn-secondary">

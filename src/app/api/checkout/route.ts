@@ -37,7 +37,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unknown plan" }, { status: 404 });
   }
 
-  const appUrl = getEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  const appUrl = (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    getEnv().NEXT_PUBLIC_APP_URL ||
+    "http://localhost:3000"
+  ).replace(/\/$/, "");
   const stripe = getStripe();
 
   const session = await stripe.checkout.sessions.create({
