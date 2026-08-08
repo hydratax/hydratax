@@ -5,13 +5,9 @@ import { z } from "zod";
 import { getChService, chServiceTotal } from "@/lib/ch-services";
 import { isMemoryStore } from "@/lib/env";
 import { requireSession } from "@/server/auth/session";
+import { accountRefFromUser, requireAdmin } from "@/server/auth/admin";
 import { memoryStore, type MemoryChRequest } from "@/server/demo/store";
 import { appendAuditEvent } from "@/server/audit/log";
-import { createHash } from "crypto";
-
-function accountRefFromUser(userId: string) {
-  return createHash("sha256").update(userId).digest("hex").slice(0, 12);
-}
 
 const submitSchema = z.object({
   serviceId: z.string().min(1),
@@ -202,22 +198,6 @@ export async function markChRequestPaid(requestId: string) {
       .where(eq(companiesHouseRequests.id, requestId));
   }
   revalidatePath("/admin/companies-house");
-}
-
-async function requireAdmin() {
-  const session = await requireSession();
-  const allow =
-    process.env.ADMIN_ACCOUNT_REFS?.split(",").map((s) => s.trim()) ?? [];
-  const ref = accountRefFromUser(session.userId);
-  // Local / owner practice always admin in memory mode for ops testing
-  if (isMemoryStore() && session.role === "owner") return session;
-  if (allow.includes(ref) || allow.includes(session.userId)) return session;
-  if (session.role === "owner" && process.env.ADMIN_OPEN_TO_OWNERS === "true") {
-    return session;
-  }
-  // Default: practice owners can view ops board (subscription checks only)
-  if (session.role === "owner") return session;
-  throw new Error("Forbidden");
 }
 
 export async function getAdminAccountRef() {

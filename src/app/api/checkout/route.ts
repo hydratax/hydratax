@@ -37,6 +37,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unknown plan" }, { status: 404 });
   }
 
+  let practiceId = "";
+  let userId = "";
+  let sessionEmail = parsed.data.email;
+  const { getOptionalSession } = await import("@/server/auth/session");
+  const session = await getOptionalSession();
+  if (session) {
+    practiceId = session.practiceId;
+    userId = session.userId;
+    sessionEmail = sessionEmail || session.email || undefined;
+  }
+
   const appUrl = (
     process.env.NEXT_PUBLIC_APP_URL ||
     getEnv().NEXT_PUBLIC_APP_URL ||
@@ -44,9 +55,9 @@ export async function POST(req: Request) {
   ).replace(/\/$/, "");
   const stripe = getStripe();
 
-  const session = await stripe.checkout.sessions.create({
+  const checkoutSession = await stripe.checkout.sessions.create({
     mode: plan.interval === "month" ? "subscription" : "payment",
-    customer_email: parsed.data.email,
+    customer_email: sessionEmail,
     line_items: [
       {
         quantity: 1,
@@ -69,16 +80,22 @@ export async function POST(req: Request) {
       planKey: plan.key,
       sectionId: plan.sectionId,
       interval: plan.interval,
+      practiceId,
+      userId,
+      email: sessionEmail ?? "",
     },
     allow_promotion_codes: true,
   });
 
-  if (!session.url) {
+  if (!checkoutSession.url) {
     return NextResponse.json(
       { error: "Checkout session missing URL" },
       { status: 500 },
     );
   }
 
-  return NextResponse.json({ url: session.url, sessionId: session.id });
+  return NextResponse.json({
+    url: checkoutSession.url,
+    sessionId: checkoutSession.id,
+  });
 }

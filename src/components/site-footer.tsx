@@ -5,7 +5,7 @@ const COLUMNS = [
   {
     title: "Product",
     links: [
-      { href: "/#services", label: "HMRC rails" },
+      { href: "/#services", label: "HMRC filings" },
       { href: "/pricing", label: "Pricing" },
       { href: "/companies-house", label: "Companies House" },
       { href: "/dashboard", label: "Practice desk" },
@@ -29,6 +29,7 @@ const COLUMNS = [
       { href: "/#features", label: "Features" },
       { href: "/#why-hydratax", label: "Why Hydra" },
       { href: "/#reviews", label: "Reviews" },
+      { href: "/feature-requests", label: "Feature requests" },
       { href: "/support", label: "Support centre" },
     ],
   },
@@ -61,8 +62,9 @@ export function SiteFooter() {
               <span className="display text-xl font-semibold">HydraTax</span>
             </Link>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/60">
-              Practice software for UK accountants — CT600, MTD VAT, Self
-              Assessment, PAYE and Companies House in one desk.
+              The UK’s most user-friendly practice software — CT600, MTD VAT,
+              Self Assessment, PAYE and Companies House, built for accountants’
+              ease.
             </p>
           </div>
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">

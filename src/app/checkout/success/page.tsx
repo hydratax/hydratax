@@ -3,7 +3,10 @@ import Image from "next/image";
 import { SiteFooter } from "@/components/site-footer";
 import { isStripeConfigured } from "@/lib/env";
 import { getStripe } from "@/server/stripe/client";
-import { fulfillCheckoutSession } from "@/server/stripe/orders";
+import {
+  attachCheckoutToPractice,
+  fulfillCheckoutSession,
+} from "@/server/stripe/orders";
 
 export const metadata = {
   title: "Payment successful — HydraTax",
@@ -26,6 +29,12 @@ export default async function CheckoutSuccessPage({
       email = session.customer_details?.email ?? session.customer_email;
       await fulfillCheckoutSession(sessionId);
       activated = true;
+
+      const { getOptionalSession } = await import("@/server/auth/session");
+      const auth = await getOptionalSession();
+      if (auth) {
+        await attachCheckoutToPractice(sessionId, auth.practiceId);
+      }
     } catch {
       /* show generic success */
     }
@@ -68,16 +77,12 @@ export default async function CheckoutSuccessPage({
             Your plan is active on this practice desk.
           </p>
         )}
-        <p className="mt-3 text-sm text-ink-soft">
-          Create your practice account to add clients, upload documents, and
-          connect HMRC.
-        </p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
-          <Link href="/create-account" className="btn btn-primary">
-            Create practice account
-          </Link>
-          <Link href="/dashboard" className="btn btn-secondary">
+          <Link href="/dashboard" className="btn btn-primary">
             Open desk
+          </Link>
+          <Link href="/clients" className="btn btn-secondary">
+            Go to clients
           </Link>
         </div>
       </main>

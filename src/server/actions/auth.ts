@@ -9,6 +9,7 @@ import { memoryStore } from "@/server/demo/store";
 const signUpSchema = z.object({
   orgType: z.enum(["company", "sole_trader", "partnership", "practice"]),
   orgSearch: z.string().max(200).optional(),
+  companyNumber: z.string().max(20).optional(),
   firstName: z.string().min(1).max(80),
   surname: z.string().min(1).max(80),
   email: z.string().email(),
@@ -61,6 +62,7 @@ export async function signUpWithSupabase(input: z.infer<typeof signUpSchema>) {
       data: {
         org_type: data.orgType,
         org_search: data.orgSearch ?? "",
+        company_number: data.companyNumber ?? "",
         first_name: data.firstName,
         surname: data.surname,
       },

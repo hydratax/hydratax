@@ -8,12 +8,12 @@ const DIFFERENTIATORS = [
     body: "Multi-client desk, deadlines, and staff roles — built for firms juggling dozens of entities, not a solo micro-company wizard.",
   },
   {
-    title: "Four rails, one ledger",
+    title: "Four filings, one ledger",
     body: "VAT, Self Assessment, CT600 and PAYE share integer-pence books. Enter once; file everywhere without retyping.",
   },
   {
     title: "Compliance engineered in",
-    body: "OAuth token encryption, fraud-prevention headers blocked if incomplete, sandbox/production isolation, immutable audit hash chain.",
+    body: "OAuth token encryption, fraud-prevention headers blocked if incomplete, environment isolation, immutable audit hash chain.",
   },
   {
     title: "Guided filing UX",
@@ -24,7 +24,7 @@ const DIFFERENTIATORS = [
 const FEATURES = [
   {
     title: "Multi-client dashboard",
-    body: "Search clients, surface deadlines, jump straight into the right filing rail.",
+    body: "Search clients, surface deadlines, jump straight into the right filing.",
   },
   {
     title: "Digital books in pence",
@@ -89,8 +89,8 @@ export function FeaturesAndDifference() {
               Features that cut filing friction
             </h2>
             <p className="mt-3 text-ink-soft">
-              Interactive Hydra feature rail — auto-advances, click any chip to
-              lock focus.
+              Highlights from the practice desk — auto-advances, click any chip
+              to lock focus.
             </p>
           </div>
           <div className="flex gap-2">

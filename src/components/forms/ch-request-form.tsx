@@ -5,7 +5,13 @@ import type { ChServiceDetail } from "@/lib/ch-services";
 import { formatChFeeBreakdown } from "@/lib/ch-services";
 import { submitCompaniesHouseRequest } from "@/server/actions/ch-requests";
 
-export function ChRequestForm({ service }: { service: ChServiceDetail }) {
+export function ChRequestForm({
+  service,
+  defaults,
+}: {
+  service: ChServiceDetail;
+  defaults?: Record<string, string>;
+}) {
   const fees = formatChFeeBreakdown(service);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -26,6 +32,9 @@ export function ChRequestForm({ service }: { service: ChServiceDetail }) {
           } else {
             fields[field.name] = String(fd.get(field.name) ?? "");
           }
+        }
+        if (defaults?.clientId) {
+          fields.clientId = defaults.clientId;
         }
         startTransition(async () => {
           try {
@@ -153,6 +162,7 @@ export function ChRequestForm({ service }: { service: ChServiceDetail }) {
               name={field.name}
               required={field.required}
               placeholder={field.placeholder}
+              defaultValue={defaults?.[field.name] ?? ""}
               className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 font-normal"
             />
             {field.help && (

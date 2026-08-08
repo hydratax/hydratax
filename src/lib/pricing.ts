@@ -1,6 +1,111 @@
 /** Hydra service fee added on top of statutory Companies House charges. */
 export const HYDRA_SERVICE_FEE_POUNDS = 25;
 
+/** Discounted Hydra fees for Practice, Firm, and Custom desk plans (not Solo). */
+export const HYDRA_CH_DESK_FEES = {
+  incorporation: 5,
+  "incorporation-same-day": 5,
+  "confirmation-statement": 1,
+} as const;
+
+export type DeskPlanTier = "solo" | "desk";
+
+export function qualifiesForChDeskDiscount(planKey: string | null | undefined) {
+  if (!planKey) return false;
+  return (
+    planKey.startsWith("practice:Practice") ||
+    planKey.startsWith("practice:Firm") ||
+    planKey.startsWith("practice:Custom")
+  );
+}
+
+export function hydraFeeForChService(
+  serviceId: string,
+  tier: DeskPlanTier = "solo",
+) {
+  if (tier === "desk") {
+    const discounted =
+      HYDRA_CH_DESK_FEES[serviceId as keyof typeof HYDRA_CH_DESK_FEES];
+    if (typeof discounted === "number") return discounted;
+  }
+  return HYDRA_SERVICE_FEE_POUNDS;
+}
+
+export function hydraTotal(
+  chFeePounds: number,
+  serviceId?: string,
+  tier: DeskPlanTier = "solo",
+) {
+  const hydra =
+    serviceId != null
+      ? hydraFeeForChService(serviceId, tier)
+      : HYDRA_SERVICE_FEE_POUNDS;
+  return chFeePounds + hydra;
+}
+
+/** Modules you can mix into a Custom practice desk plan */
+export const CUSTOM_PLAN_MODULES = [
+  {
+    id: "vat",
+    label: "MTD VAT",
+    price: 49,
+    blurb: "Multi-VRN obligations and submit",
+    entitlement: "vat" as const,
+  },
+  {
+    id: "payroll",
+    label: "PAYE / RTI",
+    price: 69,
+    blurb: "Employers, pay runs, FPS & EPS",
+    entitlement: "payroll" as const,
+  },
+  {
+    id: "self_assessment",
+    label: "Self Assessment",
+    price: 59,
+    blurb: "Quarterly updates for sole traders",
+    entitlement: "self_assessment" as const,
+  },
+  {
+    id: "corporation_tax",
+    label: "CT600",
+    price: 99,
+    blurb: "Unlimited corporation tax returns",
+    entitlement: "corporation_tax" as const,
+  },
+] as const;
+
+export type CustomModuleId = (typeof CUSTOM_PLAN_MODULES)[number]["id"];
+
+/** Base monthly fee for Custom desk (workspace + CH discounts) before modules */
+export const CUSTOM_PLAN_BASE_POUNDS = 39;
+
+export function customPlanKey(modules: CustomModuleId[]) {
+  const sorted = [...new Set(modules)].sort();
+  return sorted.length
+    ? `practice:Custom:${sorted.join("+")}`
+    : "practice:Custom";
+}
+
+export function parseCustomPlanModules(planKey: string): CustomModuleId[] {
+  if (!planKey.startsWith("practice:Custom")) return [];
+  const rest = planKey.slice("practice:Custom".length);
+  if (!rest.startsWith(":")) return [];
+  const ids = rest.slice(1).split("+").filter(Boolean);
+  const allowed = new Set(CUSTOM_PLAN_MODULES.map((m) => m.id));
+  return ids.filter((id): id is CustomModuleId =>
+    allowed.has(id as CustomModuleId),
+  );
+}
+
+export function customPlanAmountPounds(modules: CustomModuleId[]) {
+  const selected = CUSTOM_PLAN_MODULES.filter((m) => modules.includes(m.id));
+  return (
+    CUSTOM_PLAN_BASE_POUNDS +
+    selected.reduce((sum, m) => sum + m.price, 0)
+  );
+}
+
 export type ChService = {
   id: string;
   title: string;
@@ -91,10 +196,6 @@ export const COMPANIES_HOUSE_SERVICES: ChService[] = [
   },
 ];
 
-export function hydraTotal(chFeePounds: number) {
-  return chFeePounds + HYDRA_SERVICE_FEE_POUNDS;
-}
-
 export function formatGBP(n: number) {
   return new Intl.NumberFormat("en-GB", {
     style: "currency",
@@ -120,7 +221,7 @@ export const PRICING_SECTIONS = [
           "Up to 15 clients",
           "Books in integer pence",
           "Immutable audit trail",
-          "Sandbox + production ready",
+          "HMRC-ready filing",
         ],
         cta: "Start solo",
         highlighted: false,
@@ -133,7 +234,8 @@ export const PRICING_SECTIONS = [
         features: [
           "Up to 100 clients",
           "Staff roles & deadlines board",
-          "All HMRC rails unlocked",
+          "All HMRC filings unlocked",
+          "CH incorporation £5 · CS £1 Hydra fee",
           "Priority support queue",
         ],
         cta: "Choose Practice",
@@ -148,10 +250,26 @@ export const PRICING_SECTIONS = [
           "Unlimited clients",
           "Team workspaces",
           "Dedicated onboarding",
+          "CH incorporation £5 · CS £1 Hydra fee",
           "Custom SLA",
         ],
-        cta: "Talk to sales",
+        cta: "Choose Firm",
         highlighted: false,
+      },
+      {
+        name: "Custom",
+        price: CUSTOM_PLAN_BASE_POUNDS,
+        period: "/month",
+        blurb: "Build your own mix of VAT, PAYE, SA and CT — with desk CH rates.",
+        features: [
+          "Pick VAT, PAYE, SA and/or CT",
+          "Practice workspace included",
+          "CH incorporation £5 · CS £1 Hydra fee",
+          "Pay only for modules you need",
+        ],
+        cta: "Build custom plan",
+        highlighted: false,
+        customBuilder: true,
       },
     ],
   },
@@ -286,7 +404,7 @@ export const PRICING_SECTIONS = [
   {
     id: "companies-house",
     title: "Companies House filings",
-    subtitle: `Statutory fee + £${HYDRA_SERVICE_FEE_POUNDS} Hydra service charge per task`,
+    subtitle: `Statutory fee + Hydra service (Solo £${HYDRA_SERVICE_FEE_POUNDS}; Practice/Firm/Custom: incorporation £5, CS £1)`,
     plans: [
       {
         name: "Confirmation statement",

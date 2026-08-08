@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { requireSession } from "@/server/auth/session";
 import { getR2Object, isR2Configured } from "@/server/storage/r2";
 
 /**
@@ -11,10 +10,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "R2 not configured" }, { status: 503 });
   }
 
-  let session;
-  try {
-    session = await requireSession();
-  } catch {
+  const { getOptionalSession } = await import("@/server/auth/session");
+  const session = await getOptionalSession();
+  if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

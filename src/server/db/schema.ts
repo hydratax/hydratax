@@ -85,6 +85,8 @@ export const clients = pgTable(
     isEmployer: boolean("is_employer").notNull().default(false),
     isVatRegistered: boolean("is_vat_registered").notNull().default(false),
     contactEmail: text("contact_email"),
+    /** JSON snapshot from Companies House Public Data API */
+    companiesHouse: jsonb("companies_house"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -397,6 +399,81 @@ export const bankTransactions = pgTable(
   (t) => [
     index("bank_tx_client_idx").on(t.clientId),
     index("bank_tx_dated_idx").on(t.clientId, t.dated),
+  ],
+);
+
+export const featureRequests = pgTable(
+  "feature_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    authorName: text("author_name").notNull(),
+    authorEmail: text("author_email"),
+    authorUserId: text("author_user_id"),
+    status: text("status").notNull().default("open"),
+    voteCount: integer("vote_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("feature_requests_votes_idx").on(t.voteCount),
+    index("feature_requests_status_idx").on(t.status),
+  ],
+);
+
+export const featureVotes = pgTable(
+  "feature_votes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => featureRequests.id, { onDelete: "cascade" }),
+    voterKey: text("voter_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("feature_votes_request_voter_uidx").on(t.requestId, t.voterKey),
+    index("feature_votes_voter_idx").on(t.voterKey),
+  ],
+);
+
+export const confirmationStatementFilings = pgTable(
+  "confirmation_statement_filings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    status: text("status").notNull().default("draft"),
+    companyNumber: text("company_number").notNull(),
+    companyName: text("company_name").notNull(),
+    confirmationDate: text("confirmation_date").notNull(),
+    clientId: uuid("client_id"),
+    practiceId: uuid("practice_id"),
+    encryptedSecrets: text("encrypted_secrets"),
+    directorNames: jsonb("director_names").$type<string[]>().notNull().default([]),
+    lawfulPurposeConfirmed: boolean("lawful_purpose_confirmed")
+      .notNull()
+      .default(false),
+    registeredEmail: text("registered_email"),
+    chTransactionRef: text("ch_transaction_ref"),
+    chSubmissionNumber: text("ch_submission_number"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("cs_filings_company_idx").on(t.companyNumber),
+    index("cs_filings_status_idx").on(t.status),
+    index("cs_filings_practice_idx").on(t.practiceId),
   ],
 );
 

@@ -3,14 +3,22 @@ import {
   listVatObligations,
   listVatReturns,
 } from "@/server/actions/vat";
+import { requireModule } from "@/server/auth/session";
 import { ClientTabs } from "@/components/client-tabs";
 import { VatFilingForm } from "@/components/forms/vat-filing-form";
+import { redirect } from "next/navigation";
 
 export default async function VatPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  let session;
+  try {
+    session = await requireModule("vat");
+  } catch {
+    redirect("/clients");
+  }
   const { id } = await params;
   const client = await getClient(id);
   const obligations = await listVatObligations(id);
@@ -22,13 +30,17 @@ export default async function VatPage({
       <p className="mt-1 text-ink-soft">
         MTD VAT · VRN {client.vrn ?? "not set"}
       </p>
-      <ClientTabs clientId={id} active="vat" />
+      <ClientTabs
+        clientId={id}
+        active="vat"
+        moduleAccess={session.moduleAccess}
+      />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="panel p-5">
           <h2 className="display text-2xl">File VAT return</h2>
           <p className="mt-1 text-sm text-ink-soft">
-            Prepare from ledger → review boxes → submit with fraud headers.
+            Period → trial balance or books → nine boxes → submit.
           </p>
           <div className="mt-4">
             <VatFilingForm clientId={id} obligations={obligations} />

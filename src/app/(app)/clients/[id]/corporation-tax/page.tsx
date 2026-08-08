@@ -1,14 +1,22 @@
 import { getClient } from "@/server/actions/clients";
 import { listCt600Returns } from "@/server/actions/ct600";
+import { requireModule } from "@/server/auth/session";
 import { ClientTabs } from "@/components/client-tabs";
 import { Ct600Form } from "@/components/forms/ct600-form";
 import { money } from "@/lib/format";
+import { redirect } from "next/navigation";
 
 export default async function CorporationTaxPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  let session;
+  try {
+    session = await requireModule("corporation_tax");
+  } catch {
+    redirect("/clients");
+  }
   const { id } = await params;
   const client = await getClient(id);
   const returns = await listCt600Returns(id);
@@ -20,7 +28,11 @@ export default async function CorporationTaxPage({
         CT600 · UTR {client.utr ?? "not set"} · Co.{" "}
         {client.companyNumber ?? "not set"}
       </p>
-      <ClientTabs clientId={id} active="corporation-tax" />
+      <ClientTabs
+        clientId={id}
+        active="corporation-tax"
+        moduleAccess={session.moduleAccess}
+      />
 
       {client.type !== "limited_company" ? (
         <div className="panel p-5 text-ink-soft">
@@ -29,9 +41,9 @@ export default async function CorporationTaxPage({
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="panel p-5">
-            <h2 className="display text-2xl">Prepare CT600</h2>
+            <h2 className="display text-2xl">File CT600</h2>
             <p className="mt-1 text-sm text-ink-soft">
-              Enter P&amp;L and balance sheet figures, build XML, submit via CT Online.
+              Trial balance → CT figures → HMRC checklist → XML → submit.
             </p>
             <div className="mt-4">
               <Ct600Form clientId={id} />

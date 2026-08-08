@@ -1,7 +1,9 @@
 import {
   HYDRA_SERVICE_FEE_POUNDS,
   formatGBP,
+  hydraFeeForChService,
   hydraTotal,
+  type DeskPlanTier,
 } from "@/lib/pricing";
 
 /** Official Companies House fee schedule reference */
@@ -197,9 +199,10 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     popular: true,
     whatYouNeed: [
       "Company number",
+      "Company authentication code (from Companies House online filing)",
       "Confirmation statement date (review period)",
       "Statement that intended future activities are lawful",
-      "Personal code for each director (identity verification)",
+      "Personal code + date of birth for each director (identity verification)",
       "Email address for the company (if not already registered)",
     ],
     importantNotes: [
@@ -524,14 +527,21 @@ export function getChService(id: string) {
   return CH_SERVICE_DETAILS.find((s) => s.id === id);
 }
 
-export function chServiceTotal(service: ChServiceDetail) {
-  return hydraTotal(service.chFeePounds);
+export function chServiceTotal(
+  service: ChServiceDetail,
+  tier: DeskPlanTier = "solo",
+) {
+  return hydraTotal(service.chFeePounds, service.id, tier);
 }
 
-export function formatChFeeBreakdown(service: ChServiceDetail) {
+export function formatChFeeBreakdown(
+  service: ChServiceDetail,
+  tier: DeskPlanTier = "solo",
+) {
+  const hydra = hydraFeeForChService(service.id, tier);
   return {
     statutory: formatGBP(service.chFeePounds),
-    hydra: formatGBP(service.hydraFeePounds),
-    total: formatGBP(chServiceTotal(service)),
+    hydra: formatGBP(hydra),
+    total: formatGBP(chServiceTotal(service, tier)),
   };
 }

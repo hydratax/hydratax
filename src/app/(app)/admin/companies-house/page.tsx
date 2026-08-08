@@ -3,12 +3,14 @@ import { listChRequestsAdmin, getAdminAccountRef } from "@/server/actions/ch-req
 import { formatGBP } from "@/lib/pricing";
 import { getChService } from "@/lib/ch-services";
 import { AdminChActions } from "@/components/admin/ch-actions";
+import { requireAdmin } from "@/server/auth/admin";
 
 export const metadata = {
   title: "Admin — Companies House requests",
 };
 
 export default async function AdminCompaniesHousePage() {
+  await requireAdmin();
   const rows = await listChRequestsAdmin();
   const accountRef = await getAdminAccountRef();
 

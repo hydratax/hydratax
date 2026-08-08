@@ -46,7 +46,7 @@ export default function PricingPage() {
             <Link href="/support" className="text-ink-soft hover:text-ink">
               Support
             </Link>
-            <Link href="/sign-up" className="btn btn-primary text-sm">
+            <Link href="/create-account" className="btn btn-primary text-sm">
               Start practice
             </Link>
           </nav>

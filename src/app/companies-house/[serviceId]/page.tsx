@@ -8,10 +8,12 @@ import {
   formatChFeeBreakdown,
 } from "@/lib/ch-services";
 import { ChRequestForm } from "@/components/forms/ch-request-form";
+import { ConfirmationStatementWizard } from "@/components/forms/confirmation-statement-wizard";
 import { SiteFooter } from "@/components/site-footer";
 import { FaqSection } from "@/components/faq-section";
 import { faqsForChService } from "@/lib/product-faqs";
 import { CompanySearchPanel } from "@/components/companies-house/company-search-panel";
+import { getCsFilingReadiness } from "@/server/companies-house/filing/confirmation-statement";
 
 export function generateStaticParams() {
   return [
@@ -44,13 +46,24 @@ export async function generateMetadata({
 
 export default async function ChServicePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ serviceId: string }>;
+  searchParams: Promise<{ company?: string; clientId?: string }>;
 }) {
   const { serviceId } = await params;
+  const query = await searchParams;
   const service = getChService(serviceId);
   if (!service) notFound();
   const fees = formatChFeeBreakdown(service);
+  const formDefaults: Record<string, string> = {};
+  if (query.company) {
+    formDefaults.companyNumber = query.company.toUpperCase();
+    formDefaults.company_number = query.company.toUpperCase();
+  }
+  if (query.clientId) formDefaults.clientId = query.clientId;
+  const csReadiness =
+    serviceId === "confirmation-statement" ? getCsFilingReadiness() : null;
 
   return (
     <div className="min-h-screen">
@@ -186,7 +199,24 @@ export default async function ChServicePage({
             </div>
           </div>
 
-          <ChRequestForm service={service} />
+          {serviceId === "confirmation-statement" && csReadiness ? (
+            <div className="space-y-6">
+              <ConfirmationStatementWizard
+                defaults={formDefaults}
+                readiness={csReadiness}
+              />
+              <details className="rounded-xl border border-line bg-white p-4 text-sm">
+                <summary className="cursor-pointer font-semibold text-ink">
+                  Or queue a paid filing request (checkout)
+                </summary>
+                <div className="mt-4">
+                  <ChRequestForm service={service} defaults={formDefaults} />
+                </div>
+              </details>
+            </div>
+          ) : (
+            <ChRequestForm service={service} defaults={formDefaults} />
+          )}
         </div>
 
         <div className="mt-12">

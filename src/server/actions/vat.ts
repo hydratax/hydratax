@@ -25,6 +25,7 @@ const prepareSchema = z.object({
   periodKey: z.string(),
   periodStart: z.string(),
   periodEnd: z.string(),
+  trialBalanceId: z.string().optional(),
 });
 
 const submitSchema = prepareSchema.extend({
@@ -40,7 +41,7 @@ export async function prepareVatReturn(input: z.infer<typeof prepareSchema>) {
   }
 
   const ledger = await listLedgerEntries(data.clientId);
-  const boxes = draftVatBoxesFromLedger(
+  let boxes = draftVatBoxesFromLedger(
     ledger.map((l) => ({
       type: l.type,
       amountPence: l.amountPence,
@@ -50,6 +51,14 @@ export async function prepareVatReturn(input: z.infer<typeof prepareSchema>) {
     data.periodStart,
     data.periodEnd,
   );
+
+  if (data.trialBalanceId) {
+    const { draftVatFromTrialBalance } = await import(
+      "@/server/actions/trial-balance"
+    );
+    const fromTb = await draftVatFromTrialBalance(data.trialBalanceId);
+    boxes = fromTb.boxes;
+  }
 
   const draft = {
     id: crypto.randomUUID(),
@@ -123,7 +132,7 @@ export async function submitPreparedVatReturn(
   const cfg = getHmrcConfig();
 
   if (!accessToken || !cfg.clientId) {
-    // Sandbox / no-credentials path — records locally until HMRC keys + OAuth are live
+    // No live credentials — record locally until HMRC keys + OAuth are configured
     const payload = boxesToHmrcPayload(boxes);
     payload.periodKey = data.periodKey;
     const correlationId = `demo-vat-${Date.now()}`;

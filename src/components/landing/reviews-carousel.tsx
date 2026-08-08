@@ -1,97 +1,179 @@
 "use client";
 
-import { useState } from "react";
+import Image from "next/image";
+import { useEffect, useState } from "react";
+import { ACCOUNTANT_REVIEWS } from "@/lib/accountant-reviews";
 
-const REVIEWS = [
-  {
-    quote:
-      "We stopped juggling five portals. VAT, CT600 and payroll for every client now live on one desk — filing week finally feels manageable.",
-    name: "Priya N.",
-    role: "Practice manager, 28-client firm",
-  },
-  {
-    quote:
-      "The prepare → review → submit flow is exactly how my juniors need to work. Fraud headers and audit history mean I can sleep at night.",
-    name: "James O.",
-    role: "Partner, London boutique",
-  },
-  {
-    quote:
-      "Integer pence books feeding VAT and SA removed a whole class of rounding arguments. Clients get answers faster; we rebill less cleanup.",
-    name: "Amira K.",
-    role: "Sole practitioner",
-  },
-  {
-    quote:
-      "FPS on payday without leaving the client workspace is the detail that sold the team. HydraTax feels built for accountants, not hobby bookkeeping.",
-    name: "Tom R.",
-    role: "Payroll lead, multi-client practice",
-  },
-] as const;
+function Stars({ rating }: { rating: number }) {
+  return (
+    <p className="flex gap-0.5 text-accent" aria-label={`${rating} out of 5 stars`}>
+      {Array.from({ length: 5 }, (_, i) => (
+        <span key={i} aria-hidden>
+          {i < rating ? "★" : "☆"}
+        </span>
+      ))}
+    </p>
+  );
+}
 
 export function ReviewsCarousel() {
   const [index, setIndex] = useState(0);
-  const review = REVIEWS[index];
+  const [paused, setPaused] = useState(false);
+  const total = ACCOUNTANT_REVIEWS.length;
+  const review = ACCOUNTANT_REVIEWS[index];
+
+  useEffect(() => {
+    if (paused) return;
+    const id = window.setInterval(() => {
+      setIndex((i) => (i + 1) % total);
+    }, 6500);
+    return () => window.clearInterval(id);
+  }, [paused, total]);
+
+  function go(delta: number) {
+    setIndex((i) => (i + delta + total) % total);
+  }
 
   return (
-    <section id="reviews" className="border-t border-line bg-sand/60 py-16 md:py-20">
-      <div className="mx-auto max-w-6xl px-4 md:px-6">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h2 className="display text-3xl text-ink md:text-5xl">
-              Loved by practices that live in deadlines
+    <section
+      id="reviews"
+      className="relative overflow-hidden border-t border-line bg-sand/50 py-16 md:py-20"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      aria-roledescription="carousel"
+      aria-label="Accountant reviews of HydraTax"
+    >
+      <div
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_10%_0%,rgba(15,118,110,0.08),transparent_50%)]"
+        aria-hidden
+      />
+
+      <div className="relative mx-auto max-w-6xl px-4 md:px-6">
+        <div className="flex flex-wrap items-end justify-between gap-6">
+          <div className="max-w-2xl">
+            <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
+              Accountant reviews
+            </p>
+            <h2 className="display mt-2 text-3xl text-ink md:text-5xl">
+              Why UK accountants choose HydraTax for CT600, MTD VAT &amp; PAYE
             </h2>
-            <p className="mt-3 max-w-xl text-ink-soft">
-              Accountants using HydraTax to keep every client filing on one
-              HMRC-ready desk.
+            <p className="mt-3 text-base leading-relaxed text-ink-soft">
+              Practice managers, partners and sole practitioners on the UK’s most
+              user-friendly accounting software — Self Assessment, RTI payroll,
+              confirmation statements and corporation tax from one desk.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               aria-label="Previous review"
-              className="btn btn-secondary px-3"
-              disabled={index === 0}
-              onClick={() => setIndex((i) => Math.max(0, i - 1))}
+              className="btn btn-secondary h-11 w-11 px-0"
+              onClick={() => go(-1)}
             >
               ←
             </button>
             <button
               type="button"
               aria-label="Next review"
-              className="btn btn-secondary px-3"
-              disabled={index === REVIEWS.length - 1}
-              onClick={() => setIndex((i) => Math.min(REVIEWS.length - 1, i + 1))}
+              className="btn btn-secondary h-11 w-11 px-0"
+              onClick={() => go(1)}
             >
               →
             </button>
           </div>
         </div>
 
-        <figure className="gloss-card panel mt-10 p-8 md:p-10" key={review.name}>
-          <div className="gloss-shine" aria-hidden />
-          <blockquote className="relative display text-2xl leading-snug text-ink md:text-3xl">
-            “{review.quote}”
-          </blockquote>
-          <figcaption className="mt-6">
-            <p className="font-semibold text-ink">{review.name}</p>
-            <p className="text-sm text-ink-soft">{review.role}</p>
-          </figcaption>
-        </figure>
-
-        <div className="mt-5 flex gap-2">
-          {REVIEWS.map((_, i) => (
-            <button
-              key={i}
-              type="button"
-              aria-label={`Go to review ${i + 1}`}
-              onClick={() => setIndex(i)}
-              className={`h-2.5 rounded-full transition ${
-                i === index ? "w-8 bg-sea" : "w-2.5 bg-mist hover:bg-sea/50"
-              }`}
-            />
-          ))}
+        <div className="mt-10 overflow-hidden">
+          <div
+            className="flex transition-transform duration-500 ease-out"
+            style={{ transform: `translateX(-${index * 100}%)` }}
+          >
+            {ACCOUNTANT_REVIEWS.map((r) => (
+              <article
+                key={r.id}
+                className="w-full shrink-0 px-0.5"
+                aria-hidden={r.id !== review.id}
+              >
+                <div className="rounded-2xl border border-line bg-white p-6 shadow-[0_20px_50px_-40px_rgba(10,10,10,0.3)] md:p-8">
+                  <Stars rating={r.rating} />
+                  <p className="mt-3 text-xs font-bold uppercase tracking-[0.14em] text-sea">
+                    {r.topic}
+                  </p>
+                  <blockquote className="mt-4 text-base leading-relaxed text-ink md:text-lg md:leading-relaxed">
+                    “{r.quote}”
+                  </blockquote>
+                  <footer className="mt-6 flex items-center gap-3 border-t border-line pt-5">
+                    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full border border-line bg-sand">
+                      <Image
+                        src={r.photo}
+                        alt={`${r.name}, ${r.role} at ${r.firm}`}
+                        fill
+                        className="object-cover object-top"
+                        sizes="48px"
+                        priority={r.id === ACCOUNTANT_REVIEWS[0].id}
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-ink">{r.name}</p>
+                      <p className="truncate text-sm text-ink-soft">
+                        {r.role} · {r.firm}, {r.location}
+                      </p>
+                    </div>
+                  </footer>
+                </div>
+              </article>
+            ))}
+          </div>
         </div>
+
+        <div className="mt-6 flex items-center justify-between gap-4">
+          <div className="flex flex-wrap gap-2">
+            {ACCOUNTANT_REVIEWS.map((r, i) => (
+              <button
+                key={r.id}
+                type="button"
+                aria-label={`Show review from ${r.name}`}
+                aria-current={i === index}
+                onClick={() => setIndex(i)}
+                className={`relative h-11 w-11 overflow-hidden rounded-full border-2 transition ${
+                  i === index
+                    ? "border-sea ring-2 ring-sea/25"
+                    : "border-transparent opacity-70 hover:opacity-100"
+                }`}
+              >
+                <Image
+                  src={r.photo}
+                  alt=""
+                  fill
+                  className="object-cover"
+                  sizes="44px"
+                />
+              </button>
+            ))}
+          </div>
+          <p className="mono text-xs text-ink-soft">
+            {index + 1} / {total}
+          </p>
+        </div>
+
+        <p className="mt-10 max-w-3xl text-sm leading-relaxed text-ink-soft">
+          Looking for{" "}
+          <strong className="font-semibold text-ink">
+            CT600 software
+          </strong>
+          ,{" "}
+          <strong className="font-semibold text-ink">MTD VAT filing</strong>,{" "}
+          <strong className="font-semibold text-ink">
+            Self Assessment software
+          </strong>
+          ,{" "}
+          <strong className="font-semibold text-ink">PAYE RTI</strong> or{" "}
+          <strong className="font-semibold text-ink">
+            confirmation statement filing
+          </strong>{" "}
+          built for UK accountants? These reviews reflect how practices use
+          HydraTax day to day — not a consumer bookkeeping app.
+        </p>
       </div>
     </section>
   );

@@ -12,7 +12,7 @@ const SERVICES = [
       "Draft returns from the client ledger, review the nine boxes, and file with mandatory fraud-prevention headers.",
     points: [
       "Auto-map income & expenses to VAT boxes",
-      "Sandbox and production HMRC endpoints",
+      "Isolated HMRC endpoint configuration",
       "Acceptance receipts in the audit trail",
     ],
   },
@@ -49,7 +49,7 @@ const SERVICES = [
     points: [
       "Turnover & expenses from the ledger",
       "Zod-checked statutory payloads",
-      "Sandbox or production ITSA submit",
+      "HMRC ITSA submit with fraud headers",
     ],
   },
 ] as const;
@@ -76,14 +76,14 @@ export function ServiceCards() {
     >
       <div className="max-w-2xl">
         <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
-          Hydra rails
+          Filing services
         </p>
         <h2 className="display mt-2 text-3xl text-ink md:text-5xl">
-          Four filing heads. One practice body.
+          Four filings. One practice desk.
         </h2>
         <p className="mt-3 text-ink-soft">
-          Gloss through the rails Hydra keeps awake for every client — hover to
-          pause the slider, click to lock a head.
+          Everything your firm files with HMRC — hover to pause, click to focus
+          a service.
         </p>
       </div>
 

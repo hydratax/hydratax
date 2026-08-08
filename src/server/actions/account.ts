@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { entitlementsForPlans } from "@/lib/entitlements";
-import { isMemoryStore } from "@/lib/env";
+import {
+  isMemoryStore,
+  isStripeConfigured,
+  isSupabaseConfigured,
+} from "@/lib/env";
 import { requireSession } from "@/server/auth/session";
 import { memoryStore } from "@/server/demo/store";
 
@@ -67,7 +71,8 @@ export async function createAccountProfile(
   }
 
   // With Clerk + DB: profile metadata is stored against the practice after org creation
-  const session = await requireSession().catch(() => null);
+  const { getOptionalSession } = await import("@/server/auth/session");
+  const session = await getOptionalSession();
   if (!session) {
     return {
       ok: true as const,
@@ -95,71 +100,121 @@ export async function createAccountProfile(
 export async function getPracticeEntitlements() {
   const session = await requireSession();
 
-  if (isMemoryStore()) {
-    const planKeys = memoryStore.subscriptions
-      .filter(
-        (s) =>
-          s.practiceId === session.practiceId && s.status === "active",
-      )
-      .map((s) => s.planKey);
+  // Recover paid Stripe checkouts for this account (email match)
+  if (isStripeConfigured()) {
+    try {
+      let email: string | null = null;
+      if (isSupabaseConfigured()) {
+        const { createClient } = await import("@/lib/supabase/server");
+        const supabase = await createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        email = user?.email ?? null;
+      }
+      if (email) {
+        const { syncPaidCheckoutsForEmail } = await import(
+          "@/server/stripe/orders"
+        );
+        await syncPaidCheckoutsForEmail(email, session.practiceId);
+      }
+    } catch {
+      /* Stripe sync is best-effort */
+    }
+  }
 
-    // Paid CH requests also count
+  const planKeys: string[] = [];
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { createClient } = await import("@/lib/supabase/server");
+      const supabase = await createClient();
+      const { data: subs } = await supabase
+        .from("practice_subscriptions")
+        .select("plan_key, status")
+        .eq("practice_id", session.practiceId)
+        .eq("status", "active");
+      for (const s of subs ?? []) {
+        if (s.plan_key) planKeys.push(s.plan_key);
+      }
+    } catch {
+      /* table may not exist yet */
+    }
+  }
+
+  // Memory desk (local / DEMO_MODE): match this practice, or claim orphans
+  {
+    const mine = memoryStore.subscriptions.filter(
+      (s) =>
+        s.status === "active" &&
+        (s.practiceId === session.practiceId ||
+          s.practiceId === memoryStore.practice.id),
+    );
+    for (const s of mine) {
+      if (s.practiceId !== session.practiceId) {
+        s.practiceId = session.practiceId;
+      }
+      if (!planKeys.includes(s.planKey)) planKeys.push(s.planKey);
+    }
+
     for (const r of memoryStore.chRequests) {
       if (
-        r.practiceId === session.practiceId &&
+        (r.practiceId === session.practiceId ||
+          r.practiceId === memoryStore.practice.id) &&
         r.paymentStatus === "paid" &&
-        r.planKey
+        r.planKey &&
+        !planKeys.includes(r.planKey)
       ) {
         planKeys.push(r.planKey);
       }
     }
-
-    const ent = entitlementsForPlans(planKeys);
-    return {
-      ...ent,
-      planKeys,
-      modules: [...ent.modules],
-      orgType: memoryStore.accountProfile?.orgType ?? null,
-    };
   }
 
-  const { getDb } = await import("@/server/db");
-  const { practiceSubscriptions, companiesHouseRequests } = await import(
-    "@/server/db/schema"
-  );
-  const { and, eq } = await import("drizzle-orm");
+  if (!isMemoryStore()) {
+    try {
+      const { getDb } = await import("@/server/db");
+      const { practiceSubscriptions, companiesHouseRequests } = await import(
+        "@/server/db/schema"
+      );
+      const { and, eq } = await import("drizzle-orm");
 
-  const subs = await getDb()
-    .select()
-    .from(practiceSubscriptions)
-    .where(
-      and(
-        eq(practiceSubscriptions.practiceId, session.practiceId),
-        eq(practiceSubscriptions.status, "active"),
-      ),
-    );
+      const subs = await getDb()
+        .select()
+        .from(practiceSubscriptions)
+        .where(
+          and(
+            eq(practiceSubscriptions.practiceId, session.practiceId),
+            eq(practiceSubscriptions.status, "active"),
+          ),
+        );
 
-  const chPaid = await getDb()
-    .select()
-    .from(companiesHouseRequests)
-    .where(
-      and(
-        eq(companiesHouseRequests.practiceId, session.practiceId),
-        eq(companiesHouseRequests.paymentStatus, "paid"),
-      ),
-    );
+      const chPaid = await getDb()
+        .select()
+        .from(companiesHouseRequests)
+        .where(
+          and(
+            eq(companiesHouseRequests.practiceId, session.practiceId),
+            eq(companiesHouseRequests.paymentStatus, "paid"),
+          ),
+        );
 
-  const planKeys = [
-    ...subs.map((s) => s.planKey),
-    ...chPaid.map((r) => r.planKey).filter(Boolean),
-  ] as string[];
+      for (const s of subs) {
+        if (!planKeys.includes(s.planKey)) planKeys.push(s.planKey);
+      }
+      for (const r of chPaid) {
+        if (r.planKey && !planKeys.includes(r.planKey)) planKeys.push(r.planKey);
+      }
+    } catch {
+      /* no DATABASE_URL path */
+    }
+  }
 
   const ent = entitlementsForPlans(planKeys);
   return {
     ...ent,
     planKeys,
     modules: [...ent.modules],
-    orgType: null as string | null,
+    orgType: memoryStore.accountProfile?.orgType ?? null,
   };
 }
 

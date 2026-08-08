@@ -7,6 +7,7 @@ const PUBLIC_PREFIXES = [
   "/pricing",
   "/companies-house",
   "/support",
+  "/feature-requests",
   "/checkout",
   "/create-account",
   "/sign-in",
@@ -25,23 +26,30 @@ function isPublicPath(pathname: string) {
   );
 }
 
+function copyCookies(from: NextResponse, to: NextResponse) {
+  from.cookies.getAll().forEach((cookie) => {
+    to.cookies.set(cookie.name, cookie.value);
+  });
+}
+
 export default async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Refresh Supabase session cookies when configured
-  const response = await updateSession(request);
+  // Refresh Supabase session cookies and validate JWT
+  const { response, userId } = await updateSession(request);
 
-  if (isSupabaseConfigured() && !isPublicPath(pathname)) {
-    // Lightweight gate: protected app routes need a session cookie present
-    const hasAuthCookie = request.cookies
-      .getAll()
-      .some((c) => c.name.includes("-auth-token"));
-    if (!hasAuthCookie && !pathname.startsWith("/api/")) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/sign-in";
-      url.searchParams.set("next", pathname);
-      return NextResponse.redirect(url);
-    }
+  if (
+    isSupabaseConfigured() &&
+    !isPublicPath(pathname) &&
+    !pathname.startsWith("/api/") &&
+    !userId
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/sign-in";
+    url.searchParams.set("next", pathname);
+    const redirectResponse = NextResponse.redirect(url);
+    copyCookies(response, redirectResponse);
+    return redirectResponse;
   }
 
   return response;

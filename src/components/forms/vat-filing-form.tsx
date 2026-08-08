@@ -8,6 +8,9 @@ import {
 } from "@/server/actions/vat";
 import { gatherFraudMetadata } from "@/components/fraud-metadata";
 import { money } from "@/lib/format";
+import { TrialBalanceUpload } from "@/components/forms/trial-balance-upload";
+import { VAT_BOX_DEFINITIONS, VAT_FILING_STEPS } from "@/lib/hmrc/filing-guides";
+import type { TrialBalance } from "@/server/trial-balance/map";
 
 type Obligation = {
   periodKey: string;
@@ -38,112 +41,184 @@ export function VatFilingForm({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const [step, setStep] = useState<"prepare" | "review" | "done">("prepare");
+  const [step, setStep] = useState(0);
   const [selected, setSelected] = useState(obligations[0]?.periodKey ?? "");
   const [boxes, setBoxes] = useState<Boxes | null>(null);
+  const [tb, setTb] = useState<TrialBalance | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const obligation = obligations.find((o) => o.periodKey === selected);
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-3">
-        {(
-          [
-            ["Prepare", "prepare"],
-            ["Review", "review"],
-            ["Submit", "done"],
-          ] as const
-        ).map(([label, key], i) => {
-          const done =
-            (key === "prepare" && step !== "prepare") ||
-            (key === "review" && step === "done");
-          const active =
-            (step === "prepare" && key === "prepare") ||
-            (step === "review" && key === "review") ||
-            (step === "done" && key === "done");
-          return (
-            <span
-              key={label}
-              className="filing-step"
-              data-active={active || undefined}
-              data-done={done || undefined}
-            >
-              <span>{i + 1}</span>
-              {label}
-            </span>
-          );
-        })}
+      <div className="flex flex-wrap gap-2">
+        {VAT_FILING_STEPS.map((s, i) => (
+          <span
+            key={s.id}
+            className="filing-step"
+            data-active={step === i || undefined}
+            data-done={step > i || undefined}
+          >
+            <span>{i + 1}</span>
+            {s.label}
+          </span>
+        ))}
       </div>
 
-      <div>
-        <label className="label">Obligation</label>
-        <select
-          className="input"
-          value={selected}
-          onChange={(e) => {
-            setSelected(e.target.value);
-            setStep("prepare");
-            setBoxes(null);
-          }}
-        >
-          {obligations.map((o) => (
-            <option key={o.periodKey} value={o.periodKey}>
-              {o.periodKey}: {o.start} → {o.end} (due {o.due}) [{o.status}]
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {step === "prepare" && (
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={pending || !obligation}
-          onClick={() =>
-            start(async () => {
-              if (!obligation) return;
-              const draft = await prepareVatReturn({
-                clientId,
-                periodKey: obligation.periodKey,
-                periodStart: obligation.start,
-                periodEnd: obligation.end,
-              });
-              setBoxes(draft.boxes as Boxes);
-              setStep("review");
-              router.refresh();
-            })
-          }
-        >
-          Prepare return from books
-        </button>
+      {step === 0 && (
+        <div className="space-y-3">
+          <label className="label">Obligation</label>
+          <select
+            className="input"
+            value={selected}
+            onChange={(e) => {
+              setSelected(e.target.value);
+              setBoxes(null);
+              setTb(null);
+            }}
+          >
+            {obligations.map((o) => (
+              <option key={o.periodKey} value={o.periodKey}>
+                {o.periodKey}: {o.start} → {o.end} (due {o.due}) [{o.status}]
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={!obligation}
+            onClick={() => setStep(1)}
+          >
+            Continue
+          </button>
+        </div>
       )}
 
-      {boxes && step !== "prepare" && (
+      {step === 1 && obligation && (
+        <div className="space-y-4">
+          <TrialBalanceUpload
+            clientId={clientId}
+            purpose="vat"
+            periodStart={obligation.start}
+            periodEnd={obligation.end}
+            onReady={setTb}
+          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setStep(0)}
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={pending}
+              onClick={() =>
+                start(async () => {
+                  const draft = await prepareVatReturn({
+                    clientId,
+                    periodKey: obligation.periodKey,
+                    periodStart: obligation.start,
+                    periodEnd: obligation.end,
+                  });
+                  setBoxes(draft.boxes as Boxes);
+                  setStep(3);
+                  router.refresh();
+                })
+              }
+            >
+              Use books instead
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={pending || !tb}
+              onClick={() => setStep(2)}
+            >
+              Map &amp; continue
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 2 && obligation && tb && (
+        <div className="space-y-3">
+          <p className="text-sm text-ink-soft">
+            Mappings saved on the trial balance. Prepare nine-box draft from
+            mapped accounts.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setStep(1)}
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={pending}
+              onClick={() =>
+                start(async () => {
+                  const draft = await prepareVatReturn({
+                    clientId,
+                    periodKey: obligation.periodKey,
+                    periodStart: obligation.start,
+                    periodEnd: obligation.end,
+                    trialBalanceId: tb.id,
+                  });
+                  setBoxes(draft.boxes as Boxes);
+                  setStep(3);
+                  router.refresh();
+                })
+              }
+            >
+              Prepare VAT boxes
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step >= 3 && boxes && (
         <div className="panel p-4">
-          <h3 className="font-semibold">VAT boxes</h3>
+          <h3 className="font-semibold">Nine VAT boxes</h3>
           <dl className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
-            {(
-              [
-                ["Box 1 VAT due on sales", boxes.vatDueSales],
-                ["Box 2 VAT due on acquisitions", boxes.vatDueAcquisitions],
-                ["Box 3 Total VAT due", boxes.totalVatDue],
-                ["Box 4 VAT reclaimed", boxes.vatReclaimedCurrPeriod],
-                ["Box 5 Net VAT", boxes.netVatDue],
-                ["Box 6 Sales ex VAT", boxes.totalValueSalesExVAT],
-                ["Box 7 Purchases ex VAT", boxes.totalValuePurchasesExVAT],
-              ] as const
-            ).map(([label, value]) => (
-              <div key={label} className="flex justify-between gap-2 border-b border-line/60 py-1">
-                <dt className="text-ink-soft">{label}</dt>
-                <dd className="mono">{money(value)}</dd>
+            {VAT_BOX_DEFINITIONS.map((def) => (
+              <div
+                key={def.id}
+                className="flex justify-between gap-2 border-b border-line/60 py-1"
+              >
+                <dt className="text-ink-soft">{def.label}</dt>
+                <dd className="mono">{money(boxes[def.key])}</dd>
               </div>
             ))}
           </dl>
         </div>
       )}
 
-      {step === "review" && obligation && (
+      {step === 3 && obligation && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setStep(tb ? 2 : 1)}
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => setStep(4)}
+          >
+            Confirm figures
+          </button>
+        </div>
+      )}
+
+      {step === 4 && obligation && (
         <button
           type="button"
           className="btn btn-primary"
@@ -161,7 +236,7 @@ export function VatFilingForm({
               setMessage(
                 `Submitted · ${(res as { hmrcFormBundleNumber?: string }).hmrcFormBundleNumber ?? "accepted"}`,
               );
-              setStep("done");
+              setStep(5);
               router.refresh();
             })
           }

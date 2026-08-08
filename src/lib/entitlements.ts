@@ -3,6 +3,11 @@
  * Practices without a paid plan see locked rails with upgrade CTAs.
  */
 
+import {
+  CUSTOM_PLAN_MODULES,
+  parseCustomPlanModules,
+} from "@/lib/pricing";
+
 export type ServiceModule =
   | "clients"
   | "books"
@@ -51,6 +56,12 @@ export const PLAN_ENTITLEMENTS: PlanEntitlement[] = [
     label: "Firm",
     modules: ALL_TAX,
     maxClients: null,
+  },
+  {
+    planKey: "practice:Custom",
+    label: "Custom",
+    modules: ["clients", "books", "documents", "companies_house", "practice_desk"],
+    maxClients: 50,
   },
   {
     planKey: "vat:Single VRN",
@@ -135,6 +146,27 @@ export function entitlementsForPlans(planKeys: string[]): {
       modules.add("companies_house");
       modules.add("clients");
       modules.add("documents");
+      continue;
+    }
+    if (key.startsWith("practice:Custom")) {
+      modules.add("clients");
+      modules.add("books");
+      modules.add("documents");
+      modules.add("companies_house");
+      modules.add("practice_desk");
+      const selected = parseCustomPlanModules(key);
+      for (const mod of CUSTOM_PLAN_MODULES) {
+        if (selected.includes(mod.id)) modules.add(mod.entitlement);
+      }
+      plans.push({
+        planKey: key,
+        label: "Custom",
+        modules: [...modules] as ServiceModule[],
+        maxClients: 50,
+      });
+      if (typeof maxClients === "number") {
+        maxClients = Math.max(maxClients, 50);
+      }
       continue;
     }
     const ent = PLAN_ENTITLEMENTS.find((p) => p.planKey === key);

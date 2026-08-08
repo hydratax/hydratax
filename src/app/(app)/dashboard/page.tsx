@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { listClients } from "@/server/actions/clients";
 import { requireSession } from "@/server/auth/session";
+import { isPlatformAdmin } from "@/server/auth/admin";
 import { getHmrcEnvInfo } from "@/server/actions/hmrc-connect";
 import { getPracticeEntitlements } from "@/server/actions/account";
 import { DashboardClientList } from "@/components/dashboard-client-list";
 import { moduleLabel, type ServiceModule } from "@/lib/entitlements";
+import { displayPracticeName } from "@/lib/practice-name";
 
 const RAIL_LINKS: {
   module: ServiceModule;
@@ -84,25 +86,31 @@ export default async function DashboardPage() {
             Practice overview
           </p>
           <h1 className="display mt-2 text-4xl text-ink md:text-5xl">
-            {session.practiceName}
+            {displayPracticeName(session.practiceName)}
           </h1>
           <p className="mt-2 max-w-2xl text-ink-soft">
-            {clients.length} clients · HMRC {hmrc.env}
+            {clients.length} clients · HMRC{" "}
+            {hmrc.env === "production" ? "live" : "test"}
             {hmrc.configured
               ? " credentials configured"
               : " · connect credentials in Settings"}
             {entitlements.orgType === "practice"
               ? " · accountancy practice"
               : ""}
+            {entitlements.hasAnyPaid
+              ? ""
+              : " · plan not linked yet"}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/pricing" className="btn btn-secondary text-sm">
             Plans & billing
           </Link>
-          <Link href="/admin/companies-house" className="btn btn-secondary text-sm">
-            CH admin
-          </Link>
+          {isPlatformAdmin(session.email) && (
+            <Link href="/admin" className="btn btn-secondary text-sm">
+              Admin
+            </Link>
+          )}
           <Link href="/settings/hmrc" className="btn btn-secondary text-sm">
             HMRC settings
           </Link>
@@ -113,9 +121,10 @@ export default async function DashboardPage() {
         <aside className="panel border-accent/40 bg-accent/5 p-5">
           <p className="font-semibold text-ink">Unlock services with a plan</p>
           <p className="mt-1 text-sm text-ink-soft">
-            Your dashboard rails open according to the Stripe plan you purchase.
-            Accountants with multiple clients should start with a Practice desk
-            plan.
+            Your dashboard unlocks when a Stripe plan is linked to this practice.
+            If you already paid, refresh this page once — we re-attach checkouts
+            by email. Accountants with multiple clients should use a Practice
+            desk plan.
           </p>
           <Link href="/pricing" className="btn btn-primary mt-4 text-sm">
             View pricing & checkout

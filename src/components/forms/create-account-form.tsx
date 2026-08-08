@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { signUpWithSupabase } from "@/server/actions/auth";
+import { OrgChTypeahead } from "@/components/forms/org-ch-typeahead";
 
 const ORG_TYPES = [
   {
@@ -102,12 +103,14 @@ export function CreateAccountForm() {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  const chLookup = orgType === "company" || orgType === "practice";
+
   const searchLabel = useMemo(() => {
     if (orgType === "practice") {
-      return "Practice / firm name";
+      return "Search practice / firm on Companies House…";
     }
     if (orgType === "company") {
-      return "Search for your organisation by name or number…";
+      return "Search company name or number…";
     }
     if (orgType === "partnership") {
       return "Partnership trading name";
@@ -130,23 +133,27 @@ export function CreateAccountForm() {
           e.preventDefault();
           setError(null);
           const fd = new FormData(e.currentTarget);
-        startTransition(async () => {
-          try {
-            const result = await signUpWithSupabase({
-              orgType,
-              orgSearch: String(fd.get("orgSearch") ?? ""),
-              firstName: String(fd.get("firstName") ?? ""),
-              surname: String(fd.get("surname") ?? ""),
-              email: String(fd.get("email") ?? ""),
-              password: String(fd.get("password") ?? ""),
-              confirmPassword: String(fd.get("confirmPassword") ?? ""),
-            });
-            router.push(result.redirectTo);
-            router.refresh();
-          } catch (err) {
-            setError(err instanceof Error ? err.message : "Could not create account");
-          }
-        });
+          startTransition(async () => {
+            try {
+              const result = await signUpWithSupabase({
+                orgType,
+                orgSearch: String(fd.get("orgSearch") ?? ""),
+                companyNumber:
+                  String(fd.get("companyNumber") ?? "").trim() || undefined,
+                firstName: String(fd.get("firstName") ?? ""),
+                surname: String(fd.get("surname") ?? ""),
+                email: String(fd.get("email") ?? ""),
+                password: String(fd.get("password") ?? ""),
+                confirmPassword: String(fd.get("confirmPassword") ?? ""),
+              });
+              router.push(result.redirectTo);
+              router.refresh();
+            } catch (err) {
+              setError(
+                err instanceof Error ? err.message : "Could not create account",
+              );
+            }
+          });
         }}
       >
         <section>
@@ -184,17 +191,12 @@ export function CreateAccountForm() {
             })}
           </div>
 
-          <div className="relative mt-4">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft">
-              ⌕
-            </span>
-            <input
-              name="orgSearch"
-              className="w-full rounded-lg border border-line bg-white py-3 pl-9 pr-3 text-sm"
-              placeholder={searchLabel}
-              required={orgType !== "sole_trader"}
-            />
-          </div>
+          <OrgChTypeahead
+            key={orgType}
+            placeholder={searchLabel}
+            required={orgType !== "sole_trader"}
+            enabled={chLookup}
+          />
         </section>
 
         <section>

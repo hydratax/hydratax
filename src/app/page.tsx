@@ -4,19 +4,32 @@ import { ServiceCards } from "@/components/landing/service-cards";
 import { HowItWorks } from "@/components/landing/how-it-works";
 import { FeaturesAndDifference } from "@/components/landing/features-and-difference";
 import { ReviewsCarousel } from "@/components/landing/reviews-carousel";
+import { FeatureRoadmapTeaser } from "@/components/landing/feature-roadmap-teaser";
 import { SiteFooter } from "@/components/site-footer";
 import {
+  accountantReviewsJsonLd,
   organizationJsonLd,
   serviceJsonLd,
   webSiteJsonLd,
 } from "@/lib/seo";
+import { ACCOUNTANT_REVIEWS } from "@/lib/accountant-reviews";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title:
     "HydraTax — File CT600, MTD VAT, Self Assessment, PAYE & Companies House",
   description:
-    "UK software for accountants and directors to file corporation tax (CT600), Making Tax Digital VAT, Self Assessment, payroll RTI, confirmation statements and Companies House accounts from one desk.",
+    "UK accounting software loved by accountants. File CT600, MTD VAT, Self Assessment, PAYE RTI and Companies House from one practice desk — built for firms, not hobby bookkeeping.",
+  keywords: [
+    "accounting software for UK accountants",
+    "CT600 software",
+    "MTD VAT software",
+    "Self Assessment software",
+    "PAYE RTI software",
+    "confirmation statement filing",
+    "practice management tax software",
+    "accountant reviews HydraTax",
+  ],
   alternates: { canonical: "/" },
 };
 
@@ -52,6 +65,12 @@ export default function HomePage() {
           __html: JSON.stringify(serviceJsonLd()),
         }}
       />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(accountantReviewsJsonLd(ACCOUNTANT_REVIEWS)),
+        }}
+      />
 
       <LandingHeader />
       <DynamicHero />
@@ -71,6 +90,7 @@ export default function HomePage() {
       <HowItWorks />
       <FeaturesAndDifference />
       <ReviewsCarousel />
+      <FeatureRoadmapTeaser />
 
       <section className="border-t border-line bg-sand/40">
         <div className="mx-auto max-w-6xl px-4 py-14 md:px-6">
@@ -82,7 +102,7 @@ export default function HomePage() {
               <h3 className="display text-2xl text-ink">Accountants & practices</h3>
               <p className="mt-2 text-sm leading-relaxed text-ink-soft">
                 Multi-client deadlines, staff-safe guided submit, and every HMRC
-                rail on one desk — CT600, VAT, SA, PAYE, plus Companies House.
+                filing on one desk — CT600, VAT, SA, PAYE, plus Companies House.
               </p>
             </article>
             <article className="gloss-card panel p-6">

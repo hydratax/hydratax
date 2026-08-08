@@ -1,14 +1,22 @@
 import { getClient } from "@/server/actions/clients";
 import { listEmployees, listPayRuns } from "@/server/actions/payroll";
+import { requireModule } from "@/server/auth/session";
 import { ClientTabs } from "@/components/client-tabs";
 import { AddEmployeeForm, PayRunForm } from "@/components/forms/payroll-forms";
 import { money } from "@/lib/format";
+import { redirect } from "next/navigation";
 
 export default async function PayrollPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  let session;
+  try {
+    session = await requireModule("payroll");
+  } catch {
+    redirect("/clients");
+  }
   const { id } = await params;
   const client = await getClient(id);
   const employees = await listEmployees(id);
@@ -20,7 +28,11 @@ export default async function PayrollPage({
       <p className="mt-1 text-ink-soft">
         RTI payroll · PAYE {client.payeRef ?? "not set"}
       </p>
-      <ClientTabs clientId={id} active="payroll" />
+      <ClientTabs
+        clientId={id}
+        active="payroll"
+        moduleAccess={session.moduleAccess}
+      />
 
       {!client.isEmployer ? (
         <div className="panel p-5 text-ink-soft">

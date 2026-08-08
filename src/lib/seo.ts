@@ -136,3 +136,62 @@ export function serviceJsonLd() {
     ],
   };
 }
+
+export function accountantReviewsJsonLd(
+  reviews: Array<{
+    name: string;
+    role: string;
+    firm: string;
+    location: string;
+    photo: string;
+    quote: string;
+    rating: number;
+    topic: string;
+  }>,
+) {
+  const avg =
+    reviews.reduce((sum, r) => sum + r.rating, 0) / Math.max(reviews.length, 1);
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "HydraTax",
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web",
+    description:
+      "UK accounting software for accountants — CT600, MTD VAT, Self Assessment, PAYE RTI and Companies House filing from one practice desk.",
+    aggregateRating: {
+      "@type": "AggregateRating",
+      ratingValue: avg.toFixed(1),
+      bestRating: "5",
+      worstRating: "1",
+      ratingCount: String(reviews.length),
+      reviewCount: String(reviews.length),
+    },
+    review: reviews.map((r) => ({
+      "@type": "Review",
+      name: r.topic,
+      reviewBody: r.quote,
+      reviewRating: {
+        "@type": "Rating",
+        ratingValue: String(r.rating),
+        bestRating: "5",
+      },
+      author: {
+        "@type": "Person",
+        name: r.name,
+        jobTitle: r.role,
+        worksFor: {
+          "@type": "Organization",
+          name: r.firm,
+          address: {
+            "@type": "PostalAddress",
+            addressLocality: r.location,
+            addressCountry: "GB",
+          },
+        },
+      },
+      image: `${SITE}${r.photo}`,
+    })),
+  };
+}

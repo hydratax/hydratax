@@ -2,6 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  canAccessModule,
+  tabKeyToModule,
+  type ModuleAccess,
+} from "@/lib/access";
 
 const tabs = [
   { href: "", label: "Overview", key: "overview" },
@@ -10,6 +15,7 @@ const tabs = [
   { href: "/self-assessment", label: "Self Assessment", key: "self-assessment" },
   { href: "/corporation-tax", label: "Corporation Tax", key: "corporation-tax" },
   { href: "/payroll", label: "Payroll", key: "payroll" },
+  { href: "/invoices", label: "Invoices", key: "invoices" },
   { href: "/documents", label: "Documents", key: "documents" },
   { href: "/bank", label: "Bank", key: "bank" },
 ] as const;
@@ -17,16 +23,21 @@ const tabs = [
 export function ClientTabs({
   clientId,
   active,
+  moduleAccess = "full",
 }: {
   clientId: string;
   active: string;
+  moduleAccess?: ModuleAccess;
 }) {
   const pathname = usePathname();
+  const visible = tabs.filter((tab) =>
+    canAccessModule(moduleAccess, tabKeyToModule(tab.key)),
+  );
 
   return (
     <div className="mb-7 overflow-x-auto border-b border-line pb-0">
       <div className="flex min-w-max gap-1">
-        {tabs.map((tab) => {
+        {visible.map((tab) => {
           const href = `/clients/${clientId}${tab.href}`;
           const isActive =
             active === tab.key ||

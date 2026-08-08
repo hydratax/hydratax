@@ -18,6 +18,8 @@ export type MemoryClient = {
   isEmployer: boolean;
   isVatRegistered: boolean;
   contactEmail?: string | null;
+  /** Companies House enrichment for limited companies */
+  companiesHouse?: import("@/server/companies-house/enrich-client").ClientCompaniesHouseSnapshot | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -121,6 +123,65 @@ export type MemoryAccountProfile = {
   createdAt: string;
 };
 
+export type MemoryTeamMember = {
+  id: string;
+  practiceId: string;
+  email: string;
+  name: string;
+  role: "owner" | "admin" | "practitioner" | "readonly";
+  moduleAccess: import("@/lib/access").ModuleAccess;
+  active: boolean;
+  createdAt: string;
+};
+
+export type MemoryInvoiceLine = {
+  description: string;
+  quantity: number;
+  unitPricePence: number;
+  vatRateBps: number;
+  lineNetPence: number;
+  lineVatPence: number;
+};
+
+export type MemoryInvoice = {
+  id: string;
+  practiceId: string;
+  clientId: string;
+  invoiceNumber: string;
+  status: "draft" | "sent" | "due" | "paid" | "void";
+  issueDate: string;
+  dueDate: string;
+  currency: string;
+  subtotalPence: number;
+  vatPence: number;
+  totalPence: number;
+  notes: string | null;
+  lines: MemoryInvoiceLine[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MemoryFeatureRequest = {
+  id: string;
+  title: string;
+  body: string;
+  authorName: string;
+  authorEmail: string | null;
+  authorUserId: string | null;
+  status: "open" | "planned" | "shipping" | "shipped";
+  voteCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MemoryFeatureVote = {
+  id: string;
+  requestId: string;
+  voterKey: string;
+  createdAt: string;
+};
+
 type MemoryStore = {
   practice: {
     id: string;
@@ -140,6 +201,14 @@ type MemoryStore = {
   emailLogs: MemoryEmailLog[];
   chRequests: MemoryChRequest[];
   subscriptions: MemorySubscription[];
+  trialBalances: import("@/server/trial-balance/map").TrialBalance[];
+  teamMembers: MemoryTeamMember[];
+  invoices: MemoryInvoice[];
+  featureRequests: MemoryFeatureRequest[];
+  featureVotes: MemoryFeatureVote[];
+  csFilings: import("@/server/companies-house/filing/types").CsFilingRecord[];
+  /** Local demo: act as this team member id (null = practice owner) */
+  actingMemberId: string | null;
   hmrcConnections: Array<{
     clientId: string;
     connected: boolean;
@@ -148,6 +217,48 @@ type MemoryStore = {
   }>;
   auditEvents: Array<Record<string, unknown>>;
 };
+
+function seedFeatureRequests(): MemoryFeatureRequest[] {
+  const now = new Date().toISOString();
+  return [
+    {
+      id: "fr-seed-bulk-ch",
+      title: "Bulk Companies House filing for a client list",
+      body: "Select multiple limited companies and queue confirmation statements in one pass — with per-company auth codes.",
+      authorName: "Practice partner",
+      authorEmail: null,
+      authorUserId: null,
+      status: "planned",
+      voteCount: 24,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "fr-seed-deadline-board",
+      title: "Firm-wide deadline board across all rails",
+      body: "One calendar for VAT, CT600, SA, PAYE and Companies House due dates, filterable by staff member.",
+      authorName: "Office manager",
+      authorEmail: null,
+      authorUserId: null,
+      status: "open",
+      voteCount: 41,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "fr-seed-client-portal",
+      title: "Client portal for document upload & e-sign",
+      body: "Let clients drop bank CSV and approve drafts without emailing attachments around.",
+      authorName: "Senior accountant",
+      authorEmail: null,
+      authorUserId: null,
+      status: "open",
+      voteCount: 33,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
 
 function emptyStore(): MemoryStore {
   return {
@@ -169,6 +280,13 @@ function emptyStore(): MemoryStore {
     emailLogs: [],
     chRequests: [],
     subscriptions: [],
+    trialBalances: [],
+    teamMembers: [],
+    invoices: [],
+    featureRequests: seedFeatureRequests(),
+    featureVotes: [],
+    csFilings: [],
+    actingMemberId: null,
     hmrcConnections: [],
     auditEvents: [],
   };

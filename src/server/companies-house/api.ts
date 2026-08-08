@@ -1,13 +1,25 @@
 import { getEnv } from "@/lib/env";
 
-const CH_API_BASE = "https://api.company-information.service.gov.uk";
+const LIVE_BASE = "https://api.company-information.service.gov.uk";
+const SANDBOX_BASE = "https://api-sandbox.company-information.service.gov.uk";
+
+/** Test API keys only work on the sandbox host. */
+export function getCompaniesHouseApiBase() {
+  const env = (process.env.COMPANIES_HOUSE_ENV ?? "test").toLowerCase();
+  return env === "live" || env === "production" ? LIVE_BASE : SANDBOX_BASE;
+}
 
 export function isCompaniesHouseApiConfigured() {
-  return Boolean(process.env.COMPANIES_HOUSE_API_KEY);
+  return Boolean(process.env.COMPANIES_HOUSE_API_KEY?.trim());
+}
+
+export function getCompaniesHouseEnvLabel() {
+  const env = (process.env.COMPANIES_HOUSE_ENV ?? "test").toLowerCase();
+  return env === "live" || env === "production" ? "live" : "test";
 }
 
 function authHeader() {
-  const key = process.env.COMPANIES_HOUSE_API_KEY;
+  const key = process.env.COMPANIES_HOUSE_API_KEY?.trim();
   if (!key) {
     throw new Error(
       "COMPANIES_HOUSE_API_KEY is not set. Create a free key at developer.company-information.service.gov.uk",
@@ -19,7 +31,8 @@ function authHeader() {
 }
 
 async function chFetch<T>(path: string): Promise<T> {
-  const res = await fetch(`${CH_API_BASE}${path}`, {
+  const base = getCompaniesHouseApiBase();
+  const res = await fetch(`${base}${path}`, {
     headers: {
       Authorization: authHeader(),
       Accept: "application/json",
@@ -128,7 +141,7 @@ export async function lookupCompanyBundle(companyNumber: string) {
     officers,
     pscs,
     source: {
-      api: CH_API_BASE,
+      api: getCompaniesHouseApiBase(),
       register: "https://find-and-update.company-information.service.gov.uk/",
       note: "Data from Companies House Public Data API. PSC is not a full share register.",
       appUrl: getEnv().NEXT_PUBLIC_APP_URL,

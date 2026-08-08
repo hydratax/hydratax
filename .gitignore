@@ -51,3 +51,6 @@ next-env.d.ts
 .netlify-update-*
 .nt-status.json
 .netlify-status.json
+
+.cursor/
+

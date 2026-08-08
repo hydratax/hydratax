@@ -50,7 +50,7 @@ export async function submitItsaPeriodicUpdate(opts: {
   });
 }
 
-/** Sandbox-friendly demo submit when HMRC credentials are absent. */
+/** Demo submit when HMRC credentials are absent. */
 export function mockItsaSubmit(record: z.infer<typeof digitalIncomeRecordSchema>) {
   const payload = buildItsaPeriodicPayload(record);
   return {

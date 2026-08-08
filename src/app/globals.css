@@ -13,6 +13,8 @@
   --ok: #15803d;
   --warn: #a16207;
   --danger: #b91c1c;
+  --violet: #6d28d9;
+  --violet-soft: #7c3aed;
   --background: var(--paper);
   --foreground: var(--ink);
   --glow: rgba(15, 118, 110, 0.16);
@@ -33,6 +35,7 @@
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-danger: var(--danger);
+  --color-violet: var(--violet);
   --font-sans: var(--font-dm-sans);
   --font-display: var(--font-fraunces);
   --font-price: var(--font-source-serif);
@@ -84,6 +87,152 @@ body {
 
 .pricing-card {
   animation: price-card-in 0.45s ease both;
+}
+
+.pricing-page {
+  --pricing-surface: #f3f6f5;
+  --pricing-ink-wash: #0c1614;
+}
+
+.pricing-hero {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 70% 80% at 85% 20%, rgba(20, 184, 166, 0.22), transparent 55%),
+    linear-gradient(160deg, #071210 0%, #0c1f1c 42%, #102926 100%);
+  padding: 4.5rem 0 3.5rem;
+  color: white;
+}
+
+.pricing-hero__glow {
+  pointer-events: none;
+  position: absolute;
+  inset: auto -8rem -10rem auto;
+  width: 28rem;
+  height: 28rem;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.28);
+  filter: blur(60px);
+}
+
+.pricing-body {
+  background:
+    linear-gradient(180deg, #e8efed 0%, var(--pricing-surface) 18%, #f7f8f7 100%);
+}
+
+.pricing-rail {
+  display: flex;
+  flex-direction: row;
+  gap: 0.35rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  scrollbar-width: thin;
+}
+
+.pricing-rail__label {
+  display: none;
+  margin-bottom: 0.75rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.pricing-rail__item {
+  flex: 0 0 auto;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 0.65rem 0.85rem;
+  text-align: left;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.pricing-rail__item:hover {
+  color: var(--ink);
+  background: rgba(15, 118, 110, 0.06);
+}
+
+.pricing-rail__item.is-active {
+  color: var(--sea-deep);
+  border-bottom-color: var(--sea);
+  background: rgba(15, 118, 110, 0.08);
+}
+
+@media (min-width: 1024px) {
+  .pricing-rail {
+    flex-direction: column;
+    overflow: visible;
+    position: sticky;
+    top: 5.5rem;
+    align-self: start;
+    gap: 0.2rem;
+    border-right: 1px solid var(--line);
+    padding-right: 1.25rem;
+    padding-bottom: 0;
+  }
+
+  .pricing-rail__label {
+    display: block;
+  }
+
+  .pricing-rail__item {
+    width: 100%;
+    border-bottom: 0;
+    border-left: 3px solid transparent;
+    border-radius: 0 0.5rem 0.5rem 0;
+    padding: 0.7rem 0.85rem;
+    white-space: normal;
+  }
+
+  .pricing-rail__item.is-active {
+    border-left-color: var(--sea);
+    border-bottom-color: transparent;
+  }
+}
+
+.pricing-plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 1.5rem;
+  animation: price-card-in 0.45s ease both;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.pricing-plan:hover {
+  border-color: rgba(15, 118, 110, 0.35);
+  transform: translateY(-2px);
+}
+
+.pricing-plan.is-featured {
+  border-color: rgba(15, 118, 110, 0.55);
+  background:
+    linear-gradient(180deg, rgba(15, 118, 110, 0.06), transparent 42%),
+    rgba(255, 255, 255, 0.96);
+}
+
+.pricing-plan__badge {
+  display: inline-flex;
+  align-self: flex-start;
+  margin-bottom: 0.75rem;
+  border-radius: 0.35rem;
+  background: var(--sea);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.28rem 0.55rem;
 }
 
 @keyframes price-card-in {
@@ -341,6 +490,120 @@ body {
 .badge-sea {
   background: rgba(15, 118, 110, 0.12);
   color: var(--sea-deep);
+}
+
+.badge-due-soon {
+  background: rgba(109, 40, 217, 0.12);
+  color: var(--violet);
+}
+
+.badge-overdue {
+  background: rgba(185, 28, 28, 0.12);
+  color: var(--danger);
+}
+
+/* Filing status chips next to company name */
+.filing-btn {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 0.35rem;
+  border: 1px solid transparent;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.filing-btn--due-soon {
+  background: rgba(109, 40, 217, 0.12);
+  border-color: rgba(109, 40, 217, 0.35);
+  color: var(--violet);
+}
+
+.filing-btn--overdue {
+  background: rgba(185, 28, 28, 0.12);
+  border-color: rgba(185, 28, 28, 0.4);
+  color: var(--danger);
+}
+
+.filing-btn--ok {
+  background: rgba(21, 128, 61, 0.1);
+  border-color: rgba(21, 128, 61, 0.25);
+  color: var(--ok);
+}
+
+.filing-btn--muted {
+  background: var(--sand);
+  border-color: var(--line);
+  color: var(--ink-soft);
+}
+
+.filing-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--line);
+  background: white;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.filing-filter:hover {
+  border-color: var(--mist);
+  color: var(--ink);
+}
+
+.filing-filter.is-active {
+  border-color: var(--sea);
+  color: var(--sea-deep);
+  background: rgba(15, 118, 110, 0.06);
+}
+
+.filing-filter.is-due-soon.is-active {
+  border-color: var(--violet);
+  color: var(--violet);
+  background: rgba(109, 40, 217, 0.08);
+}
+
+.filing-filter.is-overdue.is-active {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: rgba(185, 28, 28, 0.08);
+}
+
+.filing-filter__count {
+  display: inline-flex;
+  min-width: 1.25rem;
+  justify-content: center;
+  border-radius: 0.25rem;
+  background: var(--sand);
+  padding: 0 0.3rem;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.filing-filter.is-due-soon.is-active .filing-filter__count {
+  background: rgba(109, 40, 217, 0.15);
+}
+
+.filing-filter.is-overdue.is-active .filing-filter__count {
+  background: rgba(185, 28, 28, 0.15);
+}
+
+.client-card--due-soon {
+  border-color: rgba(109, 40, 217, 0.45);
+  box-shadow: inset 3px 0 0 var(--violet);
+}
+
+.client-card--overdue {
+  border-color: rgba(185, 28, 28, 0.45);
+  box-shadow: inset 3px 0 0 var(--danger);
 }
 
 .module-chip {

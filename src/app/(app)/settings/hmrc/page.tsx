@@ -14,7 +14,7 @@ const REQUIREMENTS = [
   },
   {
     title: "3. Environment isolation",
-    body: "Use HMRC_ENV=sandbox until fraud-prevention and end-to-end tests pass. Production credentials take ~10 working days after approval — never mix sandbox tokens into production.",
+    body: "Keep test and live HMRC credentials in separate deployments. Live credentials take ~10 working days after approval — never mix environments.",
   },
   {
     title: "4. Fraud-prevention headers",
@@ -55,7 +55,9 @@ export default async function HmrcSettingsPage() {
           <p className="text-xs font-semibold uppercase text-ink-soft">
             Environment
           </p>
-          <p className="display mt-1 text-2xl capitalize">{hmrc.env}</p>
+          <p className="display mt-1 text-2xl">
+            {hmrc.env === "production" ? "Live" : "Test"}
+          </p>
         </div>
         <div>
           <p className="text-xs font-semibold uppercase text-ink-soft">

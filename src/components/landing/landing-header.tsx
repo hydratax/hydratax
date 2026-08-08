@@ -32,7 +32,7 @@ export function LandingHeader() {
         <nav className="hidden items-center gap-6 text-sm font-semibold text-white/80 md:flex">
           <div className="group relative">
             <button type="button" className="hover:text-white">
-              Rails
+              Services
             </button>
             <div className="invisible absolute left-0 top-full z-30 min-w-[200px] pt-2 opacity-0 transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
               <div className="rounded-lg border border-line bg-white py-2 shadow-lg">
@@ -57,15 +57,9 @@ export function LandingHeader() {
           <Link href="/companies-house" className="hover:text-white">
             Companies House
           </Link>
-          <Link href="/support" className="hover:text-white">
-            Support
-          </Link>
         </nav>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          <Link href="/support" className="btn btn-ghost-light text-sm md:hidden">
-            Support
-          </Link>
           <Link href="/sign-in" className="btn btn-ghost-light text-sm">
             Sign in
           </Link>

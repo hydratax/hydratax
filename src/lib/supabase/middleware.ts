@@ -2,17 +2,27 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isSupabaseConfigured } from "@/lib/env";
 
-export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
+export async function updateSession(request: NextRequest): Promise<{
+  response: NextResponse;
+  userId: string | null;
+}> {
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-pathname", request.nextUrl.pathname);
+
+  let supabaseResponse = NextResponse.next({
+    request: { headers: requestHeaders },
+  });
 
   if (!isSupabaseConfigured()) {
-    return supabaseResponse;
+    return { response: supabaseResponse, userId: null };
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key =
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+  let userId: string | null = null;
 
   const supabase = createServerClient(url, key, {
     cookies: {
@@ -23,7 +33,9 @@ export async function updateSession(request: NextRequest) {
         cookiesToSet.forEach(({ name, value }) =>
           request.cookies.set(name, value),
         );
-        supabaseResponse = NextResponse.next({ request });
+        supabaseResponse = NextResponse.next({
+          request: { headers: requestHeaders },
+        });
         cookiesToSet.forEach(({ name, value, options }) =>
           supabaseResponse.cookies.set(name, value, options),
         );
@@ -32,9 +44,12 @@ export async function updateSession(request: NextRequest) {
   });
 
   // Validates JWT — do not use getSession() for auth gates
-  await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  userId = user?.id ?? null;
 
-  return supabaseResponse;
+  return { response: supabaseResponse, userId };
 }
 
 export { isSupabaseConfigured };
