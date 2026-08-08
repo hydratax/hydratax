@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { LEGAL_COMPANY } from "@/lib/legal";
 
 const SITE = process.env.NEXT_PUBLIC_APP_URL ?? "https://hydratax.co.uk";
 
@@ -58,10 +59,11 @@ export const defaultMetadata: Metadata = {
 };
 
 export function organizationJsonLd() {
+  const office = LEGAL_COMPANY.registeredOffice;
   return {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    name: "HydraTax",
+    name: LEGAL_COMPANY.tradingName,
     applicationCategory: "BusinessApplication",
     operatingSystem: "Web",
     description:
@@ -73,7 +75,24 @@ export function organizationJsonLd() {
       url: `${SITE}/pricing`,
     },
     url: SITE,
-    brand: { "@type": "Brand", name: "HydraTax" },
+    brand: { "@type": "Brand", name: LEGAL_COMPANY.tradingName },
+    provider: {
+      "@type": "Organization",
+      name: LEGAL_COMPANY.legalName,
+      legalName: LEGAL_COMPANY.legalName,
+      alternateName: LEGAL_COMPANY.tradingName,
+      identifier: LEGAL_COMPANY.companyNumber,
+      url: SITE,
+      email: LEGAL_COMPANY.supportEmail,
+      address: {
+        "@type": "PostalAddress",
+        streetAddress: office.line1,
+        addressLocality: office.locality,
+        addressRegion: office.region,
+        postalCode: office.postalCode,
+        addressCountry: "GB",
+      },
+    },
   };
 }
 

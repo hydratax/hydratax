@@ -7,8 +7,8 @@ import {
   formatGBP,
   customPlanAmountPounds,
   customPlanKey,
-  parseCustomPlanModules,
-  type CustomModuleId,
+  parseCustomPlanSelection,
+  type CustomPlanSelection,
 } from "@/lib/pricing";
 
 export type CheckoutPlan = {
@@ -49,7 +49,6 @@ export function listCheckoutPlans(): CheckoutPlan[] {
       interval: "one_time",
       description: `CH ${formatGBP(service.chFeePounds)} + Hydra ${formatGBP(hydraSolo)}`,
     });
-    // Desk-discounted checkout keys for Practice / Firm / Custom subscribers
     const hydraDesk = hydraFeeForChService(service.id, "desk");
     if (hydraDesk !== hydraSolo) {
       plans.push({
@@ -58,7 +57,7 @@ export function listCheckoutPlans(): CheckoutPlan[] {
         name: `Companies House — ${service.title} (desk rate)`,
         amountPence: hydraTotal(service.chFeePounds, service.id, "desk") * 100,
         interval: "one_time",
-        description: `CH ${formatGBP(service.chFeePounds)} + Hydra ${formatGBP(hydraDesk)} (Practice / Firm / Custom)`,
+        description: `CH ${formatGBP(service.chFeePounds)} + Hydra ${formatGBP(hydraDesk)} (Practice / Custom)`,
       });
     }
   }
@@ -71,24 +70,33 @@ export function getCheckoutPlan(key: string): CheckoutPlan | undefined {
   if (listed) return listed;
 
   if (key.startsWith("practice:Custom")) {
-    const modules = parseCustomPlanModules(key);
-    if (modules.length === 0 && key !== "practice:Custom") return undefined;
-    const amount = customPlanAmountPounds(modules as CustomModuleId[]);
-    const labels = modules.length
-      ? modules.join(", ")
-      : "desk only — add modules";
+    const selection = parseCustomPlanSelection(key);
+    const hasAnything =
+      selection.modules.length > 0 || selection.chAddons.length > 0;
+    if (!hasAnything && key !== "practice:Custom") return undefined;
+
+    // Require at least one billable module or CH addon for checkout
+    if (!hasAnything) return undefined;
+
+    const amount = customPlanAmountPounds(selection);
+    const labels = [
+      ...selection.modules.map((m) => `${m.id}×${m.clients}`),
+      ...selection.chAddons,
+    ].join(", ");
+
     return {
-      key: customPlanKey(modules as CustomModuleId[]),
+      key: customPlanKey(selection),
       sectionId: "practice",
       name: `Practice desk — Custom (${labels})`,
       amountPence: amount * 100,
       interval: "month",
       description:
-        "Custom practice desk with selected HMRC modules and discounted Companies House Hydra fees.",
+        "Custom practice desk with per-client HMRC modules and free Companies House add-ons.",
     };
   }
 
   return undefined;
 }
 
+export type { CustomPlanSelection };
 export { HYDRA_SERVICE_FEE_POUNDS };

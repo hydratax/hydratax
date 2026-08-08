@@ -205,11 +205,19 @@ export const VAT_FILING_STEPS = [
   { id: "submit", label: "Submit to HMRC" },
 ] as const;
 
+/** High-level phases shown in the CT600 filing header (competitor-style). */
+export const CT600_PHASES = [
+  { id: "enter", label: "Enter details" },
+  { id: "review", label: "Review documents" },
+  { id: "submit", label: "Submit return" },
+] as const;
+
+/** Internal wizard steps mapped into CT600_PHASES. */
 export const CT600_FILING_STEPS = [
-  { id: "period", label: "Accounting period" },
-  { id: "trial_balance", label: "Upload trial balance" },
-  { id: "map", label: "Map to CT figures" },
-  { id: "questionnaire", label: "HMRC checklist" },
-  { id: "review", label: "Review & XML" },
-  { id: "submit", label: "Submit CT Online" },
+  { id: "period", label: "Accounting period", phase: 0 },
+  { id: "trial_balance", label: "Upload trial balance", phase: 0 },
+  { id: "map", label: "Map to CT figures", phase: 0 },
+  { id: "questionnaire", label: "HMRC checklist", phase: 0 },
+  { id: "review", label: "Review documents", phase: 1 },
+  { id: "submit", label: "Submit CT Online", phase: 2 },
 ] as const;

@@ -887,7 +887,11 @@ body {
 }
 
 .gloss-track {
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+
+.gloss-track::-webkit-scrollbar {
+  display: none;
 }
 
 .marquee-rails {

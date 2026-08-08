@@ -17,7 +17,7 @@ const MODULES = [
   { key: "books", label: "Books", path: "books" },
   { key: "vat", label: "VAT", path: "vat" },
   { key: "sa", label: "SA", path: "self-assessment" },
-  { key: "ct", label: "CT600", path: "corporation-tax" },
+  { key: "ct", label: "Corporation Tax", path: "corporation-tax" },
   { key: "pay", label: "Payroll", path: "payroll" },
 ] as const;
 

@@ -3,10 +3,11 @@ import Image from "next/image";
 
 const PRODUCTS = [
   { label: "MTD VAT", href: "/pricing#vat" },
-  { label: "CT600", href: "/pricing#ct600" },
+  { label: "Corporation Tax", href: "/pricing#ct600" },
+  { label: "Confirmation Statement", href: "/companies-house/confirmation-statement" },
+  { label: "Annual accounts", href: "/companies-house/accounts-ixbrl" },
   { label: "PAYE / RTI", href: "/pricing#payroll" },
   { label: "Self Assessment", href: "/pricing#self-assessment" },
-  { label: "Companies House", href: "/companies-house" },
 ] as const;
 
 export function LandingHeader() {

@@ -25,7 +25,7 @@ export default async function CorporationTaxPage({
     <div>
       <h1 className="display text-4xl text-ink">{client.name}</h1>
       <p className="mt-1 text-ink-soft">
-        CT600 · UTR {client.utr ?? "not set"} · Co.{" "}
+        Corporation Tax · UTR {client.utr ?? "not set"} · Co.{" "}
         {client.companyNumber ?? "not set"}
       </p>
       <ClientTabs

@@ -10,9 +10,12 @@ import {
   hydraFeeForChService,
   CUSTOM_PLAN_MODULES,
   CUSTOM_PLAN_BASE_POUNDS,
+  CUSTOM_CH_ADDONS,
   customPlanAmountPounds,
   customPlanKey,
   type CustomModuleId,
+  type CustomChAddonId,
+  type CustomModuleSelection,
 } from "@/lib/pricing";
 import Link from "next/link";
 import { FaqSection } from "@/components/faq-section";
@@ -258,13 +261,43 @@ function CustomPlanCard({
   pendingKey: string | null;
   busy: boolean;
 }) {
-  const [selected, setSelected] = useState<CustomModuleId[]>([]);
-  const total = customPlanAmountPounds(selected);
-  const key = customPlanKey(selected);
-  const loading = busy && pendingKey === key;
+  const [modules, setModules] = useState<CustomModuleSelection[]>([]);
+  const [chAddons, setChAddons] = useState<CustomChAddonId[]>([]);
 
-  function toggle(id: CustomModuleId) {
-    setSelected((prev) =>
+  const selection = useMemo(
+    () => ({ modules, chAddons }),
+    [modules, chAddons],
+  );
+  const total = customPlanAmountPounds(selection);
+  const key = customPlanKey(selection);
+  const loading = busy && pendingKey === key;
+  const canCheckout = modules.length > 0 || chAddons.length > 0;
+
+  function isModuleOn(id: CustomModuleId) {
+    return modules.some((m) => m.id === id);
+  }
+
+  function clientsFor(id: CustomModuleId) {
+    return modules.find((m) => m.id === id)?.clients ?? 1;
+  }
+
+  function toggleModule(id: CustomModuleId) {
+    setModules((prev) =>
+      prev.some((m) => m.id === id)
+        ? prev.filter((m) => m.id !== id)
+        : [...prev, { id, clients: 1 }],
+    );
+  }
+
+  function setClients(id: CustomModuleId, clients: number) {
+    const n = Math.max(1, Math.min(500, Math.floor(clients) || 1));
+    setModules((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, clients: n } : m)),
+    );
+  }
+
+  function toggleCh(id: CustomChAddonId) {
+    setChAddons((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   }
@@ -281,17 +314,68 @@ function CustomPlanCard({
         <span className="price-period">/month</span>
       </p>
       <p className="mt-1 text-xs text-ink-soft">
-        {formatGBP(CUSTOM_PLAN_BASE_POUNDS)} desk + selected modules · CH
-        incorporation £5 · CS £1
+        {formatGBP(CUSTOM_PLAN_BASE_POUNDS)} desk + HMRC by client count · CH
+        add-ons £0/mo
       </p>
 
       <fieldset className="mt-5 space-y-2">
-        <legend className="sr-only">Select modules</legend>
+        <legend className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+          HMRC services
+        </legend>
         {CUSTOM_PLAN_MODULES.map((mod) => {
-          const on = selected.includes(mod.id);
+          const on = isModuleOn(mod.id);
+          const clients = clientsFor(mod.id);
+          return (
+            <div
+              key={mod.id}
+              className={`rounded-lg border px-3 py-2 text-sm transition ${
+                on ? "border-sea bg-sea/5" : "border-line bg-white"
+              }`}
+            >
+              <label className="flex cursor-pointer items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={on}
+                  onChange={() => toggleModule(mod.id)}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="font-semibold text-ink">{mod.label}</span>
+                  <span className="mt-0.5 block text-xs text-ink-soft">
+                    {mod.blurb}
+                  </span>
+                </span>
+              </label>
+              {on && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line/60 pt-2 pl-6">
+                  <label className="text-xs text-ink-soft" htmlFor={`clients-${mod.id}`}>
+                    Number of clients
+                  </label>
+                  <input
+                    id={`clients-${mod.id}`}
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={clients}
+                    onChange={(e) => setClients(mod.id, Number(e.target.value))}
+                    className="w-20 rounded-md border border-line bg-white px-2 py-1 text-sm text-ink"
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </fieldset>
+
+      <fieldset className="mt-4 space-y-2">
+        <legend className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+          Companies House — no monthly fee
+        </legend>
+        {CUSTOM_CH_ADDONS.map((addon) => {
+          const on = chAddons.includes(addon.id);
           return (
             <label
-              key={mod.id}
+              key={addon.id}
               className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2 text-sm transition ${
                 on ? "border-sea bg-sea/5" : "border-line bg-white"
               }`}
@@ -300,16 +384,16 @@ function CustomPlanCard({
                 type="checkbox"
                 className="mt-1"
                 checked={on}
-                onChange={() => toggle(mod.id)}
+                onChange={() => toggleCh(addon.id)}
               />
               <span className="min-w-0 flex-1">
-                <span className="font-semibold text-ink">{mod.label}</span>
+                <span className="font-semibold text-ink">{addon.label}</span>
                 <span className="mt-0.5 block text-xs text-ink-soft">
-                  {mod.blurb}
+                  {addon.blurb}
                 </span>
               </span>
-              <span className="shrink-0 font-semibold text-ink">
-                +{formatGBP(mod.price)}
+              <span className="shrink-0 text-xs font-semibold text-sea">
+                Free
               </span>
             </label>
           );
@@ -319,14 +403,14 @@ function CustomPlanCard({
       <div className="mt-auto pt-6">
         <button
           type="button"
-          disabled={busy || selected.length === 0}
+          disabled={busy || !canCheckout}
           onClick={() => onCheckout(key)}
           className="btn btn-primary w-full whitespace-nowrap px-3 py-2.5 text-sm disabled:opacity-60"
         >
           {loading
             ? "Redirecting…"
-            : selected.length === 0
-              ? "Select at least one module"
+            : !canCheckout
+              ? "Select a service"
               : `Checkout ${formatGBP(total)}/mo`}
         </button>
       </div>
@@ -338,9 +422,10 @@ function CompaniesHouseCards() {
   return (
     <div className="mt-10 grid items-stretch gap-6 md:grid-cols-2 lg:grid-cols-3">
       <p className="md:col-span-2 lg:col-span-3 text-sm text-ink-soft">
-        Solo pays Hydra £{HYDRA_SERVICE_FEE_POUNDS} on each filing. Practice,
-        Firm and Custom desks get incorporation at £5 Hydra and confirmation
-        statements at £1 Hydra (statutory CH fee still applies).
+        Solo pays Hydra £{HYDRA_SERVICE_FEE_POUNDS} on each filing. Practice and
+        Custom desks: new company incorporation at £5 Hydra; confirmation
+        statements and annual accounts at £0 Hydra (unlimited). Statutory CH
+        fees still apply where charged by Companies House.
       </p>
       {COMPANIES_HOUSE_SERVICES.map((service) => {
         const hydraSolo = hydraFeeForChService(service.id, "solo");

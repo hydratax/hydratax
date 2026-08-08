@@ -5,7 +5,7 @@
 
 import {
   CUSTOM_PLAN_MODULES,
-  parseCustomPlanModules,
+  parseCustomPlanSelection,
 } from "@/lib/pricing";
 
 export type ServiceModule =
@@ -154,18 +154,27 @@ export function entitlementsForPlans(planKeys: string[]): {
       modules.add("documents");
       modules.add("companies_house");
       modules.add("practice_desk");
-      const selected = parseCustomPlanModules(key);
+      const selection = parseCustomPlanSelection(key);
+      let clientCap = 0;
       for (const mod of CUSTOM_PLAN_MODULES) {
-        if (selected.includes(mod.id)) modules.add(mod.entitlement);
+        const hit = selection.modules.find((m) => m.id === mod.id);
+        if (hit) {
+          modules.add(mod.entitlement);
+          clientCap = Math.max(clientCap, hit.clients);
+        }
       }
+      if (selection.chAddons.length > 0) {
+        modules.add("companies_house");
+      }
+      const maxForPlan = Math.max(clientCap, 15);
       plans.push({
         planKey: key,
         label: "Custom",
         modules: [...modules] as ServiceModule[],
-        maxClients: 50,
+        maxClients: maxForPlan,
       });
       if (typeof maxClients === "number") {
-        maxClients = Math.max(maxClients, 50);
+        maxClients = Math.max(maxClients, maxForPlan);
       }
       continue;
     }

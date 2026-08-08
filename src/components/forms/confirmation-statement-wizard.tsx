@@ -6,22 +6,26 @@ import {
   fileConfirmationStatement,
   prepareConfirmationStatementFiling,
 } from "@/server/actions/confirmation-statement";
+import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 
 type DirectorRow = {
   fullName: string;
   dateOfBirth: string;
   personalCode: string;
+  codeOnFile: boolean;
 };
 
-const emptyDirector = (): DirectorRow => ({
-  fullName: "",
+const emptyDirector = (name = ""): DirectorRow => ({
+  fullName: name,
   dateOfBirth: "",
   personalCode: "",
+  codeOnFile: false,
 });
 
 export function ConfirmationStatementWizard({
   defaults,
   readiness,
+  snapshot,
 }: {
   defaults?: Record<string, string>;
   readiness: {
@@ -29,24 +33,37 @@ export function ConfirmationStatementWizard({
     canAttemptLiveSubmit: boolean;
     notes: string[];
   };
+  snapshot?: ClientCompaniesHouseSnapshot | null;
 }) {
   const [step, setStep] = useState(0);
   const [companyNumber, setCompanyNumber] = useState(
-    defaults?.companyNumber ?? "",
+    defaults?.companyNumber ?? snapshot?.companyNumber ?? "",
   );
-  const [companyName, setCompanyName] = useState("");
-  const [confirmationDate, setConfirmationDate] = useState("");
+  const [companyName, setCompanyName] = useState(snapshot?.companyName ?? "");
+  const [confirmationDate, setConfirmationDate] = useState(
+    snapshot?.confirmationStatementLastMadeUpTo?.slice(0, 10) ?? "",
+  );
   const [companyAuthCode, setCompanyAuthCode] = useState("");
   const [registeredEmail, setRegisteredEmail] = useState("");
   const [lawful, setLawful] = useState(false);
-  const [directors, setDirectors] = useState<DirectorRow[]>([emptyDirector()]);
+  const [registerConfirmed, setRegisterConfirmed] = useState(false);
+  const [sicCodes, setSicCodes] = useState(
+    (snapshot?.sicCodes ?? []).join(", "),
+  );
+  const [editingSic, setEditingSic] = useState(false);
+  const [directors, setDirectors] = useState<DirectorRow[]>(() => {
+    const fromSnap = (snapshot?.directors ?? [])
+      .filter((d) => !d.resignedOn)
+      .map((d) => emptyDirector(d.name));
+    return fromSnap.length ? fromSnap : [emptyDirector()];
+  });
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [filingId, setFilingId] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   const steps = useMemo(
-    () => ["Company", "Directors & codes", "Review & file"],
+    () => ["Company", "Confirm register", "Identity codes", "File"],
     [],
   );
 
@@ -60,14 +77,14 @@ export function ConfirmationStatementWizard({
     <div className="panel gloss-card space-y-5 p-5">
       <div>
         <p className="text-xs font-bold uppercase tracking-[0.14em] text-sea">
-          Direct filing
+          Confirmation Statement
         </p>
         <h2 className="display mt-1 text-2xl text-ink">
           File confirmation statement
         </h2>
         <p className="mt-1 text-sm text-ink-soft">
-          Collect company auth code and each director’s personal code, then
-          submit to Companies House from HydraTax.
+          Confirm the Companies House register, capture director personal codes,
+          then submit CS01 from HydraTax.
         </p>
       </div>
 
@@ -134,10 +151,6 @@ export function ConfirmationStatementWizard({
             autoComplete="off"
             required
           />
-          <p className="text-xs text-ink-soft">
-            Not the same as a personal code. Request or reset the company auth
-            code via Companies House if the client does not have it.
-          </p>
           <label className="label" htmlFor="cs-email">
             Registered email{" "}
             <span className="font-normal text-ink-soft">(if required)</span>
@@ -162,6 +175,146 @@ export function ConfirmationStatementWizard({
       )}
 
       {step === 1 && (
+        <div className="space-y-4">
+          <p className="text-sm text-ink-soft">
+            Please confirm all information below is correct. If anything needs
+            changing, update it with Companies House separately before filing
+            this statement.
+          </p>
+
+          <section className="rounded-xl border border-line bg-white p-4">
+            <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-ink-soft">
+              Registered office
+            </h3>
+            <p className="mt-2 text-sm font-medium text-ink">
+              {snapshot?.registeredOffice ?? "Not loaded — sync Companies House on the client."}
+            </p>
+            <p className="mt-2 text-xs text-ink-soft">
+              To change, file form AD01 with Companies House.
+            </p>
+          </section>
+
+          <section className="rounded-xl border border-line bg-white p-4">
+            <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-ink-soft">
+              Directors &amp; officers
+            </h3>
+            <ul className="mt-2 space-y-1 text-sm text-ink">
+              {(snapshot?.directors ?? [])
+                .filter((d) => !d.resignedOn)
+                .map((d) => (
+                  <li key={`${d.name}-${d.appointedOn}`}>
+                    {d.name}
+                    {d.role ? ` — ${d.role}` : ""}
+                    {d.appointedOn
+                      ? ` (appointed ${new Date(d.appointedOn).toLocaleDateString("en-GB")})`
+                      : ""}
+                  </li>
+                ))}
+              {!snapshot?.directors?.length && (
+                <li className="text-ink-soft">No officers loaded.</li>
+              )}
+            </ul>
+            <p className="mt-2 text-xs text-ink-soft">
+              To change, file forms AP01/TM01 with Companies House.
+            </p>
+          </section>
+
+          <section className="rounded-xl border border-sea/40 bg-sea/5 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-ink-soft">
+                SIC codes
+              </h3>
+              <button
+                type="button"
+                className="text-sm font-semibold text-sea"
+                onClick={() => setEditingSic((v) => !v)}
+              >
+                {editingSic ? "Done" : "Edit SIC codes"}
+              </button>
+            </div>
+            {editingSic ? (
+              <input
+                className="input mt-2 mono"
+                value={sicCodes}
+                onChange={(e) => setSicCodes(e.target.value)}
+                placeholder="e.g. 62020, 69201"
+              />
+            ) : (
+              <p className="mt-2 mono text-sm font-medium text-ink">
+                {sicCodes || "—"}
+              </p>
+            )}
+          </section>
+
+          <section className="rounded-xl border border-line bg-white p-4">
+            <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-ink-soft">
+              People with significant control
+            </h3>
+            <ul className="mt-2 space-y-1 text-sm text-ink">
+              {(snapshot?.pscs ?? []).map((p, i) => (
+                <li key={`${p.name}-${i}`}>
+                  {p.name ?? "PSC"}
+                  {p.naturesOfControl?.length
+                    ? ` — ${p.naturesOfControl.join("; ").replace(/-/g, " ")}`
+                    : ""}
+                </li>
+              ))}
+              {!snapshot?.pscs?.length && (
+                <li className="text-ink-soft">No PSCs loaded.</li>
+              )}
+            </ul>
+            <p className="mt-2 text-xs text-ink-soft">
+              To change, file PSC forms with Companies House.
+            </p>
+          </section>
+
+          <section className="rounded-xl border border-line bg-white p-4">
+            <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-ink-soft">
+              Director identity verification
+            </h3>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="text-xs uppercase tracking-wide text-ink-soft">
+                    <th className="pb-2 font-semibold">Director</th>
+                    <th className="pb-2 font-semibold">CH verification</th>
+                    <th className="pb-2 font-semibold">Codes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {directors.map((d, i) => (
+                    <tr key={i} className="border-t border-line/60">
+                      <td className="py-2 font-medium text-ink">
+                        {d.fullName || "—"}
+                      </td>
+                      <td className="py-2 text-ink-soft">Updating</td>
+                      <td className="py-2">
+                        <span className="text-ink-soft">
+                          {d.personalCode.length === 11
+                            ? "On file"
+                            : "Needed next"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <label className="flex items-start gap-2 text-sm text-ink">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={registerConfirmed}
+              onChange={(e) => setRegisterConfirmed(e.target.checked)}
+            />
+            I confirm the register details above are correct for this filing
+          </label>
+        </div>
+      )}
+
+      {step === 2 && (
         <div className="space-y-4">
           <p className="text-sm text-ink-soft">
             HydraTax does not issue personal codes. Each director gets an
@@ -209,6 +362,7 @@ export function ConfirmationStatementWizard({
                 onChange={(e) =>
                   updateDirector(i, {
                     personalCode: e.target.value.toUpperCase(),
+                    codeOnFile: e.target.value.length === 11,
                   })
                 }
               />
@@ -224,7 +378,7 @@ export function ConfirmationStatementWizard({
         </div>
       )}
 
-      {step === 2 && (
+      {step === 3 && (
         <div className="space-y-3 text-sm">
           <dl className="grid gap-2 rounded-lg bg-sand/50 p-4">
             <div className="flex justify-between gap-4">
@@ -236,6 +390,12 @@ export function ConfirmationStatementWizard({
             <div className="flex justify-between gap-4">
               <dt className="text-ink-soft">CS date</dt>
               <dd className="font-semibold text-ink">{confirmationDate}</dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-ink-soft">SIC codes</dt>
+              <dd className="text-right font-semibold text-ink">
+                {sicCodes || "—"}
+              </dd>
             </div>
             <div className="flex justify-between gap-4">
               <dt className="text-ink-soft">Directors</dt>
@@ -257,9 +417,6 @@ export function ConfirmationStatementWizard({
               <li key={n}>{n}</li>
             ))}
           </ul>
-          <p className="text-xs text-ink-soft">
-            Personal codes are encrypted at rest and never shown on admin boards.
-          </p>
         </div>
       )}
 
@@ -285,7 +442,7 @@ export function ConfirmationStatementWizard({
             Back
           </button>
         )}
-        {step < 2 && (
+        {step < 3 && (
           <button
             type="button"
             className="btn btn-primary"
@@ -299,11 +456,17 @@ export function ConfirmationStatementWizard({
                   !companyAuthCode ||
                   !lawful
                 ) {
-                  setError("Complete company details and the lawful-purpose tick.");
+                  setError(
+                    "Complete company details and the lawful-purpose tick.",
+                  );
                   return;
                 }
               }
-              if (step === 1) {
+              if (step === 1 && !registerConfirmed) {
+                setError("Confirm the register details before continuing.");
+                return;
+              }
+              if (step === 2) {
                 if (
                   directors.some(
                     (d) =>
@@ -324,7 +487,7 @@ export function ConfirmationStatementWizard({
             Continue
           </button>
         )}
-        {step === 2 && (
+        {step === 3 && (
           <>
             <button
               type="button"
@@ -341,7 +504,13 @@ export function ConfirmationStatementWizard({
                     companyAuthCode,
                     registeredEmail,
                     lawfulPurposeConfirmed: true as const,
-                    directors,
+                    directors: directors.map(
+                      ({ fullName, dateOfBirth, personalCode }) => ({
+                        fullName,
+                        dateOfBirth,
+                        personalCode,
+                      }),
+                    ),
                     clientId: defaults?.clientId || undefined,
                   });
                   if (!prepared.ok) {
@@ -385,7 +554,13 @@ export function ConfirmationStatementWizard({
                       companyAuthCode,
                       registeredEmail,
                       lawfulPurposeConfirmed: true as const,
-                      directors,
+                      directors: directors.map(
+                        ({ fullName, dateOfBirth, personalCode }) => ({
+                          fullName,
+                          dateOfBirth,
+                          personalCode,
+                        }),
+                      ),
                       clientId: defaults?.clientId || undefined,
                     });
                     if (!prepared.ok) {

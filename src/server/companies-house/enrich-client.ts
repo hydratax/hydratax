@@ -16,6 +16,7 @@ export type ClientCompaniesHouseSnapshot = {
   confirmationStatementNextDue: string | null;
   confirmationStatementLastMadeUpTo: string | null;
   registeredOffice: string | null;
+  sicCodes: string[];
   directors: Array<{
     name: string;
     role: string | null;
@@ -114,6 +115,7 @@ export async function enrichLimitedCompanyFromCh(
     confirmationStatementNextDue: conf?.next_due ?? null,
     confirmationStatementLastMadeUpTo: conf?.last_made_up_to ?? null,
     registeredOffice: addressSnippet(profile.registered_office_address),
+    sicCodes: profile.sic_codes ?? [],
     directors,
     pscs,
     fetchedAt: new Date().toISOString(),

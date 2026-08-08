@@ -18,8 +18,8 @@ const SERVICES = [
   },
   {
     id: "ct600",
-    title: "CT600",
-    tagline: "Corporation Tax without the panic",
+    title: "Corporation Tax",
+    tagline: "CT600 without the panic",
     summary:
       "Capture P&L and balance sheet in pence, build CT Online XML, and submit with a clear acceptance state.",
     points: [
@@ -87,7 +87,7 @@ export function ServiceCards() {
         </p>
       </div>
 
-      <div className="gloss-track mt-10 flex gap-4 overflow-x-auto pb-3 snap-x snap-mandatory">
+      <div className="gloss-track mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {SERVICES.map((service, i) => {
           const selected = i === active;
           return (
@@ -95,9 +95,9 @@ export function ServiceCards() {
               key={service.id}
               type="button"
               onClick={() => setActive(i)}
-              className={`gloss-card snap-start relative min-w-[260px] flex-1 overflow-hidden rounded-xl border p-5 text-left transition duration-300 md:min-w-0 ${
+              className={`gloss-card relative overflow-hidden rounded-xl border p-5 text-left transition duration-300 ${
                 selected
-                  ? "border-sea scale-[1.03] shadow-[0_22px_50px_-28px_rgba(15,118,110,0.65)]"
+                  ? "border-sea shadow-[0_22px_50px_-28px_rgba(15,118,110,0.65)] ring-1 ring-sea/40"
                   : "border-line bg-white/70 hover:-translate-y-1"
               }`}
             >

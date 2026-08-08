@@ -8,8 +8,12 @@ import { MobileNav } from "@/components/mobile-nav";
 import { SignOutButton } from "@/components/sign-out-button";
 
 const NAV = [
-  { href: "/dashboard", label: "Dashboard" },
+  { href: "/filings", label: "Overview" },
+  { href: "/filings/corporation-tax", label: "Corporation Tax" },
+  { href: "/filings/confirmation-statement", label: "Confirmation Statement" },
+  { href: "/filings/annual-accounts", label: "Annual accounts" },
   { href: "/clients", label: "Clients" },
+  { href: "/dashboard", label: "Dashboard" },
   { href: "/settings/team", label: "Team" },
   { href: "/settings/hmrc", label: "HMRC" },
   { href: "/companies-house", label: "Companies House" },
@@ -28,6 +32,12 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
     if (item.href === "/companies-house")
       return session.moduleAccess === "full";
     if (item.href === "/settings/hmrc") return session.moduleAccess === "full";
+    if (
+      item.href.startsWith("/filings") &&
+      item.href !== "/filings/corporation-tax"
+    ) {
+      return session.moduleAccess === "full";
+    }
     return true;
   });
 
