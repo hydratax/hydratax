@@ -109,11 +109,8 @@ export function CreateAccountForm() {
   const chLookup = orgType === "company" || orgType === "practice";
 
   const searchLabel = useMemo(() => {
-    if (orgType === "practice") {
-      return "Search practice / firm on Companies House…";
-    }
-    if (orgType === "company") {
-      return "Search company name or number…";
+    if (orgType === "practice" || orgType === "company") {
+      return "Search company";
     }
     if (orgType === "partnership") {
       return "Partnership trading name";

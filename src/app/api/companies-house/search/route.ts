@@ -67,9 +67,9 @@ export async function GET(req: Request) {
     const raw = err instanceof Error ? err.message : "Companies House lookup failed";
     const needsLiveKey =
       /401/.test(raw) && chEnv === "live"
-        ? " This looks like a Test API key on the live host — create a Live REST key, or set COMPANIES_HOUSE_ENV=test."
+        ? " This looks like a Test API key on the live host — create a Live REST key at developer.company-information.service.gov.uk, or set COMPANIES_HOUSE_ENV=test for sandbox only."
         : /401/.test(raw) && chEnv === "test"
-          ? " Auth failed — check COMPANIES_HOUSE_API_KEY."
+          ? " Auth failed on the Companies House sandbox — use a Test API key, or set COMPANIES_HOUSE_ENV=live with a Live REST key."
           : "";
     return NextResponse.json(
       { error: `${raw}${needsLiveKey}`, env: chEnv },

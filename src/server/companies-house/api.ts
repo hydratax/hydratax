@@ -3,23 +3,28 @@ import { getEnv } from "@/lib/env";
 const LIVE_BASE = "https://api.company-information.service.gov.uk";
 const SANDBOX_BASE = "https://api-sandbox.company-information.service.gov.uk";
 
-/** Test API keys only work on the sandbox host. */
+/** Live REST keys work on the production host. Test keys only work on sandbox. */
 export function getCompaniesHouseApiBase() {
-  const env = (process.env.COMPANIES_HOUSE_ENV ?? "test").toLowerCase();
-  return env === "live" || env === "production" ? LIVE_BASE : SANDBOX_BASE;
+  const env = (process.env.COMPANIES_HOUSE_ENV ?? "live").toLowerCase();
+  return env === "test" || env === "sandbox" ? SANDBOX_BASE : LIVE_BASE;
 }
 
 export function isCompaniesHouseApiConfigured() {
-  return Boolean(process.env.COMPANIES_HOUSE_API_KEY?.trim());
+  return Boolean(normalizeCompaniesHouseApiKey(process.env.COMPANIES_HOUSE_API_KEY));
 }
 
 export function getCompaniesHouseEnvLabel() {
-  const env = (process.env.COMPANIES_HOUSE_ENV ?? "test").toLowerCase();
-  return env === "live" || env === "production" ? "live" : "test";
+  const env = (process.env.COMPANIES_HOUSE_ENV ?? "live").toLowerCase();
+  return env === "test" || env === "sandbox" ? "test" : "live";
+}
+
+function normalizeCompaniesHouseApiKey(raw: string | undefined) {
+  // Strip all whitespace (keys are sometimes pasted with tabs/newlines).
+  return (raw ?? "").replace(/\s+/g, "");
 }
 
 function authHeader() {
-  const key = process.env.COMPANIES_HOUSE_API_KEY?.trim();
+  const key = normalizeCompaniesHouseApiKey(process.env.COMPANIES_HOUSE_API_KEY);
   if (!key) {
     throw new Error(
       "COMPANIES_HOUSE_API_KEY is not set. Create a free key at developer.company-information.service.gov.uk",
