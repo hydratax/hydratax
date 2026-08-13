@@ -2,6 +2,8 @@ import {
   CATEGORY_LABELS,
   type BankCategory,
 } from "@/lib/bank-categories";
+import { matchMerchant } from "@/server/bank/merchants";
+import * as XLSX from "xlsx";
 
 export type { BankCategory };
 export { CATEGORY_LABELS };
@@ -14,62 +16,13 @@ export type CategorisedLine = {
   confidence: "high" | "medium" | "low";
 };
 
-const RULES: { category: BankCategory; patterns: RegExp[]; confidence: "high" | "medium" }[] = [
-  {
-    category: "bank_charges",
-    patterns: [/bank charge/i, /monthly fee/i, /\bfee\b.*bank/i, /overdraft/i],
-    confidence: "high",
-  },
-  {
-    category: "tax",
-    patterns: [/hmrc/i, /vat payment/i, /corporation tax/i, /paye/i, /nic\b/i],
-    confidence: "high",
-  },
-  {
-    category: "professional_fees",
-    patterns: [/accountant/i, /\blegal\b/i, /solicitor/i, /companies house/i],
-    confidence: "high",
-  },
-  {
-    category: "premises",
-    patterns: [/rent\b/i, /landlord/i, /business rates/i, /utilities/i, /electric/i, /gas bill/i],
-    confidence: "medium",
-  },
-  {
-    category: "travel",
-    patterns: [/uber/i, /trainline/i, /tfl\b/i, /petrol/i, /fuel\b/i, /parking/i],
-    confidence: "medium",
-  },
-  {
-    category: "admin_expenses",
-    patterns: [/microsoft/i, /adobe/i, /google workspace/i, /aws\b/i, /software/i, /subscription/i],
-    confidence: "medium",
-  },
-  {
-    category: "cost_of_sales",
-    patterns: [/supplier/i, /wholesale/i, /inventory/i, /stock\b/i],
-    confidence: "medium",
-  },
-  {
-    category: "transfer",
-    patterns: [/transfer/i, /to savings/i, /from savings/i, /own account/i],
-    confidence: "high",
-  },
-  {
-    category: "drawings",
-    patterns: [/drawing/i, /owner withdraw/i, /personal\b/i],
-    confidence: "medium",
-  },
-];
-
 export function categoriseDescription(
   description: string,
   amountPence: number,
 ): Pick<CategorisedLine, "category" | "confidence"> {
-  for (const rule of RULES) {
-    if (rule.patterns.some((p) => p.test(description))) {
-      return { category: rule.category, confidence: rule.confidence };
-    }
+  const merchant = matchMerchant(description);
+  if (merchant) {
+    return { category: merchant.category, confidence: merchant.confidence };
   }
   if (amountPence > 0) {
     return { category: "turnover", confidence: "low" };
@@ -103,10 +56,8 @@ export function parseBankCsv(text: string): CategorisedLine[] {
       const credit = parseMoneyToPence(cols[3] ?? "0");
       amountPence = credit - debit;
     } else {
-      // date, description, amount
       description = cols[1];
       amountPence = parseMoneyToPence(cols[2] ?? "0");
-      // If amount column is absolute with type in col3
       if (cols[3]?.toLowerCase().startsWith("d")) amountPence = -Math.abs(amountPence);
       if (cols[3]?.toLowerCase().startsWith("c")) amountPence = Math.abs(amountPence);
     }
@@ -116,6 +67,75 @@ export function parseBankCsv(text: string): CategorisedLine[] {
     out.push({ dated, description, amountPence, category, confidence });
   }
 
+  return out;
+}
+
+/** Parse Excel / CSV buffer into categorised bank lines. */
+export function parseBankSpreadsheet(
+  buffer: ArrayBuffer,
+  filename: string,
+): CategorisedLine[] {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".csv")) {
+    const text = new TextDecoder("utf-8").decode(buffer);
+    return parseBankCsv(text);
+  }
+
+  const book = XLSX.read(buffer, { type: "array", cellDates: true });
+  const first = book.SheetNames[0];
+  if (!first) return [];
+  const sheet = book.Sheets[first];
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+    defval: "",
+    raw: false,
+  });
+  if (!rows.length) return [];
+
+  const keys = Object.keys(rows[0]).map((k) => k.trim());
+  const findKey = (...candidates: string[]) =>
+    keys.find((k) =>
+      candidates.some((c) => k.toLowerCase().replace(/\s+/g, "") === c),
+    );
+
+  const dateKey =
+    findKey("date", "dated", "transactiondate", "bookingdate", "valuedate") ??
+    keys[0];
+  const descKey =
+    findKey(
+      "description",
+      "narrative",
+      "details",
+      "transactiondescription",
+      "merchant",
+      "reference",
+    ) ?? keys[1];
+  const amountKey = findKey("amount", "value", "transactionamount");
+  const debitKey = findKey("debit", "moneyout", "out", "paidout", "withdrawal");
+  const creditKey = findKey("credit", "moneyin", "in", "paidin", "deposit");
+
+  const out: CategorisedLine[] = [];
+  for (const row of rows) {
+    const dated = normaliseDate(String(row[dateKey] ?? ""));
+    const description = String(row[descKey] ?? "").trim();
+    if (!dated || !description) continue;
+
+    let amountPence = 0;
+    if (debitKey && creditKey) {
+      const debit = parseMoneyToPence(String(row[debitKey] ?? "0"));
+      const credit = parseMoneyToPence(String(row[creditKey] ?? "0"));
+      amountPence = credit - debit;
+    } else if (amountKey) {
+      amountPence = parseMoneyToPence(String(row[amountKey] ?? "0"));
+    } else {
+      continue;
+    }
+
+    const { category, confidence } = categoriseDescription(
+      description,
+      amountPence,
+    );
+    out.push({ dated, description, amountPence, category, confidence });
+  }
   return out;
 }
 
@@ -156,7 +176,18 @@ function normaliseDate(raw: string): string {
     const y = dmy[3].length === 2 ? `20${dmy[3]}` : dmy[3];
     return `${y}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
   }
+  // Excel serial or ISO-ish
   if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  const excelSerial = Number(raw);
+  if (Number.isFinite(excelSerial) && excelSerial > 20000 && excelSerial < 80000) {
+    const epoch = new Date(Date.UTC(1899, 11, 30));
+    epoch.setUTCDate(epoch.getUTCDate() + Math.floor(excelSerial));
+    return epoch.toISOString().slice(0, 10);
+  }
+  const parsed = Date.parse(raw);
+  if (!Number.isNaN(parsed)) {
+    return new Date(parsed).toISOString().slice(0, 10);
+  }
   return raw;
 }
 

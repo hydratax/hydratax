@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getCheckoutPlan } from "@/lib/checkout-plans";
-import { getEnv, isStripeConfigured } from "@/lib/env";
-import { getStripe } from "@/server/stripe/client";
+import { isStripeConfigured } from "@/lib/env";
+import { createStripeCheckoutSession } from "@/server/stripe/checkout-session";
 
 const bodySchema = z.object({
   planKey: z.string().min(1),
@@ -32,11 +31,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
   }
 
-  const plan = getCheckoutPlan(parsed.data.planKey);
-  if (!plan) {
-    return NextResponse.json({ error: "Unknown plan" }, { status: 404 });
-  }
-
   let practiceId = "";
   let userId = "";
   let sessionEmail = parsed.data.email;
@@ -48,54 +42,17 @@ export async function POST(req: Request) {
     sessionEmail = sessionEmail || session.email || undefined;
   }
 
-  const appUrl = (
-    process.env.NEXT_PUBLIC_APP_URL ||
-    getEnv().NEXT_PUBLIC_APP_URL ||
-    "http://localhost:3000"
-  ).replace(/\/$/, "");
-  const stripe = getStripe();
-
-  const checkoutSession = await stripe.checkout.sessions.create({
-    mode: plan.interval === "month" ? "subscription" : "payment",
-    customer_email: sessionEmail,
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: "gbp",
-          unit_amount: plan.amountPence,
-          product_data: {
-            name: plan.name,
-            description: plan.description,
-          },
-          ...(plan.interval === "month"
-            ? { recurring: { interval: "month" as const } }
-            : {}),
-        },
-      },
-    ],
-    success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${appUrl}/pricing?cancelled=1`,
-    metadata: {
-      planKey: plan.key,
-      sectionId: plan.sectionId,
-      interval: plan.interval,
+  try {
+    const result = await createStripeCheckoutSession({
+      planKey: parsed.data.planKey,
+      email: sessionEmail,
       practiceId,
       userId,
-      email: sessionEmail ?? "",
-    },
-    allow_promotion_codes: true,
-  });
-
-  if (!checkoutSession.url) {
-    return NextResponse.json(
-      { error: "Checkout session missing URL" },
-      { status: 500 },
-    );
+    });
+    return NextResponse.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Checkout failed";
+    const status = message.includes("Unknown plan") ? 404 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
-
-  return NextResponse.json({
-    url: checkoutSession.url,
-    sessionId: checkoutSession.id,
-  });
 }

@@ -8,8 +8,10 @@ import { redirect } from "next/navigation";
 
 export default async function CorporationTaxPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ note?: string }>;
 }) {
   let session;
   try {
@@ -18,8 +20,10 @@ export default async function CorporationTaxPage({
     redirect("/clients");
   }
   const { id } = await params;
+  const query = await searchParams;
   const client = await getClient(id);
   const returns = await listCt600Returns(id);
+  const filedElsewhere = query.note === "filed-elsewhere";
 
   return (
     <div>
@@ -33,6 +37,18 @@ export default async function CorporationTaxPage({
         active="corporation-tax"
         moduleAccess={session.moduleAccess}
       />
+
+      {filedElsewhere && (
+        <div className="mb-4 rounded-xl border border-sea/30 bg-sea/5 px-4 py-3 text-sm text-ink">
+          <p className="font-semibold text-ink">CT600 filed elsewhere</p>
+          <p className="mt-1 text-ink-soft">
+            If this return was submitted outside HydraTax, keep a note on the
+            client documents and continue with the current period when HMRC
+            allows. Use the filing form below only for returns you still need to
+            send through Hydra.
+          </p>
+        </div>
+      )}
 
       {client.type !== "limited_company" ? (
         <div className="panel p-5 text-ink-soft">

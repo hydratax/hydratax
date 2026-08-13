@@ -79,3 +79,49 @@ export type CsSubmitResult =
       submissionNumber?: string;
     }
   | { ok: false; error: string; fieldErrors?: Record<string, string> };
+
+export type In01FilingStatus =
+  | "draft"
+  | "validated"
+  | "queued"
+  | "submitting"
+  | "submitted"
+  | "accepted"
+  | "rejected"
+  | "failed";
+
+export type In01FilingRecord = {
+  id: string;
+  status: In01FilingStatus;
+  companyName: string;
+  sameDay: boolean;
+  registeredEmail: string;
+  directorNames: string[];
+  sicCodes: string[];
+  practiceId: string | null;
+  clientId: string | null;
+  /** Encrypted JSON of personal codes + full package input */
+  encryptedSecrets: string | null;
+  chTransactionRef: string | null;
+  chSubmissionNumber: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type In01FilingPublicView = Omit<In01FilingRecord, "encryptedSecrets"> & {
+  secretsPresent: boolean;
+  gatewayReady: boolean;
+};
+
+export type In01SubmitResult =
+  | {
+      ok: true;
+      filingId: string;
+      status: In01FilingStatus;
+      mode: "dry_run" | "xml_gateway" | "queued";
+      message: string;
+      submissionNumber?: string;
+      xmlBytes?: number;
+    }
+  | { ok: false; error: string; fieldErrors?: Record<string, string> };

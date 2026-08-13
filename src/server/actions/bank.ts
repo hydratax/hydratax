@@ -8,11 +8,13 @@ import { isMemoryStore } from "@/lib/env";
 import { memoryStore } from "@/server/demo/store";
 import {
   parseBankCsv,
+  parseBankSpreadsheet,
   summariseForCorporationTax,
   summariseForSelfAssessment,
   type CategorisedLine,
   type BankCategory,
 } from "@/server/bank/categorise";
+import { summariseForYearEndAccounts } from "@/server/accounts/year-end-from-bank";
 import { appendAuditEvent } from "@/server/audit/log";
 import { put } from "@vercel/blob";
 import { isBlobConfigured } from "@/lib/env";
@@ -30,9 +32,22 @@ export async function importBankCsv(formData: FormData) {
   const name = file.name.toLowerCase();
   let lines: CategorisedLine[] = [];
 
-  if (name.endsWith(".csv") || file.type.includes("csv") || file.type === "text/plain") {
-    const text = await file.text();
-    lines = parseBankCsv(text);
+  if (
+    name.endsWith(".csv") ||
+    name.endsWith(".xlsx") ||
+    name.endsWith(".xls") ||
+    file.type.includes("csv") ||
+    file.type === "text/plain" ||
+    file.type.includes("spreadsheet") ||
+    file.type.includes("excel")
+  ) {
+    if (name.endsWith(".csv") || file.type.includes("csv") || file.type === "text/plain") {
+      const text = await file.text();
+      lines = parseBankCsv(text);
+    } else {
+      const buffer = await file.arrayBuffer();
+      lines = parseBankSpreadsheet(buffer, file.name);
+    }
   } else if (name.endsWith(".pdf") || file.type === "application/pdf") {
     // Store PDF for review; text extraction needs OCR/vendor — flag for ops
     let blobUrl = "";
@@ -75,10 +90,14 @@ export async function importBankCsv(formData: FormData) {
         "PDF stored on the client file. For automatic categorisation upload CSV, or connect Open Banking when enabled.",
     };
   } else {
-    throw new Error("Upload a CSV bank export (or PDF to store for review)");
+    throw new Error(
+      "Upload a CSV or Excel bank export (or PDF to store for review)",
+    );
   }
 
-  if (!lines.length) throw new Error("No transactions parsed from CSV");
+  if (!lines.length) {
+    throw new Error("No transactions parsed from the statement file");
+  }
 
   if (isMemoryStore()) {
     for (const line of lines) {
@@ -87,7 +106,7 @@ export async function importBankCsv(formData: FormData) {
         clientId,
         practiceId: session.practiceId,
         ...line,
-        source: "csv",
+        source: name.endsWith(".csv") ? "csv" : "spreadsheet",
         createdAt: new Date().toISOString(),
       });
     }
@@ -103,7 +122,7 @@ export async function importBankCsv(formData: FormData) {
         amountPence: line.amountPence,
         category: line.category,
         confidence: line.confidence,
-        source: "csv",
+        source: name.endsWith(".csv") ? "csv" : "spreadsheet",
       })),
     );
   }
@@ -115,12 +134,13 @@ export async function importBankCsv(formData: FormData) {
     action: "bank.statement.csv_imported",
     entityType: "bank_transaction",
     entityId: clientId,
-    detail: { count: lines.length },
+    detail: { count: lines.length, filename: file.name },
   });
 
   revalidatePath(`/clients/${clientId}/bank`);
   revalidatePath(`/clients/${clientId}/self-assessment`);
   revalidatePath(`/clients/${clientId}/corporation-tax`);
+  revalidatePath(`/clients/${clientId}/accounts-pack`);
 
   return { lines, pdfStored: false, message: `Imported ${lines.length} lines` };
 }
@@ -145,21 +165,29 @@ export async function updateBankCategory(
   category: BankCategory,
 ) {
   const session = await requireSession();
+  let clientId: string | null = null;
   if (isMemoryStore()) {
     const row = memoryStore.bankTransactions.find((t) => t.id === transactionId);
     if (!row) throw new Error("Not found");
     row.category = category;
     row.confidence = "high";
+    clientId = row.clientId;
   } else {
     const { getDb } = await import("@/server/db");
     const { bankTransactions } = await import("@/server/db/schema");
     const { eq } = await import("drizzle-orm");
-    await getDb()
+    const [updated] = await getDb()
       .update(bankTransactions)
       .set({ category, confidence: "high" })
-      .where(eq(bankTransactions.id, transactionId));
+      .where(eq(bankTransactions.id, transactionId))
+      .returning({ clientId: bankTransactions.clientId });
+    clientId = updated?.clientId ?? null;
   }
   revalidatePath(`/clients`);
+  if (clientId) {
+    revalidatePath(`/clients/${clientId}/bank`);
+    revalidatePath(`/clients/${clientId}/accounts-pack`);
+  }
   return { ok: true, actor: session.userId };
 }
 
@@ -177,6 +205,23 @@ export async function getTaxDraftFromBank(clientId: string) {
     corporationTax: summariseForCorporationTax(lines),
     lineCount: lines.length,
   };
+}
+
+export async function getYearEndAccountsDraftFromBank(
+  clientId: string,
+  periodStart: string,
+  periodEnd: string,
+) {
+  await getClient(clientId);
+  const txs = await listBankTransactions(clientId);
+  const lines: CategorisedLine[] = txs.map((t) => ({
+    dated: t.dated,
+    description: t.description,
+    amountPence: t.amountPence,
+    category: t.category as BankCategory,
+    confidence: (t.confidence as CategorisedLine["confidence"]) ?? "low",
+  }));
+  return summariseForYearEndAccounts(lines, { periodStart, periodEnd });
 }
 
 const connectSchema = z.object({

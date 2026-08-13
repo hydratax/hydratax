@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { LEGAL_COMPANY } from "@/lib/legal";
+import { PRACTICE_TRIAL } from "@/lib/trial";
 
 const COLUMNS = [
   {
@@ -8,6 +9,7 @@ const COLUMNS = [
     links: [
       { href: "/#services", label: "HMRC filings" },
       { href: "/pricing", label: "Pricing" },
+      { href: "/pricing#practice", label: "Practice desk trial" },
       { href: "/companies-house", label: "Companies House" },
       { href: "/dashboard", label: "Practice desk" },
     ],
@@ -26,12 +28,12 @@ const COLUMNS = [
   {
     title: "Learn",
     links: [
-      { href: "/#how-it-works", label: "How it works" },
-      { href: "/#features", label: "Features" },
-      { href: "/#why-hydratax", label: "Why Hydra" },
-      { href: "/#reviews", label: "Reviews" },
-      { href: "/feature-requests", label: "Feature requests" },
+      { href: "/blog", label: "Guides" },
+      { href: "/blog/what-is-making-tax-digital", label: "Making Tax Digital" },
+      { href: "/blog/what-is-a-confirmation-statement", label: "Confirmation statement" },
+      { href: "/blog/hmrc-ct600-regulation-changes", label: "CT600 changes" },
       { href: "/support", label: "Support centre" },
+      { href: "/feature-requests", label: "Feature requests" },
     ],
   },
   {
@@ -47,6 +49,7 @@ const COLUMNS = [
     title: "Legal",
     links: [
       { href: "/terms", label: "Terms of Service" },
+      { href: "/terms#free-trial", label: "Free trial policy" },
       { href: "/terms#privacy", label: "Privacy Policy" },
       { href: "/terms#cookies", label: "Cookie Policy" },
       { href: "/legal/dpa", label: "Data Processing Agreement" },
@@ -59,6 +62,22 @@ export function SiteFooter() {
   return (
     <footer className="border-t border-line bg-ink text-white">
       <div className="mx-auto max-w-6xl px-4 py-14 md:px-6">
+        <div className="mb-10 rounded-xl border border-teal-400/25 bg-teal-950/50 px-5 py-5 md:flex md:items-center md:justify-between md:gap-6">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-teal-300">
+              {PRACTICE_TRIAL.shortBadge} · Practice & Custom
+            </p>
+            <p className="mt-1 text-sm text-white/80 md:text-base">
+              {PRACTICE_TRIAL.detail}
+            </p>
+          </div>
+          <Link
+            href={PRACTICE_TRIAL.ctaHref}
+            className="btn btn-light mt-4 shrink-0 text-sm md:mt-0"
+          >
+            View Practice plans
+          </Link>
+        </div>
         <div className="grid gap-10 md:grid-cols-[1.2fr_2fr]">
           <div>
             <Link href="/" className="inline-flex items-center gap-2.5">
@@ -110,6 +129,9 @@ export function SiteFooter() {
           <p className="flex flex-wrap gap-x-4 gap-y-1">
             <Link href="/terms" className="hover:text-white">
               Terms
+            </Link>
+            <Link href="/terms#free-trial" className="hover:text-white">
+              Free trial
             </Link>
             <Link href="/terms#privacy" className="hover:text-white">
               Privacy

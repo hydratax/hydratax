@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { signUpWithSupabase } from "@/server/actions/auth";
+import { safeReturnPath } from "@/lib/auth-return";
 import { OrgChTypeahead } from "@/components/forms/org-ch-typeahead";
 
 const ORG_TYPES = [
@@ -97,6 +98,8 @@ function OrgIcon({ kind, active }: { kind: string; active: boolean }) {
 
 export function CreateAccountForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnPath = safeReturnPath(searchParams.get("next"));
   const [orgType, setOrgType] = useState<(typeof ORG_TYPES)[number]["id"]>(
     "practice",
   );
@@ -121,9 +124,13 @@ export function CreateAccountForm() {
   return (
     <div className="overflow-hidden rounded-2xl border border-line bg-white shadow-[0_24px_60px_-40px_rgba(10,10,10,0.45)]">
       <div className="bg-sea px-6 py-6 text-white md:px-8">
-        <h1 className="display text-3xl md:text-4xl">Create your account</h1>
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-teal-100">
+          Get started
+        </p>
+        <h1 className="display mt-1 text-3xl md:text-4xl">Create your account</h1>
         <p className="mt-2 text-white/80">
-          Set up your organisation and start filing taxes efficiently.
+          Company, sole trader, partnership, or multi-client practice — then
+          choose the plan that fits when you need filing rails.
         </p>
       </div>
 
@@ -145,8 +152,13 @@ export function CreateAccountForm() {
                 email: String(fd.get("email") ?? ""),
                 password: String(fd.get("password") ?? ""),
                 confirmPassword: String(fd.get("confirmPassword") ?? ""),
+                startTrial: false,
               });
-              router.push(result.redirectTo);
+              router.push(
+                result.redirectTo.startsWith("/sign-in")
+                  ? `${result.redirectTo}&next=${encodeURIComponent(returnPath)}`
+                  : result.redirectTo || returnPath,
+              );
               router.refresh();
             } catch (err) {
               setError(

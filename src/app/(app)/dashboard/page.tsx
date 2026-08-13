@@ -4,9 +4,12 @@ import { requireSession } from "@/server/auth/session";
 import { isPlatformAdmin } from "@/server/auth/admin";
 import { getHmrcEnvInfo } from "@/server/actions/hmrc-connect";
 import { getPracticeEntitlements } from "@/server/actions/account";
+import { getPracticeTrialStatus } from "@/server/billing/trial-status";
 import { DashboardClientList } from "@/components/dashboard-client-list";
+import { ClaimFreeTrialButton } from "@/components/claim-free-trial-button";
 import { moduleLabel, type ServiceModule } from "@/lib/entitlements";
 import { displayPracticeName } from "@/lib/practice-name";
+import { PRACTICE_TRIAL_DAYS } from "@/lib/trial";
 
 const RAIL_LINKS: {
   module: ServiceModule;
@@ -57,7 +60,16 @@ export default async function DashboardPage() {
   const clients = await listClients();
   const hmrc = await getHmrcEnvInfo();
   const entitlements = await getPracticeEntitlements();
+  const trial = await getPracticeTrialStatus(session.practiceId);
   const unlocked = new Set(entitlements.modules);
+
+  const trialEndsLabel = trial.trialEndsAt
+    ? new Date(trial.trialEndsAt).toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })
+    : null;
 
   const stats = [
     ["Clients", String(clients.length), "Across your practice"],
@@ -117,18 +129,37 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+      {trial.onTrial && (
+        <aside className="panel border-sea/40 bg-sea/5 p-5">
+          <p className="font-semibold text-ink">
+            {PRACTICE_TRIAL_DAYS}-day free trial active
+          </p>
+          <p className="mt-1 text-sm text-ink-soft">
+            No Hydra fees and free submissions until
+            {trialEndsLabel ? ` ${trialEndsLabel}` : " your trial ends"}.
+            Companies House statutory fees still apply where charged. Add a paid
+            plan before the trial ends to keep filing without interruption.
+          </p>
+          <Link href="/pricing" className="btn btn-secondary mt-4 text-sm">
+            Choose plan after trial
+          </Link>
+        </aside>
+      )}
+
       {!entitlements.hasAnyPaid && (
         <aside className="panel border-accent/40 bg-accent/5 p-5">
-          <p className="font-semibold text-ink">Unlock services with a plan</p>
+          <p className="font-semibold text-ink">Unlock Practice or Custom features</p>
           <p className="mt-1 text-sm text-ink-soft">
-            Your dashboard unlocks when a Stripe plan is linked to this practice.
-            If you already paid, refresh this page once — we re-attach checkouts
-            by email. Accountants with multiple clients should use a Practice
-            desk plan.
+            Multi-client desk, CT600, VAT, PAYE and more unlock with a Practice
+            or Custom plan. Start a 7-day free trial (card saved now — first
+            charge on day 8), or choose Solo / other modules on pricing.
           </p>
-          <Link href="/pricing" className="btn btn-primary mt-4 text-sm">
-            View pricing & checkout
-          </Link>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <ClaimFreeTrialButton />
+            <Link href="/pricing" className="btn btn-secondary text-sm">
+              View all plans
+            </Link>
+          </div>
         </aside>
       )}
 
@@ -170,10 +201,10 @@ export default async function DashboardPage() {
                   </Link>
                 ) : (
                   <Link
-                    href="/pricing"
+                    href="/pricing#practice"
                     className="mt-3 inline-block text-sm font-semibold text-accent"
                   >
-                    Unlock with plan →
+                    Try Practice free →
                   </Link>
                 )}
               </div>

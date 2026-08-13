@@ -85,6 +85,7 @@ export const clients = pgTable(
     isEmployer: boolean("is_employer").notNull().default(false),
     isVatRegistered: boolean("is_vat_registered").notNull().default(false),
     contactEmail: text("contact_email"),
+    payrollPackPasswordEncrypted: text("payroll_pack_password_encrypted"),
     /** JSON snapshot from Companies House Public Data API */
     companiesHouse: jsonb("companies_house"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -213,6 +214,19 @@ export const employees = pgTable(
     taxCode: text("tax_code").notNull(),
     annualSalaryPence: integer("annual_salary_pence").notNull(),
     startDate: text("start_date").notNull(),
+    payrollId: text("payroll_id"),
+    payFrequency: text("pay_frequency").notNull().default("M1"),
+    niCategory: text("ni_category").notNull().default("A"),
+    jobTitle: text("job_title"),
+    leaveDate: text("leave_date"),
+    starterDeclaration: text("starter_declaration"),
+    firstFpsSent: boolean("first_fps_sent").notNull().default(false),
+    previousPayrollId: text("previous_payroll_id"),
+    hoursPerWeek: integer("hours_per_week").notNull().default(3750),
+    hourlyRatePence: integer("hourly_rate_pence").notNull().default(0),
+    payBasis: text("pay_basis").notNull().default("salary"),
+    pensionOptOut: boolean("pension_opt_out").notNull().default(false),
+    sspQualifyingDays: integer("ssp_qualifying_days").notNull().default(5),
     active: boolean("active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -229,6 +243,8 @@ export const payRuns = pgTable("pay_runs", {
   payDate: text("pay_date").notNull(),
   periodStart: text("period_start").notNull(),
   periodEnd: text("period_end").notNull(),
+  payFrequency: text("pay_frequency").notNull().default("M1"),
+  kind: text("kind").notNull().default("FPS"),
   status: submissionStatusEnum("status").notNull().default("draft"),
   totals: jsonb("totals").notNull(),
   lines: jsonb("lines").notNull(),
@@ -239,6 +255,31 @@ export const payRuns = pgTable("pay_runs", {
     .defaultNow()
     .notNull(),
 });
+
+export const payrollTimesheets = pgTable(
+  "payroll_timesheets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id),
+    periodStart: text("period_start").notNull(),
+    periodEnd: text("period_end").notNull(),
+    filename: text("filename").notNull(),
+    rows: jsonb("rows").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("payroll_timesheets_client_idx").on(t.clientId),
+    uniqueIndex("payroll_timesheets_period_uidx").on(
+      t.clientId,
+      t.periodStart,
+      t.periodEnd,
+    ),
+  ],
+);
 
 /** Append-only immutable audit log — no update/delete paths in application code. */
 export const auditEvents = pgTable(
@@ -305,6 +346,10 @@ export const practiceSubscriptions = pgTable(
     status: text("status").notNull().default("active"),
     stripeSessionId: text("stripe_session_id"),
     stripeSubscriptionId: text("stripe_subscription_id"),
+    trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+    trialReminderSentAt: timestamp("trial_reminder_sent_at", {
+      withTimezone: true,
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

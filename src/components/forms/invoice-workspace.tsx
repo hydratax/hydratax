@@ -284,9 +284,11 @@ export function InvoiceWorkspace({
 export function InvoiceSummaryCards({
   clientId,
   invoices,
+  title = "Invoices",
 }: {
   clientId: string;
   invoices: MemoryInvoice[];
+  title?: string;
 }) {
   const open = invoices.filter(
     (i) => i.status === "due" || i.status === "sent" || i.status === "draft",
@@ -295,9 +297,13 @@ export function InvoiceSummaryCards({
   const dueSoon = open.filter((i) => !isOverdue(i));
 
   return (
-    <div className="panel p-5">
+    <div
+      className={`panel p-5 ${
+        overdue.length ? "border-danger/35 ring-1 ring-danger/15" : ""
+      }`}
+    >
       <div className="flex items-center justify-between gap-3">
-        <h2 className="display text-2xl">Invoices</h2>
+        <h2 className="display text-2xl">{title}</h2>
         <Link
           href={`/clients/${clientId}/invoices`}
           className="text-sm font-semibold text-sea"
@@ -305,6 +311,12 @@ export function InvoiceSummaryCards({
           Open →
         </Link>
       </div>
+      {overdue.length > 0 && (
+        <p className="mt-2 text-sm text-danger">
+          {overdue.length} overdue invoice{overdue.length === 1 ? "" : "s"} need
+          attention.
+        </p>
+      )}
       <dl className="mt-4 grid gap-3 sm:grid-cols-3 text-sm">
         <div>
           <dt className="text-ink-soft">Open</dt>

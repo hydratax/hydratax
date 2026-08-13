@@ -1,21 +1,28 @@
 import Link from "next/link";
-import Image from "next/image";
 import {
-  CH_FEE_SOURCE,
   CH_SERVICE_DETAILS,
   formatChFeeBreakdown,
 } from "@/lib/ch-services";
-import { HYDRA_SERVICE_FEE_POUNDS } from "@/lib/pricing";
 import { SiteFooter } from "@/components/site-footer";
+import { LandingHeader } from "@/components/landing/landing-header";
 import { CompanySearchPanel } from "@/components/companies-house/company-search-panel";
 import { FaqSection } from "@/components/faq-section";
 import { faqsForProduct } from "@/lib/product-faqs";
 
 export const metadata = {
   title:
-    "Companies House Services — Confirmation Statement, Accounts, Incorporation",
+    "Companies House filing — confirmation statement, accounts & incorporation",
   description:
-    "File Companies House confirmation statements, iXBRL accounts, incorporation and more with HydraTax. Fees from the official GOV.UK Companies House schedule plus Hydra service charge.",
+    "File a Companies House confirmation statement, iXBRL annual accounts or UK company incorporation with HydraTax. Statutory CH fees plus a flat Hydra service charge.",
+  keywords: [
+    "file confirmation statement",
+    "Companies House filing software",
+    "CS01 online",
+    "file annual accounts Companies House",
+    "company incorporation UK",
+    "iXBRL accounts filing",
+  ],
+  alternates: { canonical: "/companies-house" },
 };
 
 export default function CompaniesHousePage() {
@@ -23,78 +30,22 @@ export default function CompaniesHousePage() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-line bg-white/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-6">
-          <Link href="/" className="inline-flex items-center gap-2.5">
-            <Image src="/brand/logo.png" alt="HydraTax" width={32} height={32} />
-            <span className="display text-lg font-semibold text-ink">
-              HydraTax
-            </span>
-          </Link>
-          <nav className="flex items-center gap-3 text-sm font-semibold">
-            <Link
-              href="/companies-house/personal-code"
-              className="text-ink-soft hover:text-ink"
-            >
-              Personal codes
-            </Link>
-            <Link href="/pricing" className="text-ink-soft hover:text-ink">
-              Pricing
-            </Link>
-            <Link href="/create-account" className="btn btn-primary text-sm">
-              Create account
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <LandingHeader />
 
       <main>
-        <section className="relative overflow-hidden bg-ink px-4 py-16 text-white md:px-6 md:py-20">
-          <div className="relative mx-auto max-w-6xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-teal-300/80">
-              Companies House
-            </p>
-            <h1 className="display mt-3 max-w-3xl text-4xl md:text-6xl">
-              Companies House filings — priced transparently
-            </h1>
-            <p className="mt-4 max-w-2xl text-white/65">
-              Statutory fees from the official Companies House schedule, plus a
-              flat £{HYDRA_SERVICE_FEE_POUNDS} Hydra service charge. Each
-              service has its own guidance and request form.
-            </p>
-            <aside className="mt-6 max-w-2xl rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm text-white/75">
-              Fee source:{" "}
-              <a
-                href={CH_FEE_SOURCE.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-semibold text-teal-200 underline"
-              >
-                {CH_FEE_SOURCE.title}
-              </a>
-              . Crown copyright — Open Government Licence.
-            </aside>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <Link
-                href="/companies-house/personal-code"
-                className="btn btn-light"
-              >
-                Director personal codes
-              </Link>
-              <Link href="/create-account" className="btn btn-ghost-light">
-                Create account
-              </Link>
-            </div>
+        <section className="relative overflow-visible bg-ink px-4 pb-14 pt-32 text-white sm:pb-16 sm:pt-36 md:px-6 md:pb-20 md:pt-40">
+          <div className="relative mx-auto max-w-2xl">
+            <CompanySearchPanel
+              variant="hero"
+              heading="Find your company"
+              description={null}
+            />
           </div>
         </section>
 
-        <section className="mx-auto max-w-6xl px-4 py-12 md:px-6">
-          <CompanySearchPanel />
-        </section>
-
-        <section className="mx-auto max-w-6xl px-4 py-12 md:px-6">
-          <h2 className="display text-3xl text-ink">Most requested</h2>
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
+        <section className="mx-auto max-w-6xl px-4 py-10 md:px-6 md:py-12">
+          <h2 className="display text-2xl text-ink sm:text-3xl">Most requested</h2>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 md:grid-cols-3">
             {popular.map((s) => {
               const fees = formatChFeeBreakdown(s);
               return (
@@ -122,8 +73,8 @@ export default function CompaniesHousePage() {
         </section>
 
         <section className="border-t border-line bg-white/70">
-          <div className="mx-auto max-w-6xl px-4 py-14 md:px-6">
-            <h2 className="display text-3xl text-ink md:text-4xl">
+          <div className="mx-auto max-w-6xl px-4 py-12 md:px-6 md:py-14">
+            <h2 className="display text-2xl text-ink sm:text-3xl md:text-4xl">
               Full Companies House service list
             </h2>
             <p className="mt-2 max-w-2xl text-ink-soft">
@@ -131,7 +82,7 @@ export default function CompaniesHousePage() {
               links, and a custom request form.
             </p>
 
-            <div className="mt-8 grid gap-3 md:grid-cols-2">
+            <div className="mt-8 grid gap-3 sm:grid-cols-2">
               {CH_SERVICE_DETAILS.map((s) => {
                 const fees = formatChFeeBreakdown(s);
                 return (
@@ -140,32 +91,19 @@ export default function CompaniesHousePage() {
                     href={`/companies-house/${s.id}`}
                     className="panel flex items-start justify-between gap-4 p-4 transition hover:border-sea"
                   >
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-semibold text-ink">{s.title}</p>
                       <p className="mt-1 text-xs text-ink-soft">
                         {s.channel} · CH {fees.statutory} + Hydra {fees.hydra}
                       </p>
                     </div>
-                    <span className="price-amount text-2xl shrink-0">
+                    <span className="price-amount shrink-0 text-xl sm:text-2xl">
                       {fees.total}
                     </span>
                   </Link>
                 );
               })}
             </div>
-
-            <p className="mt-6 text-xs text-ink-soft">
-              Official fee schedule:{" "}
-              <a
-                href={CH_FEE_SOURCE.url}
-                className="text-sea underline"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                GOV.UK Companies House fees
-              </a>
-              . Always verify the latest statutory rate before filing.
-            </p>
 
             <FaqSection
               title="Companies House FAQs"

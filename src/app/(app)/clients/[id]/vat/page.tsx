@@ -3,9 +3,10 @@ import {
   listVatObligations,
   listVatReturns,
 } from "@/server/actions/vat";
+import { getConnectionStatus } from "@/server/actions/hmrc-connect";
 import { requireModule } from "@/server/auth/session";
 import { ClientTabs } from "@/components/client-tabs";
-import { VatFilingForm } from "@/components/forms/vat-filing-form";
+import { VatReturnsWorkspace } from "@/components/forms/vat-returns-workspace";
 import { redirect } from "next/navigation";
 
 export default async function VatPage({
@@ -21,46 +22,32 @@ export default async function VatPage({
   }
   const { id } = await params;
   const client = await getClient(id);
-  const obligations = await listVatObligations(id);
-  const returns = await listVatReturns(id);
+  const [obligations, returns, connection] = await Promise.all([
+    listVatObligations(id),
+    listVatReturns(id),
+    getConnectionStatus(id),
+  ]);
 
   return (
     <div>
-      <h1 className="display text-4xl text-ink">{client.name}</h1>
-      <p className="mt-1 text-ink-soft">
-        MTD VAT · VRN {client.vrn ?? "not set"}
-      </p>
       <ClientTabs
         clientId={id}
         active="vat"
         moduleAccess={session.moduleAccess}
       />
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="panel p-5">
-          <h2 className="display text-2xl">File VAT return</h2>
-          <p className="mt-1 text-sm text-ink-soft">
-            Period → trial balance or books → nine boxes → submit.
-          </p>
-          <div className="mt-4">
-            <VatFilingForm clientId={id} obligations={obligations} />
-          </div>
-        </div>
-        <div className="panel p-5">
-          <h2 className="display text-2xl">Submitted returns</h2>
-          <ul className="mt-3 divide-y divide-line text-sm">
-            {returns.length === 0 && (
-              <li className="py-3 text-ink-soft">No returns yet.</li>
-            )}
-            {returns.map((r) => (
-              <li key={String(r.id)} className="flex justify-between py-2">
-                <span className="font-semibold">{String(r.periodKey)}</span>
-                <span className="badge badge-ok">{String(r.status)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
+      <VatReturnsWorkspace
+        clientId={id}
+        clientName={client.name}
+        vrn={client.vrn ?? null}
+        connected={connection.connected}
+        signedIn
+        obligations={obligations}
+        returns={returns.map((r) => ({
+          id: String(r.id),
+          periodKey: String(r.periodKey),
+          status: String(r.status),
+        }))}
+      />
     </div>
   );
 }

@@ -26,8 +26,11 @@ export async function ensureSupabasePractice(user: {
       | { id: string; name: string }[]
       | null;
     const row = Array.isArray(practice) ? practice[0] : practice;
+    const practiceId = membership.practice_id as string;
+    // Recover trial if signup raced ahead of seeding
+    await seedTrialIfEligible(user, practiceId);
     return {
-      practiceId: membership.practice_id as string,
+      practiceId,
       practiceName: row?.name ?? "Your practice",
       role: (membership.role as string) ?? "owner",
     };
@@ -87,8 +90,10 @@ export async function ensureSupabasePractice(user: {
         | { id: string; name: string }[]
         | null;
       const row = Array.isArray(practiceRel) ? practiceRel[0] : practiceRel;
+      const practiceId = again.practice_id as string;
+      await seedTrialIfEligible(user, practiceId);
       return {
-        practiceId: again.practice_id as string,
+        practiceId,
         practiceName: row?.name ?? practice.name,
         role: (again.role as string) ?? "owner",
       };
@@ -107,9 +112,36 @@ export async function ensureSupabasePractice(user: {
     });
   }
 
+  await seedTrialIfEligible(user, practice.id as string);
+
   return {
     practiceId: practice.id as string,
     practiceName: practice.name as string,
     role: "owner",
   };
+}
+
+/** Idempotent: starts 7-day Practice desk trial when eligible (no Stripe / local only). */
+async function seedTrialIfEligible(
+  user: { user_metadata?: Record<string, unknown> | null },
+  practiceId: string,
+) {
+  const { isStripeConfigured } = await import("@/lib/env");
+  // With Stripe, trial starts only via Practice/Custom Checkout.
+  if (isStripeConfigured()) return;
+
+  const meta = user.user_metadata ?? {};
+  const wantsTrial =
+    meta.start_trial === true ||
+    meta.start_trial === "true" ||
+    meta.start_trial === "1";
+  if (!wantsTrial) return;
+  try {
+    const { startPracticeTrial } = await import(
+      "@/server/billing/start-practice-trial"
+    );
+    await startPracticeTrial(practiceId);
+  } catch {
+    /* trial seed is best-effort */
+  }
 }

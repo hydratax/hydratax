@@ -216,5 +216,163 @@ export async function listVatObligations(clientId: string) {
   ];
 }
 
+const connectSchema = z.object({
+  clientId: z.string().min(1),
+  filingAs: z.enum(["business", "agent"]),
+  vrn: z
+    .string()
+    .trim()
+    .regex(/^\d{9}$/, "VAT number must be 9 digits"),
+  agentArn: z.string().trim().optional(),
+  vatRegistrationDate: z.string().optional(),
+});
+
+/**
+ * Persist VRN (and optional agent details) before redirecting to HMRC OAuth.
+ * ARN / registration date are kept on the practice profile in memory + audit log
+ * so agents are not asked again on this client.
+ */
+export async function saveVatHmrcConnectDetails(
+  input: z.infer<typeof connectSchema>,
+) {
+  const session = await requireSession();
+  if (session.role === "readonly") throw new Error("Forbidden");
+  const data = connectSchema.parse(input);
+
+  if (data.filingAs === "agent") {
+    if (!data.agentArn?.trim()) {
+      throw new Error("Enter your Agent Reference Number (ARN)");
+    }
+    if (!data.vatRegistrationDate?.trim()) {
+      throw new Error("Enter the client’s VAT registration date");
+    }
+  }
+
+  const client = await getClient(data.clientId);
+
+  if (isDemoMode()) {
+    const row = demoStore.clients.find((c) => c.id === data.clientId);
+    if (!row) throw new Error("Client not found");
+    row.vrn = data.vrn;
+    row.isVatRegistered = true;
+    row.updatedAt = new Date().toISOString();
+    if (!demoStore.accountProfile) {
+      demoStore.accountProfile = {
+        orgType: "practice",
+        orgSearch: "",
+        firstName: "",
+        createdAt: new Date().toISOString(),
+      };
+    }
+    Object.assign(demoStore.accountProfile, {
+      agentArn: data.filingAs === "agent" ? data.agentArn : undefined,
+    });
+    (row as { vatRegistrationDate?: string }).vatRegistrationDate =
+      data.vatRegistrationDate ?? undefined;
+  } else {
+    const { getDb } = await import("@/server/db");
+    const { clients } = await import("@/server/db/schema");
+    const { and, eq } = await import("drizzle-orm");
+    await getDb()
+      .update(clients)
+      .set({
+        vrn: data.vrn,
+        isVatRegistered: true,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(clients.id, data.clientId),
+          eq(clients.practiceId, session.practiceId),
+        ),
+      );
+  }
+
+  await appendAuditEvent({
+    practiceId: session.practiceId,
+    clientId: data.clientId,
+    actorId: session.userId,
+    action: "vat.hmrc_connect.prepare",
+    entityType: "hmrc_connection",
+    entityId: data.clientId,
+    detail: {
+      filingAs: data.filingAs,
+      vrn: data.vrn,
+      hasArn: Boolean(data.agentArn),
+      hasVatRegDate: Boolean(data.vatRegistrationDate),
+      clientName: client.name,
+    },
+  });
+
+  revalidatePath(`/clients/${data.clientId}/vat`);
+  revalidatePath(`/clients/${data.clientId}`);
+  return {
+    ok: true as const,
+    authorizeUrl: `/api/hmrc/authorize?clientId=${encodeURIComponent(data.clientId)}&returnTo=vat`,
+  };
+}
+
+const manualBoxesSchema = z.object({
+  clientId: z.string(),
+  periodKey: z.string(),
+  periodStart: z.string(),
+  periodEnd: z.string(),
+  boxes: z.object({
+    vatDueSales: z.number(),
+    vatDueAcquisitions: z.number(),
+    totalVatDue: z.number(),
+    vatReclaimedCurrPeriod: z.number(),
+    netVatDue: z.number(),
+    totalValueSalesExVAT: z.number(),
+    totalValuePurchasesExVAT: z.number(),
+    totalValueGoodsSuppliedExVAT: z.number(),
+    totalAcquisitionsExVAT: z.number(),
+  }),
+});
+
+/** Save manually entered / uploaded nine-box figures (values in pence). */
+export async function prepareVatReturnFromBoxes(
+  input: z.infer<typeof manualBoxesSchema>,
+) {
+  const session = await requireSession();
+  const data = manualBoxesSchema.parse(input);
+  const client = await getClient(data.clientId);
+  if (!client.isVatRegistered || !client.vrn) {
+    throw new Error("Client is not VAT registered — connect to HMRC first");
+  }
+
+  const draft = {
+    id: crypto.randomUUID(),
+    clientId: data.clientId,
+    periodKey: data.periodKey,
+    status: "ready",
+    boxes: data.boxes,
+    periodStart: data.periodStart,
+    periodEnd: data.periodEnd,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (isDemoMode()) {
+    demoStore.vatReturns = demoStore.vatReturns.filter(
+      (r) =>
+        !(r.clientId === data.clientId && r.periodKey === data.periodKey),
+    );
+    demoStore.vatReturns.push(draft);
+  }
+
+  await appendAuditEvent({
+    practiceId: session.practiceId,
+    clientId: data.clientId,
+    actorId: session.userId,
+    action: "vat.prepare.manual",
+    entityType: "vat_return",
+    entityId: draft.id,
+    detail: { periodKey: data.periodKey, boxes: data.boxes },
+  });
+
+  revalidatePath(`/clients/${data.clientId}/vat`);
+  return draft;
+}
+
 /** @deprecated Use listVatObligations */
 export const getDemoVatObligations = listVatObligations;

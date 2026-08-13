@@ -4,15 +4,19 @@ export const CH_SERVICE_FAQS: Record<string, FaqItem[]> = {
   incorporation: [
     {
       q: "What do I need to incorporate a limited company?",
-      a: "A unique company name, UK registered office, at least one director, share capital details, SIC code(s), and (from 18 Nov 2025) director personal codes after identity verification.",
+      a: "Use the guided IN01 wizard: company name (live register check), UK registered office, registered email, directors with personal codes and home addresses, share capital/shareholders, and SIC code(s). Hydra builds the Companies House XML package with model articles.",
+    },
+    {
+      q: "Can I incorporate with only a personal code?",
+      a: "No. A personal code confirms a director’s identity for appointment, but incorporation also needs company details, subscribers/share capital, SIC codes, and Hydra’s Companies House software presenter credentials to submit the filing.",
     },
     {
       q: "Can HydraTax verify a director’s identity?",
-      a: "No. Identity verification is done via GOV.UK One Login or an ACSP. Hydra links you to the official journey and uses personal codes at filing time.",
+      a: "No. Identity verification is done via GOV.UK One Login or an ACSP. Enter the personal codes on the incorporation form once verification is complete.",
     },
     {
       q: "How much does incorporation cost?",
-      a: "Companies House charges £100 for digital/software incorporation (paper £124). Hydra adds its service fee on top. Always check the GOV.UK fee schedule.",
+      a: "Companies House charges £100 for digital/software incorporation (paper £124). Hydra adds its service fee on top.",
     },
   ],
   "incorporation-same-day": [
@@ -61,41 +65,21 @@ export const CH_SERVICE_FAQS: Record<string, FaqItem[]> = {
       a: "£85 digital/software per the Companies House fee schedule, plus Hydra’s service charge.",
     },
   ],
-  "voluntary-strike-off": [
-    {
-      q: "Can any company apply to strike off?",
-      a: "No. Eligibility rules apply (for example trading, creditor and HMRC positions). Confirm eligibility before requesting DS01.",
-    },
-  ],
-  "registration-of-charge": [
-    {
-      q: "What is a charge registration?",
-      a: "It notifies Companies House of a security interest against the company. Statutory digital fee is £14. Filing deadlines under the Companies Act still apply.",
-    },
-  ],
-  "certificate-incorporation": [
-    {
-      q: "Is this an electronic certificate?",
-      a: "This product covers the postal certificate of incorporation service (£22 standard). Same-day postal options cost more on the GOV.UK schedule.",
-    },
-  ],
-  "certified-copy": [
-    {
-      q: "What document can I certify?",
-      a: "A filed Companies House document for the company. You need the company number and a clear document reference.",
-    },
-  ],
 };
 
 export const PRODUCT_FAQS: Record<string, FaqItem[]> = {
   practice: [
+    {
+      q: "Is there a free trial?",
+      a: "Yes on Practice and Custom desk plans — 7 days free. You add a card at checkout (£0 today); the first charge is on day 8. Solo and other module plans do not include a free trial. No Hydra fees and free submissions while you trial. Companies House statutory fees still apply where charged. We email you on day 7 before billing starts. Cancel anytime before day 8.",
+    },
     {
       q: "Who is the Practice desk for?",
       a: "Accountants and bookkeepers managing multiple clients from one workspace — books, documents, HMRC rails and Companies House requests.",
     },
     {
       q: "How do plan limits work?",
-      a: "Your Stripe plan unlocks modules and client caps (for example Solo up to 15 clients). Rails stay locked until payment activates the plan.",
+      a: "Practice is capped at 50 clients and includes CT600, MTD VAT and 50 Self Assessments. Solo is one client. Custom unlocks only the HMRC modules you pick, with volume discounts as client count grows.",
     },
   ],
   vat: [
@@ -131,7 +115,15 @@ export const PRODUCT_FAQS: Record<string, FaqItem[]> = {
   payroll: [
     {
       q: "What RTI submissions are supported?",
-      a: "Pay runs with FPS on payday and EPS for no-payment periods, calculated in integer pence.",
+      a: "Weekly or monthly pay runs with a Full Payment Submission (FPS) on or before payday, and an Employer Payment Summary (EPS) when nobody was paid. HydraTax previews year-to-date figures and blocks reused payroll IDs before the XML is built.",
+    },
+    {
+      q: "Can I print payslips and send them to the client?",
+      a: "Yes. After an FPS, open History & packs to print each payslip, or email a password-protected zip of every payslip plus a payroll summary. You set the password yourself.",
+    },
+    {
+      q: "Can payslips be generated from a timesheet?",
+      a: "Upload an Excel timesheet (hours, sick days, holiday, maternity). HydraTax matches staff and applies 2026/27 HMRC rates for statutory sick pay, maternity pay, holiday accrual and auto-enrolment.",
     },
   ],
   "companies-house": [

@@ -1,6 +1,6 @@
 import Link from "next/link";
-import Image from "next/image";
 import { SiteFooter } from "@/components/site-footer";
+import { SiteHeader } from "@/components/site-header";
 import { isStripeConfigured } from "@/lib/env";
 import { getStripe } from "@/server/stripe/client";
 import {
@@ -42,22 +42,13 @@ export default async function CheckoutSuccessPage({
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-line bg-white/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-6">
-          <Link href="/" className="inline-flex items-center gap-2.5">
-            <Image src="/brand/logo.png" alt="HydraTax" width={32} height={32} />
-            <span className="display text-lg font-semibold text-ink">
-              HydraTax
-            </span>
-          </Link>
-        </div>
-      </header>
+      <SiteHeader />
 
-      <main className="mx-auto flex max-w-lg flex-col items-center px-4 py-20 text-center">
+      <main className="mx-auto flex max-w-lg flex-col items-center px-4 py-12 text-center md:py-20">
         <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
           Checkout complete
         </p>
-        <h1 className="display mt-3 text-4xl text-ink md:text-5xl">
+        <h1 className="display mt-3 text-3xl text-ink sm:text-4xl md:text-5xl">
           You&apos;re in
         </h1>
         <p className="mt-4 text-ink-soft">

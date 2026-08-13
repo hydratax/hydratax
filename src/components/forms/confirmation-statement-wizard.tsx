@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   fileConfirmationStatement,
   prepareConfirmationStatementFiling,
@@ -15,12 +14,63 @@ type DirectorRow = {
   codeOnFile: boolean;
 };
 
+type RegisterView = {
+  companyName: string;
+  confirmationDate: string;
+  nextDue: string | null;
+  registeredOffice: string;
+  sicCodes: string;
+  directors: { name: string; role: string | null; appointedOn: string | null }[];
+  pscs: { name: string | null; naturesOfControl: string[] }[];
+};
+
 const emptyDirector = (name = ""): DirectorRow => ({
   fullName: name,
   dateOfBirth: "",
   personalCode: "",
   codeOnFile: false,
 });
+
+function formatAddress(addr?: Record<string, string | undefined> | null) {
+  if (!addr) return "";
+  return [
+    addr.address_line_1,
+    addr.address_line_2,
+    addr.locality,
+    addr.region,
+    addr.postal_code,
+    addr.country,
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function registerFromSnapshot(
+  snap: ClientCompaniesHouseSnapshot | null | undefined,
+): RegisterView | null {
+  if (!snap?.companyNumber) return null;
+  return {
+    companyName: snap.companyName,
+    confirmationDate:
+      snap.confirmationStatementNextDue?.slice(0, 10) ??
+      snap.confirmationStatementLastMadeUpTo?.slice(0, 10) ??
+      "",
+    nextDue: snap.confirmationStatementNextDue,
+    registeredOffice: snap.registeredOffice ?? "",
+    sicCodes: (snap.sicCodes ?? []).join(", "),
+    directors: (snap.directors ?? [])
+      .filter((d) => !d.resignedOn)
+      .map((d) => ({
+        name: d.name,
+        role: d.role,
+        appointedOn: d.appointedOn,
+      })),
+    pscs: (snap.pscs ?? []).map((p) => ({
+      name: p.name,
+      naturesOfControl: p.naturesOfControl ?? [],
+    })),
+  };
+}
 
 export function ConfirmationStatementWizard({
   defaults,
@@ -36,15 +86,25 @@ export function ConfirmationStatementWizard({
   snapshot?: ClientCompaniesHouseSnapshot | null;
 }) {
   const [step, setStep] = useState(0);
+  const [searchQuery, setSearchQuery] = useState(
+    snapshot?.companyName ?? defaults?.companyNumber ?? "",
+  );
   const [companyNumber, setCompanyNumber] = useState(
     defaults?.companyNumber ?? snapshot?.companyNumber ?? "",
   );
-  const [companyName, setCompanyName] = useState(snapshot?.companyName ?? "");
-  const [confirmationDate, setConfirmationDate] = useState(
-    snapshot?.confirmationStatementLastMadeUpTo?.slice(0, 10) ?? "",
+  const [searchHits, setSearchHits] = useState<
+    Array<{
+      company_number: string;
+      title: string;
+      company_status?: string;
+      address_snippet?: string;
+    }>
+  >([]);
+  const [register, setRegister] = useState<RegisterView | null>(() =>
+    registerFromSnapshot(snapshot),
   );
+  const [lookupPending, setLookupPending] = useState(false);
   const [companyAuthCode, setCompanyAuthCode] = useState("");
-  const [registeredEmail, setRegisteredEmail] = useState("");
   const [lawful, setLawful] = useState(false);
   const [registerConfirmed, setRegisterConfirmed] = useState(false);
   const [sicCodes, setSicCodes] = useState(
@@ -62,10 +122,160 @@ export function ConfirmationStatementWizard({
   const [filingId, setFilingId] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
+  const companyName = register?.companyName ?? "";
+  const confirmationDate = register?.confirmationDate ?? "";
+
   const steps = useMemo(
     () => ["Company", "Confirm register", "Identity codes", "File"],
     [],
   );
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchHits([]);
+      return;
+    }
+    // Don't re-search once a company is selected and the field shows its name
+    if (register && q === register.companyName) return;
+
+    const t = setTimeout(() => {
+      void searchByName();
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce on query only
+  }, [searchQuery]);
+
+  async function searchByName() {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setError("Enter at least 2 characters of the company name.");
+      return;
+    }
+    setLookupPending(true);
+    setError(null);
+    setSearchHits([]);
+    setRegister(null);
+    try {
+      // Pure digits → treat as company number shortcut
+      if (/^[A-Z0-9]{6,8}$/i.test(q) && !/\s/.test(q)) {
+        setCompanyNumber(q.toUpperCase());
+        await lookupCompany(q.toUpperCase());
+        return;
+      }
+      const res = await fetch(
+        `/api/companies-house/search?q=${encodeURIComponent(q)}`,
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Search failed");
+      const items = (data.items ?? []) as Array<{
+        company_number: string;
+        title: string;
+        company_status?: string;
+        address_snippet?: string;
+      }>;
+      setSearchHits(items);
+      if (items.length === 0) {
+        setError(data.message ?? "No companies matched that name.");
+      } else if (items.length === 1) {
+        setCompanyNumber(items[0].company_number);
+        setSearchQuery(items[0].title);
+        await lookupCompany(items[0].company_number);
+        setSearchHits([]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Search failed");
+    } finally {
+      setLookupPending(false);
+    }
+  }
+
+  async function lookupCompany(num: string) {
+    setLookupPending(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/companies-house/search?company_number=${encodeURIComponent(num)}`,
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Lookup failed");
+      const profile = data.profile as {
+        company_name?: string;
+        company_number?: string;
+        sic_codes?: string[];
+        registered_office_address?: Record<string, string | undefined>;
+        confirmation_statement?: {
+          next_due?: string;
+          next_made_up_to?: string;
+          last_made_up_to?: string;
+        };
+      } | undefined;
+      if (!profile?.company_name) {
+        setError("Company not found on Companies House.");
+        setRegister(null);
+        return;
+      }
+      if (profile.company_number) {
+        setCompanyNumber(profile.company_number);
+      }
+      setSearchQuery(profile.company_name);
+      const officers = (data.officers ?? []) as Array<{
+        name: string;
+        officer_role?: string;
+        appointed_on?: string;
+        resigned_on?: string;
+      }>;
+      const pscs = (data.pscs ?? []) as Array<{
+        name?: string;
+        natures_of_control?: string[];
+        ceased_on?: string;
+      }>;
+      const activeDirectors = officers.filter(
+        (o) =>
+          !o.resigned_on &&
+          /director/i.test(o.officer_role ?? "director"),
+      );
+      const directorList = (activeDirectors.length ? activeDirectors : officers.filter((o) => !o.resigned_on)).map(
+        (o) => ({
+          name: o.name,
+          role: o.officer_role ?? null,
+          appointedOn: o.appointed_on ?? null,
+        }),
+      );
+      const csDate =
+        profile.confirmation_statement?.next_made_up_to?.slice(0, 10) ??
+        profile.confirmation_statement?.next_due?.slice(0, 10) ??
+        profile.confirmation_statement?.last_made_up_to?.slice(0, 10) ??
+        "";
+      const next: RegisterView = {
+        companyName: profile.company_name,
+        confirmationDate: csDate,
+        nextDue: profile.confirmation_statement?.next_due ?? null,
+        registeredOffice: formatAddress(profile.registered_office_address),
+        sicCodes: (profile.sic_codes ?? []).join(", "),
+        directors: directorList,
+        pscs: pscs
+          .filter((p) => !p.ceased_on)
+          .map((p) => ({
+            name: p.name ?? null,
+            naturesOfControl: p.natures_of_control ?? [],
+          })),
+      };
+      setRegister(next);
+      setSicCodes(next.sicCodes);
+      setDirectors(
+        next.directors.length
+          ? next.directors.map((d) => emptyDirector(d.name))
+          : [emptyDirector()],
+      );
+      setRegisterConfirmed(false);
+      setSearchHits([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lookup failed");
+    } finally {
+      setLookupPending(false);
+    }
+  }
 
   function updateDirector(i: number, patch: Partial<DirectorRow>) {
     setDirectors((rows) =>
@@ -83,8 +293,8 @@ export function ConfirmationStatementWizard({
           File confirmation statement
         </h2>
         <p className="mt-1 text-sm text-ink-soft">
-          Confirm the Companies House register, capture director personal codes,
-          then submit CS01 from HydraTax.
+          Search by company name — we pull the rest from Companies House. You
+          only need the authentication code and director personal codes.
         </p>
       </div>
 
@@ -106,62 +316,107 @@ export function ConfirmationStatementWizard({
       </ol>
 
       {step === 0 && (
-        <div className="space-y-3">
-          <label className="label" htmlFor="cs-co-no">
-            Company number
-          </label>
-          <input
-            id="cs-co-no"
-            className="input"
-            value={companyNumber}
-            onChange={(e) => setCompanyNumber(e.target.value.toUpperCase())}
-            placeholder="12345678"
-            required
-          />
-          <label className="label" htmlFor="cs-co-name">
-            Company name
-          </label>
-          <input
-            id="cs-co-name"
-            className="input"
-            value={companyName}
-            onChange={(e) => setCompanyName(e.target.value)}
-            required
-          />
-          <label className="label" htmlFor="cs-date">
-            Confirmation statement date
-          </label>
-          <input
-            id="cs-date"
-            type="date"
-            className="input"
-            value={confirmationDate}
-            onChange={(e) => setConfirmationDate(e.target.value)}
-            required
-          />
+        <div className="space-y-4">
+          <div>
+            <label className="label" htmlFor="cs-co-search">
+              Company name
+            </label>
+            <input
+              id="cs-co-search"
+              className="input mt-1.5"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setRegister(null);
+                setSearchHits([]);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void searchByName();
+                }
+              }}
+              placeholder="search company by name"
+              autoComplete="organization"
+            />
+          </div>
+
+          {searchHits.length > 0 && (
+            <ul className="divide-y divide-line overflow-hidden rounded-lg border border-line">
+              {searchHits.map((item) => (
+                <li key={item.company_number}>
+                  <button
+                    type="button"
+                    className="flex w-full flex-col gap-0.5 px-3 py-2.5 text-left hover:bg-sea/5"
+                    onClick={() => {
+                      setCompanyNumber(item.company_number);
+                      setSearchQuery(item.title);
+                      void lookupCompany(item.company_number);
+                    }}
+                  >
+                    <span className="font-semibold text-ink">{item.title}</span>
+                    <span className="mono text-xs text-ink-soft">
+                      {item.company_number}
+                      {item.company_status ? ` · ${item.company_status}` : ""}
+                    </span>
+                    {item.address_snippet ? (
+                      <span className="text-xs text-ink-soft">
+                        {item.address_snippet}
+                      </span>
+                    ) : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {register && (
+            <div className="rounded-xl border border-sea/25 bg-sea/5 px-4 py-3 text-sm">
+              <p className="font-semibold text-ink">{register.companyName}</p>
+              <p className="mono mt-0.5 text-xs text-ink-soft">
+                {companyNumber}
+              </p>
+              <p className="mt-1 text-ink-soft">
+                CS made up to{" "}
+                <span className="font-semibold text-ink">
+                  {register.confirmationDate || "—"}
+                </span>
+                {register.nextDue
+                  ? ` · due ${register.nextDue.slice(0, 10)}`
+                  : ""}
+              </p>
+              <p className="mt-1 text-ink-soft">
+                {register.directors.length} director
+                {register.directors.length === 1 ? "" : "s"} · SIC{" "}
+                {register.sicCodes || "—"}
+              </p>
+            </div>
+          )}
+
           <label className="label" htmlFor="cs-auth">
             Company authentication code
+            <span className="font-normal text-danger"> *</span>
+            <span className="font-normal text-ink-soft">
+              {" "}
+              (from Companies House online filing — not on the public register)
+            </span>
+            <input
+              id="cs-auth"
+              className={`input mt-1.5 mono ${
+                !companyAuthCode.trim() ? "border-sea/40" : ""
+              }`}
+              value={companyAuthCode}
+              onChange={(e) => setCompanyAuthCode(e.target.value)}
+              placeholder="Authentication code"
+              autoComplete="off"
+              required
+            />
           </label>
-          <input
-            id="cs-auth"
-            className="input"
-            value={companyAuthCode}
-            onChange={(e) => setCompanyAuthCode(e.target.value)}
-            placeholder="From Companies House online filing"
-            autoComplete="off"
-            required
-          />
-          <label className="label" htmlFor="cs-email">
-            Registered email{" "}
-            <span className="font-normal text-ink-soft">(if required)</span>
-          </label>
-          <input
-            id="cs-email"
-            type="email"
-            className="input"
-            value={registeredEmail}
-            onChange={(e) => setRegisteredEmail(e.target.value)}
-          />
+          <p className="text-xs text-ink-soft">
+            Required before you can continue — Hydra will not open checkout
+            without this code.
+          </p>
+
           <label className="flex items-start gap-2 text-sm text-ink">
             <input
               type="checkbox"
@@ -177,20 +432,31 @@ export function ConfirmationStatementWizard({
       {step === 1 && (
         <div className="space-y-4">
           <p className="text-sm text-ink-soft">
-            Please confirm all information below is correct. If anything needs
-            changing, update it with Companies House separately before filing
-            this statement.
+            Pulled from Companies House. Confirm these details are correct for
+            this filing.
           </p>
+
+          <section className="rounded-xl border border-line bg-white p-4">
+            <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-ink-soft">
+              Company
+            </h3>
+            <p className="mt-2 text-sm font-medium text-ink">
+              {companyName} ({companyNumber})
+            </p>
+            <p className="mt-1 text-sm text-ink-soft">
+              Confirmation statement date:{" "}
+              <span className="font-semibold text-ink">
+                {confirmationDate || "—"}
+              </span>
+            </p>
+          </section>
 
           <section className="rounded-xl border border-line bg-white p-4">
             <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-ink-soft">
               Registered office
             </h3>
             <p className="mt-2 text-sm font-medium text-ink">
-              {snapshot?.registeredOffice ?? "Not loaded — sync Companies House on the client."}
-            </p>
-            <p className="mt-2 text-xs text-ink-soft">
-              To change, file form AD01 with Companies House.
+              {register?.registeredOffice || "Not available from Companies House"}
             </p>
           </section>
 
@@ -199,24 +465,19 @@ export function ConfirmationStatementWizard({
               Directors &amp; officers
             </h3>
             <ul className="mt-2 space-y-1 text-sm text-ink">
-              {(snapshot?.directors ?? [])
-                .filter((d) => !d.resignedOn)
-                .map((d) => (
-                  <li key={`${d.name}-${d.appointedOn}`}>
-                    {d.name}
-                    {d.role ? ` — ${d.role}` : ""}
-                    {d.appointedOn
-                      ? ` (appointed ${new Date(d.appointedOn).toLocaleDateString("en-GB")})`
-                      : ""}
-                  </li>
-                ))}
-              {!snapshot?.directors?.length && (
+              {(register?.directors ?? []).map((d) => (
+                <li key={`${d.name}-${d.appointedOn}`}>
+                  {d.name}
+                  {d.role ? ` — ${d.role}` : ""}
+                  {d.appointedOn
+                    ? ` (appointed ${new Date(d.appointedOn).toLocaleDateString("en-GB")})`
+                    : ""}
+                </li>
+              ))}
+              {!register?.directors?.length && (
                 <li className="text-ink-soft">No officers loaded.</li>
               )}
             </ul>
-            <p className="mt-2 text-xs text-ink-soft">
-              To change, file forms AP01/TM01 with Companies House.
-            </p>
           </section>
 
           <section className="rounded-xl border border-sea/40 bg-sea/5 p-4">
@@ -229,7 +490,7 @@ export function ConfirmationStatementWizard({
                 className="text-sm font-semibold text-sea"
                 onClick={() => setEditingSic((v) => !v)}
               >
-                {editingSic ? "Done" : "Edit SIC codes"}
+                {editingSic ? "Done" : "Edit"}
               </button>
             </div>
             {editingSic ? (
@@ -251,7 +512,7 @@ export function ConfirmationStatementWizard({
               People with significant control
             </h3>
             <ul className="mt-2 space-y-1 text-sm text-ink">
-              {(snapshot?.pscs ?? []).map((p, i) => (
+              {(register?.pscs ?? []).map((p, i) => (
                 <li key={`${p.name}-${i}`}>
                   {p.name ?? "PSC"}
                   {p.naturesOfControl?.length
@@ -259,47 +520,10 @@ export function ConfirmationStatementWizard({
                     : ""}
                 </li>
               ))}
-              {!snapshot?.pscs?.length && (
+              {!register?.pscs?.length && (
                 <li className="text-ink-soft">No PSCs loaded.</li>
               )}
             </ul>
-            <p className="mt-2 text-xs text-ink-soft">
-              To change, file PSC forms with Companies House.
-            </p>
-          </section>
-
-          <section className="rounded-xl border border-line bg-white p-4">
-            <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-ink-soft">
-              Director identity verification
-            </h3>
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="text-xs uppercase tracking-wide text-ink-soft">
-                    <th className="pb-2 font-semibold">Director</th>
-                    <th className="pb-2 font-semibold">CH verification</th>
-                    <th className="pb-2 font-semibold">Codes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {directors.map((d, i) => (
-                    <tr key={i} className="border-t border-line/60">
-                      <td className="py-2 font-medium text-ink">
-                        {d.fullName || "—"}
-                      </td>
-                      <td className="py-2 text-ink-soft">Updating</td>
-                      <td className="py-2">
-                        <span className="text-ink-soft">
-                          {d.personalCode.length === 11
-                            ? "On file"
-                            : "Needed next"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           </section>
 
           <label className="flex items-start gap-2 text-sm text-ink">
@@ -317,64 +541,46 @@ export function ConfirmationStatementWizard({
       {step === 2 && (
         <div className="space-y-4">
           <p className="text-sm text-ink-soft">
-            HydraTax does not issue personal codes. Each director gets an
-            11-character code after verifying identity via{" "}
-            <Link
-              href="https://www.gov.uk/guidance/verify-your-identity-for-companies-house"
-              className="font-semibold text-sea"
-              target="_blank"
-              rel="noreferrer"
-            >
-              GOV.UK One Login
-            </Link>{" "}
-            or an ACSP — then paste it here for filing.
+            Directors are from Companies House. Enter each person’s date of birth
+            and 11-character personal code (from GOV.UK One Login / ACSP).
           </p>
           {directors.map((d, i) => (
             <fieldset
               key={i}
               className="space-y-2 rounded-lg border border-line p-3"
             >
-              <legend className="px-1 text-xs font-bold uppercase tracking-wide text-ink-soft">
-                Director {i + 1}
+              <legend className="px-1 text-sm font-semibold text-ink">
+                {d.fullName || `Director ${i + 1}`}
               </legend>
-              <input
-                className="input"
-                placeholder="Full name (as on register)"
-                value={d.fullName}
-                onChange={(e) =>
-                  updateDirector(i, { fullName: e.target.value })
-                }
-              />
-              <input
-                className="input"
-                type="date"
-                value={d.dateOfBirth}
-                onChange={(e) =>
-                  updateDirector(i, { dateOfBirth: e.target.value })
-                }
-              />
-              <input
-                className="input mono"
-                placeholder="Personal code (11 characters)"
-                value={d.personalCode}
-                maxLength={11}
-                autoComplete="off"
-                onChange={(e) =>
-                  updateDirector(i, {
-                    personalCode: e.target.value.toUpperCase(),
-                    codeOnFile: e.target.value.length === 11,
-                  })
-                }
-              />
+              <label className="label">
+                Date of birth
+                <input
+                  className="input mt-1.5"
+                  type="date"
+                  value={d.dateOfBirth}
+                  onChange={(e) =>
+                    updateDirector(i, { dateOfBirth: e.target.value })
+                  }
+                />
+              </label>
+              <label className="label">
+                Personal code
+                <input
+                  className="input mt-1.5 mono"
+                  placeholder="11 characters"
+                  value={d.personalCode}
+                  maxLength={11}
+                  autoComplete="off"
+                  onChange={(e) =>
+                    updateDirector(i, {
+                      personalCode: e.target.value.toUpperCase(),
+                      codeOnFile: e.target.value.length === 11,
+                    })
+                  }
+                />
+              </label>
             </fieldset>
           ))}
-          <button
-            type="button"
-            className="btn btn-secondary text-sm"
-            onClick={() => setDirectors((rows) => [...rows, emptyDirector()])}
-          >
-            Add another director
-          </button>
         </div>
       )}
 
@@ -403,20 +609,7 @@ export function ConfirmationStatementWizard({
                 {directors.map((d) => d.fullName).join(", ") || "—"}
               </dd>
             </div>
-            <div className="flex justify-between gap-4">
-              <dt className="text-ink-soft">Gateway</dt>
-              <dd className="font-semibold text-ink">
-                {readiness.canAttemptLiveSubmit
-                  ? "Live XML submit ready"
-                  : "Dry-run only (presenter credentials missing)"}
-              </dd>
-            </div>
           </dl>
-          <ul className="list-disc space-y-1 pl-5 text-ink-soft">
-            {readiness.notes.map((n) => (
-              <li key={n}>{n}</li>
-            ))}
-          </ul>
         </div>
       )}
 
@@ -449,15 +642,13 @@ export function ConfirmationStatementWizard({
             onClick={() => {
               setError(null);
               if (step === 0) {
-                if (
-                  !companyNumber ||
-                  !companyName ||
-                  !confirmationDate ||
-                  !companyAuthCode ||
-                  !lawful
-                ) {
+                if (!companyNumber || !register || !confirmationDate) {
+                  setError("Look up a valid company number first.");
+                  return;
+                }
+                if (!companyAuthCode || !lawful) {
                   setError(
-                    "Complete company details and the lawful-purpose tick.",
+                    "Enter the company authentication code and confirm lawful purpose.",
                   );
                   return;
                 }
@@ -476,7 +667,7 @@ export function ConfirmationStatementWizard({
                   )
                 ) {
                   setError(
-                    "Each director needs name, date of birth, and an 11-character personal code.",
+                    "Each director needs date of birth and an 11-character personal code.",
                   );
                   return;
                 }
@@ -502,7 +693,6 @@ export function ConfirmationStatementWizard({
                     companyName,
                     confirmationDate,
                     companyAuthCode,
-                    registeredEmail,
                     lawfulPurposeConfirmed: true as const,
                     directors: directors.map(
                       ({ fullName, dateOfBirth, personalCode }) => ({
@@ -552,7 +742,6 @@ export function ConfirmationStatementWizard({
                       companyName,
                       confirmationDate,
                       companyAuthCode,
-                      registeredEmail,
                       lawfulPurposeConfirmed: true as const,
                       directors: directors.map(
                         ({ fullName, dateOfBirth, personalCode }) => ({

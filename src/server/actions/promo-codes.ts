@@ -21,6 +21,8 @@ const createSchema = z
     percentOff: z.coerce.number().min(1).max(100).optional(),
     /** Pounds sterling, e.g. 10.50 */
     amountOffGbp: z.coerce.number().min(0.01).max(100000).optional(),
+    /** once = first invoice only; forever = every invoice on the subscription */
+    duration: z.enum(["once", "forever"]).default("once"),
     maxRedemptions: z.coerce.number().int().min(1).max(10000).optional(),
     expiresAt: z.string().optional(), // ISO date YYYY-MM-DD
     note: z.string().max(200).optional(),
@@ -51,6 +53,7 @@ export type PromoCodeRow = {
   percentOff: number | null;
   amountOff: number | null;
   currency: string | null;
+  duration: "once" | "forever" | "repeating" | string;
   maxRedemptions: number | null;
   timesRedeemed: number;
   expiresAt: string | null;
@@ -74,6 +77,7 @@ function mapPromo(
           percent_off: number | null;
           amount_off: number | null;
           currency: string | null;
+          duration?: string;
         };
   },
 ): PromoCodeRow {
@@ -84,6 +88,7 @@ function mapPromo(
           percent_off: null as number | null,
           amount_off: null as number | null,
           currency: null as string | null,
+          duration: "once" as string,
         }
       : promo.coupon;
   const percentOff = coupon.percent_off;
@@ -96,6 +101,7 @@ function mapPromo(
     percentOff,
     amountOff,
     currency: coupon.currency,
+    duration: coupon.duration ?? "once",
     maxRedemptions: promo.max_redemptions,
     timesRedeemed: promo.times_redeemed,
     expiresAt: promo.expires_at
@@ -122,21 +128,24 @@ export async function createPromoCode(input: z.infer<typeof createSchema>) {
   const amountOffPence = !isPercent
     ? Math.round(data.amountOffGbp! * 100)
     : undefined;
+  const duration = data.duration;
 
   const label = isPercent
     ? `${percentOff}%`
     : `£${(amountOffPence! / 100).toFixed(2)}`;
+  const durationLabel = duration === "forever" ? "forever" : "first month";
 
   const coupon = await stripe.coupons.create({
     ...(isPercent
       ? { percent_off: percentOff }
       : { amount_off: amountOffPence, currency: "gbp" }),
-    duration: "once",
-    name: `HydraTax ${label} — ${code}`,
+    duration,
+    name: `HydraTax ${label} ${durationLabel} — ${code}`,
     metadata: {
       createdBy: session.userId,
       note: data.note?.trim() ?? "",
       source: "hydratax_admin",
+      duration,
     },
   });
 
@@ -164,6 +173,7 @@ export async function createPromoCode(input: z.infer<typeof createSchema>) {
       percentOff: percentOff ?? null,
       amountOff: amountOffPence ?? null,
       currency: isPercent ? null : "gbp",
+      duration,
     },
   });
 
@@ -175,18 +185,23 @@ export async function createPromoCode(input: z.infer<typeof createSchema>) {
       percent_off: coupon.percent_off,
       amount_off: coupon.amount_off,
       currency: coupon.currency,
+      duration: coupon.duration,
     },
   });
 }
 
 /** @deprecated Prefer createPromoCode */
 export async function createHundredPercentPromo(
-  input: Omit<z.infer<typeof createSchema>, "discountType" | "percentOff">,
+  input: Omit<
+    z.infer<typeof createSchema>,
+    "discountType" | "percentOff" | "duration"
+  > & { duration?: "once" | "forever" },
 ) {
   return createPromoCode({
     ...input,
     discountType: "percent",
     percentOff: 100,
+    duration: input.duration ?? "once",
   });
 }
 

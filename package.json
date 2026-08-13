@@ -11,7 +11,10 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "mobile:sync": "npx cap sync",
+    "mobile:ios": "npx cap open ios",
+    "mobile:android": "npx cap open android"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1105.0",
@@ -22,6 +25,7 @@
     "@vercel/blob": "^1.1.1",
     "drizzle-orm": "^0.39.3",
     "next": "16.3.0",
+    "pdfjs-dist": "^4.10.38",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "stripe": "^18.5.0",

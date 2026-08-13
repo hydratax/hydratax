@@ -72,7 +72,7 @@ export function ChRequestForm({
         <h2 className="display text-2xl text-ink">Request this filing</h2>
         <p className="mt-1 text-sm text-ink-soft">
           You pay {fees.total} ({fees.statutory} Companies House + {fees.hydra}{" "}
-          Hydra). After submit you are taken to checkout.
+          Hydra). Company authentication code is required before checkout opens.
         </p>
       </div>
 
@@ -150,20 +150,34 @@ export function ChRequestForm({
           );
         }
 
+        const isAuth = field.name === "companyAuthCode";
         return (
           <label
             key={field.name}
-            className="block text-sm font-semibold text-ink"
+            className={`block text-sm font-semibold text-ink ${
+              isAuth ? "rounded-xl border border-sea/30 bg-sea/5 p-4" : ""
+            }`}
           >
             {field.label}
             {field.required ? <span className="text-danger"> *</span> : null}
             <input
-              type={field.type === "date" ? "date" : field.type === "email" ? "email" : "text"}
+              type={
+                field.type === "date"
+                  ? "date"
+                  : field.type === "email"
+                    ? "email"
+                    : field.sensitive
+                      ? "password"
+                      : "text"
+              }
               name={field.name}
               required={field.required}
               placeholder={field.placeholder}
               defaultValue={defaults?.[field.name] ?? ""}
-              className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 font-normal"
+              autoComplete={field.sensitive ? "off" : undefined}
+              className={`mt-1.5 w-full rounded-lg border border-line px-3 py-2 font-normal ${
+                isAuth ? "mono" : ""
+              }`}
             />
             {field.help && (
               <span className="mt-1 block text-xs font-normal text-ink-soft">

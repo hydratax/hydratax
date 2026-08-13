@@ -43,13 +43,13 @@ export const PLAN_ENTITLEMENTS: PlanEntitlement[] = [
     planKey: "practice:Solo",
     label: "Solo",
     modules: ALL_TAX,
-    maxClients: 15,
+    maxClients: 1,
   },
   {
     planKey: "practice:Practice",
     label: "Practice",
     modules: ALL_TAX,
-    maxClients: 100,
+    maxClients: 50,
   },
   {
     planKey: "practice:Firm",
@@ -61,7 +61,7 @@ export const PLAN_ENTITLEMENTS: PlanEntitlement[] = [
     planKey: "practice:Custom",
     label: "Custom",
     modules: ["clients", "books", "documents", "companies_house", "practice_desk"],
-    maxClients: 50,
+    maxClients: 500,
   },
   {
     planKey: "vat:Single VRN",
@@ -162,9 +162,6 @@ export function entitlementsForPlans(planKeys: string[]): {
           modules.add(mod.entitlement);
           clientCap = Math.max(clientCap, hit.clients);
         }
-      }
-      if (selection.chAddons.length > 0) {
-        modules.add("companies_house");
       }
       const maxForPlan = Math.max(clientCap, 15);
       plans.push({

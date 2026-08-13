@@ -1,6 +1,10 @@
 import type Stripe from "stripe";
 import { isMemoryStore, isSupabaseConfigured } from "@/lib/env";
 import { memoryStore } from "@/server/demo/store";
+import {
+  planKeyHasPracticeTrial,
+  practiceTrialEndsAt,
+} from "@/lib/trial";
 
 export type CheckoutRecord = {
   id: string;
@@ -14,6 +18,7 @@ export type CheckoutRecord = {
   status: string;
   mode: string;
   createdAt: string;
+  trialEndsAt?: string | null;
 };
 
 const globalOrders = globalThis as unknown as {
@@ -28,6 +33,11 @@ function orders(): CheckoutRecord[] {
 }
 
 function toRecord(session: Stripe.Checkout.Session): CheckoutRecord {
+  const trialDays = Number(session.metadata?.trialDays ?? 0);
+  const trialEndsAt =
+    trialDays > 0 && planKeyHasPracticeTrial(session.metadata?.planKey ?? "")
+      ? practiceTrialEndsAt().toISOString()
+      : null;
   return {
     id: crypto.randomUUID(),
     stripeSessionId: session.id,
@@ -42,6 +52,7 @@ function toRecord(session: Stripe.Checkout.Session): CheckoutRecord {
     status: session.payment_status ?? "paid",
     mode: session.mode,
     createdAt: new Date().toISOString(),
+    trialEndsAt,
   };
 }
 
@@ -111,14 +122,16 @@ async function activatePlanFromCheckout(
       id: crypto.randomUUID(),
       practiceId: targetPracticeId ?? memoryStore.practice.id,
       planKey: record.planKey,
-      status: "active",
+      status: record.trialEndsAt ? "trialing" : "active",
       stripeSessionId: record.stripeSessionId,
+      trialEndsAt: record.trialEndsAt ?? null,
       createdAt: record.createdAt,
     });
   } else if (targetPracticeId) {
     for (const s of memoryStore.subscriptions) {
       if (s.stripeSessionId === record.stripeSessionId) {
         s.practiceId = targetPracticeId;
+        if (record.trialEndsAt) s.trialEndsAt = record.trialEndsAt;
       }
     }
   }
@@ -142,9 +155,10 @@ async function activatePlanFromCheckout(
         {
           practice_id: targetPracticeId,
           plan_key: record.planKey,
-          status: "active",
+          status: record.trialEndsAt ? "trialing" : "active",
           stripe_session_id: record.stripeSessionId,
           stripe_subscription_id: record.stripeSubscriptionId,
+          trial_ends_at: record.trialEndsAt,
         },
         { onConflict: "stripe_session_id" },
       );
@@ -165,9 +179,10 @@ async function activatePlanFromCheckout(
     await getDb().insert(practiceSubscriptions).values({
       practiceId: targetPracticeId,
       planKey: record.planKey,
-      status: "active",
+      status: record.trialEndsAt ? "trialing" : "active",
       stripeSessionId: record.stripeSessionId,
       stripeSubscriptionId: record.stripeSubscriptionId,
+      trialEndsAt: record.trialEndsAt ? new Date(record.trialEndsAt) : null,
     });
 
     if (record.planKey.startsWith("companies-house:")) {

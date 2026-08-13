@@ -3,10 +3,17 @@
 import { useMemo, useState, useTransition } from "react";
 import * as XLSX from "xlsx";
 import {
+  draftCt600FromTrialBalance,
   uploadTrialBalance,
   updateTrialBalanceMappings,
 } from "@/server/actions/trial-balance";
-import type { TbMapTarget, TrialBalance } from "@/server/trial-balance/map";
+import {
+  defaultMappings,
+  parseTrialBalanceRows,
+  trialBalanceToCt600Figures,
+  type TbMapTarget,
+  type TrialBalance,
+} from "@/server/trial-balance/map";
 
 const MAP_OPTIONS: { value: TbMapTarget; label: string }[] = [
   { value: "turnover", label: "Turnover / sales" },
@@ -43,24 +50,61 @@ function moneyPence(n: number) {
   });
 }
 
+function localTrialBalance(input: {
+  purpose: "vat" | "ct600" | "general";
+  periodStart: string;
+  periodEnd: string;
+  filename: string;
+  rows: Record<string, unknown>[];
+}): TrialBalance {
+  const lines = parseTrialBalanceRows(input.rows);
+  if (lines.length === 0) {
+    throw new Error("No trial balance lines found — check column headers");
+  }
+  return {
+    id: crypto.randomUUID(),
+    clientId: "local",
+    practiceId: "local",
+    purpose: input.purpose,
+    periodStart: input.periodStart,
+    periodEnd: input.periodEnd,
+    filename: input.filename,
+    lines,
+    mappings: defaultMappings(lines),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export type Ct600TbFigures = ReturnType<typeof trialBalanceToCt600Figures>;
+
 export function TrialBalanceUpload({
   clientId,
   purpose,
   periodStart,
   periodEnd,
   onReady,
+  applyLabel,
+  onApplyFigures,
 }: {
-  clientId: string;
+  /** Practice client. When omitted, the file is parsed locally (not stored). */
+  clientId?: string | null;
   purpose: "vat" | "ct600" | "general";
   periodStart: string;
   periodEnd: string;
   onReady?: (tb: TrialBalance) => void;
+  /** When set, shows a primary button that maps the TB into CT600 figures */
+  applyLabel?: string;
+  onApplyFigures?: (payload: {
+    tb: TrialBalance;
+    figures: Ct600TbFigures;
+  }) => void;
 }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [tb, setTb] = useState<TrialBalance | null>(null);
   const [maps, setMaps] = useState<Record<string, TbMapTarget>>({});
 
+  const persisted = Boolean(clientId);
   const totals = useMemo(() => {
     if (!tb) return { debit: 0, credit: 0 };
     return tb.lines.reduce(
@@ -87,14 +131,22 @@ export function TrialBalanceUpload({
             start(async () => {
               try {
                 const rows = sheetToRows(await file.arrayBuffer());
-                const uploaded = await uploadTrialBalance({
-                  clientId,
-                  purpose,
-                  periodStart,
-                  periodEnd,
-                  filename: file.name,
-                  rows,
-                });
+                const uploaded = clientId
+                  ? await uploadTrialBalance({
+                      clientId,
+                      purpose,
+                      periodStart,
+                      periodEnd,
+                      filename: file.name,
+                      rows,
+                    })
+                  : localTrialBalance({
+                      purpose,
+                      periodStart,
+                      periodEnd,
+                      filename: file.name,
+                      rows,
+                    });
                 setTb(uploaded);
                 setMaps(uploaded.mappings);
                 onReady?.(uploaded);
@@ -124,23 +176,80 @@ export function TrialBalanceUpload({
               <span className="mono">{moneyPence(totals.debit)}</span> · Cr{" "}
               <span className="mono">{moneyPence(totals.credit)}</span>
             </p>
-            <button
-              type="button"
-              className="btn btn-secondary text-sm"
-              disabled={pending}
-              onClick={() =>
-                start(async () => {
-                  const updated = await updateTrialBalanceMappings({
-                    trialBalanceId: tb.id,
-                    mappings: maps,
-                  });
-                  setTb(updated);
-                  onReady?.(updated);
-                })
-              }
-            >
-              Save mappings
-            </button>
+            <div className="flex flex-wrap gap-2">
+              {persisted && (
+                <button
+                  type="button"
+                  className="btn btn-secondary text-sm"
+                  disabled={pending}
+                  onClick={() =>
+                    start(async () => {
+                      setError(null);
+                      try {
+                        const updated = await updateTrialBalanceMappings({
+                          trialBalanceId: tb.id,
+                          mappings: maps,
+                        });
+                        setTb(updated);
+                        onReady?.(updated);
+                      } catch (err) {
+                        setError(
+                          err instanceof Error
+                            ? err.message
+                            : "Could not save mappings",
+                        );
+                      }
+                    })
+                  }
+                >
+                  Save mappings
+                </button>
+              )}
+              {applyLabel && onApplyFigures && (
+                <button
+                  type="button"
+                  className="btn btn-primary text-sm"
+                  disabled={pending}
+                  onClick={() =>
+                    start(async () => {
+                      setError(null);
+                      try {
+                        let figures: Ct600TbFigures;
+                        let next = { ...tb, mappings: maps };
+                        if (persisted && clientId) {
+                          next = await updateTrialBalanceMappings({
+                            trialBalanceId: tb.id,
+                            mappings: maps,
+                          });
+                          setTb(next);
+                          onReady?.(next);
+                          const drafted = await draftCt600FromTrialBalance(
+                            next.id,
+                          );
+                          figures = drafted.figures;
+                        } else {
+                          setTb(next);
+                          onReady?.(next);
+                          figures = trialBalanceToCt600Figures(
+                            next,
+                            clientId || "local",
+                          );
+                        }
+                        onApplyFigures({ tb: next, figures });
+                      } catch (err) {
+                        setError(
+                          err instanceof Error
+                            ? err.message
+                            : "Could not apply trial balance",
+                        );
+                      }
+                    })
+                  }
+                >
+                  {applyLabel}
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="max-h-72 overflow-auto rounded-lg border border-line">

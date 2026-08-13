@@ -6,6 +6,7 @@ import {
   urgencyForDueDate,
   type FilingUrgency,
 } from "@/lib/filing-due";
+import { FileAccountsMenu } from "@/components/file-accounts-menu";
 
 function formatDate(iso: string | null | undefined) {
   return formatDueShort(iso) ?? "—";
@@ -79,7 +80,6 @@ export function ClientCompaniesHousePanel({
   const company = encodeURIComponent(snapshot.companyNumber);
 
   const csHref = `/companies-house/confirmation-statement?company=${company}&clientId=${encodeURIComponent(clientId)}`;
-  const accountsHref = `/companies-house/accounts-ixbrl?company=${company}&clientId=${encodeURIComponent(clientId)}`;
 
   return (
     <div className="space-y-4 lg:col-span-2">
@@ -141,7 +141,7 @@ export function ClientCompaniesHousePanel({
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <div
-            className={`rounded-lg border p-4 ${
+            className={`flex flex-col rounded-lg border p-4 ${
               csUrgency === "overdue"
                 ? "border-danger/40 bg-danger/5"
                 : csUrgency === "due_soon"
@@ -158,15 +158,15 @@ export function ClientCompaniesHousePanel({
                   ? " — due within 30 days"
                   : ""}
             </p>
-            <Link href={csHref} className="btn btn-primary mt-3 w-full text-sm">
-              {csUrgency === "overdue" || csUrgency === "due_soon"
-                ? "File confirmation statement"
-                : "File CS01"}
-            </Link>
+            <div className="mt-auto pt-3">
+              <Link href={csHref} className="btn btn-primary w-full text-sm">
+                File confirmation statement
+              </Link>
+            </div>
           </div>
 
           <div
-            className={`rounded-lg border p-4 ${
+            className={`flex flex-col rounded-lg border p-4 ${
               accountsUrgency === "overdue"
                 ? "border-danger/40 bg-danger/5"
                 : accountsUrgency === "due_soon"
@@ -186,14 +186,14 @@ export function ClientCompaniesHousePanel({
             <p className="mt-1 text-xs text-ink-soft">
               Period end {formatDate(snapshot.accountsPeriodEnd)}
             </p>
-            <Link
-              href={accountsHref}
-              className="btn btn-primary mt-3 w-full text-sm"
-            >
-              {accountsUrgency === "overdue" || accountsUrgency === "due_soon"
-                ? "File year-end accounts"
-                : "File iXBRL accounts"}
-            </Link>
+            <div className="mt-auto pt-3">
+              <FileAccountsMenu
+                clientId={clientId}
+                companyNumber={snapshot.companyNumber}
+                companyName={snapshot.companyName}
+                periodEndLabel={formatDate(snapshot.accountsPeriodEnd)}
+              />
+            </div>
           </div>
         </div>
 

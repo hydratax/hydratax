@@ -9,17 +9,17 @@ import {
   hydraTotal,
   hydraFeeForChService,
   CUSTOM_PLAN_MODULES,
-  CUSTOM_PLAN_BASE_POUNDS,
-  CUSTOM_CH_ADDONS,
   customPlanAmountPounds,
+  customModuleAmountPounds,
+  customModuleEffectiveRatePounds,
   customPlanKey,
   type CustomModuleId,
-  type CustomChAddonId,
   type CustomModuleSelection,
 } from "@/lib/pricing";
 import Link from "next/link";
 import { FaqSection } from "@/components/faq-section";
 import { faqsForProduct } from "@/lib/product-faqs";
+import { PRACTICE_TRIAL } from "@/lib/trial";
 
 type Section = (typeof PRICING_SECTIONS)[number];
 type Plan = Section["plans"][number];
@@ -76,12 +76,13 @@ export function PricingExplorer({
           <p className="text-sm font-semibold uppercase tracking-[0.16em] text-teal-200/90">
             Pricing
           </p>
-          <h1 className="display mt-3 max-w-3xl text-4xl text-white md:text-6xl">
+          <h1 className="display mt-3 max-w-3xl text-3xl text-white sm:text-4xl md:text-6xl">
             Clear plans for every filing
           </h1>
-          <p className="mt-4 max-w-xl text-lg text-white/70">
+          <p className="mt-4 max-w-xl text-base text-white/70 sm:text-lg">
             Practice desk, VAT, CT600, Self Assessment, PAYE, and Companies
-            House — compare options and checkout in one step.
+            House — compare options and checkout in one step. Practice &amp;
+            Custom include a {PRACTICE_TRIAL.days}-day free trial.
           </p>
         </div>
       </section>
@@ -204,7 +205,11 @@ function PlanCards({
             className={`pricing-plan h-full ${plan.highlighted ? "is-featured" : ""}`}
           >
             {plan.highlighted && (
-              <span className="pricing-plan__badge">Most chosen</span>
+              <span className="pricing-plan__badge">
+                {section.id === "practice" && plan.name === "Practice"
+                  ? PRACTICE_TRIAL.shortBadge
+                  : "Most chosen"}
+              </span>
             )}
             <h3 className="display text-2xl text-ink">{plan.name}</h3>
             <p className="mt-2 min-h-[2.75rem] text-sm leading-relaxed text-ink-soft">
@@ -228,7 +233,7 @@ function PlanCards({
               {isLink && "href" in plan && plan.href ? (
                 <Link
                   href={plan.href}
-                  className="btn btn-primary w-full whitespace-nowrap px-3 py-2.5 text-sm"
+                  className="btn btn-primary w-full px-3 py-2.5 text-sm leading-snug"
                 >
                   {plan.cta}
                 </Link>
@@ -237,7 +242,7 @@ function PlanCards({
                   type="button"
                   disabled={busy}
                   onClick={() => onCheckout(checkoutKey)}
-                  className="btn btn-primary w-full whitespace-nowrap px-3 py-2.5 text-sm disabled:opacity-60"
+                  className="btn btn-primary w-full px-3 py-2.5 text-sm leading-snug disabled:opacity-60"
                 >
                   {loading ? "Redirecting…" : plan.cta}
                 </button>
@@ -262,16 +267,12 @@ function CustomPlanCard({
   busy: boolean;
 }) {
   const [modules, setModules] = useState<CustomModuleSelection[]>([]);
-  const [chAddons, setChAddons] = useState<CustomChAddonId[]>([]);
 
-  const selection = useMemo(
-    () => ({ modules, chAddons }),
-    [modules, chAddons],
-  );
+  const selection = useMemo(() => ({ modules }), [modules]);
   const total = customPlanAmountPounds(selection);
   const key = customPlanKey(selection);
   const loading = busy && pendingKey === key;
-  const canCheckout = modules.length > 0 || chAddons.length > 0;
+  const canCheckout = modules.length > 0;
 
   function isModuleOn(id: CustomModuleId) {
     return modules.some((m) => m.id === id);
@@ -296,27 +297,28 @@ function CustomPlanCard({
     );
   }
 
-  function toggleCh(id: CustomChAddonId) {
-    setChAddons((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
-  }
-
   return (
     <article className="pricing-plan h-full is-featured xl:col-span-1">
-      <span className="pricing-plan__badge">Build your own</span>
+      <span className="pricing-plan__badge">{PRACTICE_TRIAL.shortBadge}</span>
       <h3 className="display text-2xl text-ink">{plan.name}</h3>
       <p className="mt-2 min-h-[2.75rem] text-sm leading-relaxed text-ink-soft">
         {plan.blurb}
       </p>
-      <p className="price-figure mt-6">
-        <span className="price-amount">{formatGBP(total)}</span>
-        <span className="price-period">/month</span>
-      </p>
-      <p className="mt-1 text-xs text-ink-soft">
-        {formatGBP(CUSTOM_PLAN_BASE_POUNDS)} desk + HMRC by client count · CH
-        add-ons £0/mo
-      </p>
+      {canCheckout ? (
+        <>
+          <p className="price-figure mt-6">
+            <span className="price-amount">{formatGBP(total)}</span>
+            <span className="price-period">/month</span>
+          </p>
+          <p className="mt-1 text-xs text-ink-soft">
+            HMRC by client count · volume discounts · Companies House included
+          </p>
+        </>
+      ) : (
+        <p className="mt-6 min-h-[4.25rem] text-sm text-ink-soft">
+          Select a service below to see your monthly price.
+        </p>
+      )}
 
       <fieldset className="mt-5 space-y-2">
         <legend className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
@@ -325,6 +327,10 @@ function CustomPlanCard({
         {CUSTOM_PLAN_MODULES.map((mod) => {
           const on = isModuleOn(mod.id);
           const clients = clientsFor(mod.id);
+          const lineTotal = on ? customModuleAmountPounds(mod.id, clients) : 0;
+          const rate = on
+            ? customModuleEffectiveRatePounds(mod.id, clients)
+            : mod.pricePerClient;
           return (
             <div
               key={mod.id}
@@ -360,6 +366,15 @@ function CustomPlanCard({
                     onChange={(e) => setClients(mod.id, Number(e.target.value))}
                     className="w-20 rounded-md border border-line bg-white px-2 py-1 text-sm text-ink"
                   />
+                  <span className="text-xs text-ink-soft">
+                    {new Intl.NumberFormat("en-GB", {
+                      style: "currency",
+                      currency: "GBP",
+                      minimumFractionDigits: rate < 10 ? 2 : 0,
+                      maximumFractionDigits: 2,
+                    }).format(rate)}
+                    /client · {formatGBP(lineTotal)}
+                  </span>
                 </div>
               )}
             </div>
@@ -367,51 +382,23 @@ function CustomPlanCard({
         })}
       </fieldset>
 
-      <fieldset className="mt-4 space-y-2">
-        <legend className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
-          Companies House — no monthly fee
-        </legend>
-        {CUSTOM_CH_ADDONS.map((addon) => {
-          const on = chAddons.includes(addon.id);
-          return (
-            <label
-              key={addon.id}
-              className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2 text-sm transition ${
-                on ? "border-sea bg-sea/5" : "border-line bg-white"
-              }`}
-            >
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={on}
-                onChange={() => toggleCh(addon.id)}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="font-semibold text-ink">{addon.label}</span>
-                <span className="mt-0.5 block text-xs text-ink-soft">
-                  {addon.blurb}
-                </span>
-              </span>
-              <span className="shrink-0 text-xs font-semibold text-sea">
-                Free
-              </span>
-            </label>
-          );
-        })}
-      </fieldset>
+      <p className="mt-4 text-xs leading-relaxed text-ink-soft">
+        Companies House (incorporation, confirmation statements, annual accounts)
+        is included with every Custom desk — no monthly add-on.
+      </p>
 
-      <div className="mt-auto pt-6">
+      <div className="mt-auto space-y-2 pt-6">
         <button
           type="button"
           disabled={busy || !canCheckout}
           onClick={() => onCheckout(key)}
-          className="btn btn-primary w-full whitespace-nowrap px-3 py-2.5 text-sm disabled:opacity-60"
+          className="btn btn-primary w-full px-3 py-2.5 text-sm leading-snug disabled:opacity-60"
         >
           {loading
             ? "Redirecting…"
             : !canCheckout
               ? "Select a service"
-              : `Checkout ${formatGBP(total)}/mo`}
+              : `Start free trial · ${formatGBP(total)}/mo after`}
         </button>
       </div>
     </article>

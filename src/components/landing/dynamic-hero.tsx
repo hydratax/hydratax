@@ -47,7 +47,7 @@ export function DynamicHero() {
         <span />
       </div>
 
-      <div className="relative z-10 mx-auto flex min-h-[100svh] max-w-6xl flex-col justify-center px-4 pb-16 pt-28 md:px-6 md:pt-24">
+      <div className="relative z-10 mx-auto flex min-h-[100svh] max-w-6xl flex-col justify-center px-4 pb-16 pt-36 md:px-6 md:pt-32">
         <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr]">
           <div>
             <h1 className="animate-rise display text-[clamp(2.5rem,7vw,4.5rem)] font-semibold leading-[1.02] tracking-tight">
@@ -57,11 +57,11 @@ export function DynamicHero() {
               The practice desk that makes your job feel simple — built for how
               firms actually work.
             </p>
-            <div className="animate-rise-late mt-8 flex flex-wrap gap-3">
-              <Link href="/create-account" className="btn btn-light">
+            <div className="animate-rise-late mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+              <Link href="/create-account" className="btn btn-light w-full justify-center sm:w-auto">
                 Start your practice
               </Link>
-              <Link href="/#reviews" className="btn btn-ghost-light">
+              <Link href="/#reviews" className="btn btn-ghost-light w-full justify-center sm:w-auto">
                 Read reviews
               </Link>
             </div>

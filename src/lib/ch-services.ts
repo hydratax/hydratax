@@ -73,16 +73,15 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
     popular: true,
     whatYouNeed: [
-      "Proposed company name (check availability on the register)",
+      "Proposed company name (checked against the register as you type)",
       "Registered office address in the UK",
-      "At least one director (identity verification required from 18 Nov 2025)",
-      "Share capital / subscriber details",
-      "SIC code(s) for intended activities",
-      "Director personal code(s) once identity is verified",
+      "Directors (each with a Companies House personal code)",
+      "Shareholders with share counts / percentages",
+      "Mode of business and matching SIC code(s)",
     ],
     importantNotes: [
-      "Directors appointed from 18 November 2025 must provide a personal code as part of incorporation / appointment.",
-      "Hydra prepares the filing; identity verification itself is completed via GOV.UK One Login or an ACSP — not inside HydraTax.",
+      "A personal code alone is not enough to incorporate — company details, share capital and Hydra’s software presenter account are also required.",
+      "Identity verification is completed via GOV.UK One Login or an ACSP; enter the issued personal codes on this form.",
     ],
     govUkLinks: [
       { label: "Companies House fees", url: CH_FEE_SOURCE.url },
@@ -108,31 +107,41 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
         required: true,
       },
       {
+        name: "modeOfBusiness",
+        label: "Mode of business",
+        type: "text",
+        required: true,
+      },
+      {
         name: "sicCodes",
         label: "SIC code(s)",
         type: "text",
         required: true,
-        placeholder: "62020",
-        help: "Standard Industrial Classification — see GOV.UK SIC list",
       },
       {
         name: "shareCapital",
         label: "Share capital summary",
         type: "textarea",
         required: true,
-        placeholder: "100 ordinary shares of £1",
       },
       {
-        name: "directorCount",
-        label: "Number of directors",
-        type: "text",
+        name: "directorsJson",
+        label: "Directors",
+        type: "textarea",
         required: true,
-        placeholder: "1",
+        sensitive: true,
+      },
+      {
+        name: "shareholdersJson",
+        label: "Shareholders",
+        type: "textarea",
+        required: true,
+        sensitive: true,
       },
       {
         name: "personalCodeAck",
         label:
-          "I confirm each director will verify identity via GOV.UK / ACSP and supply their personal code for filing",
+          "I confirm each director has verified identity via GOV.UK / ACSP and the personal codes entered are correct for filing",
         type: "personal_code_ack",
         required: true,
       },
@@ -150,7 +159,7 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     whatYouNeed: [
       "Same details as standard incorporation",
       "Submission before same-day cut-off",
-      "Director personal codes where required",
+      "Director personal codes",
     ],
     importantNotes: [
       "Same-day service is software-only at £156 (Companies House fees guidance).",
@@ -173,6 +182,38 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
         required: true,
       },
       {
+        name: "modeOfBusiness",
+        label: "Mode of business",
+        type: "text",
+        required: true,
+      },
+      {
+        name: "sicCodes",
+        label: "SIC code(s)",
+        type: "text",
+        required: true,
+      },
+      {
+        name: "shareCapital",
+        label: "Share capital summary",
+        type: "textarea",
+        required: true,
+      },
+      {
+        name: "directorsJson",
+        label: "Directors",
+        type: "textarea",
+        required: true,
+        sensitive: true,
+      },
+      {
+        name: "shareholdersJson",
+        label: "Shareholders",
+        type: "textarea",
+        required: true,
+        sensitive: true,
+      },
+      {
         name: "cutOffAck",
         label: "I understand same-day filing must meet Companies House cut-off times",
         type: "checkbox",
@@ -181,7 +222,7 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
       {
         name: "personalCodeAck",
         label:
-          "Directors will verify via GOV.UK / ACSP and provide personal codes for appointment",
+          "I confirm each director has verified identity via GOV.UK / ACSP and the personal codes entered are correct for filing",
         type: "personal_code_ack",
         required: true,
       },
@@ -225,32 +266,37 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
         label: "Company number",
         type: "text",
         required: true,
-        placeholder: "12345678",
       },
       {
         name: "companyName",
-        label: "Company name (as on register)",
+        label: "Company name",
         type: "text",
         required: true,
+      },
+      {
+        name: "companyAuthCode",
+        label: "Company authentication code",
+        type: "text",
+        required: true,
+        sensitive: true,
       },
       {
         name: "confirmationDate",
         label: "Confirmation statement date",
         type: "date",
         required: true,
-        help: "Check your review period on the Companies House register",
+      },
+      {
+        name: "directorsJson",
+        label: "Director personal codes",
+        type: "textarea",
+        required: true,
+        sensitive: true,
       },
       {
         name: "lawfulPurpose",
         label: "I confirm the company’s intended future activities are lawful",
         type: "checkbox",
-        required: true,
-      },
-      {
-        name: "directorPersonalCodesReady",
-        label:
-          "All directors have verified identity and will provide personal codes for this filing",
-        type: "personal_code_ack",
         required: true,
       },
     ],
@@ -267,6 +313,7 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     popular: true,
     whatYouNeed: [
       "Company number",
+      "Company authentication code",
       "Accounting period start / end",
       "iXBRL accounts file or figures for Hydra to prepare",
       "Accounts type (micro-entity, small, etc.)",
@@ -285,6 +332,15 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
         label: "Company number",
         type: "text",
         required: true,
+      },
+      {
+        name: "companyAuthCode",
+        label: "Company authentication code",
+        type: "text",
+        required: true,
+        sensitive: true,
+        help: "From Companies House online filing — required before payment.",
+        placeholder: "Authentication code",
       },
       {
         name: "periodStart",
@@ -326,6 +382,7 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
     whatYouNeed: [
       "Company number",
+      "Company authentication code",
       "Proposed new name",
       "Authority to change name (special resolution / articles)",
     ],
@@ -340,6 +397,15 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
         label: "Company number",
         type: "text",
         required: true,
+      },
+      {
+        name: "companyAuthCode",
+        label: "Company authentication code",
+        type: "text",
+        required: true,
+        sensitive: true,
+        help: "From Companies House online filing — required before payment.",
+        placeholder: "Authentication code",
       },
       {
         name: "currentName",
@@ -364,6 +430,7 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
     whatYouNeed: [
       "Company number",
+      "Company authentication code",
       "Proposed new name",
       "Submission before same-day cut-off",
     ],
@@ -375,6 +442,15 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
         label: "Company number",
         type: "text",
         required: true,
+      },
+      {
+        name: "companyAuthCode",
+        label: "Company authentication code",
+        type: "text",
+        required: true,
+        sensitive: true,
+        help: "From Companies House online filing — required before payment.",
+        placeholder: "Authentication code",
       },
       {
         name: "newName",
@@ -391,133 +467,187 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     ],
   },
   {
-    id: "voluntary-strike-off",
-    title: "Voluntary strike off (DS01)",
-    summary: "Apply to strike a company off the register. Digital £13 (paper £18).",
-    channel: "Digital",
-    chFeePounds: 13,
+    id: "appoint-director",
+    title: "Add director",
+    summary:
+      "Appoint a new director (AP01). The appointee needs a Companies House personal code.",
+    channel: "Software",
+    chFeePounds: 0,
     hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
     whatYouNeed: [
-      "Company number",
-      "Confirmation the company is eligible to strike off",
-      "Director authority",
+      "Company number and authentication code",
+      "Director full name, DOB, service / residential address",
+      "Companies House personal code for the new director",
+      "Appointment date and consent to act",
     ],
     importantNotes: [
-      "Striking off has legal consequences — ensure trading, debts, and HMRC positions are settled.",
+      "Identity verification must be complete before appointment can be accepted.",
+      "Hydra queues the appointment for software filing with your auth code.",
     ],
-    govUkLinks: [{ label: "Companies House fees", url: CH_FEE_SOURCE.url }],
+    govUkLinks: [
+      { label: "Personal codes guidance", url: CH_GUIDANCE.personalCodes },
+      { label: "Verify identity", url: CH_GUIDANCE.verifyIdentity },
+      { label: "Find company information", url: CH_GUIDANCE.findCompany },
+    ],
     formFields: [
       {
         name: "companyNumber",
         label: "Company number",
+        type: "text",
+        required: true,
+      },
+      {
+        name: "companyAuthCode",
+        label: "Company authentication code",
+        type: "text",
+        required: true,
+        sensitive: true,
+      },
+      {
+        name: "directorName",
+        label: "Director full name",
+        type: "text",
+        required: true,
+      },
+      {
+        name: "dateOfBirth",
+        label: "Date of birth",
+        type: "date",
+        required: true,
+      },
+      {
+        name: "appointedOn",
+        label: "Appointment date",
+        type: "date",
+        required: true,
+      },
+      {
+        name: "personalCode",
+        label: "Personal code",
+        type: "text",
+        required: true,
+        sensitive: true,
+        help: "11-character code from GOV.UK One Login or your ACSP",
+      },
+      {
+        name: "serviceAddress",
+        label: "Service address",
+        type: "textarea",
+        required: true,
+      },
+      {
+        name: "notes",
+        label: "Notes",
+        type: "textarea",
+      },
+    ],
+    requiresPersonalCodes: true,
+  },
+  {
+    id: "resign-director",
+    title: "Remove director",
+    summary: "File a director resignation / termination (TM01).",
+    channel: "Software",
+    chFeePounds: 0,
+    hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
+    whatYouNeed: [
+      "Company number and authentication code",
+      "Director name as on the register",
+      "Resignation / termination date",
+    ],
+    importantNotes: [
+      "A company must keep at least one natural person director where required.",
+    ],
+    govUkLinks: [
+      { label: "Find company information", url: CH_GUIDANCE.findCompany },
+    ],
+    formFields: [
+      {
+        name: "companyNumber",
+        label: "Company number",
+        type: "text",
+        required: true,
+      },
+      {
+        name: "companyAuthCode",
+        label: "Company authentication code",
+        type: "text",
+        required: true,
+        sensitive: true,
+      },
+      {
+        name: "directorName",
+        label: "Director name (as on register)",
+        type: "text",
+        required: true,
+      },
+      {
+        name: "resignedOn",
+        label: "Resignation date",
+        type: "date",
+        required: true,
+      },
+      {
+        name: "notes",
+        label: "Notes",
+        type: "textarea",
+      },
+    ],
+  },
+  {
+    id: "dissolve-company",
+    title: "Dissolve company",
+    summary:
+      "Apply to strike off a company (DS01) when it is eligible for voluntary dissolution.",
+    channel: "Digital",
+    chFeePounds: 33,
+    hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
+    whatYouNeed: [
+      "Company number and authentication code",
+      "Confirmation the company is eligible to strike off",
+      "Director / majority consent as required",
+    ],
+    importantNotes: [
+      "Do not apply if the company is trading, has recent name changes, or other disqualifying events — check GOV.UK eligibility.",
+      "Statutory fee is set by Companies House; verify the current GOV.UK rate.",
+    ],
+    govUkLinks: [
+      {
+        label: "Strike off a company",
+        url: "https://www.gov.uk/strike-off-dissolve-limited-company",
+      },
+      { label: "Companies House fees", url: CH_FEE_SOURCE.url },
+    ],
+    formFields: [
+      {
+        name: "companyNumber",
+        label: "Company number",
+        type: "text",
+        required: true,
+      },
+      {
+        name: "companyAuthCode",
+        label: "Company authentication code",
+        type: "text",
+        required: true,
+        sensitive: true,
+      },
+      {
+        name: "companyName",
+        label: "Company name",
         type: "text",
         required: true,
       },
       {
         name: "eligibilityAck",
-        label: "I confirm the company meets strike-off eligibility rules",
+        label: "I confirm the company is eligible for voluntary strike-off",
         type: "checkbox",
         required: true,
       },
-    ],
-  },
-  {
-    id: "registration-of-charge",
-    title: "Registration of a charge",
-    summary: "Register a charge. Digital / software £14 (paper £24).",
-    channel: "Digital",
-    chFeePounds: 14,
-    hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
-    whatYouNeed: [
-      "Company number",
-      "Charge details / instrument date",
-      "Persons entitled to the charge",
-    ],
-    importantNotes: ["Registration deadlines apply under the Companies Act."],
-    govUkLinks: [{ label: "Companies House fees", url: CH_FEE_SOURCE.url }],
-    formFields: [
       {
-        name: "companyNumber",
-        label: "Company number",
-        type: "text",
-        required: true,
-      },
-      {
-        name: "chargeDate",
-        label: "Date of charge",
-        type: "date",
-        required: true,
-      },
-      {
-        name: "chargeDescription",
-        label: "Brief description of charge",
+        name: "notes",
+        label: "Notes",
         type: "textarea",
-        required: true,
-      },
-    ],
-  },
-  {
-    id: "certificate-incorporation",
-    title: "Certificate of incorporation (post)",
-    summary: "Order a certificate of incorporation by post. £22 (same-day post £65).",
-    channel: "Paper",
-    chFeePounds: 22,
-    hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
-    whatYouNeed: ["Company number", "Delivery address for the certificate"],
-    importantNotes: ["Postal certificate fees per Companies House register fees."],
-    govUkLinks: [{ label: "Companies House fees", url: CH_FEE_SOURCE.url }],
-    formFields: [
-      {
-        name: "companyNumber",
-        label: "Company number",
-        type: "text",
-        required: true,
-      },
-      {
-        name: "deliveryAddress",
-        label: "Postal delivery address",
-        type: "textarea",
-        required: true,
-        sensitive: true,
-      },
-    ],
-  },
-  {
-    id: "certified-copy",
-    title: "Certified copy of a document",
-    summary:
-      "Certified copy of a filed document by post. £22 standard (£65 same-day).",
-    channel: "Paper",
-    chFeePounds: 22,
-    hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
-    whatYouNeed: [
-      "Company number",
-      "Document / filing description",
-      "Delivery address",
-    ],
-    importantNotes: [
-      "Fees taken from Companies House contact centre / register certified copy rates.",
-    ],
-    govUkLinks: [{ label: "Companies House fees", url: CH_FEE_SOURCE.url }],
-    formFields: [
-      {
-        name: "companyNumber",
-        label: "Company number",
-        type: "text",
-        required: true,
-      },
-      {
-        name: "documentRef",
-        label: "Document / filing to certify",
-        type: "text",
-        required: true,
-      },
-      {
-        name: "deliveryAddress",
-        label: "Postal delivery address",
-        type: "textarea",
-        required: true,
-        sensitive: true,
       },
     ],
   },
@@ -526,6 +656,31 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
 export function getChService(id: string) {
   return CH_SERVICE_DETAILS.find((s) => s.id === id);
 }
+
+/** New company filings (IN01) — no existing company authentication code. */
+export function isCompaniesHouseIncorporation(serviceId: string) {
+  return (
+    serviceId === "incorporation" || serviceId === "incorporation-same-day"
+  );
+}
+
+/**
+ * Any filing against an existing company needs the company authentication code
+ * before Hydra may open checkout or queue the request.
+ */
+export function serviceRequiresCompanyAuthCode(serviceId: string) {
+  return !isCompaniesHouseIncorporation(serviceId);
+}
+
+export const COMPANY_AUTH_CODE_FIELD: ChFormField = {
+  name: "companyAuthCode",
+  label: "Company authentication code",
+  type: "text",
+  required: true,
+  sensitive: true,
+  help: "From Companies House online filing — required for any change to an existing company.",
+  placeholder: "Authentication code",
+};
 
 export function chServiceTotal(
   service: ChServiceDetail,

@@ -18,6 +18,7 @@ export type MemoryClient = {
   isEmployer: boolean;
   isVatRegistered: boolean;
   contactEmail?: string | null;
+  payrollPackPasswordEncrypted?: string | null;
   /** Companies House enrichment for limited companies */
   companiesHouse?: import("@/server/companies-house/enrich-client").ClientCompaniesHouseSnapshot | null;
   createdAt: string;
@@ -47,7 +48,30 @@ export type MemoryEmployee = {
   taxCode: string;
   annualSalaryPence: number;
   startDate: string;
+  payrollId: string;
+  payFrequency: "M1" | "W1";
+  niCategory: string;
+  jobTitle: string | null;
+  leaveDate: string | null;
+  starterDeclaration: "A" | "B" | "C" | null;
+  firstFpsSent: boolean;
+  previousPayrollId: string | null;
+  hoursPerWeek: number;
+  hourlyRatePence: number;
+  payBasis: "salary" | "hourly";
+  pensionOptOut: boolean;
+  sspQualifyingDays: number;
   active: boolean;
+};
+
+export type MemoryTimesheet = {
+  id: string;
+  clientId: string;
+  periodStart: string;
+  periodEnd: string;
+  filename: string;
+  rows: unknown;
+  createdAt: string;
 };
 
 export type MemoryDocument = {
@@ -110,8 +134,9 @@ export type MemorySubscription = {
   id: string;
   practiceId: string;
   planKey: string;
-  status: "active" | "cancelled" | "past_due";
+  status: "active" | "cancelled" | "past_due" | "trialing";
   stripeSessionId: string | null;
+  trialEndsAt?: string | null;
   createdAt: string;
 };
 
@@ -196,6 +221,7 @@ type MemoryStore = {
   ct600Returns: Array<Record<string, unknown>>;
   employees: MemoryEmployee[];
   payRuns: Array<Record<string, unknown>>;
+  payrollTimesheets: MemoryTimesheet[];
   documents: MemoryDocument[];
   bankTransactions: MemoryBankTx[];
   emailLogs: MemoryEmailLog[];
@@ -207,6 +233,7 @@ type MemoryStore = {
   featureRequests: MemoryFeatureRequest[];
   featureVotes: MemoryFeatureVote[];
   csFilings: import("@/server/companies-house/filing/types").CsFilingRecord[];
+  in01Filings: import("@/server/companies-house/filing/types").In01FilingRecord[];
   /** Local demo: act as this team member id (null = practice owner) */
   actingMemberId: string | null;
   hmrcConnections: Array<{
@@ -275,6 +302,7 @@ function emptyStore(): MemoryStore {
     ct600Returns: [],
     employees: [],
     payRuns: [],
+    payrollTimesheets: [],
     documents: [],
     bankTransactions: [],
     emailLogs: [],
@@ -286,6 +314,7 @@ function emptyStore(): MemoryStore {
     featureRequests: seedFeatureRequests(),
     featureVotes: [],
     csFilings: [],
+    in01Filings: [],
     actingMemberId: null,
     hmrcConnections: [],
     auditEvents: [],

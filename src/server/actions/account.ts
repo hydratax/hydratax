@@ -47,16 +47,12 @@ export async function createAccountProfile(
     memoryStore.practice.name =
       data.orgType === "practice" ? practiceName : practiceName;
 
-    // Seed a starter subscription unlock based on org type for empty desk UX
-    if (data.orgType === "practice") {
-      memoryStore.subscriptions.push({
-        id: crypto.randomUUID(),
-        practiceId: memoryStore.practice.id,
-        planKey: "practice:Solo",
-        status: "active",
-        stripeSessionId: null,
-        createdAt: new Date().toISOString(),
-      });
+    // Soft trial only when Stripe isn't available (local/demo)
+    if (data.orgType === "practice" && !isStripeConfigured()) {
+      const { startPracticeTrial } = await import(
+        "@/server/billing/start-practice-trial"
+      );
+      await startPracticeTrial(memoryStore.practice.id);
     }
 
     revalidatePath("/dashboard");
@@ -65,7 +61,9 @@ export async function createAccountProfile(
       redirectTo: data.orgType === "practice" ? "/dashboard" : "/pricing",
       message:
         data.orgType === "practice"
-          ? "Practice desk ready — choose a plan to unlock every rail, or continue with Solo starter."
+          ? isStripeConfigured()
+            ? "Account ready — add a card to start your 7-day free trial."
+            : "Practice desk ready — your 7-day free trial is on. No Hydra fees while you trial."
           : "Account created — choose a plan to unlock filing services.",
     };
   }
@@ -89,11 +87,23 @@ export async function createAccountProfile(
     .set({ name: practiceName })
     .where(eq(practices.id, session.practiceId));
 
+  if (data.orgType === "practice" && !isStripeConfigured()) {
+    const { startPracticeTrial } = await import(
+      "@/server/billing/start-practice-trial"
+    );
+    await startPracticeTrial(session.practiceId);
+  }
+
   revalidatePath("/dashboard");
   return {
     ok: true as const,
-    redirectTo: "/pricing",
-    message: "Practice named — select a plan to unlock services.",
+    redirectTo: data.orgType === "practice" ? "/dashboard" : "/pricing",
+    message:
+      data.orgType === "practice"
+        ? isStripeConfigured()
+          ? "Account ready — add a card to start your 7-day free trial."
+          : "Practice desk ready — your 7-day free trial is on. No Hydra fees while you trial."
+        : "Practice named — select a plan to unlock services.",
   };
 }
 
@@ -133,7 +143,7 @@ export async function getPracticeEntitlements() {
         .from("practice_subscriptions")
         .select("plan_key, status")
         .eq("practice_id", session.practiceId)
-        .eq("status", "active");
+        .in("status", ["active", "trialing"]);
       for (const s of subs ?? []) {
         if (s.plan_key) planKeys.push(s.plan_key);
       }
@@ -146,7 +156,7 @@ export async function getPracticeEntitlements() {
   {
     const mine = memoryStore.subscriptions.filter(
       (s) =>
-        s.status === "active" &&
+        (s.status === "active" || s.status === "trialing") &&
         (s.practiceId === session.practiceId ||
           s.practiceId === memoryStore.practice.id),
     );
@@ -176,7 +186,7 @@ export async function getPracticeEntitlements() {
       const { practiceSubscriptions, companiesHouseRequests } = await import(
         "@/server/db/schema"
       );
-      const { and, eq } = await import("drizzle-orm");
+      const { and, eq, or } = await import("drizzle-orm");
 
       const subs = await getDb()
         .select()
@@ -184,7 +194,10 @@ export async function getPracticeEntitlements() {
         .where(
           and(
             eq(practiceSubscriptions.practiceId, session.practiceId),
-            eq(practiceSubscriptions.status, "active"),
+            or(
+              eq(practiceSubscriptions.status, "active"),
+              eq(practiceSubscriptions.status, "trialing"),
+            ),
           ),
         );
 
@@ -209,12 +222,80 @@ export async function getPracticeEntitlements() {
     }
   }
 
+  // Local/demo only: seed a soft trial when Stripe isn't available.
+  // Production trials require a card via Stripe Checkout (day-8 charge).
+  if (planKeys.length === 0 && !isStripeConfigured()) {
+    try {
+      const { startPracticeTrial } = await import(
+        "@/server/billing/start-practice-trial"
+      );
+      const started = await startPracticeTrial(session.practiceId);
+      if (started.created) {
+        planKeys.push("practice:Practice");
+      } else if (
+        memoryStore.subscriptions.some(
+          (s) =>
+            s.practiceId === session.practiceId &&
+            (s.status === "active" || s.status === "trialing"),
+        )
+      ) {
+        for (const s of memoryStore.subscriptions) {
+          if (
+            s.practiceId === session.practiceId &&
+            (s.status === "active" || s.status === "trialing") &&
+            !planKeys.includes(s.planKey)
+          ) {
+            planKeys.push(s.planKey);
+          }
+        }
+      }
+    } catch {
+      /* best-effort */
+    }
+  }
+
   const ent = entitlementsForPlans(planKeys);
   return {
     ...ent,
     planKeys,
     modules: [...ent.modules],
     orgType: memoryStore.accountProfile?.orgType ?? null,
+  };
+}
+
+/** Explicit one-click claim — starts Stripe Checkout with card + 7-day trial. */
+export async function claimPracticeFreeTrial() {
+  const session = await requireSession();
+  const { isStripeConfigured } = await import("@/lib/env");
+
+  if (!isStripeConfigured()) {
+    // Local / demo without Stripe: unlock trial in-memory
+    const { startPracticeTrial } = await import(
+      "@/server/billing/start-practice-trial"
+    );
+    const result = await startPracticeTrial(session.practiceId);
+    revalidatePath("/dashboard");
+    return {
+      ok: true as const,
+      created: result.created,
+      trialEndsAt: result.trialEndsAt,
+      checkoutUrl: null as string | null,
+    };
+  }
+
+  const { createPracticeTrialCheckout } = await import(
+    "@/server/stripe/checkout-session"
+  );
+  const checkout = await createPracticeTrialCheckout({
+    email: session.email,
+    practiceId: session.practiceId,
+    userId: session.userId,
+  });
+  return {
+    ok: true as const,
+    created: false,
+    trialEndsAt: null as string | null,
+    checkoutUrl: checkout.url,
   };
 }
 

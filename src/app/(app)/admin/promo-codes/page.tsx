@@ -20,8 +20,8 @@ export default async function AdminPromoCodesPage() {
         </p>
         <h1 className="display mt-2 text-4xl text-ink">Promo codes</h1>
         <p className="mt-2 max-w-2xl text-sm text-ink-soft">
-          Create Stripe promotion codes — percent or fixed GBP off. Customers
-          apply them on Checkout when paying for a plan.
+          Create Stripe promotion codes — percent or fixed GBP off, for the first
+          month only or forever. Customers apply them on Checkout.
         </p>
       </div>
 

@@ -8,18 +8,23 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "clientId required" }, { status: 400 });
   }
 
+  const returnTo =
+    req.nextUrl.searchParams.get("returnTo") === "vat" ? "vat" : "overview";
+
   const cfg = getHmrcConfig();
   if (!cfg.clientId) {
     return NextResponse.redirect(
       new URL(
-        `/clients/${clientId}?hmrc=demo_connect_available`,
+        returnTo === "vat"
+          ? `/clients/${clientId}/vat?hmrc=demo_connect_available`
+          : `/clients/${clientId}?hmrc=demo_connect_available`,
         req.nextUrl.origin,
       ),
     );
   }
 
   const state = Buffer.from(
-    JSON.stringify({ clientId, nonce: crypto.randomUUID() }),
+    JSON.stringify({ clientId, nonce: crypto.randomUUID(), returnTo }),
   ).toString("base64url");
 
   const url = buildAuthorizeUrl(state);

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import Link from "next/link";
+import { useEffect, useId, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type SearchItem = {
   company_number: string;
@@ -12,272 +12,214 @@ type SearchItem = {
   address_snippet?: string;
 };
 
-type Officer = {
-  name: string;
-  officer_role?: string;
-  appointed_on?: string;
-  resigned_on?: string;
-  nationality?: string;
-  identity_verification_details?: { identity_verified_on?: string };
-};
-
-type Psc = {
-  name?: string;
-  kind?: string;
-  natures_of_control?: string[];
-  notified_on?: string;
-  ceased_on?: string;
-};
-
-type Bundle = {
-  configured?: boolean;
-  message?: string;
-  profile?: {
-    company_number: string;
-    company_name: string;
-    company_status?: string;
-    type?: string;
-    date_of_creation?: string;
-    sic_codes?: string[];
-    registered_office_address?: Record<string, string | undefined>;
-    confirmation_statement?: { next_due?: string };
-    accounts?: { next_due?: string };
-  };
-  officers?: Officer[];
-  pscs?: Psc[];
-  source?: { note?: string; register?: string };
-};
-
 export function CompanySearchPanel({
-  onSelectCompany,
+  heading = "Companies House search",
+  description,
+  variant = "card",
+  /**
+   * Where selecting a company goes.
+   * - `hub` (default): /companies-house/company/[number]
+   * - `accounts`: /companies-house/accounts-ixbrl?company=[number]
+   */
+  selectTarget = "hub",
 }: {
-  onSelectCompany?: (company: {
-    number: string;
-    name: string;
-  }) => void;
+  heading?: string;
+  description?: string | null;
+  /** `hero` — bare search on dark background; `card` — panel chrome */
+  variant?: "card" | "hero";
+  selectTarget?: "hub" | "accounts";
 }) {
+  const router = useRouter();
+  const listId = useId();
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [q, setQ] = useState("");
   const [items, setItems] = useState<SearchItem[]>([]);
-  const [bundle, setBundle] = useState<Bundle | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [navigating, setNavigating] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
-  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
-  function search() {
-    setError(null);
-    setBundle(null);
-    start(async () => {
+  useEffect(() => {
+    const query = q.trim();
+    if (query.length < 2) {
+      setItems([]);
+      setOpen(false);
+      setSearching(false);
+      setHint(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      setError(null);
       try {
         const res = await fetch(
-          `/api/companies-house/search?q=${encodeURIComponent(q)}`,
+          `/api/companies-house/search?q=${encodeURIComponent(query)}`,
         );
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Search failed");
+        const data = (await res.json()) as {
+          items?: SearchItem[];
+          message?: string;
+          error?: string;
+        };
+        if (cancelled) return;
+        if (!res.ok) {
+          setItems([]);
+          setHint(data.error ?? "Search failed");
+          setOpen(true);
+          return;
+        }
         setItems(data.items ?? []);
         setHint(data.message ?? null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Search failed");
+        setOpen(true);
+      } catch {
+        if (!cancelled) {
+          setItems([]);
+          setHint("Could not reach Companies House");
+          setOpen(true);
+        }
+      } finally {
+        if (!cancelled) setSearching(false);
       }
-    });
-  }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [q]);
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
 
   function openCompany(number: string) {
+    setOpen(false);
+    setNavigating(true);
     setError(null);
-    start(async () => {
-      try {
-        const res = await fetch(
-          `/api/companies-house/search?company_number=${encodeURIComponent(number)}`,
-        );
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "Lookup failed");
-        setBundle(data);
-        setHint(data.message ?? null);
-        if (data.profile && onSelectCompany) {
-          onSelectCompany({
-            number: data.profile.company_number,
-            name: data.profile.company_name,
-          });
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Lookup failed");
-      }
-    });
+    const href =
+      selectTarget === "accounts"
+        ? `/companies-house/accounts-ixbrl?company=${encodeURIComponent(number)}`
+        : `/companies-house/company/${encodeURIComponent(number)}`;
+    router.push(href);
   }
 
+  const isHero = variant === "hero";
+  const busy = searching || navigating;
+
   return (
-    <div className="panel gloss-card space-y-4 p-5">
+    <div
+      className={
+        isHero
+          ? "space-y-5 overflow-visible"
+          : "panel space-y-4 overflow-visible p-5"
+      }
+    >
       <div>
-        <h2 className="display text-2xl text-ink">Companies House search</h2>
-        <p className="mt-1 text-sm text-ink-soft">
-          Search by company name or number. We pull profile, directors
-          (officers) and persons with significant control from the official
-          Public Data API.
-        </p>
+        <h1
+          className={
+            isHero
+              ? "display text-3xl text-white sm:text-4xl md:text-5xl"
+              : "display text-2xl text-ink"
+          }
+        >
+          {heading}
+        </h1>
+        {description !== null && description !== undefined && (
+          <p
+            className={
+              isHero
+                ? "mt-2 text-sm text-white/65"
+                : "mt-1 text-sm text-ink-soft"
+            }
+          >
+            {description}
+          </p>
+        )}
+        {!isHero && description === undefined && (
+          <p className="mt-1 text-sm text-ink-soft">
+            Start typing a company name — pick from the list to open the profile.
+          </p>
+        )}
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="relative" ref={wrapRef}>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && search()}
+          onFocus={() => {
+            if (items.length > 0 || hint) setOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setOpen(false);
+            if (e.key === "Enter" && items[0]) {
+              e.preventDefault();
+              openCompany(items[0].company_number);
+            }
+          }}
           placeholder="Company name or number…"
-          className="min-w-[220px] flex-1 rounded-lg border border-line px-3 py-2.5 text-sm"
+          autoComplete="off"
+          aria-autocomplete="list"
+          aria-controls={listId}
+          aria-expanded={open}
+          role="combobox"
+          className={
+            isHero
+              ? "w-full rounded-xl border border-white/20 bg-white px-4 py-3.5 pr-28 text-base text-ink shadow-lg"
+              : "w-full rounded-lg border border-line px-3 py-2.5 pr-24 text-sm"
+          }
         />
-        <button
-          type="button"
-          disabled={pending || !q.trim()}
-          onClick={search}
-          className="btn btn-primary disabled:opacity-60"
-        >
-          {pending ? "Searching…" : "Search"}
-        </button>
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-ink-soft">
+          {busy ? "Opening…" : "Companies House"}
+        </span>
+
+        {open && (searching || items.length > 0 || hint) && (
+          <ul
+            id={listId}
+            role="listbox"
+            className="absolute z-30 mt-1 max-h-80 w-full overflow-auto rounded-xl border border-line bg-white py-1 shadow-lg"
+          >
+            {searching && items.length === 0 && !hint && (
+              <li className="px-4 py-3 text-sm text-ink-soft">
+                Searching Companies House…
+              </li>
+            )}
+            {hint && items.length === 0 && (
+              <li className="px-4 py-3 text-sm text-ink-soft">{hint}</li>
+            )}
+            {items.map((item) => (
+              <li key={item.company_number} role="option">
+                <button
+                  type="button"
+                  className="flex w-full flex-col gap-0.5 px-4 py-2.5 text-left hover:bg-sea/5"
+                  onClick={() => openCompany(item.company_number)}
+                >
+                  <span className="font-semibold text-ink">{item.title}</span>
+                  <span className="mono text-xs text-ink-soft">
+                    {item.company_number}
+                    {item.company_status ? ` · ${item.company_status}` : ""}
+                  </span>
+                  {item.address_snippet && (
+                    <span className="text-xs text-ink-soft">
+                      {item.address_snippet}
+                    </span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
-      {hint && <p className="text-xs text-ink-soft">{hint}</p>}
-      {error && <p className="text-sm text-danger">{error}</p>}
-
-      {items.length > 0 && (
-        <ul className="divide-y divide-line rounded-lg border border-line">
-          {items.map((item) => (
-            <li key={item.company_number}>
-              <button
-                type="button"
-                className="flex w-full flex-col gap-0.5 px-3 py-3 text-left hover:bg-sea/5"
-                onClick={() => openCompany(item.company_number)}
-              >
-                <span className="font-semibold text-ink">{item.title}</span>
-                <span className="mono text-xs text-ink-soft">
-                  {item.company_number}
-                  {item.company_status ? ` · ${item.company_status}` : ""}
-                </span>
-                {item.address_snippet && (
-                  <span className="text-xs text-ink-soft">
-                    {item.address_snippet}
-                  </span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {bundle?.profile && (
-        <div className="space-y-4 rounded-xl border border-sea/25 bg-sea/5 p-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-sea">
-              Company profile
-            </p>
-            <h3 className="display mt-1 text-2xl text-ink">
-              {bundle.profile.company_name}
-            </h3>
-            <p className="mono mt-1 text-sm text-ink-soft">
-              {bundle.profile.company_number}
-              {bundle.profile.company_status
-                ? ` · ${bundle.profile.company_status}`
-                : ""}
-              {bundle.profile.date_of_creation
-                ? ` · formed ${bundle.profile.date_of_creation}`
-                : ""}
-            </p>
-            {bundle.profile.sic_codes?.length ? (
-              <p className="mt-2 text-sm text-ink-soft">
-                SIC: {bundle.profile.sic_codes.join(", ")}
-              </p>
-            ) : null}
-            {bundle.profile.confirmation_statement?.next_due && (
-              <p className="mt-1 text-sm text-ink-soft">
-                CS next due: {bundle.profile.confirmation_statement.next_due}
-              </p>
-            )}
-            {bundle.profile.accounts?.next_due && (
-              <p className="text-sm text-ink-soft">
-                Accounts next due: {bundle.profile.accounts.next_due}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <h4 className="font-semibold text-ink">
-              Directors / officers ({bundle.officers?.length ?? 0})
-            </h4>
-            <ul className="mt-2 space-y-2 text-sm">
-              {(bundle.officers ?? []).slice(0, 12).map((o) => (
-                <li
-                  key={`${o.name}-${o.appointed_on}`}
-                  className="rounded-lg border border-line/80 bg-white px-3 py-2"
-                >
-                  <p className="font-semibold text-ink">{o.name}</p>
-                  <p className="text-xs text-ink-soft">
-                    {o.officer_role}
-                    {o.appointed_on ? ` · appointed ${o.appointed_on}` : ""}
-                    {o.resigned_on ? ` · resigned ${o.resigned_on}` : ""}
-                    {o.identity_verification_details?.identity_verified_on
-                      ? " · ID verified"
-                      : ""}
-                  </p>
-                </li>
-              ))}
-              {!bundle.officers?.length && (
-                <li className="text-ink-soft">No officers returned.</li>
-              )}
-            </ul>
-          </div>
-
-          <div>
-            <h4 className="font-semibold text-ink">
-              Persons with significant control ({bundle.pscs?.length ?? 0})
-            </h4>
-            <p className="mt-1 text-xs text-ink-soft">
-              PSC data is the structured ownership view on the public API. A
-              full shareholder register is often only in filed documents, not
-              searchable JSON.
-            </p>
-            <ul className="mt-2 space-y-2 text-sm">
-              {(bundle.pscs ?? []).map((p, i) => (
-                <li
-                  key={`${p.name}-${i}`}
-                  className="rounded-lg border border-line/80 bg-white px-3 py-2"
-                >
-                  <p className="font-semibold text-ink">
-                    {p.name ?? "Name protected / unavailable"}
-                  </p>
-                  <p className="text-xs text-ink-soft">
-                    {p.kind}
-                    {p.natures_of_control?.length
-                      ? ` · ${p.natures_of_control.join("; ")}`
-                      : ""}
-                  </p>
-                </li>
-              ))}
-              {!bundle.pscs?.length && (
-                <li className="text-ink-soft">No PSC records returned.</li>
-              )}
-            </ul>
-          </div>
-
-          <p className="text-xs text-ink-soft">
-            {bundle.source?.note}{" "}
-            <a
-              href={
-                bundle.source?.register ??
-                "https://find-and-update.company-information.service.gov.uk/"
-              }
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-semibold text-sea"
-            >
-              View on Companies House register
-            </a>
-            . Need personal codes?{" "}
-            <Link
-              href="/companies-house/personal-code"
-              className="font-semibold text-sea"
-            >
-              Guidance
-            </Link>
-            .
-          </p>
-        </div>
+      {error && (
+        <p className={`text-sm ${isHero ? "text-red-300" : "text-danger"}`}>
+          {error}
+        </p>
       )}
     </div>
   );

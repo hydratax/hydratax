@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { LandingHeader } from "@/components/landing/landing-header";
 import { DynamicHero } from "@/components/landing/dynamic-hero";
 import { ServiceCards } from "@/components/landing/service-cards";
@@ -13,24 +14,33 @@ import {
   webSiteJsonLd,
 } from "@/lib/seo";
 import { ACCOUNTANT_REVIEWS } from "@/lib/accountant-reviews";
+import { BLOG_POSTS } from "@/lib/blog";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title:
-    "HydraTax — File CT600, MTD VAT, Self Assessment, PAYE & Companies House",
+    "HydraTax — UK accounting software for CT600, MTD VAT, bookkeeping & Companies House",
   description:
-    "UK accounting software loved by accountants. File CT600, MTD VAT, Self Assessment, PAYE RTI and Companies House from one practice desk — built for firms, not hobby bookkeeping.",
+    "HydraTax helps UK accountants and small limited companies file CT600, MTD VAT returns, Self Assessment, PAYE, confirmation statements and year-end accounts from one practice desk.",
   keywords: [
-    "accounting software for UK accountants",
+    "HydraTax",
+    "UK accounting software",
+    "accounting software for small business",
+    "bookkeeping software UK",
     "CT600 software",
     "MTD VAT software",
-    "Self Assessment software",
-    "PAYE RTI software",
     "confirmation statement filing",
     "practice management tax software",
     "accountant reviews HydraTax",
   ],
   alternates: { canonical: "/" },
+  openGraph: {
+    title: "HydraTax — UK accounting, tax and Companies House software",
+    description:
+      "File CT600, MTD VAT, payroll, confirmation statements and accounts in one place.",
+    url: "/",
+    type: "website",
+  },
 };
 
 const MARQUEE = [
@@ -92,6 +102,45 @@ export default function HomePage() {
       <ReviewsCarousel />
       <FeatureRoadmapTeaser />
 
+      <section className="border-t border-line bg-white/70">
+        <div className="mx-auto max-w-6xl px-4 py-14 md:px-6">
+          <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
+            Guides
+          </p>
+          <h2 className="display mt-2 text-3xl text-ink md:text-4xl">
+            Accounting and tax, without the jargon
+          </h2>
+          <p className="mt-3 max-w-2xl text-ink-soft">
+            New to CT600, Making Tax Digital or confirmation statements? Start
+            here — then file from the same desk.
+          </p>
+          <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {BLOG_POSTS.slice(0, 3).map((post) => (
+              <li key={post.slug}>
+                <Link
+                  href={`/blog/${post.slug}`}
+                  className="panel block h-full p-5 hover:border-sea"
+                >
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-sea">
+                    {post.category}
+                  </p>
+                  <h3 className="display mt-2 text-xl text-ink">{post.title}</h3>
+                  <p className="mt-2 line-clamp-3 text-sm text-ink-soft">
+                    {post.description}
+                  </p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <Link
+            href="/blog"
+            className="mt-6 inline-block text-sm font-semibold text-sea hover:underline"
+          >
+            All guides →
+          </Link>
+        </div>
+      </section>
+
       <section className="border-t border-line bg-sand/40">
         <div className="mx-auto max-w-6xl px-4 py-14 md:px-6">
           <h2 className="display text-3xl text-ink md:text-4xl">
@@ -104,6 +153,12 @@ export default function HomePage() {
                 Multi-client deadlines, staff-safe guided submit, and every HMRC
                 filing on one desk — CT600, VAT, SA, PAYE, plus Companies House.
               </p>
+              <Link
+                href="/pricing#practice"
+                className="mt-4 inline-block text-sm font-semibold text-sea hover:underline"
+              >
+                See Practice plans →
+              </Link>
             </article>
             <article className="gloss-card panel p-6">
               <h3 className="display text-2xl text-ink">Directors & sole traders</h3>

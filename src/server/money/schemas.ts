@@ -76,6 +76,16 @@ export const employeeInputSchema = z.object({
   taxCode: z.string().min(1).max(10).default("1257L"),
   annualSalaryPence: penceSchema,
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  payrollId: z.string().min(1).max(20).optional(),
+  payFrequency: z.enum(["M1", "W1"]).default("M1"),
+  niCategory: z.string().min(1).max(2).default("A"),
+  jobTitle: z.string().max(80).optional().or(z.literal("")),
+  starterDeclaration: z.enum(["A", "B", "C"]).default("A"),
+  hoursPerWeek: z.number().int().positive().default(3750),
+  hourlyRatePence: penceSchema.optional(),
+  payBasis: z.enum(["salary", "hourly"]).default("salary"),
+  pensionOptOut: z.boolean().default(false),
+  sspQualifyingDays: z.number().int().min(1).max(7).default(5),
 });
 
 export const payRunInputSchema = z.object({

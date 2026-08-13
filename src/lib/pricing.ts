@@ -48,12 +48,24 @@ export function hydraTotal(
   return chFeePounds + hydra;
 }
 
+/** Practice desk — fixed bundle used as the Custom volume-price ceiling. */
+export const PRACTICE_PLAN_PRICE_POUNDS = 79;
+export const PRACTICE_PLAN_CLIENT_LIMIT = 50;
+
+/**
+ * Custom all-inclusive stays below Practice when scaled by client count.
+ * Practice £79 / 50 clients → £790 at 500 clients; Custom targets 90% of that.
+ */
+export const CUSTOM_VS_PRACTICE_RATIO = 0.9;
+
 /** Billable HMRC modules — priced per client when building a Custom plan */
 export const CUSTOM_PLAN_MODULES = [
   {
     id: "vat",
     label: "MTD VAT",
     pricePerClient: 12,
+    /** Share of Practice all-inclusive rate (weights sum to 1). */
+    weight: 0.2,
     blurb: "Multi-VRN obligations and submit",
     entitlement: "vat" as const,
   },
@@ -61,13 +73,15 @@ export const CUSTOM_PLAN_MODULES = [
     id: "payroll",
     label: "PAYE / RTI",
     pricePerClient: 18,
-    blurb: "Employers, pay runs, FPS & EPS",
+    weight: 0.25,
+    blurb: "1 client up to 10 employees · FPS & EPS",
     entitlement: "payroll" as const,
   },
   {
     id: "self_assessment",
     label: "Self Assessment",
     pricePerClient: 15,
+    weight: 0.2,
     blurb: "Quarterly updates for sole traders",
     entitlement: "self_assessment" as const,
   },
@@ -75,6 +89,7 @@ export const CUSTOM_PLAN_MODULES = [
     id: "corporation_tax",
     label: "CT600",
     pricePerClient: 35,
+    weight: 0.35,
     blurb: "Corporation tax returns per company",
     entitlement: "corporation_tax" as const,
   },
@@ -82,26 +97,12 @@ export const CUSTOM_PLAN_MODULES = [
 
 export type CustomModuleId = (typeof CUSTOM_PLAN_MODULES)[number]["id"];
 
-/** Companies House add-ons — no monthly fee on Custom */
-export const CUSTOM_CH_ADDONS = [
-  {
-    id: "ch_incorporation",
-    label: "New company incorporation",
-    blurb: "No monthly fee · desk Hydra rate £5 per filing + CH statutory fee",
-  },
-  {
-    id: "ch_cs",
-    label: "Confirmation statement",
-    blurb: "Unlimited CS01 filings · no monthly fee · £0 Hydra on desk",
-  },
-  {
-    id: "ch_accounts",
-    label: "Annual accounts (iXBRL)",
-    blurb: "Unlimited accounts filings · no monthly fee · £0 Hydra on desk",
-  },
-] as const;
-
-export type CustomChAddonId = (typeof CUSTOM_CH_ADDONS)[number]["id"];
+/** Legacy CH tokens in older Custom plan keys — ignored; CH is included with every Custom desk. */
+const LEGACY_CUSTOM_CH_TOKENS = new Set([
+  "ch_incorporation",
+  "ch_cs",
+  "ch_accounts",
+]);
 
 export type CustomModuleSelection = {
   id: CustomModuleId;
@@ -110,48 +111,42 @@ export type CustomModuleSelection = {
 
 export type CustomPlanSelection = {
   modules: CustomModuleSelection[];
-  chAddons: CustomChAddonId[];
 };
 
-/** Base monthly fee for Custom desk (workspace) before HMRC modules */
-export const CUSTOM_PLAN_BASE_POUNDS = 39;
+/**
+ * @deprecated Custom has no desk fee — kept as 0 for older imports.
+ */
+export const CUSTOM_PLAN_BASE_POUNDS = 0;
 
 export function customPlanKey(selection: CustomPlanSelection) {
   const modParts = [...selection.modules]
     .filter((m) => m.clients > 0)
     .sort((a, b) => a.id.localeCompare(b.id))
     .map((m) => `${m.id}:${Math.max(1, Math.floor(m.clients))}`);
-  const chParts = [...new Set(selection.chAddons)].sort();
-  const parts = [...modParts, ...chParts];
-  return parts.length
-    ? `practice:Custom:${parts.join("+")}`
+  return modParts.length
+    ? `practice:Custom:${modParts.join("+")}`
     : "practice:Custom";
 }
 
 export function parseCustomPlanSelection(planKey: string): CustomPlanSelection {
   if (!planKey.startsWith("practice:Custom")) {
-    return { modules: [], chAddons: [] };
+    return { modules: [] };
   }
   const rest = planKey.slice("practice:Custom".length);
-  if (!rest.startsWith(":")) return { modules: [], chAddons: [] };
+  if (!rest.startsWith(":")) return { modules: [] };
 
   const allowedMods = new Set(CUSTOM_PLAN_MODULES.map((m) => m.id));
-  const allowedCh = new Set(CUSTOM_CH_ADDONS.map((a) => a.id));
   const modules: CustomModuleSelection[] = [];
-  const chAddons: CustomChAddonId[] = [];
 
   for (const part of rest.slice(1).split("+").filter(Boolean)) {
-    if (allowedCh.has(part as CustomChAddonId)) {
-      chAddons.push(part as CustomChAddonId);
-      continue;
-    }
+    if (LEGACY_CUSTOM_CH_TOKENS.has(part)) continue;
     const [id, clientsRaw] = part.split(":");
     if (!allowedMods.has(id as CustomModuleId)) continue;
     const clients = Math.max(1, Math.floor(Number(clientsRaw) || 1));
     modules.push({ id: id as CustomModuleId, clients });
   }
 
-  return { modules, chAddons };
+  return { modules };
 }
 
 /** @deprecated Prefer parseCustomPlanSelection */
@@ -159,14 +154,62 @@ export function parseCustomPlanModules(planKey: string): CustomModuleId[] {
   return parseCustomPlanSelection(planKey).modules.map((m) => m.id);
 }
 
+/**
+ * Volume price for one Custom module (exact pounds before rounding).
+ * Low client counts stay near list price; as volume grows the rate falls toward
+ * that module’s share of (Practice £/client × CUSTOM_VS_PRACTICE_RATIO).
+ */
+export function customModuleAmountExact(
+  moduleId: CustomModuleId,
+  clients: number,
+): number {
+  const mod = CUSTOM_PLAN_MODULES.find((m) => m.id === moduleId);
+  if (!mod) return 0;
+  const n = Math.max(1, Math.floor(clients));
+  const listTotal = mod.pricePerClient * n;
+  const volumeCap =
+    (PRACTICE_PLAN_PRICE_POUNDS / PRACTICE_PLAN_CLIENT_LIMIT) *
+    CUSTOM_VS_PRACTICE_RATIO *
+    mod.weight *
+    n;
+  // n=1 → list; n≥50 → fully on the Practice-beating volume cap
+  const t = Math.min(1, Math.log10(n) / Math.log10(PRACTICE_PLAN_CLIENT_LIMIT));
+  return Math.max(0, listTotal * (1 - t) + volumeCap * t);
+}
+
+export function customModuleAmountPounds(
+  moduleId: CustomModuleId,
+  clients: number,
+): number {
+  const exact = customModuleAmountExact(moduleId, clients);
+  if (exact <= 0) return 0;
+  return Math.max(1, Math.round(exact));
+}
+
+/** Effective £ per client after volume discount (for UI). */
+export function customModuleEffectiveRatePounds(
+  moduleId: CustomModuleId,
+  clients: number,
+): number {
+  const n = Math.max(1, Math.floor(clients));
+  return customModuleAmountExact(moduleId, n) / n;
+}
+
 export function customPlanAmountPounds(selection: CustomPlanSelection) {
-  const moduleTotal = selection.modules.reduce((sum, sel) => {
-    const mod = CUSTOM_PLAN_MODULES.find((m) => m.id === sel.id);
-    if (!mod) return sum;
-    return sum + mod.pricePerClient * Math.max(1, Math.floor(sel.clients));
+  const exact = selection.modules.reduce((sum, sel) => {
+    if (sel.clients <= 0) return sum;
+    return sum + customModuleAmountExact(sel.id, sel.clients);
   }, 0);
-  // CH add-ons: £0 monthly
-  return CUSTOM_PLAN_BASE_POUNDS + moduleTotal;
+  if (exact <= 0) return 0;
+  return Math.max(1, Math.round(exact));
+}
+
+/** Practice-scaled ceiling for an all-inclusive Custom quote at `clients`. */
+export function practiceScaledCeilingPounds(clients: number) {
+  const n = Math.max(1, Math.floor(clients));
+  return Math.round(
+    (PRACTICE_PLAN_PRICE_POUNDS / PRACTICE_PLAN_CLIENT_LIMIT) * n,
+  );
 }
 
 export type ChService = {
@@ -228,35 +271,6 @@ export const COMPANIES_HOUSE_SERVICES: ChService[] = [
     channel: "Digital",
     chFeePounds: 85,
   },
-  {
-    id: "voluntary-strike-off",
-    title: "Voluntary strike off (DS01)",
-    description: "Apply to close / strike off a company digitally.",
-    channel: "Digital",
-    chFeePounds: 13,
-  },
-  {
-    id: "registration-of-charge",
-    title: "Registration of a charge",
-    description: "Register a charge against the company.",
-    channel: "Digital",
-    chFeePounds: 14,
-  },
-  {
-    id: "certificate-incorporation",
-    title: "Certificate of incorporation (post)",
-    description: "Order a certificate of incorporation by post.",
-    channel: "Paper",
-    chFeePounds: 22,
-  },
-  {
-    id: "certified-copy",
-    title: "Certified copy of a document",
-    description:
-      "Certified copy of a filed document by post (£22 standard per Companies House fees).",
-    channel: "Paper",
-    chFeePounds: 22,
-  },
 ];
 
 export function formatGBP(n: number) {
@@ -279,50 +293,60 @@ export const PRICING_SECTIONS = [
   {
     id: "practice",
     title: "Practice desk",
-    subtitle: "Multi-client workspace for accountants and bookkeepers",
+    subtitle:
+      "Solo for one client. Practice & Custom include a 7-day free trial (card at checkout).",
     plans: [
       {
         name: "Solo",
         price: 29,
         period: "/month",
-        blurb: "For sole practitioners with a focused client list.",
+        blurb: "One client desk — PAYE for one employee and one Self Assessment.",
         features: [
-          "Up to 15 clients",
+          "1 client only",
+          "PAYE for 1 employee",
+          "1 Self Assessment",
           "Books in integer pence",
           "Immutable audit trail",
           "HMRC-ready filing",
         ],
-        cta: "Start solo",
+        cta: "Choose Solo",
         highlighted: false,
       },
       {
         name: "Practice",
-        price: 79,
+        price: PRACTICE_PLAN_PRICE_POUNDS,
         period: "/month",
-        blurb: "The Hydra desk for growing firms.",
+        blurb:
+          "7 days free, then £79/month — capped at 50 clients. No Hydra fees while you trial.",
         features: [
-          "Up to 100 clients",
+          "7-day free trial — no Hydra fees",
+          "Free submissions during trial",
+          `Up to ${PRACTICE_PLAN_CLIENT_LIMIT} clients`,
+          "CT600 included",
+          "MTD VAT included",
+          `${PRACTICE_PLAN_CLIENT_LIMIT} Self Assessments included`,
           "Staff roles & deadlines board",
-          "All HMRC filings unlocked",
           ...DESK_CH_FEATURES,
           "Priority support queue",
         ],
-        cta: "Choose Practice",
+        cta: "Start free trial",
         highlighted: true,
       },
       {
         name: "Custom",
-        price: CUSTOM_PLAN_BASE_POUNDS,
+        price: 12,
         period: "/month",
         blurb:
-          "Pick HMRC modules by client count — Companies House add-ons at no monthly fee.",
+          "Pick HMRC modules by client count — 7-day free trial, then volume discounts apply.",
         features: [
-          "Quote scales with clients per service",
-          "Practice workspace included",
+          "7-day free trial — no Hydra fees",
+          "No desk fee after trial — modules only",
+          "Cheaper per client as volume grows",
+          "PAYE: 1 client up to 10 employees",
           ...DESK_CH_FEATURES,
-          "Pay only for modules you need",
+          "Pay only for HMRC modules you need",
         ],
-        cta: "Build custom plan",
+        cta: "Start free trial",
         highlighted: false,
         customBuilder: true,
       },

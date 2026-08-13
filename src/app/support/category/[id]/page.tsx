@@ -1,11 +1,11 @@
 import Link from "next/link";
-import Image from "next/image";
 import { notFound } from "next/navigation";
 import {
   SUPPORT_CATEGORIES,
   articlesByCategory,
   type SupportCategoryId,
 } from "@/lib/support-content";
+import { SiteHeader } from "@/components/site-header";
 
 export default async function SupportCategoryPage({
   params,
@@ -20,24 +20,12 @@ export default async function SupportCategoryPage({
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-line bg-white/85 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-6">
-          <Link href="/" className="inline-flex items-center gap-2.5">
-            <Image src="/brand/logo.png" alt="HydraTax" width={32} height={32} />
-            <span className="display text-lg font-semibold text-ink">
-              HydraTax
-            </span>
-          </Link>
-          <Link href="/support" className="text-sm font-semibold text-sea">
-            ← All support
-          </Link>
-        </div>
-      </header>
-      <main className="mx-auto max-w-6xl px-4 py-10 md:px-6">
+      <SiteHeader />
+      <main className="mx-auto max-w-6xl px-4 py-8 md:px-6 md:py-10">
         <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
           Support
         </p>
-        <h1 className="display mt-2 text-4xl text-ink">{category.title}</h1>
+        <h1 className="display mt-2 text-3xl text-ink sm:text-4xl">{category.title}</h1>
         <p className="mt-2 max-w-2xl text-ink-soft">{category.blurb}</p>
         <ul className="mt-8 grid gap-3">
           {articles.map((a) => (

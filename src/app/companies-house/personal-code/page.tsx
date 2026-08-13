@@ -1,7 +1,7 @@
 import Link from "next/link";
-import Image from "next/image";
 import { CH_GUIDANCE } from "@/lib/ch-services";
 import { SiteFooter } from "@/components/site-footer";
+import { SiteHeader } from "@/components/site-header";
 import { FaqSection } from "@/components/faq-section";
 
 const PERSONAL_CODE_FAQS = [
@@ -28,24 +28,9 @@ export const metadata = {
 export default function PersonalCodePage() {
   return (
     <div className="min-h-screen">
-      <header className="border-b border-line bg-white/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-6">
-          <Link href="/" className="inline-flex items-center gap-2.5">
-            <Image src="/brand/logo.png" alt="HydraTax" width={32} height={32} />
-            <span className="display text-lg font-semibold text-ink">
-              HydraTax
-            </span>
-          </Link>
-          <Link
-            href="/companies-house"
-            className="text-sm font-semibold text-sea"
-          >
-            ← Companies House services
-          </Link>
-        </div>
-      </header>
+      <SiteHeader />
 
-      <main className="mx-auto max-w-3xl px-4 py-12 md:px-6">
+      <main className="mx-auto max-w-3xl px-4 py-8 md:px-6 md:py-12">
         <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
           Identity verification
         </p>

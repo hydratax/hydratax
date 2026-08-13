@@ -122,6 +122,19 @@ export type XmlGatewayResponse = {
 export async function submitConfirmationStatementXml(
   xml: string,
 ): Promise<XmlGatewayResponse> {
+  return postXmlToGateway(xml);
+}
+
+/**
+ * Posts IN01 (CompanyIncorporation) XML to the Companies House gateway.
+ */
+export async function submitCompanyIncorporationXml(
+  xml: string,
+): Promise<XmlGatewayResponse> {
+  return postXmlToGateway(xml);
+}
+
+async function postXmlToGateway(xml: string): Promise<XmlGatewayResponse> {
   const cfg = getChFilingEnv();
   if (!cfg.presenterId || !cfg.presenterAuthCode) {
     return {
@@ -145,6 +158,19 @@ export async function submitConfirmationStatementXml(
       return {
         ok: false,
         error: `Companies House gateway ${res.status}`,
+        raw: raw.slice(0, 2000),
+      };
+    }
+    const fatal = raw.match(
+      /<Number>(\d+)<\/Number>[\s\S]*?<Type>fatal<\/Type>/i,
+    );
+    const errorText = raw.match(/<Text>([^<]+)<\/Text>/i);
+    if (fatal || /Authorisation Failure|fatal/i.test(raw)) {
+      return {
+        ok: false,
+        error:
+          errorText?.[1]?.trim() ||
+          `Companies House rejected the package${fatal ? ` (${fatal[1]})` : ""}`,
         raw: raw.slice(0, 2000),
       };
     }

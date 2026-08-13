@@ -19,6 +19,7 @@ const PUBLIC_PREFIXES = [
   "/api/hmrc/callback",
   "/api/checkout",
   "/api/stripe/webhook",
+  "/api/cron",
   "/api/companies-house",
 ];
 
@@ -49,7 +50,8 @@ export default async function proxy(request: NextRequest) {
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/sign-in";
-    url.searchParams.set("next", pathname);
+    const returnTo = `${pathname}${request.nextUrl.search}`;
+    url.searchParams.set("next", returnTo);
     const redirectResponse = NextResponse.redirect(url);
     copyCookies(response, redirectResponse);
     return redirectResponse;

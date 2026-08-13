@@ -2,56 +2,191 @@ import { pence, multiplyPence, type Pence } from "@/server/money/pence";
 import { sha256Hex } from "./crypto";
 import { getHmrcConfig } from "./config";
 import { appendAuditEvent } from "@/server/audit/log";
+import {
+  autoEnrolmentPension,
+  buildStatutoryElements,
+  TAX_YEAR_2026_27,
+  type TimesheetAdjustments,
+} from "@/server/payroll/statutory";
+
+export type PayFrequency = "M1" | "W1";
 
 export type EmployeePayInput = {
   id: string;
+  payrollId: string;
+  previousPayrollId?: string | null;
+  payrollIdChanged?: boolean;
   forename: string;
   surname: string;
   nino: string;
   taxCode: string;
   annualSalaryPence: number;
+  startDate?: string;
+  leaveDate?: string | null;
+  starterDeclaration?: "A" | "B" | "C" | null;
+  firstFpsSent?: boolean;
+  niCategory?: string;
+  hoursPerWeekHundredths?: number;
+  hourlyRatePence?: number;
+  payBasis?: "salary" | "hourly";
+  pensionOptOut?: boolean;
+  sspQualifyingDays?: number;
+  adjustments?: TimesheetAdjustments | null;
 };
 
 export type PayLine = {
   employeeId: string;
+  payrollId: string;
+  previousPayrollId?: string | null;
+  payrollIdChanged?: boolean;
   forename: string;
   surname: string;
   nino: string;
   taxCode: string;
+  niCategory: string;
+  startDate: string;
+  leaveDate?: string | null;
+  starterDeclaration?: "A" | "B" | "C" | null;
+  isStarterThisRun: boolean;
+  ordinaryPence: number;
+  overtimePence: number;
+  holidayPence: number;
+  sspPence: number;
+  smpPence: number;
   grossPence: number;
+  taxablePence: number;
   taxPence: number;
   employeeNiPence: number;
   employerNiPence: number;
+  pensionEmployeePence: number;
+  pensionEmployerPence: number;
   netPence: number;
+  ytdGrossPence: number;
+  ytdTaxablePence: number;
+  ytdTaxPence: number;
+  ytdEmployeeNiPence: number;
+  notes: string[];
 };
 
-/** Simplified UK PAYE monthly calculator for MVP (not a full tax engine). */
-export function calculateMonthlyPay(emp: EmployeePayInput): PayLine {
-  const gross = multiplyPence(emp.annualSalaryPence, 1 / 12);
-  const personalAllowanceMonthly = pence(12570_00 / 12); // approx
-  const taxable = pence(
-    Math.max(0, Number(gross) - Number(personalAllowanceMonthly)),
+export type YtdTotals = {
+  grossPence: number;
+  taxablePence?: number;
+  taxPence: number;
+  employeeNiPence: number;
+};
+
+/** Simplified UK PAYE calculator (not a full HMRC tax engine). Monthly default. */
+export function calculateMonthlyPay(
+  emp: Omit<EmployeePayInput, "payrollId"> & { payrollId?: string },
+  ytd?: YtdTotals,
+): PayLine {
+  return calculatePeriodPay(
+    {
+      ...emp,
+      payrollId: emp.payrollId ?? emp.id.slice(0, 8).toUpperCase(),
+    },
+    "M1",
+    ytd,
   );
-  const tax = multiplyPence(taxable, 0.2);
-  const niBand = pence(Math.max(0, Number(gross) - 1048_00)); // simplified PT
-  const employeeNi = multiplyPence(niBand, 0.08);
+}
+
+export function calculatePeriodPay(
+  emp: EmployeePayInput,
+  frequency: PayFrequency,
+  ytd?: YtdTotals,
+): PayLine {
+  const periods = frequency === "W1" ? 52 : 12;
+  const elements = buildStatutoryElements({
+    frequency,
+    annualSalaryPence: emp.annualSalaryPence,
+    hoursPerWeekHundredths: emp.hoursPerWeekHundredths ?? 3750,
+    hourlyRatePence: emp.hourlyRatePence ?? 0,
+    payBasis: emp.payBasis ?? "salary",
+    pensionOptOut: Boolean(emp.pensionOptOut),
+    qualifyingDays: emp.sspQualifyingDays ?? 5,
+    adjustments: emp.adjustments,
+  });
+  const gross = pence(
+    elements.ordinaryPence +
+      elements.overtimePence +
+      elements.holidayPence +
+      elements.sspPence +
+      elements.smpPence,
+  );
+  const pension = autoEnrolmentPension({
+    grossPence: Number(gross),
+    frequency,
+    optedOut: Boolean(emp.pensionOptOut),
+  });
+  const taxablePay = pence(Math.max(0, Number(gross) - pension.employeePence));
+  const personalAllowancePeriod = pence(
+    Math.round(TAX_YEAR_2026_27.personalAllowancePence / periods),
+  );
+  const taxBand = pence(
+    Math.max(0, Number(taxablePay) - Number(personalAllowancePeriod)),
+  );
+  const tax = multiplyPence(taxBand, 0.2);
+  const pt =
+    frequency === "W1"
+      ? TAX_YEAR_2026_27.niPtWeeklyPence
+      : TAX_YEAR_2026_27.niPtMonthlyPence;
+  const st =
+    frequency === "W1"
+      ? TAX_YEAR_2026_27.niStWeeklyPence
+      : TAX_YEAR_2026_27.niStMonthlyPence;
+  const employeeNi = multiplyPence(
+    pence(Math.max(0, Number(gross) - pt)),
+    TAX_YEAR_2026_27.niEmployeeBps / 10_000,
+  );
   const employerNi = multiplyPence(
-    pence(Math.max(0, Number(gross) - 758_00)),
-    0.15,
+    pence(Math.max(0, Number(gross) - st)),
+    TAX_YEAR_2026_27.niEmployerBps / 10_000,
   );
-  const net = pence(Number(gross) - Number(tax) - Number(employeeNi));
+  const net = pence(
+    Number(gross) -
+      Number(tax) -
+      Number(employeeNi) -
+      pension.employeePence,
+  );
+  const prior = ytd ?? {
+    grossPence: 0,
+    taxablePence: 0,
+    taxPence: 0,
+    employeeNiPence: 0,
+  };
 
   return {
     employeeId: emp.id,
+    payrollId: emp.payrollId,
+    previousPayrollId: emp.previousPayrollId ?? null,
+    payrollIdChanged: Boolean(emp.payrollIdChanged && emp.previousPayrollId),
     forename: emp.forename,
     surname: emp.surname,
     nino: emp.nino,
     taxCode: emp.taxCode,
+    niCategory: emp.niCategory || "A",
+    startDate: emp.startDate || "",
+    leaveDate: emp.leaveDate ?? null,
+    starterDeclaration: emp.firstFpsSent ? null : emp.starterDeclaration ?? "A",
+    isStarterThisRun: !emp.firstFpsSent,
+    ordinaryPence: elements.ordinaryPence,
+    overtimePence: elements.overtimePence,
+    holidayPence: elements.holidayPence,
+    sspPence: elements.sspPence,
+    smpPence: elements.smpPence,
     grossPence: Number(gross),
+    taxablePence: Number(taxablePay),
     taxPence: Number(tax),
     employeeNiPence: Number(employeeNi),
     employerNiPence: Number(employerNi),
+    pensionEmployeePence: pension.employeePence,
+    pensionEmployerPence: pension.employerPence,
     netPence: Number(net),
+    ytdGrossPence: prior.grossPence + Number(gross),
+    ytdTaxablePence: (prior.taxablePence ?? prior.grossPence) + Number(taxablePay),
+    ytdTaxPence: prior.taxPence + Number(tax),
+    ytdEmployeeNiPence: prior.employeeNiPence + Number(employeeNi),
+    notes: elements.notes,
   };
 }
 
@@ -60,11 +195,30 @@ export function buildFpsXml(opts: {
   accountsOfficeRef: string;
   payDate: string;
   taxYear: string;
+  frequency: PayFrequency;
   lines: PayLine[];
 }): { xml: string; hash: string } {
   const employeeXml = opts.lines
-    .map(
-      (l) => `
+    .map((l) => {
+      const starter =
+        l.isStarterThisRun && l.starterDeclaration && l.startDate
+          ? `
+            <StartingDate>${escapeXml(l.startDate)}</StartingDate>
+            <Starter>
+              <StartDec>${escapeXml(l.starterDeclaration)}</StartDec>
+            </Starter>`
+          : "";
+      const leaver = l.leaveDate
+        ? `
+            <LeavingDate>${escapeXml(l.leaveDate)}</LeavingDate>`
+        : "";
+      const pidChange =
+        l.payrollIdChanged && l.previousPayrollId
+          ? `
+            <PayrollIdChanged>yes</PayrollIdChanged>
+            <OldPayrollId>${escapeXml(l.previousPayrollId)}</OldPayrollId>`
+          : "";
+      return `
       <Employee>
         <EmployeeDetails>
           <NINO>${escapeXml(l.nino)}</NINO>
@@ -74,20 +228,23 @@ export function buildFpsXml(opts: {
           </Name>
         </EmployeeDetails>
         <Employment>
+          <PayId>${escapeXml(l.payrollId)}</PayId>${pidChange}${starter}${leaver}
           <Pay>
             <TaxCode>${escapeXml(l.taxCode)}</TaxCode>
-            <TaxablePay>${(l.grossPence / 100).toFixed(2)}</TaxablePay>
-            <TaxDeductedOrRefunded>${(l.taxPence / 100).toFixed(2)}</TaxDeductedOrRefunded>
+            <TaxablePay>${penceXml(l.taxablePence ?? l.grossPence)}</TaxablePay>
+            <TaxablePayToDate>${penceXml(l.ytdTaxablePence ?? l.ytdGrossPence)}</TaxablePayToDate>
+            <TaxDeductedOrRefunded>${penceXml(l.taxPence)}</TaxDeductedOrRefunded>
+            <TotalTaxToDate>${penceXml(l.ytdTaxPence)}</TotalTaxToDate>
           </Pay>
           <NIlettersAndValues>
-            <NIletter>A</NIletter>
-            <GrossEarningsForNICsInPd>${(l.grossPence / 100).toFixed(2)}</GrossEarningsForNICsInPd>
-            <EmployeeContribution>${(l.employeeNiPence / 100).toFixed(2)}</EmployeeContribution>
-            <EmployerContribution>${(l.employerNiPence / 100).toFixed(2)}</EmployerContribution>
+            <NIletter>${escapeXml(l.niCategory)}</NIletter>
+            <GrossEarningsForNICsInPd>${penceXml(l.grossPence)}</GrossEarningsForNICsInPd>
+            <EmployeeContribution>${penceXml(l.employeeNiPence)}</EmployeeContribution>
+            <EmployerContribution>${penceXml(l.employerNiPence)}</EmployerContribution>
           </NIlettersAndValues>
         </Employment>
-      </Employee>`,
-    )
+      </Employee>`;
+    })
     .join("\n");
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -110,7 +267,7 @@ export function buildFpsXml(opts: {
         </EmpRefs>
         <RelatedTaxYear>${escapeXml(opts.taxYear)}</RelatedTaxYear>
         <EmpPayment>
-          <PayFreq>M1</PayFreq>
+          <PayFreq>${opts.frequency}</PayFreq>
           <PmtDate>${opts.payDate}</PmtDate>
         </EmpPayment>
         ${employeeXml}
@@ -207,8 +364,12 @@ export async function submitRtiXml(opts: {
   return { ok: res.ok, status: res.status, correlationId, hash };
 }
 
-function escapeXml(s: string): string {
-  return s
+function penceXml(amount: number) {
+  return (amount / 100).toFixed(2);
+}
+
+function escapeXml(s: string | null | undefined): string {
+  return String(s ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")

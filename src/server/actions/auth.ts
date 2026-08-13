@@ -3,8 +3,9 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { isMemoryStore, isSupabaseConfigured } from "@/lib/env";
+import { isMemoryStore, isSupabaseConfigured, isStripeConfigured } from "@/lib/env";
 import { memoryStore } from "@/server/demo/store";
+import { startPracticeTrial } from "@/server/billing/start-practice-trial";
 
 const signUpSchema = z.object({
   orgType: z.enum(["company", "sole_trader", "partnership", "practice"]),
@@ -15,12 +16,17 @@ const signUpSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(200),
   confirmPassword: z.string().min(8).max(200),
+  startTrial: z.boolean().optional(),
 });
 
 const signInSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
 });
+
+function startLocalPracticeTrial(practiceId: string) {
+  return startPracticeTrial(practiceId);
+}
 
 export async function signUpWithSupabase(input: z.infer<typeof signUpSchema>) {
   const data = signUpSchema.parse(input);
@@ -41,15 +47,8 @@ export async function signUpWithSupabase(input: z.infer<typeof signUpSchema>) {
       `${data.firstName} ${data.surname}${
         data.orgType === "practice" ? " Practice" : ""
       }`;
-    if (data.orgType === "practice") {
-      memoryStore.subscriptions.push({
-        id: crypto.randomUUID(),
-        practiceId: memoryStore.practice.id,
-        planKey: "practice:Solo",
-        status: "active",
-        stripeSessionId: null,
-        createdAt: new Date().toISOString(),
-      });
+    if (!isStripeConfigured() && data.startTrial) {
+      await startLocalPracticeTrial(memoryStore.practice.id);
     }
     return { ok: true as const, redirectTo: "/dashboard" };
   }
@@ -65,6 +64,7 @@ export async function signUpWithSupabase(input: z.infer<typeof signUpSchema>) {
         company_number: data.companyNumber ?? "",
         first_name: data.firstName,
         surname: data.surname,
+        start_trial: data.startTrial ? "1" : "0",
       },
       emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/auth/callback`,
     },
@@ -74,6 +74,17 @@ export async function signUpWithSupabase(input: z.infer<typeof signUpSchema>) {
   if (!authData.session) {
     return { ok: true as const, redirectTo: "/sign-in?confirm=1" };
   }
+
+  // Provision practice row; free trial only starts via Practice/Custom checkout
+  try {
+    const { ensureSupabasePractice } = await import(
+      "@/server/auth/ensure-practice"
+    );
+    await ensureSupabasePractice(authData.user!);
+  } catch {
+    /* practice seeded on first dashboard visit */
+  }
+
   return { ok: true as const, redirectTo: "/dashboard" };
 }
 

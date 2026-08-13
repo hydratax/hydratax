@@ -82,14 +82,14 @@ export function BankWorkspace({
         >
           <h3 className="display text-xl text-ink">Upload bank statement</h3>
           <p className="text-sm text-ink-soft">
-            CSV for auto-categorisation. PDF is stored for review. See{" "}
-            <code className="mono text-xs">docs/bank-open-banking.md</code>.
+            CSV or Excel for auto-categorisation (fuel, travel, rent, etc.). PDF
+            is stored for review. Then prepare the year-end accounts pack.
           </p>
           <input
             type="file"
             name="file"
             required
-            accept=".csv,.pdf,text/csv,application/pdf"
+            accept=".csv,.xlsx,.xls,.pdf,text/csv,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="block w-full text-sm"
           />
           {err && <p className="text-sm text-danger">{err}</p>}
@@ -122,6 +122,20 @@ export function BankWorkspace({
             Request TrueLayer connect
           </button>
         </div>
+      </div>
+
+      <div className="panel p-5">
+        <h3 className="display text-xl text-ink">Year-end accounts pack</h3>
+        <p className="mt-1 text-sm text-ink-soft">
+          After reviewing categories below, build Digitus-style financial
+          statements (P&amp;L, balance sheet, Note 8) and print or save as PDF.
+        </p>
+        <Link
+          href={`/clients/${clientId}/accounts-pack`}
+          className="btn btn-primary mt-4 inline-flex"
+        >
+          Prepare accounts from bank
+        </Link>
       </div>
 
       <div className="panel p-5">
@@ -193,7 +207,8 @@ export function BankWorkspace({
         </div>
         {transactions.length === 0 ? (
           <p className="p-6 text-sm text-ink-soft">
-            No bank lines yet. Upload a CSV export from the client’s bank.
+            No bank lines yet. Upload a CSV or Excel export from the client’s
+            bank.
           </p>
         ) : (
           <div className="overflow-x-auto">

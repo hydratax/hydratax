@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { signInWithSupabase } from "@/server/actions/auth";
+import { safeReturnPath } from "@/lib/auth-return";
 
 export function SignInForm() {
   const router = useRouter();
@@ -11,7 +12,7 @@ export function SignInForm() {
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const confirmHint = searchParams.get("confirm") === "1";
-  const next = searchParams.get("next") || "/dashboard";
+  const next = safeReturnPath(searchParams.get("next"));
 
   return (
     <form
@@ -26,7 +27,7 @@ export function SignInForm() {
               email: String(fd.get("email") ?? ""),
               password: String(fd.get("password") ?? ""),
             });
-            router.push(next.startsWith("/") ? next : res.redirectTo);
+            router.push(next);
             router.refresh();
           } catch (err) {
             setError(err instanceof Error ? err.message : "Sign in failed");
@@ -83,7 +84,10 @@ export function SignInForm() {
 
       <p className="text-center text-sm text-ink-soft">
         No account?{" "}
-        <Link href="/create-account" className="font-semibold text-sea">
+        <Link
+          href={`/create-account?next=${encodeURIComponent(next)}`}
+          className="font-semibold text-sea"
+        >
           Sign up
         </Link>
       </p>

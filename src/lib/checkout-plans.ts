@@ -71,18 +71,12 @@ export function getCheckoutPlan(key: string): CheckoutPlan | undefined {
 
   if (key.startsWith("practice:Custom")) {
     const selection = parseCustomPlanSelection(key);
-    const hasAnything =
-      selection.modules.length > 0 || selection.chAddons.length > 0;
-    if (!hasAnything && key !== "practice:Custom") return undefined;
-
-    // Require at least one billable module or CH addon for checkout
-    if (!hasAnything) return undefined;
+    if (selection.modules.length === 0) return undefined;
 
     const amount = customPlanAmountPounds(selection);
-    const labels = [
-      ...selection.modules.map((m) => `${m.id}×${m.clients}`),
-      ...selection.chAddons,
-    ].join(", ");
+    const labels = selection.modules
+      .map((m) => `${m.id}×${m.clients}`)
+      .join(", ");
 
     return {
       key: customPlanKey(selection),
@@ -91,7 +85,7 @@ export function getCheckoutPlan(key: string): CheckoutPlan | undefined {
       amountPence: amount * 100,
       interval: "month",
       description:
-        "Custom practice desk with per-client HMRC modules and free Companies House add-ons.",
+        "Custom HMRC modules by client count with volume discounts. Companies House filings included. No desk fee.",
     };
   }
 

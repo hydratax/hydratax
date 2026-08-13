@@ -65,8 +65,20 @@ export type ChCompanyProfile = {
   date_of_creation?: string;
   sic_codes?: string[];
   registered_office_address?: Record<string, string | undefined>;
-  accounts?: { next_due?: string; last_accounts?: { made_up_to?: string } };
-  confirmation_statement?: { next_due?: string; last_made_up_to?: string };
+  accounts?: {
+    next_due?: string;
+    last_accounts?: { made_up_to?: string };
+    next_accounts?: {
+      period_start_on?: string;
+      period_end_on?: string;
+      due_on?: string;
+    };
+  };
+  confirmation_statement?: {
+    next_due?: string;
+    next_made_up_to?: string;
+    last_made_up_to?: string;
+  };
 };
 
 export type ChOfficer = {
@@ -89,6 +101,8 @@ export type ChPsc = {
   natures_of_control?: string[];
   notified_on?: string;
   ceased_on?: string;
+  /** Present on live API when the PSC has left the register */
+  ceased?: boolean;
   nationality?: string;
   country_of_residence?: string;
 };
@@ -146,6 +160,221 @@ export async function lookupCompanyBundle(companyNumber: string) {
       note: "Data from Companies House Public Data API. PSC is not a full share register.",
       appUrl: getEnv().NEXT_PUBLIC_APP_URL,
     },
+  };
+}
+
+export type ChFilingHistoryItem = {
+  transaction_id: string;
+  description?: string;
+  date?: string;
+  type?: string;
+  category?: string;
+  pages?: number;
+  barcode?: string;
+  description_values?: { made_up_date?: string };
+  links?: {
+    self?: string;
+    document_metadata?: string;
+  };
+};
+
+export type LastAccountsFiling = {
+  transactionId: string;
+  type: string | null;
+  description: string;
+  filedOn: string | null;
+  madeUpTo: string | null;
+  pages: number | null;
+  registerUrl: string;
+  companyFilingHistoryUrl: string;
+  documentMetadataUrl: string | null;
+};
+
+const FILING_DESCRIPTION_LABELS: Record<string, string> = {
+  "accounts-with-accounts-type-micro-entity": "Micro-entity accounts",
+  "accounts-with-accounts-type-full": "Full accounts",
+  "accounts-with-accounts-type-small": "Small company accounts",
+  "accounts-with-accounts-type-medium": "Medium company accounts",
+  "accounts-with-accounts-type-large": "Large company accounts",
+  "accounts-with-accounts-type-audit-exempt-subsidiary":
+    "Audit-exempt subsidiary accounts",
+  "accounts-with-accounts-type-dormant": "Dormant company accounts",
+  "accounts-with-accounts-type-total-exemption-full":
+    "Total exemption full accounts",
+  "accounts-with-accounts-type-total-exemption-small":
+    "Total exemption small accounts",
+  "accounts-with-accounts-type-partial-exemption": "Partial exemption accounts",
+  "legacy-accounts": "Accounts",
+  "change-account-reference-date-companies-house-limited-by-guarantee-company":
+    "Change of accounting reference date",
+};
+
+export function humanizeFilingDescription(raw: string | undefined) {
+  if (!raw) return "Accounts";
+  if (FILING_DESCRIPTION_LABELS[raw]) return FILING_DESCRIPTION_LABELS[raw];
+  if (!raw.includes("-")) return raw;
+  return raw
+    .replace(/^accounts-with-accounts-type-/, "")
+    .replace(/-/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function normalizeDocumentApiUrl(url: string) {
+  return url
+    .replace(
+      "frontend-doc-api.company-information.service.gov.uk",
+      "document-api.company-information.service.gov.uk",
+    )
+    .replace(
+      "document-api.companieshouse.gov.uk",
+      "document-api.company-information.service.gov.uk",
+    );
+}
+
+/** Most recent accounts filing from the public register (AA / micro / etc.). */
+export async function getLastAccountsFiling(
+  companyNumber: string,
+): Promise<LastAccountsFiling | null> {
+  try {
+    const data = await chFetch<{ items?: ChFilingHistoryItem[] }>(
+      `/company/${encodeURIComponent(companyNumber)}/filing-history?category=accounts&items_per_page=15`,
+    );
+    const items = data.items ?? [];
+    const preferred =
+      items.find((i) =>
+        /^(AA|AAMD|AA01|AA02|AA03|AA04|AA05|AA06)/i.test(i.type ?? ""),
+      ) ?? items[0];
+    if (!preferred) return null;
+    const registerBase =
+      "https://find-and-update.company-information.service.gov.uk";
+    const meta = preferred.links?.document_metadata
+      ? normalizeDocumentApiUrl(preferred.links.document_metadata)
+      : null;
+    return {
+      transactionId: preferred.transaction_id,
+      type: preferred.type ?? null,
+      description: humanizeFilingDescription(preferred.description),
+      filedOn: preferred.date ?? null,
+      madeUpTo: preferred.description_values?.made_up_date ?? null,
+      pages: preferred.pages ?? null,
+      registerUrl: `${registerBase}/company/${encodeURIComponent(companyNumber)}/filing-history/${encodeURIComponent(preferred.transaction_id)}`,
+      companyFilingHistoryUrl: `${registerBase}/company/${encodeURIComponent(companyNumber)}/filing-history?category=accounts`,
+      documentMetadataUrl: meta,
+    };
+  } catch {
+    return null;
+  }
+}
+
+type ChDocumentMetadata = {
+  company_number?: string;
+  filename?: string;
+  pages?: number;
+  links?: { self?: string; document?: string };
+  resources?: Record<string, { content_length?: number }>;
+};
+
+async function fetchDocumentMetadata(documentMetadataUrl: string) {
+  const auth = authHeader();
+  const metaUrl = normalizeDocumentApiUrl(documentMetadataUrl);
+  const metaRes = await fetch(metaUrl, {
+    headers: {
+      Authorization: auth,
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+  if (!metaRes.ok) {
+    const text = await metaRes.text().catch(() => "");
+    throw new Error(
+      `Companies House document metadata ${metaRes.status}: ${text.slice(0, 200) || metaRes.statusText}`,
+    );
+  }
+  return (await metaRes.json()) as ChDocumentMetadata;
+}
+
+function pickDocumentContentType(meta: ChDocumentMetadata) {
+  const resources = meta.resources ?? {};
+  if (resources["application/pdf"]) return "application/pdf";
+  if (resources["application/xhtml+xml"]) return "application/xhtml+xml";
+  return Object.keys(resources)[0] ?? null;
+}
+
+/** Lightweight check that a filing document is downloadable (no PDF bytes). */
+export async function peekFilingDocument(documentMetadataUrl: string) {
+  const meta = await fetchDocumentMetadata(documentMetadataUrl);
+  const contentType = pickDocumentContentType(meta);
+  if (!contentType || !meta.links?.document) {
+    throw new Error("No downloadable document content on this filing");
+  }
+  return {
+    contentType,
+    filename: meta.filename?.trim() || null,
+    pages: meta.pages ?? null,
+  };
+}
+
+/**
+ * Download a filing document (PDF preferred) via the Companies House Document API.
+ * Content requests return a 302 to S3 — follow without the API key.
+ */
+export async function downloadFilingDocument(
+  documentMetadataUrl: string,
+): Promise<{
+  bytes: ArrayBuffer;
+  contentType: string;
+  filename: string;
+  pages: number | null;
+}> {
+  const auth = authHeader();
+  const meta = await fetchDocumentMetadata(documentMetadataUrl);
+  const contentType = pickDocumentContentType(meta);
+  if (!contentType || !meta.links?.document) {
+    throw new Error("No downloadable document content on this filing");
+  }
+
+  const contentUrl = normalizeDocumentApiUrl(meta.links.document);
+  const contentRes = await fetch(contentUrl, {
+    headers: {
+      Authorization: auth,
+      Accept: contentType,
+    },
+    redirect: "manual",
+    cache: "no-store",
+  });
+
+  let finalRes = contentRes;
+  if (contentRes.status === 302 || contentRes.status === 301) {
+    const location = contentRes.headers.get("location");
+    if (!location) {
+      throw new Error("Companies House document redirect missing Location");
+    }
+    // S3 signed URL — do not send API key
+    finalRes = await fetch(location, {
+      headers: { Accept: contentType },
+      cache: "no-store",
+    });
+  }
+
+  if (!finalRes.ok) {
+    const text = await finalRes.text().catch(() => "");
+    throw new Error(
+      `Companies House document content ${finalRes.status}: ${text.slice(0, 200) || finalRes.statusText}`,
+    );
+  }
+
+  const bytes = await finalRes.arrayBuffer();
+  const filename =
+    meta.filename?.trim() ||
+    (contentType === "application/pdf"
+      ? "accounts.pdf"
+      : "accounts.xhtml");
+
+  return {
+    bytes,
+    contentType: finalRes.headers.get("content-type") || contentType,
+    filename,
+    pages: meta.pages ?? null,
   };
 }
 

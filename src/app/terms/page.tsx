@@ -50,6 +50,11 @@ export default function TermsPage() {
             </a>
           </li>
           <li>
+            <a href="#free-trial" className="text-sea hover:underline">
+              1.6a Free trial (Practice desk)
+            </a>
+          </li>
+          <li>
             <a href="#privacy" className="text-sea hover:underline">
               2. Privacy Policy
             </a>
@@ -209,6 +214,52 @@ export default function TermsPage() {
           substantially exceeds the intended plan tier, we may contact you to
           discuss an upgrade so the service continues to meet your needs.
         </p>
+
+        <LegalH3>1.6a Free trial (Practice desk)</LegalH3>
+        <div id="free-trial" className="scroll-mt-24 space-y-4">
+        <p>
+          <strong className="text-ink">Practice</strong> and{" "}
+          <strong className="text-ink">Custom</strong> Practice desk
+          subscriptions include a{" "}
+          <strong className="text-ink">7-day free trial</strong>. Solo and
+          other module plans do not include this trial. A payment card is
+          collected at checkout for Practice/Custom so billing can begin
+          automatically on day 8. During the trial:
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            No Hydra subscription fee is charged for the Practice desk plan
+            until day 8.
+          </li>
+          <li>
+            Hydra service fees on filings and submissions available on the desk
+            are waived (VAT, CT600, Self Assessment, PAYE/RTI, and Companies
+            House Hydra fees).
+          </li>
+          <li>
+            Statutory fees charged by Companies House (and any other
+            government/third-party statutory charges) still apply where
+            payable; they are not waived by HydraTax.
+          </li>
+          <li>
+            You may cancel before the trial ends to avoid the paid plan
+            starting. After day 7, the selected plan price is charged to the
+            card on file unless you cancel.
+          </li>
+          <li>
+            We email a reminder on day 7 that your trial is ending and that
+            billing starts the following day.
+          </li>
+        </ul>
+        <p>
+          One free trial per practice unless we agree otherwise. We may refuse
+          or end a trial where we reasonably suspect abuse. See also the{" "}
+          <Link href="/pricing" className="font-semibold text-sea">
+            pricing page
+          </Link>
+          .
+        </p>
+        </div>
 
         <LegalH3>1.7 Self-Serve Subscription Terms</LegalH3>
         <p>

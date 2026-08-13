@@ -1,14 +1,25 @@
 import type { MetadataRoute } from "next";
+import { siteUrl } from "@/lib/site";
 
-const SITE = process.env.NEXT_PUBLIC_APP_URL ?? "https://hydratax.co.uk";
+const SITE = siteUrl();
 
 export default function robots(): MetadataRoute.Robots {
   return {
-    rules: {
-      userAgent: "*",
-      allow: "/",
-      disallow: ["/api/"],
-    },
+    rules: [
+      {
+        userAgent: "*",
+        allow: "/",
+        disallow: [
+          "/api/",
+          "/dashboard",
+          "/clients",
+          "/settings",
+          "/admin",
+          "/filings",
+          "/checkout",
+        ],
+      },
+    ],
     sitemap: `${SITE}/sitemap.xml`,
     host: SITE,
   };

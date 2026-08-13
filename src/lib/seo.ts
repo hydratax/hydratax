@@ -1,56 +1,76 @@
 import type { Metadata } from "next";
 import { LEGAL_COMPANY } from "@/lib/legal";
+import { siteUrl } from "@/lib/site";
 
-const SITE = process.env.NEXT_PUBLIC_APP_URL ?? "https://hydratax.co.uk";
+const SITE = siteUrl();
 
 export const defaultMetadata: Metadata = {
   metadataBase: new URL(SITE),
   title: {
     default:
-      "HydraTax — CT600, MTD VAT, Self Assessment, PAYE & Companies House filing",
+      "HydraTax — UK accounting software for CT600, MTD VAT, bookkeeping & Companies House",
     template: "%s | HydraTax",
   },
   description:
-    "HydraTax helps UK accountants and company directors file CT600 corporation tax, MTD VAT returns, Self Assessment, PAYE RTI payroll, confirmation statements and Companies House accounts from one practice desk.",
+    "HydraTax is UK tax and accounting software for accountants and small businesses. File CT600 corporation tax, MTD VAT, Self Assessment, PAYE, confirmation statements and Companies House accounts from one desk.",
   keywords: [
+    "HydraTax",
+    "Hydra Tax",
+    "UK accounting software",
+    "accounting software for small business UK",
+    "accountant software UK",
+    "bookkeeping software UK",
+    "small business tax software",
+    "limited company tax return",
     "CT600 software",
     "file CT600 online",
+    "corporation tax return software",
     "MTD VAT software",
+    "Making Tax Digital VAT",
     "VAT return filing UK",
     "Self Assessment software",
     "SA100 filing",
     "PAYE RTI software",
     "FPS payroll filing",
     "confirmation statement filing",
+    "file confirmation statement",
+    "CS01 filing",
     "Companies House accounts filing",
     "iXBRL accounts",
     "company incorporation UK",
-    "accountant tax software UK",
-    "corporation tax return software",
-    "Making Tax Digital VAT",
+    "year end accounts software",
+    "practice management tax software",
   ],
   authors: [{ name: "HydraTax" }],
   creator: "HydraTax",
+  publisher: "Hydra Consultancy Services Ltd",
   openGraph: {
     type: "website",
     locale: "en_GB",
+    url: SITE,
     siteName: "HydraTax",
-    title: "HydraTax — Many heads. One desk.",
+    title: "HydraTax — UK accounting, CT600, MTD VAT & Companies House",
     description:
-      "File CT600, MTD VAT, Self Assessment, PAYE and Companies House services in one HMRC-ready practice platform.",
+      "File CT600, MTD VAT, Self Assessment, PAYE, bookkeeping year-end and Companies House services in one HMRC-ready platform.",
     images: [{ url: "/brand/logo.png", width: 468, height: 468, alt: "HydraTax" }],
   },
   twitter: {
-    card: "summary",
-    title: "HydraTax — CT600, VAT, Self Assessment & Companies House",
+    card: "summary_large_image",
+    title: "HydraTax — CT600, VAT, bookkeeping & Companies House",
     description:
-      "Practice platform for UK tax and Companies House filings.",
+      "UK accounting software for accountants and small limited companies.",
     images: ["/brand/logo.png"],
   },
   robots: {
     index: true,
     follow: true,
-    googleBot: { index: true, follow: true },
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
   },
   alternates: {
     canonical: "/",
@@ -64,10 +84,11 @@ export function organizationJsonLd() {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     name: LEGAL_COMPANY.tradingName,
+    alternateName: ["Hydra Tax", "HydraTax UK"],
     applicationCategory: "BusinessApplication",
     operatingSystem: "Web",
     description:
-      "UK practice platform for CT600, MTD VAT, Self Assessment, PAYE RTI and Companies House filings.",
+      "UK accounting and tax software for CT600, MTD VAT, Self Assessment, PAYE RTI, bookkeeping and Companies House filings.",
     offers: {
       "@type": "Offer",
       priceCurrency: "GBP",
@@ -78,12 +99,14 @@ export function organizationJsonLd() {
     brand: { "@type": "Brand", name: LEGAL_COMPANY.tradingName },
     provider: {
       "@type": "Organization",
+      "@id": `${SITE}/#organization`,
       name: LEGAL_COMPANY.legalName,
       legalName: LEGAL_COMPANY.legalName,
       alternateName: LEGAL_COMPANY.tradingName,
       identifier: LEGAL_COMPANY.companyNumber,
       url: SITE,
       email: LEGAL_COMPANY.supportEmail,
+      sameAs: [LEGAL_COMPANY.companiesHouseUrl],
       address: {
         "@type": "PostalAddress",
         streetAddress: office.line1,
@@ -101,7 +124,13 @@ export function webSiteJsonLd() {
     "@context": "https://schema.org",
     "@type": "WebSite",
     name: "HydraTax",
+    alternateName: "Hydra Tax",
     url: SITE,
+    inLanguage: "en-GB",
+    publisher: {
+      "@type": "Organization",
+      name: LEGAL_COMPANY.legalName,
+    },
     potentialAction: {
       "@type": "SearchAction",
       target: `${SITE}/support?q={search_term_string}`,
@@ -144,13 +173,19 @@ export function serviceJsonLd() {
         "@type": "ListItem",
         position: 5,
         name: "Companies House confirmation statement",
-        url: `${SITE}/companies-house`,
+        url: `${SITE}/companies-house/confirmation-statement`,
       },
       {
         "@type": "ListItem",
         position: 6,
         name: "Companies House accounts filing",
-        url: `${SITE}/companies-house`,
+        url: `${SITE}/companies-house/accounts-ixbrl`,
+      },
+      {
+        "@type": "ListItem",
+        position: 7,
+        name: "UK company incorporation",
+        url: `${SITE}/companies-house/incorporation`,
       },
     ],
   };
@@ -211,6 +246,70 @@ export function accountantReviewsJsonLd(
         },
       },
       image: `${SITE}${r.photo}`,
+    })),
+  };
+}
+
+export function blogPostJsonLd(input: {
+  slug: string;
+  title: string;
+  description: string;
+  publishedAt: string;
+  updatedAt: string;
+}) {
+  const url = `${SITE}/blog/${input.slug}`;
+  return {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    headline: input.title,
+    description: input.description,
+    datePublished: input.publishedAt,
+    dateModified: input.updatedAt,
+    mainEntityOfPage: url,
+    url,
+    inLanguage: "en-GB",
+    author: {
+      "@type": "Organization",
+      name: LEGAL_COMPANY.tradingName,
+    },
+    publisher: {
+      "@type": "Organization",
+      name: LEGAL_COMPANY.legalName,
+      logo: {
+        "@type": "ImageObject",
+        url: `${SITE}/brand/logo.png`,
+      },
+    },
+    image: `${SITE}/brand/logo.png`,
+  };
+}
+
+export function faqJsonLd(items: Array<{ q: string; a: string }>) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: items.map((item) => ({
+      "@type": "Question",
+      name: item.q,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: item.a,
+      },
+    })),
+  };
+}
+
+export function breadcrumbJsonLd(
+  crumbs: Array<{ name: string; path: string }>,
+) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: crumbs.map((c, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: c.name,
+      item: `${SITE}${c.path}`,
     })),
   };
 }

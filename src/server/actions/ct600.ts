@@ -102,6 +102,7 @@ export async function prepareCt600(input: z.infer<typeof figuresFormSchema>) {
   });
 
   revalidatePath(`/clients/${data.clientId}/corporation-tax`);
+  revalidatePath(`/clients/${data.clientId}/year-end`);
   return { draft, xmlPreview: built.xml.slice(0, 1500) };
 }
 

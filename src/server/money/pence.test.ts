@@ -143,8 +143,11 @@ describe("ct600 + payroll builders", () => {
       accountsOfficeRef: "123PA00045678",
       payDate: "2026-03-28",
       taxYear: "25-26",
+      frequency: "M1",
       lines: [line],
     });
     expect(fps.xml).toContain("HMRC-PAYE-RTI-FPS");
+    expect(fps.xml).toContain("TaxablePayToDate");
+    expect(fps.xml).toContain("<PayFreq>M1</PayFreq>");
   });
 });

@@ -19,11 +19,13 @@ export async function GET(req: NextRequest) {
   }
 
   let clientId: string;
+  let returnTo: string | undefined;
   try {
     const parsed = JSON.parse(
       Buffer.from(state, "base64url").toString("utf8"),
-    ) as { clientId: string };
+    ) as { clientId: string; returnTo?: string };
     clientId = parsed.clientId;
+    returnTo = parsed.returnTo;
   } catch {
     return NextResponse.json({ error: "Invalid state" }, { status: 400 });
   }
@@ -39,7 +41,10 @@ export async function GET(req: NextRequest) {
     detail: { scopes: tokens.scopes },
   });
 
-  return NextResponse.redirect(
-    new URL(`/clients/${clientId}?hmrc=connected`, req.url),
-  );
+  const dest =
+    returnTo === "vat"
+      ? `/clients/${clientId}/vat?hmrc=connected`
+      : `/clients/${clientId}?hmrc=connected`;
+
+  return NextResponse.redirect(new URL(dest, req.url));
 }

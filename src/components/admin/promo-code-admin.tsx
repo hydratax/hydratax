@@ -9,12 +9,19 @@ import {
 } from "@/server/actions/promo-codes";
 
 function formatDiscount(row: PromoCodeRow) {
-  if (row.percentOff != null) return `${row.percentOff}%`;
-  if (row.amountOff != null) {
-    const pounds = (row.amountOff / 100).toFixed(2);
-    return `£${pounds}`;
-  }
-  return "—";
+  const off =
+    row.percentOff != null
+      ? `${row.percentOff}%`
+      : row.amountOff != null
+        ? `£${(row.amountOff / 100).toFixed(2)}`
+        : "—";
+  const when =
+    row.duration === "forever"
+      ? "forever"
+      : row.duration === "repeating"
+        ? "repeating"
+        : "first month";
+  return `${off} · ${when}`;
 }
 
 export function PromoCodeAdmin({
@@ -31,6 +38,7 @@ export function PromoCodeAdmin({
   const [discountType, setDiscountType] = useState<"percent" | "amount">(
     "percent",
   );
+  const [duration, setDuration] = useState<"once" | "forever">("once");
   const [pending, start] = useTransition();
 
   if (!stripeReady) {
@@ -54,11 +62,14 @@ export function PromoCodeAdmin({
           const fd = new FormData(e.currentTarget);
           const type =
             (fd.get("discountType") as "percent" | "amount") || "percent";
+          const dur =
+            (fd.get("duration") as "once" | "forever") || "once";
           start(async () => {
             try {
               const row = await createPromoCode({
                 code: String(fd.get("code") ?? ""),
                 discountType: type,
+                duration: dur,
                 percentOff:
                   type === "percent"
                     ? Number(fd.get("percentOff"))
@@ -77,6 +88,7 @@ export function PromoCodeAdmin({
               setCreatedLabel(formatDiscount(row));
               e.currentTarget.reset();
               setDiscountType("percent");
+              setDuration("once");
               router.refresh();
             } catch (err) {
               setError(
@@ -89,7 +101,8 @@ export function PromoCodeAdmin({
         <div>
           <h2 className="display text-2xl text-ink">Create promo code</h2>
           <p className="mt-1 text-sm text-ink-soft">
-            Customers enter this at Stripe Checkout. Discount applies once.
+            Customers enter this at Stripe Checkout. Choose first month only or
+            forever (every invoice).
           </p>
         </div>
 
@@ -119,6 +132,39 @@ export function PromoCodeAdmin({
           </div>
         </fieldset>
 
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-semibold text-ink">
+            How long it applies
+          </legend>
+          <div className="flex flex-wrap gap-4">
+            <label className="inline-flex items-center gap-2 text-sm text-ink">
+              <input
+                type="radio"
+                name="duration"
+                value="once"
+                checked={duration === "once"}
+                onChange={() => setDuration("once")}
+              />
+              First month only
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm text-ink">
+              <input
+                type="radio"
+                name="duration"
+                value="forever"
+                checked={duration === "forever"}
+                onChange={() => setDuration("forever")}
+              />
+              Forever (every month)
+            </label>
+          </div>
+          {duration === "forever" && discountType === "percent" && (
+            <p className="text-xs text-ink-soft">
+              Tip: set percent to 100 for complimentary plans that stay £0.
+            </p>
+          )}
+        </fieldset>
+
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block text-sm font-semibold text-ink">
             Code
@@ -127,7 +173,7 @@ export function PromoCodeAdmin({
               required
               minLength={3}
               maxLength={40}
-              placeholder="HYDRA20"
+              placeholder={duration === "forever" ? "HYDRA100FOREVER" : "HYDRA100"}
               className="mt-1.5 w-full rounded-lg border border-line px-3 py-2.5 font-normal uppercase"
             />
           </label>
@@ -142,7 +188,8 @@ export function PromoCodeAdmin({
                 min={1}
                 max={100}
                 step={1}
-                defaultValue={20}
+                defaultValue={duration === "forever" ? 100 : 20}
+                key={duration}
                 className="mt-1.5 w-full rounded-lg border border-line px-3 py-2.5 font-normal"
               />
             </label>
@@ -175,7 +222,7 @@ export function PromoCodeAdmin({
             />
           </label>
           <label className="block text-sm font-semibold text-ink">
-            Expires{" "}
+            Code expires{" "}
             <span className="font-normal text-ink-soft">(optional)</span>
             <input
               name="expiresAt"
@@ -189,7 +236,7 @@ export function PromoCodeAdmin({
             <input
               name="note"
               maxLength={200}
-              placeholder="Partner launch / beta"
+              placeholder="Partner launch / complimentary forever"
               className="mt-1.5 w-full rounded-lg border border-line px-3 py-2.5 font-normal"
             />
           </label>
@@ -203,8 +250,7 @@ export function PromoCodeAdmin({
         {created && (
           <p className="rounded-lg border border-sea/30 bg-sea/5 px-3 py-2 text-sm text-ink">
             Created <span className="mono font-semibold">{created}</span>
-            {createdLabel ? ` — ${createdLabel} off` : ""}. Share it for
-            Checkout.
+            {createdLabel ? ` — ${createdLabel}` : ""}. Share it for Checkout.
           </p>
         )}
 

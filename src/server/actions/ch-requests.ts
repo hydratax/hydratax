@@ -2,12 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { getChService, chServiceTotal } from "@/lib/ch-services";
+import {
+  getChService,
+  chServiceTotal,
+  serviceRequiresCompanyAuthCode,
+} from "@/lib/ch-services";
 import { isMemoryStore } from "@/lib/env";
 import { requireSession } from "@/server/auth/session";
 import { accountRefFromUser, requireAdmin } from "@/server/auth/admin";
 import { memoryStore, type MemoryChRequest } from "@/server/demo/store";
 import { appendAuditEvent } from "@/server/audit/log";
+import { getPracticeTrialStatus } from "@/server/billing/trial-status";
+import { companyAuthCodeSchema } from "@/server/companies-house/filing/personal-codes";
 
 const submitSchema = z.object({
   serviceId: z.string().min(1),
@@ -34,12 +40,31 @@ export async function submitCompaniesHouseRequest(
     }
   }
 
+  // Hard gate: never open checkout for an existing company without auth code.
+  if (serviceRequiresCompanyAuthCode(service.id)) {
+    const raw = data.fields.companyAuthCode;
+    const parsed = companyAuthCodeSchema.safeParse(
+      typeof raw === "string" ? raw : "",
+    );
+    if (!parsed.success) {
+      throw new Error(
+        "Company authentication code is required before payment. Enter the code from Companies House online filing.",
+      );
+    }
+    data.fields.companyAuthCode = parsed.data;
+  }
+
   const companyNumber =
     typeof data.fields.companyNumber === "string"
       ? data.fields.companyNumber.trim().toUpperCase()
       : null;
 
-  const amountPence = chServiceTotal(service) * 100;
+  const amountStatutory = service.chFeePounds * 100;
+  const trial = await getPracticeTrialStatus(session.practiceId);
+  // During free trial Hydra fees are waived; statutory CH fees still apply where charged.
+  const amountPence = trial.onTrial
+    ? amountStatutory
+    : chServiceTotal(service) * 100;
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
 

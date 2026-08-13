@@ -113,64 +113,89 @@ export function HowItWorks() {
           />
         </div>
 
-        <div className="mt-10 grid items-start gap-8 lg:grid-cols-2 lg:gap-12">
-          <div className="animate-slide-swap lg:pt-1" key={step.id + "-copy"}>
-            <h3 className="display text-3xl text-ink md:text-4xl">
-              {step.title}
-            </h3>
-            <p className="mt-3 max-w-md text-base leading-relaxed text-ink-soft">
-              {step.body}
-            </p>
-            <Link href="/create-account" className="btn btn-primary mt-6">
-              Start filing with Hydra
-            </Link>
+        {/* Fixed-height stage so mobile doesn't jump when steps rotate */}
+        <div className="mt-8 grid items-stretch gap-6 sm:mt-10 sm:gap-8 lg:grid-cols-2 lg:gap-12">
+          <div
+            className="how-it-works-copy flex min-h-[280px] flex-col justify-center sm:h-[340px] lg:h-[420px] lg:pt-1"
+            key={step.id + "-copy"}
+          >
+            <div className="animate-slide-swap flex min-h-0 flex-1 flex-col justify-center">
+              <h3 className="display text-[1.45rem] leading-tight text-ink sm:line-clamp-3 sm:text-3xl md:text-4xl">
+                {step.title}
+              </h3>
+              <p className="mt-3 max-w-md text-sm leading-relaxed text-ink-soft sm:line-clamp-5 sm:text-base">
+                {step.body}
+              </p>
+              <div className="mt-5 shrink-0 sm:mt-6">
+                <Link href="/create-account" className="btn btn-primary">
+                  Start filing with Hydra
+                </Link>
+              </div>
+            </div>
           </div>
 
           <div
-            className="how-preview-card relative overflow-hidden rounded-2xl border border-line bg-white p-6 shadow-[0_28px_60px_-36px_rgba(10,10,10,0.4)] lg:min-h-[320px]"
+            className="how-preview-card relative flex min-h-[300px] flex-col overflow-hidden rounded-2xl border border-line bg-white p-4 shadow-[0_28px_60px_-36px_rgba(10,10,10,0.4)] sm:h-[340px] sm:p-6 lg:h-[420px]"
             key={step.id + "-preview"}
           >
             <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-sea via-teal-400 to-accent" />
-            {step.preview.success && (
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-ok/12 text-xl font-semibold text-ok">
-                ✓
-              </div>
-            )}
-            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-sea">
-              Corporation Tax · CT600
-            </p>
-            <p className="display mt-2 text-2xl text-ink md:text-3xl">
-              {step.preview.heading}
-            </p>
-            <dl className="mt-5 space-y-0">
-              {step.preview.rows.map(([label, value]) => (
-                <div
-                  key={label}
-                  className="flex items-baseline justify-between gap-4 border-b border-line/70 py-3 last:border-0"
-                >
-                  <dt className="text-sm text-ink-soft">{label}</dt>
-                  <dd
-                    className={`text-right text-base font-semibold tracking-tight ${
-                      value === "Accepted" || value === "Complete"
-                        ? "text-ok"
-                        : "how-preview-value text-ink"
-                    }`}
+
+            {/* Always reserve badge height so cards match */}
+            <div
+              className={`mb-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-ok/12 text-lg font-semibold text-ok sm:mb-4 sm:h-12 sm:w-12 sm:text-xl ${
+                step.preview.success ? "visible" : "invisible"
+              }`}
+              aria-hidden={!step.preview.success}
+            >
+              ✓
+            </div>
+
+            <div className="animate-slide-swap flex min-h-0 flex-1 flex-col">
+              <p className="shrink-0 text-[11px] font-bold uppercase tracking-[0.16em] text-sea">
+                Corporation Tax · CT600
+              </p>
+              <p className="display mt-1.5 line-clamp-2 shrink-0 text-xl text-ink sm:mt-2 sm:text-2xl md:text-3xl">
+                {step.preview.heading}
+              </p>
+              <dl className="mt-3 flex min-h-0 flex-1 flex-col justify-center sm:mt-4">
+                {step.preview.rows.map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="flex items-baseline justify-between gap-4 border-b border-line/70 py-2.5 last:border-0 sm:py-3"
                   >
-                    {value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-            {step.preview.success && (
-              <div className="mt-6 flex flex-wrap gap-2">
-                <button type="button" className="btn btn-secondary text-sm">
-                  Download PDF
-                </button>
-                <Link href="/create-account" className="btn btn-primary text-sm">
-                  Done
-                </Link>
-              </div>
-            )}
+                    <dt className="text-sm text-ink-soft">{label}</dt>
+                    <dd
+                      className={`text-right text-sm font-semibold tracking-tight sm:text-base ${
+                        value === "Accepted" || value === "Complete"
+                          ? "text-ok"
+                          : "how-preview-value text-ink"
+                      }`}
+                    >
+                      {value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+
+            {/* Always reserve footer button row */}
+            <div
+              className={`mt-4 flex shrink-0 flex-wrap gap-2 sm:mt-5 ${
+                step.preview.success ? "visible" : "invisible"
+              }`}
+              aria-hidden={!step.preview.success}
+            >
+              <button type="button" className="btn btn-secondary text-sm" tabIndex={step.preview.success ? 0 : -1}>
+                Download PDF
+              </button>
+              <Link
+                href="/create-account"
+                className="btn btn-primary text-sm"
+                tabIndex={step.preview.success ? 0 : -1}
+              >
+                Done
+              </Link>
+            </div>
           </div>
         </div>
       </div>

@@ -50,6 +50,55 @@ body {
   color: var(--foreground);
   font-family: var(--font-dm-sans), system-ui, sans-serif;
   min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: clip;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  -webkit-tap-highlight-color: transparent;
+  text-size-adjust: 100%;
+}
+
+/* Touch-friendly controls on small screens */
+@media (max-width: 767px) {
+  .btn {
+    min-height: 2.75rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .input {
+    min-height: 2.75rem;
+    font-size: 16px; /* avoids iOS zoom on focus */
+  }
+
+  .price-amount {
+    font-size: 2.25rem;
+  }
+
+  .display {
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  .pricing-plan .btn,
+  .pricing-hero .btn {
+    white-space: normal;
+    text-align: center;
+    line-height: 1.25;
+    height: auto;
+    min-height: 2.75rem;
+    padding-top: 0.65rem;
+    padding-bottom: 0.65rem;
+  }
+
+  .how-it-works-copy {
+    overflow: visible;
+  }
+}
+
+/* Capacitor / PWA: bottom safe area for home indicator */
+.safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
 
 .display {
@@ -85,6 +134,10 @@ body {
   flex-direction: column;
 }
 
+.how-it-works-copy {
+  overflow: hidden;
+}
+
 .pricing-card {
   animation: price-card-in 0.45s ease both;
 }
@@ -100,8 +153,14 @@ body {
   background:
     radial-gradient(ellipse 70% 80% at 85% 20%, rgba(20, 184, 166, 0.22), transparent 55%),
     linear-gradient(160deg, #071210 0%, #0c1f1c 42%, #102926 100%);
-  padding: 4.5rem 0 3.5rem;
+  padding: 4.5rem 0 2.5rem;
   color: white;
+}
+
+@media (min-width: 768px) {
+  .pricing-hero {
+    padding: 4.5rem 0 3.5rem;
+  }
 }
 
 .pricing-hero__glow {
@@ -687,7 +746,7 @@ body {
 }
 
 .filing-step[data-active="true"] span {
-  background: var(--ink);
+  background: var(--sea);
   color: white;
 }
 
