@@ -254,13 +254,13 @@ export function renderYearEndAccountsHtml(
       </thead>
       <tbody>
         ${plRow("Turnover", draft.turnoverPence, prior?.turnoverPence, "7")}
-        ${plRow("Cost of sales", -draft.costOfSalesPence, prior ? -prior.costOfSalesPence : undefined)}
+        ${plRow("Cost of sales", -draft.costOfSalesPence, prior ? -(prior.costOfSalesPence ?? 0) : undefined)}
         ${plRow("GROSS PROFIT", draft.grossProfitPence, prior?.grossProfitPence)}
-        ${plRow("Administrative Expenses", -draft.adminExpensesPence, prior ? -prior.adminExpensesPence : undefined, "8")}
+        ${plRow("Administrative Expenses", -draft.adminExpensesPence, prior ? -(prior.adminExpensesPence ?? 0) : undefined, "8")}
         ${plRow("Net profit/(Loss) before taxation", draft.profitBeforeTaxPence, prior?.profitBeforeTaxPence)}
-        ${plRow("Taxation", -draft.taxationPence, prior ? -prior.taxationPence : undefined, "9")}
+        ${plRow("Taxation", -draft.taxationPence, prior ? -(prior.taxationPence ?? 0) : undefined, "9")}
         ${plRow("Profit / (loss) after Taxation", draft.profitAfterTaxPence, prior?.profitAfterTaxPence)}
-        ${plRow("Dividends", -draft.dividendsPence, prior ? -prior.dividendsPence : undefined, "10")}
+        ${plRow("Dividends", -draft.dividendsPence, prior ? -(prior.dividendsPence ?? 0) : undefined, "10")}
         ${plRow("Profit/(loss) bfwd", draft.retainedBroughtForwardPence, prior?.retainedBroughtForwardPence)}
         ${plRow("Retained profit / (loss) carried fwd", draft.retainedCarriedForwardPence, prior?.retainedCarriedForwardPence)}
       </tbody>
@@ -292,7 +292,7 @@ export function renderYearEndAccountsHtml(
         <tr>
           <td><strong>TOTAL EXPENDITURE</strong></td>
           <td class="num"><strong>${gbp(draft.adminExpensesPence)}</strong></td>
-          <td class="num"><strong>${prior ? gbp(prior.adminExpensesPence) : "-"}</strong></td>
+          <td class="num"><strong>${prior ? gbp(prior.adminExpensesPence ?? 0) : "-"}</strong></td>
         </tr>
       </tbody>
     </table>

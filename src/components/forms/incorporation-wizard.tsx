@@ -469,7 +469,7 @@ export function IncorporationWizard({
             ]
               .filter(Boolean)
               .join(", "),
-            modeOfBusiness: modeOfBusiness.trim() || selectedSic[0]?.title || "",
+            modeOfBusiness: modeOfBusiness.trim() || selectedSic[0]?.description || "",
             sicCodes: selectedSic.map((s) => s.code).join(", "),
             shareClass,
             nominalValue,
@@ -698,7 +698,7 @@ export function IncorporationWizard({
                         <span className="font-mono font-semibold">
                           {row.code}
                         </span>{" "}
-                        {row.title}
+                        {row.description}
                       </button>
                     </li>
                   );
@@ -708,7 +708,7 @@ export function IncorporationWizard({
             {selectedSic.length > 0 && (
               <p className="text-xs text-ink-soft">
                 Selected:{" "}
-                {selectedSic.map((s) => `${s.code} ${s.title}`).join(" · ")}
+                {selectedSic.map((s) => `${s.code} ${s.description}`).join(" · ")}
               </p>
             )}
           </div>

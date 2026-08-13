@@ -59,7 +59,6 @@ export function AccountsPdfScrollViewer({ src }: { src: string }) {
           await page.render({
             canvasContext: ctx,
             viewport,
-            canvas,
           }).promise;
           host.appendChild(canvas);
         }
