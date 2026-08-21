@@ -41,6 +41,7 @@ function copyCookies(from: NextResponse, to: NextResponse) {
 /**
  * Supabase sometimes returns the OAuth `code` to Site URL (e.g. /dashboard)
  * instead of /auth/callback. Catch that and hand off to the callback route.
+ * Only intercept real PKCE codes — never our own `error=auth` flag (that loops).
  */
 function oauthCodeHandoff(request: NextRequest): NextResponse | null {
   const { pathname, searchParams } = request.nextUrl;
@@ -49,11 +50,8 @@ function oauthCodeHandoff(request: NextRequest): NextResponse | null {
   }
 
   const code = searchParams.get("code");
-  const oauthError = searchParams.get("error");
-  if (!code && !oauthError) return null;
-  // Ignore unrelated `code` query params that aren't OAuth-shaped UUIDs
   if (
-    code &&
+    !code ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
       code,
     )
@@ -64,13 +62,13 @@ function oauthCodeHandoff(request: NextRequest): NextResponse | null {
   const url = request.nextUrl.clone();
   url.pathname = "/auth/callback";
   url.search = "";
-  if (code) url.searchParams.set("code", code);
-  if (oauthError) url.searchParams.set("error", oauthError);
-  const desc = searchParams.get("error_description");
-  if (desc) url.searchParams.set("error_description", desc);
+  url.searchParams.set("code", code);
 
   const resume =
-    pathname === "/" || pathname === "/sign-in" || pathname === "/create-account"
+    pathname === "/" ||
+    pathname === "/sign-in" ||
+    pathname === "/create-account" ||
+    pathname === "/quick-signup"
       ? "/dashboard"
       : pathname;
   url.searchParams.set("next", resume);

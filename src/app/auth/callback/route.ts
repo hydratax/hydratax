@@ -38,6 +38,13 @@ export async function GET(request: Request) {
       : url.origin;
 
   if (oauthError) {
+    // Our own flag — never re-enter callback with error=auth
+    if (oauthError === "auth") {
+      const nextParam = encodeURIComponent(safeReturnPath(searchParams.get("next")));
+      return NextResponse.redirect(
+        `${origin}/sign-in?error=auth&next=${nextParam}`,
+      );
+    }
     const detail = encodeURIComponent(
       (oauthDesc || oauthError).replace(/\+/g, " ").slice(0, 200),
     );
