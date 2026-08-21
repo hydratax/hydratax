@@ -19,7 +19,6 @@ export function SignInForm() {
   const [pending, start] = useTransition();
   const confirmHint = searchParams.get("confirm") === "1";
   const oauthFailed = searchParams.get("error") === "auth";
-  const oauthDetail = searchParams.get("detail");
   const next = safeReturnPath(searchParams.get("next"));
 
   return (
@@ -64,8 +63,7 @@ export function SignInForm() {
         <FormErrorBanner
           error={
             error ??
-            oauthDetail ??
-            "Google sign-in did not complete. Confirm https://hydratax.uk/auth/callback is in Supabase Auth → URL configuration, then try again."
+            "Google sign-in did not finish. Please try again, or use email and password."
           }
           title="Sign in blocked"
         />

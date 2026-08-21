@@ -229,6 +229,9 @@ function friendlyAuthMessage(raw: string): string {
   if (m.includes("already registered") || m.includes("already been registered")) {
     return "An account with this email already exists. Sign in instead.";
   }
+  if (m.includes("pkce") || m.includes("code verifier") || m.includes("not found in storage")) {
+    return "Google sign-in did not finish. Please try again, or use email and password.";
+  }
   if (m.includes("rate limit") || m.includes("too many")) {
     return "Too many attempts. Wait a minute and try again.";
   }

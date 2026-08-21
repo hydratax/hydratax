@@ -19,6 +19,9 @@ export function humanizeActionError(
   if (/digest|omitted in production/i.test(raw)) {
     return fallback;
   }
+  if (/pkce|code verifier|not found in storage|auth flow was initiated/i.test(raw)) {
+    return "Google sign-in did not finish. Please try again in this browser, or use email and password.";
+  }
 
   return raw;
 }
