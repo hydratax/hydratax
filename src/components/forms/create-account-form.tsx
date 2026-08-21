@@ -7,6 +7,10 @@ import { safeReturnPath } from "@/lib/auth-return";
 import { messageFromUnknown } from "@/lib/action-error";
 import { OrgChTypeahead } from "@/components/forms/org-ch-typeahead";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import {
+  AuthDivider,
+  GoogleAuthButton,
+} from "@/components/forms/google-auth-button";
 
 const ORG_TYPES = [
   {
@@ -213,6 +217,15 @@ export function CreateAccountForm() {
             enabled={chLookup}
           />
         </section>
+
+        <div className="space-y-4">
+          <GoogleAuthButton
+            next={returnPath}
+            orgType={orgType}
+            label="Sign up with Google"
+          />
+          <AuthDivider label="or use email" />
+        </div>
 
         <section>
           <h2 className="text-lg font-semibold text-ink">Personal information</h2>

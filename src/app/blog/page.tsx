@@ -24,6 +24,18 @@ export const metadata: Metadata = {
       "Practical articles on bookkeeping, CT600, Making Tax Digital and Companies House confirmation statements.",
     type: "website",
     url: "/blog",
+    images: [
+      {
+        url: "/brand/og.png",
+        width: 1200,
+        height: 630,
+        alt: "HydraTax",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/brand/og.png"],
   },
 };
 

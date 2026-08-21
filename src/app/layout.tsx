@@ -28,10 +28,6 @@ const ibmPlex = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   ...defaultMetadata,
-  icons: {
-    icon: "/brand/logo.png",
-    apple: "/brand/logo.png",
-  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",

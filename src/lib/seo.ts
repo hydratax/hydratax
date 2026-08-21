@@ -52,14 +52,26 @@ export const defaultMetadata: Metadata = {
     title: "HydraTax — UK accounting, CT600, MTD VAT & Companies House",
     description:
       "File CT600, MTD VAT, Self Assessment, PAYE, bookkeeping year-end and Companies House services in one HMRC-ready platform.",
-    images: [{ url: "/brand/logo.png", width: 468, height: 468, alt: "HydraTax" }],
+    images: [
+      {
+        url: "/brand/og.png",
+        width: 1200,
+        height: 630,
+        alt: "HydraTax",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "HydraTax — CT600, VAT, bookkeeping & Companies House",
     description:
       "UK accounting software for accountants and small limited companies.",
-    images: ["/brand/logo.png"],
+    images: ["/brand/og.png"],
+  },
+  icons: {
+    icon: [{ url: "/brand/logo.png", type: "image/png" }],
+    apple: [{ url: "/brand/logo.png", type: "image/png" }],
+    shortcut: "/brand/logo.png",
   },
   robots: {
     index: true,
@@ -96,6 +108,8 @@ export function organizationJsonLd() {
       url: `${SITE}/pricing`,
     },
     url: SITE,
+    image: `${SITE}/brand/og.png`,
+    logo: `${SITE}/brand/logo.png`,
     brand: { "@type": "Brand", name: LEGAL_COMPANY.tradingName },
     provider: {
       "@type": "Organization",
@@ -280,7 +294,7 @@ export function blogPostJsonLd(input: {
         url: `${SITE}/brand/logo.png`,
       },
     },
-    image: `${SITE}/brand/logo.png`,
+    image: `${SITE}/brand/og.png`,
   };
 }
 

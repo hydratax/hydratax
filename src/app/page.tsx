@@ -40,6 +40,18 @@ export const metadata: Metadata = {
       "File CT600, MTD VAT, payroll, confirmation statements and accounts in one place.",
     url: "/",
     type: "website",
+    images: [
+      {
+        url: "/brand/og.png",
+        width: 1200,
+        height: 630,
+        alt: "HydraTax",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/brand/og.png"],
   },
 };
 

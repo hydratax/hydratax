@@ -7,6 +7,10 @@ import { signInWithSupabase } from "@/server/actions/auth";
 import { safeReturnPath } from "@/lib/auth-return";
 import { messageFromUnknown } from "@/lib/action-error";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import {
+  AuthDivider,
+  GoogleAuthButton,
+} from "@/components/forms/google-auth-button";
 
 export function SignInForm() {
   const router = useRouter();
@@ -14,6 +18,7 @@ export function SignInForm() {
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const confirmHint = searchParams.get("confirm") === "1";
+  const oauthFailed = searchParams.get("error") === "auth";
   const next = safeReturnPath(searchParams.get("next"));
 
   return (
@@ -54,6 +59,19 @@ export function SignInForm() {
         </p>
       )}
 
+      {(oauthFailed || error) && (
+        <FormErrorBanner
+          error={
+            error ??
+            "Google sign-in did not complete. Try again, or use email and password."
+          }
+          title="Sign in blocked"
+        />
+      )}
+
+      <GoogleAuthButton next={next} label="Sign in with Google" />
+      <AuthDivider />
+
       <label className="block text-sm font-semibold text-ink">
         Email
         <input
@@ -77,8 +95,6 @@ export function SignInForm() {
           placeholder="Your password"
         />
       </label>
-
-      <FormErrorBanner error={error} title="Sign in blocked" />
 
       <button type="submit" disabled={pending} className="btn btn-primary w-full">
         {pending ? "Signing in…" : "Sign in"}

@@ -24,6 +24,18 @@ export const metadata = {
     description:
       "Interactive pricing for practice desk, VAT, CT600, SA, payroll, and Companies House. Practice & Custom include a 7-day free trial.",
     type: "website",
+    images: [
+      {
+        url: "/brand/og.png",
+        width: 1200,
+        height: 630,
+        alt: "HydraTax",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/brand/og.png"],
   },
 };
 
