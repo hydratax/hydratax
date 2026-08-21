@@ -10,12 +10,14 @@ const PUBLIC_PREFIXES = [
   "/feature-requests",
   "/checkout",
   "/create-account",
+  "/quick-signup",
   "/sign-in",
   "/sign-up",
   "/auth",
   "/terms",
   "/privacy",
   "/legal",
+  "/blog",
   "/api/hmrc/callback",
   "/api/checkout",
   "/api/stripe/webhook",
@@ -36,7 +38,50 @@ function copyCookies(from: NextResponse, to: NextResponse) {
   });
 }
 
+/**
+ * Supabase sometimes returns the OAuth `code` to Site URL (e.g. /dashboard)
+ * instead of /auth/callback. Catch that and hand off to the callback route.
+ */
+function oauthCodeHandoff(request: NextRequest): NextResponse | null {
+  const { pathname, searchParams } = request.nextUrl;
+  if (pathname === "/auth/callback" || pathname.startsWith("/api/")) {
+    return null;
+  }
+
+  const code = searchParams.get("code");
+  const oauthError = searchParams.get("error");
+  if (!code && !oauthError) return null;
+  // Ignore unrelated `code` query params that aren't OAuth-shaped UUIDs
+  if (
+    code &&
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      code,
+    )
+  ) {
+    return null;
+  }
+
+  const url = request.nextUrl.clone();
+  url.pathname = "/auth/callback";
+  url.search = "";
+  if (code) url.searchParams.set("code", code);
+  if (oauthError) url.searchParams.set("error", oauthError);
+  const desc = searchParams.get("error_description");
+  if (desc) url.searchParams.set("error_description", desc);
+
+  const resume =
+    pathname === "/" || pathname === "/sign-in" || pathname === "/create-account"
+      ? "/dashboard"
+      : pathname;
+  url.searchParams.set("next", resume);
+
+  return NextResponse.redirect(url);
+}
+
 export default async function proxy(request: NextRequest) {
+  const handoff = oauthCodeHandoff(request);
+  if (handoff) return handoff;
+
   const { pathname } = request.nextUrl;
 
   // Refresh Supabase session cookies and validate JWT
@@ -50,7 +95,14 @@ export default async function proxy(request: NextRequest) {
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/sign-in";
-    const returnTo = `${pathname}${request.nextUrl.search}`;
+    url.search = "";
+    // Don't pass OAuth codes through the sign-in return URL
+    const cleanSearch = new URLSearchParams(request.nextUrl.search);
+    cleanSearch.delete("code");
+    cleanSearch.delete("error");
+    cleanSearch.delete("error_description");
+    const qs = cleanSearch.toString();
+    const returnTo = qs ? `${pathname}?${qs}` : pathname;
     url.searchParams.set("next", returnTo);
     const redirectResponse = NextResponse.redirect(url);
     copyCookies(response, redirectResponse);

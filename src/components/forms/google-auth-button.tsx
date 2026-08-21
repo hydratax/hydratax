@@ -39,12 +39,20 @@ export function GoogleAuthButton({
       setAuthIntentCookies(destination, orgType);
 
       const supabase = createClient();
+      // Prefer configured production URL so OAuth never falls back to a wrong Site URL path
+      const appUrl = (
+        process.env.NEXT_PUBLIC_APP_URL ||
+        window.location.origin
+      ).replace(/\/$/, "");
+      const redirectBase =
+        appUrl.includes("localhost") || appUrl.includes("127.0.0.1")
+          ? window.location.origin
+          : appUrl;
+
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          // Must match Supabase Auth → URL configuration allowlist exactly
-          // (wildcards like https://hydratax.uk/auth/callback** also work).
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: `${redirectBase}/auth/callback`,
           queryParams: {
             access_type: "online",
             prompt: "select_account",
