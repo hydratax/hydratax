@@ -3,11 +3,11 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-import { FormErrorBanner } from "@/components/forms/form-error-banner";
   createPromoCode,
   deactivatePromoCode,
   type PromoCodeRow,
 } from "@/server/actions/promo-codes";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 function formatDiscount(row: PromoCodeRow) {
   const off =

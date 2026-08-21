@@ -2,12 +2,12 @@
 
 import { useState, useTransition } from "react";
 import {
-import { FormErrorBanner } from "@/components/forms/form-error-banner";
   createFeatureRequest,
   toggleFeatureVote,
   type FeatureRequestRow,
   type FeatureRequestStatus,
 } from "@/server/actions/feature-requests";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 const STATUS_LABEL: Record<FeatureRequestStatus, string> = {
   open: "Open",

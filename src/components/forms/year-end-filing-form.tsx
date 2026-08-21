@@ -15,10 +15,10 @@ import { authEntryHref } from "@/lib/auth-return";
 import { CT600_PHASES } from "@/lib/hmrc/filing-guides";
 import { AccountsPdfScrollViewer } from "@/components/forms/accounts-pdf-scroll-viewer";
 import {
-import { FormErrorBanner } from "@/components/forms/form-error-banner";
   TrialBalanceUpload,
   type Ct600TbFigures,
 } from "@/components/forms/trial-balance-upload";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 export type YearEndFilingMode = "ct600" | "accounts" | "both";
 
