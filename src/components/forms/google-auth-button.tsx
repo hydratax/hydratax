@@ -6,6 +6,17 @@ import { isSupabaseConfigured } from "@/lib/env";
 
 type OrgType = "company" | "sole_trader" | "partnership" | "practice";
 
+function setAuthIntentCookies(next: string, orgType?: OrgType) {
+  const maxAge = 600;
+  // Keep redirectTo allowlist-safe (no query string on callback URL).
+  document.cookie = `ht_auth_next=${encodeURIComponent(next)}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
+  if (orgType) {
+    document.cookie = `ht_auth_org=${encodeURIComponent(orgType)}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
+  } else {
+    document.cookie = `ht_auth_org=; Path=/; Max-Age=0`;
+  }
+}
+
 export function GoogleAuthButton({
   next = "/dashboard",
   orgType,
@@ -24,22 +35,36 @@ export function GoogleAuthButton({
     setError(null);
     setPending(true);
     try {
-      const supabase = createClient();
-      const params = new URLSearchParams();
-      params.set("next", next.startsWith("/") ? next : "/dashboard");
-      if (orgType) params.set("org_type", orgType);
+      const destination = next.startsWith("/") ? next : "/dashboard";
+      setAuthIntentCookies(destination, orgType);
 
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      const supabase = createClient();
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/auth/callback?${params.toString()}`,
+          // Must match Supabase Auth → URL configuration allowlist exactly
+          // (wildcards like https://hydratax.uk/auth/callback** also work).
+          redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: {
+            access_type: "online",
+            prompt: "select_account",
+          },
         },
       });
+
       if (oauthError) {
         setError(oauthError.message);
         setPending(false);
+        return;
       }
-      // On success the browser redirects to Google — leave pending true
+
+      if (data?.url) {
+        window.location.assign(data.url);
+        return;
+      }
+
+      setError("Could not start Google sign-in. Check Supabase Google provider settings.");
+      setPending(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Google sign-in failed");
       setPending(false);

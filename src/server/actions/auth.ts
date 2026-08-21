@@ -24,6 +24,14 @@ const signInSchema = z.object({
   password: z.string().min(1, "Enter your password"),
 });
 
+const quickSignUpSchema = z.object({
+  email: z.string().email("Enter a valid email address"),
+  password: z.string().min(8, "Password must be at least 8 characters").max(200),
+  confirmPassword: z.string().min(8).max(200),
+  /** Where to continue after signup (e.g. CS01 resume + pay) */
+  next: z.string().optional(),
+});
+
 export type AuthActionResult =
   | { ok: true; redirectTo: string }
   | { ok: false; error: string };
@@ -103,6 +111,77 @@ export async function signUpWithSupabase(
     }
 
     return { ok: true, redirectTo: "/dashboard" };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Could not create account";
+    return { ok: false, error: friendlyAuthMessage(msg) };
+  }
+}
+
+/**
+ * Minimal signup for one-off filings (CS01 etc.) — email + password only.
+ * Provisions a company-type practice so checkout / CH requests still have a practiceId.
+ */
+export async function quickSignUpWithSupabase(
+  input: z.infer<typeof quickSignUpSchema>,
+): Promise<AuthActionResult> {
+  const parsed = quickSignUpSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: firstZodMessage(parsed.error) };
+  }
+  const data = parsed.data;
+  if (data.password !== data.confirmPassword) {
+    return { ok: false, error: "Passwords do not match" };
+  }
+
+  const { safeReturnPath } = await import("@/lib/auth-return");
+  const continueTo = safeReturnPath(data.next, "/dashboard");
+
+  if (!isSupabaseConfigured()) {
+    memoryStore.accountProfile = {
+      orgType: "company",
+      orgSearch: "",
+      firstName: data.email.split("@")[0] || "Client",
+      createdAt: new Date().toISOString(),
+    };
+    memoryStore.practice.name =
+      data.email.split("@")[0] || "Filing account";
+    return { ok: true, redirectTo: continueTo };
+  }
+
+  try {
+    const supabase = await createClient();
+    const { data: authData, error } = await supabase.auth.signUp({
+      email: data.email,
+      password: data.password,
+      options: {
+        data: {
+          org_type: "company",
+          quick_client: "1",
+        },
+        emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "https://hydratax.uk"}/auth/callback?next=${encodeURIComponent(continueTo)}`,
+      },
+    });
+
+    if (error) {
+      return { ok: false, error: friendlyAuthMessage(error.message) };
+    }
+    if (!authData.session) {
+      return {
+        ok: true,
+        redirectTo: `/sign-in?confirm=1&next=${encodeURIComponent(continueTo)}`,
+      };
+    }
+
+    try {
+      const { ensureSupabasePractice } = await import(
+        "@/server/auth/ensure-practice"
+      );
+      await ensureSupabasePractice(authData.user!);
+    } catch {
+      /* practice seeded on first desk visit */
+    }
+
+    return { ok: true, redirectTo: continueTo };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Could not create account";
     return { ok: false, error: friendlyAuthMessage(msg) };
