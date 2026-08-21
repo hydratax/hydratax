@@ -13,6 +13,7 @@ import { gatherFraudMetadata } from "@/components/fraud-metadata";
 import { HmrcVatConnectModal } from "@/components/forms/hmrc-vat-connect-modal";
 import { VAT_BOX_DEFINITIONS } from "@/lib/hmrc/filing-guides";
 import { money } from "@/lib/format";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 type Obligation = {
   periodKey: string;
@@ -492,7 +493,7 @@ export function VatReturnsWorkspace({
           </div>
 
           <div className="space-y-3 border-t border-line bg-sand/30 px-5 py-4">
-            {error && <p className="text-sm text-danger">{error}</p>}
+            <FormErrorBanner error={error} />
             {message && (
               <p className="text-sm font-semibold text-ok">{message}</p>
             )}

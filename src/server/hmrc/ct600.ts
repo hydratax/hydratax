@@ -17,16 +17,61 @@ export function computeTaxableProfit(figures: Ct600Figures): Pence {
 /**
  * Builds a simplified CT600 XML envelope for Corporation Tax Online.
  * Full RIM artefact validation is done via HMRC LTS/TPVS in production.
+ *
+ * Mandatory GovTalk credentials (TEST and LIVE):
+ * - Vendor ID in ChannelRouting/URI + Product name
+ * - Company UTR in GovTalkDetails/Keys (Key Type="UTR") — required for gateway auth
+ * - Same UTR also in IRheader/Keys
  */
 export function buildCt600Xml(opts: {
   companyName: string;
   companyNumber: string;
   utr: string;
   figures: Ct600Figures;
+  /** Override SDST test SenderID; live filings use the end-user GG ID */
+  senderId?: string;
+  /** Override SDST test password / GG password */
+  senderPassword?: string;
 }): { xml: string; hash: string; taxableProfitPence: number } {
+  const utr = requireCtUtr(opts.utr);
   const figures = ct600FiguresSchema.parse(opts.figures);
   const taxable = computeTaxableProfit(figures);
   const taxCharge = Math.round(Number(taxable) * 0.19);
+  const cfg = getHmrcConfig();
+  const vendorId = cfg.ctVendorId;
+  const product = cfg.ctProductName;
+  const senderId = opts.senderId?.trim() || cfg.ctTestSenderId || "HydraTax";
+  const senderPassword = opts.senderPassword?.trim() || cfg.ctTestPassword;
+  const gatewayTest = cfg.env === "production" ? "0" : "1";
+  const channel =
+    vendorId
+      ? `
+  <GovTalkDetails>
+    <Keys>
+      <Key Type="UTR">${escapeXml(utr)}</Key>
+    </Keys>
+    <ChannelRouting>
+      <Channel>
+        <URI>${escapeXml(vendorId)}</URI>
+        <Product>${escapeXml(product)}</Product>
+        <Version>${escapeXml(cfg.vendorVersion)}</Version>
+      </Channel>
+    </ChannelRouting>
+  </GovTalkDetails>`
+      : `
+  <GovTalkDetails>
+    <Keys>
+      <Key Type="UTR">${escapeXml(utr)}</Key>
+    </Keys>
+  </GovTalkDetails>`;
+  const authValue = senderPassword
+    ? `
+          <Authentication>
+            <Method>clear</Method>
+            <Role>principal</Role>
+            <Value>${escapeXml(senderPassword)}</Value>
+          </Authentication>`
+    : "";
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope">
@@ -37,18 +82,19 @@ export function buildCt600Xml(opts: {
       <Qualifier>request</Qualifier>
       <Function>submit</Function>
       <Transformation>XML</Transformation>
+      <GatewayTest>${gatewayTest}</GatewayTest>
     </MessageDetails>
     <SenderDetails>
       <IDAuthentication>
-        <SenderID>HydraTax</SenderID>
+        <SenderID>${escapeXml(senderId)}</SenderID>${authValue}
       </IDAuthentication>
     </SenderDetails>
-  </Header>
+  </Header>${channel}
   <Body>
     <IRenvelope xmlns="http://www.govtalk.gov.uk/taxation/CT/5">
       <IRheader>
         <Keys>
-          <Key Type="UTR">${escapeXml(opts.utr)}</Key>
+          <Key Type="UTR">${escapeXml(utr)}</Key>
         </Keys>
         <Period>
           <Start>${figures.periodStart}</Start>
@@ -90,6 +136,16 @@ export function buildCt600Xml(opts: {
     hash: sha256Hex(xml),
     taxableProfitPence: Number(taxable),
   };
+}
+
+function requireCtUtr(raw: string): string {
+  const utr = String(raw ?? "").replace(/\s+/g, "").trim();
+  if (!/^\d{10}$/.test(utr)) {
+    throw new Error(
+      "A valid 10-digit company UTR is required for every CT600 submission (GovTalkDetails Keys and IRheader).",
+    );
+  }
+  return utr;
 }
 
 function escapeXml(s: string): string {

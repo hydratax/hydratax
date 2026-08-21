@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
   createPromoCode,
   deactivatePromoCode,
   type PromoCodeRow,
@@ -242,11 +243,7 @@ export function PromoCodeAdmin({
           </label>
         </div>
 
-        {error && (
-          <p className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
-            {error}
-          </p>
-        )}
+        <FormErrorBanner error={error} />
         {created && (
           <p className="rounded-lg border border-sea/30 bg-sea/5 px-3 py-2 text-sm text-ink">
             Created <span className="mono font-semibold">{created}</span>

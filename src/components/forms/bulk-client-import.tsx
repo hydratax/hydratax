@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import {
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
   bulkImportClients,
   type BulkImportRowResult,
 } from "@/server/actions/clients";
@@ -147,11 +148,7 @@ export function BulkClientImport() {
         </span>
       </label>
 
-      {error && (
-        <p className="rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
-          {error}
-        </p>
-      )}
+      <FormErrorBanner error={error} />
 
       <button
         type="button"

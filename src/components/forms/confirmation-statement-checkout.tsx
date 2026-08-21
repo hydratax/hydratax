@@ -1,8 +1,17 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { CH_GUIDANCE, formatChFeeBreakdown, type ChServiceDetail } from "@/lib/ch-services";
 import { submitCompaniesHouseRequest } from "@/server/actions/ch-requests";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { authEntryHref } from "@/lib/auth-return";
+import {
+  clearCs01Draft,
+  cs01ResumePath,
+  loadCs01Draft,
+  saveCs01Draft,
+} from "@/lib/cs01-checkout-draft";
+import { hasSignedInSession } from "@/server/actions/session-check";
 
 type RegisterView = {
   companyNumber: string;
@@ -47,8 +56,9 @@ export function ConfirmationStatementCheckout({
     defaults?.companyNumber?.trim().toUpperCase() ||
     defaults?.company_number?.trim().toUpperCase() ||
     "";
+  const wantResume = defaults?.resume === "1" || defaults?.pay === "1";
   const [phase, setPhase] = useState<"search" | "confirm">(
-    presetCompany ? "confirm" : "search",
+    presetCompany || wantResume ? "confirm" : "search",
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [searchHits, setSearchHits] = useState<
@@ -67,6 +77,9 @@ export function ConfirmationStatementCheckout({
   const [lookupPending, setLookupPending] = useState(Boolean(presetCompany));
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const [hydrated, setHydrated] = useState(false);
+  const confirmBoxRef = useRef<HTMLLabelElement>(null);
+  const skipNextChWipe = useRef(false);
 
   const authCodeMissing = !companyAuthCode.trim();
   const authCodeFormatOk =
@@ -79,10 +92,78 @@ export function ConfirmationStatementCheckout({
         /^\d{4}-\d{2}-\d{2}$/.test(d.dateOfBirth) &&
         d.personalCode.trim().length === 11,
     );
-  const canPay = authCodeFormatOk && directorsReady && confirmed;
+  /** Auth + directors filled — confirmation checkbox still required before checkout */
+  const fieldsReady = authCodeFormatOk && directorsReady;
+  const canPay = fieldsReady && confirmed;
+
+  function persistDraft(partial?: Partial<ReturnType<typeof buildDraft>>) {
+    const base = buildDraft();
+    if (!base) return;
+    saveCs01Draft({ ...base, ...partial });
+  }
+
+  function buildDraft() {
+    if (!register) return null;
+    return {
+      v: 1 as const,
+      phase,
+      companyNumber: register.companyNumber,
+      companyName: register.companyName,
+      confirmationDate: register.confirmationDate,
+      nextDue: register.nextDue,
+      registeredOffice: register.registeredOffice,
+      sicCodes: register.sicCodes,
+      directors: register.directors,
+      pscs: register.pscs,
+      directorCodes,
+      companyAuthCode,
+      confirmed,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  useEffect(() => {
+    if (hydrated) return;
+    setHydrated(true);
+    const draft = loadCs01Draft(presetCompany || undefined);
+    if (!draft) return;
+    skipNextChWipe.current = true;
+    setRegister({
+      companyNumber: draft.companyNumber,
+      companyName: draft.companyName,
+      confirmationDate: draft.confirmationDate,
+      nextDue: draft.nextDue,
+      registeredOffice: draft.registeredOffice,
+      sicCodes: draft.sicCodes,
+      directors: draft.directors,
+      pscs: draft.pscs,
+    });
+    setDirectorCodes(draft.directorCodes);
+    setCompanyAuthCode(draft.companyAuthCode);
+    setConfirmed(Boolean(draft.confirmed));
+    setSearchQuery(draft.companyName);
+    setPhase(
+      wantResume || draft.phase === "confirm" ? "confirm" : draft.phase,
+    );
+    setLookupPending(false);
+  }, [hydrated, presetCompany, wantResume]);
+
+  useEffect(() => {
+    if (!hydrated || !register) return;
+    persistDraft();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    hydrated,
+    phase,
+    register,
+    directorCodes,
+    companyAuthCode,
+    confirmed,
+  ]);
 
   useEffect(() => {
     if (!presetCompany) return;
+    if (register?.companyNumber === presetCompany) return;
     void loadCompany(presetCompany);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presetCompany]);
@@ -197,16 +278,21 @@ export function ConfirmationStatementCheckout({
           })),
       };
       setRegister(next);
-      setDirectorCodes(
-        next.directors.map((d) => ({
-          fullName: d.name,
-          dateOfBirth: "",
-          personalCode: "",
-        })),
-      );
+      if (skipNextChWipe.current) {
+        skipNextChWipe.current = false;
+        // Keep draft auth code / director codes / confirmation after CH refresh
+      } else {
+        setDirectorCodes(
+          next.directors.map((d) => ({
+            fullName: d.name,
+            dateOfBirth: "",
+            personalCode: "",
+          })),
+        );
+        setConfirmed(false);
+      }
       setSearchQuery(next.companyName);
       setSearchHits([]);
-      setConfirmed(false);
       setPhase("confirm");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Lookup failed");
@@ -246,14 +332,30 @@ export function ConfirmationStatementCheckout({
       return;
     }
     if (!confirmed) {
-      setError("Confirm the company details before paying.");
+      setError(
+        "Tick the confirmation box before paying — checkout cannot continue without it.",
+      );
+      confirmBoxRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
       return;
     }
 
+    const resumePath = cs01ResumePath(register.companyNumber);
+    persistDraft({ phase: "confirm", confirmed: true });
+
     start(async () => {
       try {
+        const signedIn = await hasSignedInSession();
+        if (!signedIn) {
+          window.location.assign(authEntryHref("sign-in", resumePath));
+          return;
+        }
+
         const res = await submitCompaniesHouseRequest({
           serviceId: service.id,
+          returnPath: resumePath,
           fields: {
             companyNumber: register.companyNumber,
             companyName: register.companyName,
@@ -283,6 +385,7 @@ export function ConfirmationStatementCheckout({
           error?: string;
         };
         if (checkout.ok && data.url) {
+          clearCs01Draft();
           window.location.href = data.url;
           return;
         }
@@ -291,7 +394,12 @@ export function ConfirmationStatementCheckout({
             "Request saved, but checkout is not configured yet. Contact support.",
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Checkout failed");
+        const msg = err instanceof Error ? err.message : "Checkout failed";
+        if (/NEXT_REDIRECT|sign in|unauthori|session/i.test(msg)) {
+          window.location.assign(authEntryHref("sign-in", resumePath));
+          return;
+        }
+        setError(msg);
       }
     });
   }
@@ -665,30 +773,52 @@ export function ConfirmationStatementCheckout({
             })}
           </div>
 
-          <label className="flex items-start gap-3 rounded-xl border border-line bg-white px-4 py-3 text-sm text-ink">
+          <label
+            ref={confirmBoxRef}
+            className={`flex items-start gap-3 rounded-xl border-2 px-4 py-3 text-sm text-ink ${
+              attemptedPay && !confirmed
+                ? "border-danger bg-danger/5 ring-2 ring-danger/30"
+                : "border-line bg-white"
+            }`}
+          >
             <input
               type="checkbox"
               className="mt-0.5"
               checked={confirmed}
-              onChange={(e) => setConfirmed(e.target.checked)}
+              required
+              aria-invalid={attemptedPay && !confirmed}
+              onChange={(e) => {
+                setConfirmed(e.target.checked);
+                if (e.target.checked) setError(null);
+              }}
             />
             <span>
               I confirm these Companies House details are correct and the
               company’s intended future activities are lawful
+              <span className="text-danger"> *</span>
             </span>
           </label>
+          {attemptedPay && !confirmed && (
+            <p className="text-sm font-semibold text-danger" role="alert">
+              You must tick this confirmation before paying.
+            </p>
+          )}
 
           <button
             type="button"
             className="btn btn-primary w-full"
-            disabled={pending || !canPay}
+            disabled={pending || !fieldsReady}
             onClick={pay}
           >
             {pending
               ? "Opening checkout…"
               : !authCodeFormatOk
                 ? "Enter authentication code to pay"
-                : `Pay ${fees.total}`}
+                : !directorsReady
+                  ? "Complete director personal codes to pay"
+                  : !confirmed
+                    ? "Confirm details to pay"
+                    : `Pay ${fees.total}`}
           </button>
           {!canPay && (
             <p className="text-center text-xs text-ink-soft">
@@ -699,11 +829,7 @@ export function ConfirmationStatementCheckout({
         </div>
       )}
 
-      {error && (
-        <p className="text-sm text-danger" role="alert">
-          {error}
-        </p>
-      )}
+      <FormErrorBanner error={error} />
     </div>
   );
 }

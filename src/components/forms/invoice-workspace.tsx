@@ -9,6 +9,7 @@ import {
 } from "@/server/actions/invoices";
 import type { MemoryInvoice } from "@/server/demo/store";
 import { money } from "@/lib/format";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 type LineDraft = {
   description: string;
@@ -209,7 +210,7 @@ export function InvoiceWorkspace({
           />
         </label>
 
-        {error && <p className="text-sm text-danger">{error}</p>}
+        <FormErrorBanner error={error} />
         <button type="submit" className="btn btn-primary" disabled={pending}>
           {pending ? "Saving…" : "Generate invoice"}
         </button>

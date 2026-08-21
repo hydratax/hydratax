@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { uploadClientDocument } from "@/server/actions/documents";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 const CATEGORIES = [
   { value: "general", label: "General" },
@@ -74,7 +75,7 @@ export function DocumentUploadForm({ clientId }: { clientId: string }) {
         />
       </label>
 
-      {error && <p className="text-sm text-danger">{error}</p>}
+      <FormErrorBanner error={error} />
       {ok && <p className="text-sm text-ok">{ok}</p>}
 
       <button type="submit" disabled={pending} className="btn btn-primary">

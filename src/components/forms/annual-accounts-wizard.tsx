@@ -21,6 +21,7 @@ import {
   saveAccountsDraft,
 } from "@/lib/accounts-wizard-draft";
 import { authEntryHref, appendReturnParams } from "@/lib/auth-return";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 type CompanyView = {
   companyNumber: string;
@@ -869,7 +870,7 @@ export function AnnualAccountsWizard({
           </div>
         )}
 
-        {error && <p className="text-sm text-danger">{error}</p>}
+        <FormErrorBanner error={error} />
       </div>
     </div>
   );

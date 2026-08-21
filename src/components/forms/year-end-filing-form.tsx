@@ -15,6 +15,7 @@ import { authEntryHref } from "@/lib/auth-return";
 import { CT600_PHASES } from "@/lib/hmrc/filing-guides";
 import { AccountsPdfScrollViewer } from "@/components/forms/accounts-pdf-scroll-viewer";
 import {
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
   TrialBalanceUpload,
   type Ct600TbFigures,
 } from "@/components/forms/trial-balance-upload";
@@ -1299,7 +1300,7 @@ export function YearEndFilingForm({
             </section>
           )}
 
-          {error && <p className="text-sm text-danger">{error}</p>}
+          <FormErrorBanner error={error} />
 
           <div className="flex flex-col gap-3 sm:flex-row">
             <button

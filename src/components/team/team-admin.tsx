@@ -13,6 +13,7 @@ import {
   type ModuleAccess,
 } from "@/lib/access";
 import type { MemoryTeamMember } from "@/server/demo/store";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 export function TeamAdmin({
   members,
@@ -95,7 +96,7 @@ export function TeamAdmin({
             )}
           </div>
         </fieldset>
-        {error && <p className="text-sm text-danger">{error}</p>}
+        <FormErrorBanner error={error} />
         <button type="submit" className="btn btn-primary" disabled={pending}>
           {pending ? "Adding…" : "Add member"}
         </button>

@@ -81,7 +81,10 @@ export async function getClient(clientId: string) {
         (c.practiceId === session.practiceId ||
           c.practiceId === demoStore.practice.id),
     );
-    if (!client) throw new Error("Client not found");
+    if (!client) {
+      const { notFound } = await import("next/navigation");
+      return notFound();
+    }
     return client;
   }
 
@@ -95,13 +98,25 @@ export async function getClient(clientId: string) {
       and(eq(clients.id, clientId), eq(clients.practiceId, session.practiceId)),
     )
     .limit(1);
-  if (!rows[0]) throw new Error("Client not found");
+  if (!rows[0]) {
+    const { notFound } = await import("next/navigation");
+    return notFound();
+  }
   return rows[0];
 }
 
 export async function createClient(input: z.infer<typeof createClientSchema>) {
   const session = await requireSession();
   if (session.role === "readonly") throw new Error("Forbidden");
+
+  if (
+    process.env.NODE_ENV === "production" &&
+    !process.env.DATABASE_URL?.trim()
+  ) {
+    throw new Error(
+      "Client storage is not configured (DATABASE_URL missing). Add your Postgres connection string in Netlify env.",
+    );
+  }
 
   const data = createClientSchema.parse(input);
   const now = new Date().toISOString();

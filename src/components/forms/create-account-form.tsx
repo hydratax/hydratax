@@ -4,7 +4,9 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signUpWithSupabase } from "@/server/actions/auth";
 import { safeReturnPath } from "@/lib/auth-return";
+import { messageFromUnknown } from "@/lib/action-error";
 import { OrgChTypeahead } from "@/components/forms/org-ch-typeahead";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 const ORG_TYPES = [
   {
@@ -151,6 +153,10 @@ export function CreateAccountForm() {
                 confirmPassword: String(fd.get("confirmPassword") ?? ""),
                 startTrial: false,
               });
+              if (!result.ok) {
+                setError(result.error);
+                return;
+              }
               router.push(
                 result.redirectTo.startsWith("/sign-in")
                   ? `${result.redirectTo}&next=${encodeURIComponent(returnPath)}`
@@ -159,7 +165,7 @@ export function CreateAccountForm() {
               router.refresh();
             } catch (err) {
               setError(
-                err instanceof Error ? err.message : "Could not create account",
+                messageFromUnknown(err, "Could not create account"),
               );
             }
           });
@@ -275,11 +281,7 @@ export function CreateAccountForm() {
           </div>
         </section>
 
-        {error && (
-          <p className="rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
-            {error}
-          </p>
-        )}
+        <FormErrorBanner error={error} title="Account creation blocked" />
 
         <button
           type="submit"

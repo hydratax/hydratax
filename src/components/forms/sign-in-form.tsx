@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { signInWithSupabase } from "@/server/actions/auth";
 import { safeReturnPath } from "@/lib/auth-return";
+import { messageFromUnknown } from "@/lib/action-error";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 export function SignInForm() {
   const router = useRouter();
@@ -27,10 +29,14 @@ export function SignInForm() {
               email: String(fd.get("email") ?? ""),
               password: String(fd.get("password") ?? ""),
             });
+            if (!res.ok) {
+              setError(res.error);
+              return;
+            }
             router.push(next);
             router.refresh();
           } catch (err) {
-            setError(err instanceof Error ? err.message : "Sign in failed");
+            setError(messageFromUnknown(err, "Sign in failed"));
           }
         });
       }}
@@ -72,11 +78,7 @@ export function SignInForm() {
         />
       </label>
 
-      {error && (
-        <p className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
-          {error}
-        </p>
-      )}
+      <FormErrorBanner error={error} title="Sign in blocked" />
 
       <button type="submit" disabled={pending} className="btn btn-primary w-full">
         {pending ? "Signing in…" : "Sign in"}

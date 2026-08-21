@@ -16,6 +16,13 @@ const envSchema = z.object({
   HMRC_VENDOR_PUBLIC_IP: z.string().optional(),
   HMRC_VENDOR_LICENSE_IDS: z.string().default("hydratax"),
   HMRC_VENDOR_VERSION: z.string().default("HydraTax=0.1.0"),
+  /** 4-digit SDST Vendor ID for CT Online XML (ChannelRouting URI) — not MTD fraud headers */
+  HMRC_CT_VENDOR_ID: z.string().optional(),
+  HMRC_CT_PRODUCT_NAME: z.string().default("HydraTax"),
+  /** ETS test credentials from SDST (sandbox CT submissions only) */
+  HMRC_CT_TEST_SENDER_ID: z.string().optional(),
+  HMRC_CT_TEST_PASSWORD: z.string().optional(),
+  HMRC_CT_TEST_UTR: z.string().optional(),
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().optional(),
   CLERK_SECRET_KEY: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
@@ -42,6 +49,11 @@ export function getEnv(): AppEnv {
     HMRC_VENDOR_PUBLIC_IP: process.env.HMRC_VENDOR_PUBLIC_IP,
     HMRC_VENDOR_LICENSE_IDS: process.env.HMRC_VENDOR_LICENSE_IDS,
     HMRC_VENDOR_VERSION: process.env.HMRC_VENDOR_VERSION,
+    HMRC_CT_VENDOR_ID: process.env.HMRC_CT_VENDOR_ID,
+    HMRC_CT_PRODUCT_NAME: process.env.HMRC_CT_PRODUCT_NAME,
+    HMRC_CT_TEST_SENDER_ID: process.env.HMRC_CT_TEST_SENDER_ID,
+    HMRC_CT_TEST_PASSWORD: process.env.HMRC_CT_TEST_PASSWORD,
+    HMRC_CT_TEST_UTR: process.env.HMRC_CT_TEST_UTR,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
     CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
@@ -59,14 +71,25 @@ export function getEnv(): AppEnv {
 }
 
 /**
- * Local memory practice (empty) when MEMORY_STORE=true or no DATABASE_URL.
- * Not for production SaaS traffic.
+ * Local memory practice (empty) when MEMORY_STORE/DEMO_MODE is set, or no DATABASE_URL.
+ * Never enabled in production (Netlify / NODE_ENV) — serverless instances do not share
+ * memory, so clients created there vanish on the next request (500 / not found).
  */
 export function isMemoryStore(): boolean {
+  if (isProductionRuntime()) return false;
   const env = getEnv();
   if (env.MEMORY_STORE) return true;
   if (!env.DATABASE_URL) return true;
   return false;
+}
+
+function isProductionRuntime(): boolean {
+  return (
+    process.env.NODE_ENV === "production" ||
+    process.env.NETLIFY === "true" ||
+    process.env.CONTEXT === "production" ||
+    process.env.VERCEL_ENV === "production"
+  );
 }
 
 /** @deprecated Use isMemoryStore */

@@ -5,6 +5,7 @@ import type { ChServiceDetail } from "@/lib/ch-services";
 import { formatChFeeBreakdown } from "@/lib/ch-services";
 import { searchSicCodes, type SicCode } from "@/lib/sic-codes";
 import { submitCompaniesHouseRequest } from "@/server/actions/ch-requests";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 type Director = {
   fullName: string;
@@ -680,7 +681,7 @@ export function IncorporationForm({
         </span>
       </label>
 
-      {error && <p className="text-sm text-danger">{error}</p>}
+      <FormErrorBanner error={error} />
       {ok && <p className="text-sm text-ok">{ok}</p>}
 
       <button type="submit" disabled={pending} className="btn btn-primary w-full">

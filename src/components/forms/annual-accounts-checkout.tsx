@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { formatChFeeBreakdown, type ChServiceDetail } from "@/lib/ch-services";
 import { submitCompaniesHouseRequest } from "@/server/actions/ch-requests";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 type CompanyView = {
   companyNumber: string;
@@ -379,11 +380,7 @@ export function AnnualAccountsCheckout({
         </div>
       )}
 
-      {error && (
-        <p className="text-sm text-danger" role="alert">
-          {error}
-        </p>
-      )}
+      <FormErrorBanner error={error} />
     </div>
   );
 }

@@ -20,6 +20,7 @@ import {
 import { defaultPayPeriod, taxYearFromDate } from "@/lib/payroll";
 import { money } from "@/lib/format";
 import type { PayFrequency, PayLine } from "@/server/hmrc/payroll";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 type RunRow = {
   id?: string;
@@ -457,9 +458,7 @@ export function PayrollWorkspace({
         </div>
       )}
 
-      {error && (
-        <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>
-      )}
+      <FormErrorBanner error={error} />
       {ok && (
         <p className="rounded-lg bg-sea/10 px-3 py-2 text-sm text-sea-deep">{ok}</p>
       )}
@@ -514,7 +513,7 @@ function EmployerSetup({ clientId }: { clientId: string }) {
           />
         </label>
       </div>
-      {error && <p className="text-sm text-danger">{error}</p>}
+      <FormErrorBanner error={error} />
       <button type="submit" className="btn btn-primary" disabled={pending}>
         Save and enable payroll
       </button>
@@ -698,7 +697,7 @@ function EmployeesPanel({
             <input type="checkbox" name="pensionOptOut" className="h-4 w-4" />
             Worker has opted out of auto-enrolment (no 5% / 3% qualifying-earnings pension)
           </label>
-          {error && <p className="text-sm text-danger sm:col-span-2">{error}</p>}
+          <FormErrorBanner error={error} />
           <div className="sm:col-span-2">
             <button type="submit" className="btn btn-primary" disabled={pending}>
               Save employee
@@ -706,7 +705,7 @@ function EmployeesPanel({
           </div>
         </form>
       )}
-      {error && !open && <p className="mt-3 text-sm text-danger">{error}</p>}
+      {!open ? <FormErrorBanner error={error} className="mt-3" /> : null}
     </div>
   );
 }
@@ -860,7 +859,7 @@ function PackPasswordForm({
           {hasPackPassword ? "Update password" : "Save password"}
         </button>
       </div>
-      {error && <p className="text-sm text-danger">{error}</p>}
+      <FormErrorBanner error={error} />
       {ok && <p className="text-sm text-sea-deep">{ok}</p>}
     </form>
   );

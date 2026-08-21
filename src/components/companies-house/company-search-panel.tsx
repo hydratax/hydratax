@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 type SearchItem = {
   company_number: string;
@@ -216,11 +217,10 @@ export function CompanySearchPanel({
         )}
       </div>
 
-      {error && (
-        <p className={`text-sm ${isHero ? "text-red-300" : "text-danger"}`}>
-          {error}
-        </p>
-      )}
+      <FormErrorBanner
+        error={error}
+        className={isHero ? "border-red-300 bg-red-950/40 text-red-100" : undefined}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { sendClientDocumentEmail } from "@/server/actions/email";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 type Doc = { id: string; filename: string };
 
@@ -100,7 +101,7 @@ export function EmailDocumentsForm({
         </fieldset>
       )}
 
-      {error && <p className="text-sm text-danger">{error}</p>}
+      <FormErrorBanner error={error} />
       {ok && <p className="text-sm text-ok">{ok}</p>}
 
       <button type="submit" disabled={pending} className="btn btn-primary">

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addLedgerEntry } from "@/server/actions/ledger";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 export function LedgerForm({ clientId }: { clientId: string }) {
   const router = useRouter();
@@ -71,7 +72,7 @@ export function LedgerForm({ clientId }: { clientId: string }) {
         <label className="label">Category</label>
         <input name="category" className="input" placeholder="Sales" />
       </div>
-      {error && <p className="text-sm text-danger sm:col-span-2">{error}</p>}
+      <FormErrorBanner error={error} />
       <div className="sm:col-span-2">
         <button type="submit" className="btn btn-primary" disabled={pending}>
           {pending ? "Adding…" : "Add entry"}

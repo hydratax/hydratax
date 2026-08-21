@@ -59,7 +59,7 @@ export async function prepareCt600(input: z.infer<typeof figuresFormSchema>) {
     throw new Error("CT600 is only for limited companies");
   }
   if (!client.companyNumber || !client.utr) {
-    throw new Error("Company number and UTR are required");
+    throw new Error("Company number and a valid 10-digit UTR are required for CT600");
   }
 
   const figures = formToFigures(data);
@@ -124,7 +124,7 @@ export async function submitCt600(returnId: string, clientId: string) {
   const session = await requireSession();
   const client = await getClient(clientId);
   if (!client.companyNumber || !client.utr) {
-    throw new Error("Company number and UTR are required");
+    throw new Error("Company number and a valid 10-digit UTR are required for CT600");
   }
 
   let draft = isDemoMode()

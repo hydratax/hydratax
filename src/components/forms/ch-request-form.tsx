@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import type { ChServiceDetail } from "@/lib/ch-services";
 import { formatChFeeBreakdown } from "@/lib/ch-services";
 import { submitCompaniesHouseRequest } from "@/server/actions/ch-requests";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 export function ChRequestForm({
   service,
@@ -188,7 +189,7 @@ export function ChRequestForm({
         );
       })}
 
-      {error && <p className="text-sm text-danger">{error}</p>}
+      <FormErrorBanner error={error} />
       {ok && <p className="text-sm text-ok">{ok}</p>}
 
       <button type="submit" disabled={pending} className="btn btn-primary w-full">

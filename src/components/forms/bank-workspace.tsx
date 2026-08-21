@@ -12,6 +12,8 @@ import {
 } from "@/lib/bank-categories";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { messageFromUnknown } from "@/lib/action-error";
 
 type Tx = {
   id: string;
@@ -75,7 +77,7 @@ export function BankWorkspace({
                 formRef.current?.reset();
                 router.refresh();
               } catch (error) {
-                setErr(error instanceof Error ? error.message : "Import failed");
+                setErr(messageFromUnknown(error, "Import failed"));
               }
             });
           }}
@@ -92,7 +94,7 @@ export function BankWorkspace({
             accept=".csv,.xlsx,.xls,.pdf,text/csv,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="block w-full text-sm"
           />
-          {err && <p className="text-sm text-danger">{err}</p>}
+          <FormErrorBanner error={err} />
           {msg && <p className="text-sm text-ok">{msg}</p>}
           <button type="submit" disabled={pending} className="btn btn-primary">
             {pending ? "Importing…" : "Import & categorise"}

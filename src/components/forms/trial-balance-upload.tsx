@@ -8,6 +8,7 @@ import {
   updateTrialBalanceMappings,
 } from "@/server/actions/trial-balance";
 import {
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
   defaultMappings,
   parseTrialBalanceRows,
   trialBalanceToCt600Figures,
@@ -166,7 +167,7 @@ export function TrialBalanceUpload({
         </span>
       </label>
 
-      {error && <p className="text-sm text-danger">{error}</p>}
+      <FormErrorBanner error={error} />
 
       {tb && (
         <>

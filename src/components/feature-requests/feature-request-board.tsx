@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import {
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
   createFeatureRequest,
   toggleFeatureVote,
   type FeatureRequestRow,
@@ -233,11 +234,7 @@ export function FeatureRequestBoard({
             maxLength={160}
           />
 
-          {error && (
-            <p className="mt-3 text-sm text-danger" role="alert">
-              {error}
-            </p>
-          )}
+          <FormErrorBanner error={error} />
           {okMsg && (
             <p className="mt-3 text-sm text-ok" role="status">
               {okMsg}

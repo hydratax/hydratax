@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/server/actions/clients";
 import { OrgChTypeahead } from "@/components/forms/org-ch-typeahead";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 export function CreateClientForm() {
   const router = useRouter();
@@ -155,7 +156,7 @@ export function CreateClientForm() {
           Employer (PAYE)
         </label>
       </div>
-      {error && <p className="text-sm text-danger">{error}</p>}
+      <FormErrorBanner error={error} />
       <button type="submit" className="btn btn-primary" disabled={pending}>
         {pending
           ? isLtd

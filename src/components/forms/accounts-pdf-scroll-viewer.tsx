@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 /**
  * Single-column scrollable PDF preview (no thumbnail sidebar).
@@ -88,7 +89,7 @@ export function AccountsPdfScrollViewer({ src }: { src: string }) {
       )}
       {error && (
         <div className="space-y-3 p-6 text-center">
-          <p className="text-sm text-danger">{error}</p>
+          <FormErrorBanner error={error} className="text-left" />
           <a
             href={src}
             target="_blank"

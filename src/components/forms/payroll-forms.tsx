@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
   addEmployee,
   createAndSubmitPayRun,
   submitEpsNoPayment,
@@ -63,7 +64,7 @@ export function AddEmployeeForm({ clientId }: { clientId: string }) {
         <label className="label">Start date</label>
         <input name="startDate" type="date" className="input" required />
       </div>
-      {error && <p className="text-sm text-danger sm:col-span-2">{error}</p>}
+      <FormErrorBanner error={error} />
       <div className="sm:col-span-2">
         <button type="submit" className="btn btn-primary" disabled={pending}>
           Add employee
@@ -115,7 +116,7 @@ export function PayRunForm({ clientId }: { clientId: string }) {
           <label className="label">Period end</label>
           <input name="periodEnd" type="date" className="input" defaultValue="2026-03-31" required />
         </div>
-        {error && <p className="text-sm text-danger sm:col-span-3">{error}</p>}
+        <FormErrorBanner error={error} />
         {message && <p className="text-sm font-semibold text-ok sm:col-span-3">{message}</p>}
         <div className="sm:col-span-3">
           <button type="submit" className="btn btn-primary" disabled={pending}>

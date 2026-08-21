@@ -18,13 +18,19 @@ import { companyAuthCodeSchema } from "@/server/companies-house/filing/personal-
 const submitSchema = z.object({
   serviceId: z.string().min(1),
   fields: z.record(z.union([z.string(), z.boolean()])),
+  /** Where to return after sign-in if the session is missing */
+  returnPath: z.string().optional(),
 });
 
 export async function submitCompaniesHouseRequest(
   input: z.infer<typeof submitSchema>,
 ) {
-  const session = await requireSession();
   const data = submitSchema.parse(input);
+  const session = await requireSession(
+    data.returnPath && data.returnPath.startsWith("/")
+      ? data.returnPath
+      : undefined,
+  );
   const service = getChService(data.serviceId);
   if (!service) throw new Error("Unknown Companies House service");
 

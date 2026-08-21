@@ -11,6 +11,7 @@ import {
   prepareIncorporationFiling,
 } from "@/server/actions/incorporation";
 import { authEntryHref } from "@/lib/auth-return";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 type Address = {
   premise: string;
@@ -1208,11 +1209,7 @@ export function IncorporationWizard({
           </div>
         )}
 
-        {error && (
-          <p className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
-            {error}
-          </p>
-        )}
+        <FormErrorBanner error={error} />
         {ok && (
           <p className="rounded-lg bg-sea/10 px-3 py-2 text-sm text-sea-deep">
             {ok}

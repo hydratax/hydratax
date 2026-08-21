@@ -20,6 +20,7 @@ import Link from "next/link";
 import { FaqSection } from "@/components/faq-section";
 import { faqsForProduct } from "@/lib/product-faqs";
 import { PRACTICE_TRIAL } from "@/lib/trial";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 type Section = (typeof PRICING_SECTIONS)[number];
 type Plan = Section["plans"][number];
@@ -123,17 +124,16 @@ export function PricingExplorer({
                 </p>
               </div>
 
-              {error && (
-                <p className="mt-6 rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
-                  {error}
-                  {!stripeReady && (
-                    <span className="mt-1 block text-ink-soft">
+              {error ? (
+                <FormErrorBanner error={error} className="mt-6" title="Checkout blocked">
+                  {!stripeReady ? (
+                    <p className="form-error-banner__body mt-1 !text-ink-soft">
                       Add <code className="mono">STRIPE_SECRET_KEY</code> to
                       enable live checkout.
-                    </span>
-                  )}
-                </p>
-              )}
+                    </p>
+                  ) : null}
+                </FormErrorBanner>
+              ) : null}
 
               {section.id === "companies-house" ? (
                 <CompaniesHouseCards />

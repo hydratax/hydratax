@@ -80,8 +80,12 @@ export default async function ClientOverviewPage({
     return false;
   });
 
-  const activeDirectors = (ch?.directors ?? []).filter((d) => !d.resignedOn);
-  const activePscs = (ch?.pscs ?? []).filter((p) => !p.ceasedOn);
+  const activeDirectors = Array.isArray(ch?.directors)
+    ? ch.directors.filter((d) => d && !d.resignedOn)
+    : [];
+  const activePscs = Array.isArray(ch?.pscs)
+    ? ch.pscs.filter((p) => p && !p.ceasedOn)
+    : [];
 
   const company = client.companyNumber
     ? encodeURIComponent(client.companyNumber)
@@ -182,40 +186,29 @@ export default async function ClientOverviewPage({
       <div className="space-y-6">
         {/* Top: Identifiers + people */}
         <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-          <div
-            className={`panel p-5 ${
-              requiredMissing.length
-                ? "border-danger/35 ring-1 ring-danger/20"
-                : missingIds.length
-                  ? "border-violet/35 ring-1 ring-violet/15"
-                  : ""
-            }`}
-          >
+          <div className="panel p-5">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <h2 className="display text-2xl">Identifiers</h2>
               {missingIds.length > 0 && (
-                <span
-                  className={`badge ${
-                    requiredMissing.length
-                      ? "border-danger/30 bg-danger/10 text-danger"
-                      : "border-violet/30 bg-violet/10 text-violet"
-                  }`}
-                >
+                <span className="rounded-md border border-line bg-sand px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink-soft">
                   {missingIds.length} missing
                 </span>
               )}
             </div>
             {requiredMissing.length > 0 && (
-              <p className="mt-2 text-sm text-danger">
-                Required before filing:{" "}
-                {requiredMissing.map((m) => m.label).join(", ")} (
+              <p className="mt-2 text-sm text-ink-soft">
+                Add before filing:{" "}
+                <span className="font-medium text-ink">
+                  {requiredMissing.map((m) => m.label).join(", ")}
+                </span>{" "}
+                (
                 {[...new Set(requiredMissing.map((m) => m.requiredFor))].join(
                   ", ",
                 )}
                 ).
               </p>
             )}
-            <dl className="mt-4 space-y-1 text-sm">
+            <dl className="mt-4 divide-y divide-line text-sm">
               {identifiers.map((row) => {
                 const empty = !row.value;
                 const required = requiredMissing.some(
@@ -224,33 +217,23 @@ export default async function ClientOverviewPage({
                 return (
                   <div
                     key={row.label}
-                    className={`flex justify-between gap-4 border-b border-line/70 py-2.5 ${
-                      empty
-                        ? required
-                          ? "rounded-md border border-danger/40 bg-danger/5 px-2.5"
-                          : "rounded-md border border-violet/35 bg-violet/5 px-2.5"
-                        : ""
-                    }`}
+                    className="flex items-baseline justify-between gap-4 py-2.5"
                   >
-                    <dt
-                      className={
-                        empty
-                          ? required
-                            ? "font-semibold text-danger"
-                            : "font-semibold text-violet"
-                          : "text-ink-soft"
-                      }
-                    >
+                    <dt className="text-ink-soft">
                       {row.label}
-                      {required ? " · required" : empty ? " · not set" : ""}
+                      {required ? (
+                        <span className="ml-1.5 text-xs font-medium text-ink">
+                          Required
+                        </span>
+                      ) : empty ? (
+                        <span className="ml-1.5 text-xs text-ink-soft/80">
+                          Optional
+                        </span>
+                      ) : null}
                     </dt>
                     <dd
-                      className={`mono font-medium ${
-                        empty
-                          ? required
-                            ? "text-danger"
-                            : "text-violet"
-                          : "text-ink"
+                      className={`mono text-right font-medium ${
+                        empty ? "text-ink-soft" : "text-ink"
                       }`}
                     >
                       {row.value || "—"}
@@ -344,10 +327,11 @@ export default async function ClientOverviewPage({
                             ? ` · notified ${formatDate(p.notifiedOn)}`
                             : ""}
                         </p>
-                        {p.naturesOfControl?.length > 0 && (
+                        {Array.isArray(p.naturesOfControl) &&
+                          p.naturesOfControl.length > 0 && (
                           <p className="mt-1 line-clamp-2 text-xs text-ink-soft">
                             {p.naturesOfControl
-                              .map((n) => n.replace(/-/g, " "))
+                              .map((n) => String(n).replace(/-/g, " "))
                               .join("; ")}
                           </p>
                         )}

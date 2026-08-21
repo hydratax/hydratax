@@ -9,6 +9,7 @@ import { TrialBalanceUpload } from "@/components/forms/trial-balance-upload";
 import { Ct600Questionnaire } from "@/components/forms/ct600-questionnaire";
 import { CT600_FILING_STEPS, CT600_PHASES } from "@/lib/hmrc/filing-guides";
 import type { TrialBalance } from "@/server/trial-balance/map";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 function penceToInput(n: number) {
   return (n / 100).toFixed(2);
@@ -204,7 +205,7 @@ export function Ct600Form({ clientId }: { clientId: string }) {
               Map to CT figures
             </button>
           </div>
-          {error && <p className="text-sm text-danger">{error}</p>}
+          <FormErrorBanner error={error} />
         </div>
       )}
 
@@ -313,7 +314,7 @@ export function Ct600Form({ clientId }: { clientId: string }) {
               Build CT600 XML
             </button>
           </div>
-          {error && <p className="text-sm text-danger">{error}</p>}
+          <FormErrorBanner error={error} />
         </div>
       )}
 

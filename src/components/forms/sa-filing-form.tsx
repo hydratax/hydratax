@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { submitSaUpdate } from "@/server/actions/self-assessment";
 import { gatherFraudMetadata } from "@/components/fraud-metadata";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 export function SaFilingForm({ clientId }: { clientId: string }) {
   const router = useRouter();
@@ -55,7 +56,7 @@ export function SaFilingForm({ clientId }: { clientId: string }) {
         Figures are calculated from digital books for the period, validated with
         Zod, then submitted with fraud-prevention headers.
       </p>
-      {error && <p className="text-sm text-danger">{error}</p>}
+      <FormErrorBanner error={error} />
       {message && <p className="text-sm font-semibold text-ok">{message}</p>}
       <button type="submit" className="btn btn-primary" disabled={pending}>
         {pending ? "Submitting…" : "Prepare & submit update"}

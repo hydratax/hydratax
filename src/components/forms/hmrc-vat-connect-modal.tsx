@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { saveVatHmrcConnectDetails } from "@/server/actions/vat";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 const ARN_STORAGE_KEY = "hydratax_hmrc_agent_arn";
 const REG_DATE_PREFIX = "hydratax_vat_reg_date_";
@@ -200,10 +201,12 @@ export function HmrcVatConnectModal({
           )}
 
           {(error || agentBlocked) && (
-            <div className="rounded-xl border border-danger/30 bg-danger/5 px-3 py-2.5 text-sm text-danger">
-              {error ?? "You must be signed in to file as an agent."}
-              {agentBlocked && (
-                <p className="mt-2">
+            <FormErrorBanner
+              error={error ?? "You must be signed in to file as an agent."}
+              title="HMRC connection blocked"
+            >
+              {agentBlocked ? (
+                <p className="form-error-banner__body mt-2">
                   <Link
                     href={`/sign-in?next=${encodeURIComponent(`/clients/${clientId}/vat`)}`}
                     className="font-semibold underline"
@@ -212,8 +215,8 @@ export function HmrcVatConnectModal({
                   </Link>{" "}
                   to continue as an agent.
                 </p>
-              )}
-            </div>
+              ) : null}
+            </FormErrorBanner>
           )}
 
           <button

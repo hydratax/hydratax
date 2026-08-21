@@ -448,8 +448,18 @@ body {
   box-shadow: 0 8px 24px -12px rgba(15, 118, 110, 0.7);
 }
 
-.btn-primary:hover {
-  background: var(--sea-deep);
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  pointer-events: none;
+  box-shadow: none;
+}
+
+.btn-primary:disabled:hover,
+.btn-primary[aria-disabled="true"]:hover {
+  background: var(--sea);
 }
 
 .btn-secondary {
@@ -663,6 +673,52 @@ body {
 .client-card--overdue {
   border-color: rgba(185, 28, 28, 0.45);
   box-shadow: inset 3px 0 0 var(--danger);
+}
+
+/* Blocking form / action errors — high contrast so users never miss why they can’t continue */
+.form-error-banner {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  border: 2px solid var(--danger);
+  border-radius: 0.75rem;
+  background: #fef2f2;
+  padding: 0.875rem 1rem;
+  box-shadow: inset 4px 0 0 var(--danger);
+  color: #7f1d1d;
+}
+
+.form-error-banner__icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  height: 1.5rem;
+  width: 1.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.form-error-banner__title {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--danger);
+}
+
+.form-error-banner__body {
+  margin: 0.2rem 0 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  font-weight: 500;
+  color: #7f1d1d;
+  word-break: break-word;
 }
 
 .module-chip {

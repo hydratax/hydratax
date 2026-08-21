@@ -29,6 +29,12 @@ export type HmrcRuntimeConfig = {
   vendorPublicIp: string;
   vendorLicenseIds: string;
   vendorVersion: string;
+  /** Corporation Tax Online XML — SDST Vendor ID + product label */
+  ctVendorId: string;
+  ctProductName: string;
+  ctTestSenderId: string;
+  ctTestPassword: string;
+  ctTestUtr: string;
 };
 
 export function getHmrcConfig(): HmrcRuntimeConfig {
@@ -51,6 +57,11 @@ export function getHmrcConfig(): HmrcRuntimeConfig {
     vendorPublicIp: env.HMRC_VENDOR_PUBLIC_IP ?? "0.0.0.0",
     vendorLicenseIds: env.HMRC_VENDOR_LICENSE_IDS,
     vendorVersion: env.HMRC_VENDOR_VERSION,
+    ctVendorId: (env.HMRC_CT_VENDOR_ID ?? "").trim(),
+    ctProductName: (env.HMRC_CT_PRODUCT_NAME ?? "HydraTax").trim() || "HydraTax",
+    ctTestSenderId: (env.HMRC_CT_TEST_SENDER_ID ?? "").trim(),
+    ctTestPassword: (env.HMRC_CT_TEST_PASSWORD ?? "").trim(),
+    ctTestUtr: (env.HMRC_CT_TEST_UTR ?? "").trim(),
   };
 }
 

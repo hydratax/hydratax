@@ -6,6 +6,7 @@ import {
   prepareConfirmationStatementFiling,
 } from "@/server/actions/confirmation-statement";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 type DirectorRow = {
   fullName: string;
@@ -613,11 +614,7 @@ export function ConfirmationStatementWizard({
         </div>
       )}
 
-      {error && (
-        <p className="text-sm text-danger" role="alert">
-          {error}
-        </p>
-      )}
+      <FormErrorBanner error={error} />
       {message && (
         <p className="text-sm text-ok" role="status">
           {message}
