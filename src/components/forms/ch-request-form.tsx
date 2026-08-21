@@ -43,6 +43,10 @@ export function ChRequestForm({
               serviceId: service.id,
               fields,
             });
+            if (!res.ok) {
+              setError(res.error);
+              return;
+            }
             setOk(`Request ${res.requestId.slice(0, 8)}… saved.`);
             // Start Stripe checkout for this CH plan
             const checkout = await fetch("/api/checkout", {

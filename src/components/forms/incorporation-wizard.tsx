@@ -498,6 +498,14 @@ export function IncorporationWizard({
             serviceId: service.id,
             fields,
           });
+          if (!res.ok) {
+            if (res.needsAuth) {
+              setError("Sign in to continue to payment.");
+              return;
+            }
+            setError(res.error);
+            return;
+          }
           setOk(`Request ${res.requestId.slice(0, 8)}… saved.`);
           const checkout = await fetch("/api/checkout", {
             method: "POST",

@@ -675,17 +675,16 @@ body {
   box-shadow: inset 3px 0 0 var(--danger);
 }
 
-/* Blocking form / action errors — high contrast so users never miss why they can’t continue */
+/* Blocking form / action errors — clear but calm */
 .form-error-banner {
   display: flex;
   gap: 0.75rem;
   align-items: flex-start;
-  border: 2px solid var(--danger);
+  border: 1px solid var(--line);
   border-radius: 0.75rem;
-  background: #fef2f2;
+  background: var(--sand);
   padding: 0.875rem 1rem;
-  box-shadow: inset 4px 0 0 var(--danger);
-  color: #7f1d1d;
+  color: var(--ink);
 }
 
 .form-error-banner__icon {
@@ -696,10 +695,11 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: var(--danger);
-  color: #fff;
-  font-size: 0.85rem;
-  font-weight: 800;
+  border: 1px solid var(--mist);
+  background: white;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  font-weight: 700;
   line-height: 1;
 }
 
@@ -709,15 +709,15 @@ body {
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: var(--danger);
+  color: var(--ink);
 }
 
 .form-error-banner__body {
-  margin: 0.2rem 0 0;
+  margin: 0.25rem 0 0;
   font-size: 0.9rem;
   line-height: 1.45;
-  font-weight: 500;
-  color: #7f1d1d;
+  font-weight: 450;
+  color: var(--ink-soft);
   word-break: break-word;
 }
 

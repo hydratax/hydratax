@@ -375,6 +375,14 @@ export function ConfirmationStatementCheckout({
             ...(defaults?.clientId ? { clientId: defaults.clientId } : {}),
           },
         });
+        if (!res.ok) {
+          if (res.needsAuth) {
+            window.location.assign(authEntryHref("sign-in", resumePath));
+            return;
+          }
+          setError(res.error);
+          return;
+        }
         const checkout = await fetch("/api/checkout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

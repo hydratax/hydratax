@@ -226,6 +226,10 @@ export function IncorporationForm({
           serviceId: service.id,
           fields,
         });
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
         setOk(`Request ${res.requestId.slice(0, 8)}… saved.`);
         const checkout = await fetch("/api/checkout", {
           method: "POST",

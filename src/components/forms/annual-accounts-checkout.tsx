@@ -169,6 +169,10 @@ export function AnnualAccountsCheckout({
             ...(defaults?.clientId ? { clientId: defaults.clientId } : {}),
           },
         });
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
         const checkout = await fetch("/api/checkout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
