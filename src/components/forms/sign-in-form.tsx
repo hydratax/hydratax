@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { signInWithSupabase } from "@/server/actions/auth";
@@ -11,6 +11,8 @@ import {
   AuthDivider,
   GoogleAuthButton,
 } from "@/components/forms/google-auth-button";
+import { createClient } from "@/lib/supabase/client";
+import { isSupabaseConfigured } from "@/lib/env";
 
 export function SignInForm() {
   const router = useRouter();
@@ -20,6 +22,28 @@ export function SignInForm() {
   const confirmHint = searchParams.get("confirm") === "1";
   const oauthFailed = searchParams.get("error") === "auth";
   const next = safeReturnPath(searchParams.get("next"));
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (user && !cancelled) {
+          router.replace(next);
+          router.refresh();
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [router, next]);
 
   return (
     <form

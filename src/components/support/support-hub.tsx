@@ -8,6 +8,7 @@ import {
   popularArticles,
   searchArticles,
 } from "@/lib/support-content";
+import { LEGAL_CONTACT_EMAIL } from "@/lib/legal";
 
 export function SupportHub() {
   const [query, setQuery] = useState("");
@@ -123,7 +124,7 @@ export function SupportHub() {
           </p>
         </div>
         <a
-          href="mailto:support@hydratax.example?subject=HydraTax%20support"
+          href={`mailto:${LEGAL_CONTACT_EMAIL}?subject=HydraTax%20support`}
           className="btn btn-primary mt-4 shrink-0 md:mt-0"
         >
           Email support

@@ -9,7 +9,6 @@ import {
   LEGAL_CONTACT_EMAIL,
   LEGAL_UPDATED,
   legalTradingAs,
-  registeredOfficeLine,
 } from "@/lib/legal";
 
 export const metadata = {
@@ -30,7 +29,10 @@ export default function DpaPage() {
         <br />
         Company number: {LEGAL_COMPANY.companyNumber}
         <br />
-        Registered office: {registeredOfficeLine()}
+        Contact:{" "}
+        <a className="font-semibold text-sea" href={`mailto:${email}`}>
+          {email}
+        </a>
       </p>
 
       <LegalH2>1. About this agreement</LegalH2>
@@ -314,8 +316,6 @@ export default function DpaPage() {
         Trading as {brand}
         <br />
         Company number: {LEGAL_COMPANY.companyNumber}
-        <br />
-        Registered office: {registeredOfficeLine()}
       </p>
 
       <LegalH3>Related</LegalH3>

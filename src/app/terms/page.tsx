@@ -9,7 +9,6 @@ import {
   LEGAL_CONTACT_EMAIL,
   LEGAL_UPDATED,
   legalTradingAs,
-  registeredOfficeLine,
 } from "@/lib/legal";
 
 export const metadata = {
@@ -32,8 +31,6 @@ export default function TermsPage() {
         <strong className="text-ink">{entity}</strong>
         <br />
         Company number: {LEGAL_COMPANY.companyNumber}
-        <br />
-        Registered office: {registeredOfficeLine()}
         <br />
         Contact:{" "}
         <a className="font-semibold text-sea" href={`mailto:${email}`}>
@@ -643,8 +640,6 @@ export default function TermsPage() {
           Trading as {brand}
           <br />
           Company number: {LEGAL_COMPANY.companyNumber}
-          <br />
-          Registered office: {registeredOfficeLine()}
           <br />
           <a
             className="font-semibold text-sea"

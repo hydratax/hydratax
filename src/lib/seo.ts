@@ -91,7 +91,6 @@ export const defaultMetadata: Metadata = {
 };
 
 export function organizationJsonLd() {
-  const office = LEGAL_COMPANY.registeredOffice;
   return {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -121,14 +120,6 @@ export function organizationJsonLd() {
       url: SITE,
       email: LEGAL_COMPANY.supportEmail,
       sameAs: [LEGAL_COMPANY.companiesHouseUrl],
-      address: {
-        "@type": "PostalAddress",
-        streetAddress: office.line1,
-        addressLocality: office.locality,
-        addressRegion: office.region,
-        postalCode: office.postalCode,
-        addressCountry: "GB",
-      },
     },
   };
 }

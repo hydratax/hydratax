@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import { LEGAL_COMPANY } from "@/lib/legal";
+import { LEGAL_COMPANY, LEGAL_CONTACT_EMAIL } from "@/lib/legal";
 import { PRACTICE_TRIAL } from "@/lib/trial";
 
 const COLUMNS = [
@@ -100,6 +100,14 @@ export function SiteFooter() {
               {LEGAL_COMPANY.tradingName} is a trading name of{" "}
               {LEGAL_COMPANY.legalName} (company number{" "}
               {LEGAL_COMPANY.companyNumber}).
+            </p>
+            <p className="mt-2 text-sm text-white/55">
+              <a
+                href={`mailto:${LEGAL_CONTACT_EMAIL}`}
+                className="hover:text-white"
+              >
+                {LEGAL_CONTACT_EMAIL}
+              </a>
             </p>
           </div>
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">

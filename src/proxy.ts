@@ -82,6 +82,11 @@ export default async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // OAuth code exchange runs in /auth/callback — avoid middleware cookie churn first.
+  if (pathname === "/auth/callback") {
+    return NextResponse.next();
+  }
+
   // Refresh Supabase session cookies and validate JWT
   const { response, userId } = await updateSession(request);
 

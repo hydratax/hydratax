@@ -7,13 +7,15 @@ import { isSupabaseConfigured } from "@/lib/env";
 type OrgType = "company" | "sole_trader" | "partnership" | "practice";
 
 function setAuthIntentCookies(next: string, orgType?: OrgType) {
+  const secure =
+    typeof window !== "undefined" && window.location.protocol === "https:";
   const maxAge = 600;
-  // Keep redirectTo allowlist-safe (no query string on callback URL).
-  document.cookie = `ht_auth_next=${encodeURIComponent(next)}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
+  const base = `Path=/; Max-Age=${maxAge}; SameSite=Lax${secure ? "; Secure" : ""}`;
+  document.cookie = `ht_auth_next=${encodeURIComponent(next)}; ${base}`;
   if (orgType) {
-    document.cookie = `ht_auth_org=${encodeURIComponent(orgType)}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
+    document.cookie = `ht_auth_org=${encodeURIComponent(orgType)}; ${base}`;
   } else {
-    document.cookie = `ht_auth_org=; Path=/; Max-Age=0`;
+    document.cookie = "ht_auth_org=; Path=/; Max-Age=0";
   }
 }
 
@@ -39,20 +41,13 @@ export function GoogleAuthButton({
       setAuthIntentCookies(destination, orgType);
 
       const supabase = createClient();
-      // Prefer configured production URL so OAuth never falls back to a wrong Site URL path
-      const appUrl = (
-        process.env.NEXT_PUBLIC_APP_URL ||
-        window.location.origin
-      ).replace(/\/$/, "");
-      const redirectBase =
-        appUrl.includes("localhost") || appUrl.includes("127.0.0.1")
-          ? window.location.origin
-          : appUrl;
+      // Must match the domain the user is on — PKCE verifier cookies are per-origin.
+      const redirectTo = `${window.location.origin}/auth/callback`;
 
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${redirectBase}/auth/callback`,
+          redirectTo,
           queryParams: {
             access_type: "online",
             prompt: "select_account",
