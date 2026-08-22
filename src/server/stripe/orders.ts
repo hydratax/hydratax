@@ -171,7 +171,9 @@ async function activatePlanFromCheckout(
   }
 
   if (!isMemoryStore() && targetPracticeId) {
-    const { getDb } = await import("@/server/db");
+    const { getDb, hasDatabase } = await import("@/server/db");
+    if (!hasDatabase()) return;
+
     const { practiceSubscriptions, companiesHouseRequests } = await import(
       "@/server/db/schema"
     );

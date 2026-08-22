@@ -63,13 +63,19 @@ export async function listClients() {
     );
   }
 
-  const { getDb } = await import("@/server/db");
-  const { clients } = await import("@/server/db/schema");
-  const { eq } = await import("drizzle-orm");
-  return getDb()
-    .select()
-    .from(clients)
-    .where(eq(clients.practiceId, session.practiceId));
+  const { getDb, hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) return [];
+
+  try {
+    const { clients } = await import("@/server/db/schema");
+    const { eq } = await import("drizzle-orm");
+    return getDb()
+      .select()
+      .from(clients)
+      .where(eq(clients.practiceId, session.practiceId));
+  } catch {
+    return [];
+  }
 }
 
 export async function getClient(clientId: string) {

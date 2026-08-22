@@ -63,18 +63,23 @@ export async function getOptionalSession(): Promise<SessionContext | null> {
       };
     }
 
-    const { ensureSupabasePractice } = await import("./ensure-practice");
-    const ensured = await ensureSupabasePractice(user);
-    return {
-      userId: user.id,
-      orgId: ensured.practiceId,
-      practiceId: ensured.practiceId,
-      practiceName: ensured.practiceName,
-      role: (ensured.role as SessionContext["role"]) || "owner",
-      moduleAccess: "full",
-      email: user.email ?? null,
-      local: false,
-    };
+    try {
+      const { ensureSupabasePractice } = await import("./ensure-practice");
+      const ensured = await ensureSupabasePractice(user);
+      return {
+        userId: user.id,
+        orgId: ensured.practiceId,
+        practiceId: ensured.practiceId,
+        practiceName: ensured.practiceName,
+        role: (ensured.role as SessionContext["role"]) || "owner",
+        moduleAccess: "full",
+        email: user.email ?? null,
+        local: false,
+      };
+    } catch (err) {
+      console.error("[session] ensureSupabasePractice failed", err);
+      return null;
+    }
   }
 
   if (isMemoryStore() || !isClerkConfigured()) {
