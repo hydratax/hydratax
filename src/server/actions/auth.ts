@@ -241,6 +241,94 @@ function friendlyAuthMessage(raw: string): string {
   return raw || "Something went wrong. Please try again.";
 }
 
+export async function requestPasswordReset(input: {
+  email: string;
+}): Promise<AuthActionResult> {
+  const parsed = z
+    .object({ email: z.string().email("Enter a valid email address") })
+    .safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: firstZodMessage(parsed.error) };
+  }
+
+  if (!isSupabaseConfigured()) {
+    return {
+      ok: false,
+      error: "Password reset needs Supabase. Use a configured environment.",
+    };
+  }
+
+  try {
+    const supabase = await createClient();
+    const appUrl = (
+      process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+    ).replace(/\/$/, "");
+    // Exchange happens on /auth/callback, then continue to set a new password.
+    const { error } = await supabase.auth.resetPasswordForEmail(
+      parsed.data.email,
+      {
+        redirectTo: `${appUrl}/auth/callback?next=${encodeURIComponent("/reset-password")}`,
+      },
+    );
+    if (error) {
+      return { ok: false, error: friendlyAuthMessage(error.message) };
+    }
+    // Always succeed from the UI's perspective to avoid email enumeration.
+    return { ok: true, redirectTo: "/forgot-password?sent=1" };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Could not send reset email";
+    return { ok: false, error: friendlyAuthMessage(msg) };
+  }
+}
+
+export async function updatePasswordWithSupabase(input: {
+  password: string;
+  confirmPassword: string;
+}): Promise<AuthActionResult> {
+  const parsed = z
+    .object({
+      password: z
+        .string()
+        .min(8, "Password must be at least 8 characters")
+        .max(200),
+      confirmPassword: z.string().min(8).max(200),
+    })
+    .safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: firstZodMessage(parsed.error) };
+  }
+  if (parsed.data.password !== parsed.data.confirmPassword) {
+    return { ok: false, error: "Passwords do not match" };
+  }
+
+  if (!isSupabaseConfigured()) {
+    return { ok: false, error: "Password update needs Supabase." };
+  }
+
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return {
+        ok: false,
+        error: "Your reset link has expired. Request a new one from Sign in.",
+      };
+    }
+    const { error } = await supabase.auth.updateUser({
+      password: parsed.data.password,
+    });
+    if (error) {
+      return { ok: false, error: friendlyAuthMessage(error.message) };
+    }
+    return { ok: true, redirectTo: "/sign-in?reset=1" };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Could not update password";
+    return { ok: false, error: friendlyAuthMessage(msg) };
+  }
+}
+
 export async function signOutSupabase() {
   if (isSupabaseConfigured()) {
     const supabase = await createClient();

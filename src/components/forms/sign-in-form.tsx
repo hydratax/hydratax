@@ -20,6 +20,7 @@ export function SignInForm() {
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const confirmHint = searchParams.get("confirm") === "1";
+  const resetDone = searchParams.get("reset") === "1";
   const oauthFailed = searchParams.get("error") === "auth";
   const next = safeReturnPath(searchParams.get("next"));
 
@@ -83,6 +84,12 @@ export function SignInForm() {
         </p>
       )}
 
+      {resetDone && (
+        <p className="rounded-lg border border-sea/30 bg-sea/5 px-3 py-2 text-sm text-ink">
+          Password updated. Sign in with your new password.
+        </p>
+      )}
+
       {(oauthFailed || error) && (
         <FormErrorBanner
           error={
@@ -109,7 +116,15 @@ export function SignInForm() {
       </label>
 
       <label className="block text-sm font-semibold text-ink">
-        Password
+        <span className="flex items-center justify-between gap-2">
+          Password
+          <Link
+            href="/forgot-password"
+            className="text-xs font-semibold text-sea hover:underline"
+          >
+            Forgot password?
+          </Link>
+        </span>
         <input
           name="password"
           type="password"

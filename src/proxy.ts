@@ -13,6 +13,8 @@ const PUBLIC_PREFIXES = [
   "/quick-signup",
   "/sign-in",
   "/sign-up",
+  "/forgot-password",
+  "/reset-password",
   "/auth",
   "/terms",
   "/privacy",

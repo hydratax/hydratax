@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { LEGAL_COMPANY, LEGAL_CONTACT_EMAIL } from "@/lib/legal";
 import { PRACTICE_TRIAL } from "@/lib/trial";
+import { FooterContactForm } from "@/components/forms/footer-contact-form";
 
 const COLUMNS = [
   {
@@ -129,12 +130,39 @@ export function SiteFooter() {
             ))}
           </div>
         </div>
+        <div id="contact" className="mt-12 scroll-mt-24 border-t border-white/10 pt-10">
+          <div className="grid gap-8 lg:grid-cols-[1fr_1.2fr] lg:items-start">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-teal-300/80">
+                Get in touch
+              </p>
+              <h2 className="display mt-2 text-2xl text-white md:text-3xl">
+                Contact HydraTax
+              </h2>
+              <p className="mt-3 max-w-md text-sm leading-relaxed text-white/60">
+                Sales, onboarding, or practice support — write to{" "}
+                <a
+                  href={`mailto:${LEGAL_CONTACT_EMAIL}`}
+                  className="font-semibold text-teal-200 hover:text-white"
+                >
+                  {LEGAL_CONTACT_EMAIL}
+                </a>{" "}
+                or use the form. Messages go straight to our company inbox.
+              </p>
+            </div>
+            <FooterContactForm />
+          </div>
+        </div>
+
         <div className="mt-12 flex flex-col gap-3 border-t border-white/10 pt-6 text-xs text-white/45 sm:flex-row sm:items-center sm:justify-between">
           <p>
             © {new Date().getFullYear()} {LEGAL_COMPANY.legalName}.{" "}
             {LEGAL_COMPANY.tradingName} is a trading name. All rights reserved.
           </p>
           <p className="flex flex-wrap gap-x-4 gap-y-1">
+            <a href="#contact" className="hover:text-white">
+              Contact
+            </a>
             <Link href="/terms" className="hover:text-white">
               Terms
             </Link>

@@ -21,6 +21,7 @@ import { defaultPayPeriod, taxYearFromDate } from "@/lib/payroll";
 import { money } from "@/lib/format";
 import type { PayFrequency, PayLine } from "@/server/hmrc/payroll";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { messageFromUnknown } from "@/lib/action-error";
 
 type RunRow = {
   id?: string;
@@ -558,32 +559,59 @@ function EmployeesPanel({
                 {e.payBasis === "hourly" ? "hourly" : "salary"} ·{" "}
                 {money(e.annualSalaryPence)}/yr
                 {e.pensionOptOut ? " · pension opted out" : ""}
+                {e.bfTaxablePence > 0
+                  ? ` · P45 BF ${e.bfTaxYear ?? ""}`
+                  : ""}
               </p>
             </div>
-            {e.active && (
-              <button
-                type="button"
-                className="text-xs font-semibold text-danger"
-                disabled={pending}
-                onClick={() => {
-                  const leaveDate = window.prompt(
-                    "Leave date (YYYY-MM-DD) — included on their final FPS",
-                    new Date().toISOString().slice(0, 10),
-                  );
-                  if (!leaveDate) return;
-                  start(async () => {
-                    try {
-                      await markEmployeeLeaver({ clientId, employeeId: e.id, leaveDate });
-                      router.refresh();
-                    } catch (err) {
-                      setError(err instanceof Error ? err.message : "Failed");
-                    }
-                  });
-                }}
+            <div className="flex flex-wrap items-center gap-3">
+              <a
+                className="text-xs font-semibold text-ink underline-offset-2 hover:underline"
+                href={`/clients/${clientId}/payroll/p60/${e.id}`}
+                target="_blank"
+                rel="noreferrer"
               >
-                Mark leaver
-              </button>
-            )}
+                P60
+              </a>
+              {!e.active && e.leaveDate ? (
+                <a
+                  className="text-xs font-semibold text-ink underline-offset-2 hover:underline"
+                  href={`/clients/${clientId}/payroll/p45/${e.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  P45
+                </a>
+              ) : null}
+              {e.active && (
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-danger"
+                  disabled={pending}
+                  onClick={() => {
+                    const leaveDate = window.prompt(
+                      "Leave date (YYYY-MM-DD) — included on their final FPS",
+                      new Date().toISOString().slice(0, 10),
+                    );
+                    if (!leaveDate) return;
+                    start(async () => {
+                      try {
+                        await markEmployeeLeaver({
+                          clientId,
+                          employeeId: e.id,
+                          leaveDate,
+                        });
+                        router.refresh();
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Failed");
+                      }
+                    });
+                  }}
+                >
+                  Mark leaver
+                </button>
+              )}
+            </div>
           </li>
         ))}
       </ul>
@@ -593,7 +621,8 @@ function EmployeesPanel({
           className="mt-5 grid gap-3 border-t border-line pt-5 sm:grid-cols-2"
           onSubmit={(e) => {
             e.preventDefault();
-            const fd = new FormData(e.currentTarget);
+            const form = e.currentTarget;
+            const fd = new FormData(form);
             setError(null);
             start(async () => {
               try {
@@ -618,11 +647,17 @@ function EmployeesPanel({
                   hourlyRatePounds: String(fd.get("hourlyRatePounds") || "") || undefined,
                   payBasis: fd.get("payBasis") === "hourly" ? "hourly" : "salary",
                   pensionOptOut: fd.get("pensionOptOut") === "on",
+                  bfTaxablePounds: String(fd.get("bfTaxablePounds") || "") || undefined,
+                  bfTaxPounds: String(fd.get("bfTaxPounds") || "") || undefined,
+                  bfEmployeeNiPounds:
+                    String(fd.get("bfEmployeeNiPounds") || "") || undefined,
+                  bfTaxYear: String(fd.get("bfTaxYear") || "") || undefined,
                 });
-                e.currentTarget.reset();
+                form.reset();
+                setOpen(false);
                 router.refresh();
               } catch (err) {
-                setError(err instanceof Error ? err.message : "Could not add");
+                setError(messageFromUnknown(err, "Could not save this employee. Check the details and try again."));
               }
             });
           }}
@@ -697,7 +732,35 @@ function EmployeesPanel({
             <input type="checkbox" name="pensionOptOut" className="h-4 w-4" />
             Worker has opted out of auto-enrolment (no 5% / 3% qualifying-earnings pension)
           </label>
-          <FormErrorBanner error={error} />
+          <p className="sm:col-span-2 text-sm text-ink-soft">
+            Mid-year starter? Enter figures from their P45 (same tax year). Leave blank if
+            this is their first job since 6 April.
+          </p>
+          <label className="text-sm font-semibold">
+            P45 total pay to date (£)
+            <input name="bfTaxablePounds" className="input mt-1.5 font-mono" placeholder="0.00" />
+          </label>
+          <label className="text-sm font-semibold">
+            P45 total tax to date (£)
+            <input name="bfTaxPounds" className="input mt-1.5 font-mono" placeholder="0.00" />
+          </label>
+          <label className="text-sm font-semibold">
+            P45 employee NI to date (£)
+            <input
+              name="bfEmployeeNiPounds"
+              className="input mt-1.5 font-mono"
+              placeholder="0.00"
+            />
+          </label>
+          <label className="text-sm font-semibold">
+            Tax year for P45 figures
+            <input
+              name="bfTaxYear"
+              className="input mt-1.5 font-mono"
+              placeholder="25-26"
+            />
+          </label>
+          <FormErrorBanner error={error} title="Couldn’t save employee" />
           <div className="sm:col-span-2">
             <button type="submit" className="btn btn-primary" disabled={pending}>
               Save employee
@@ -705,7 +768,13 @@ function EmployeesPanel({
           </div>
         </form>
       )}
-      {!open ? <FormErrorBanner error={error} className="mt-3" /> : null}
+      {!open ? (
+        <FormErrorBanner
+          error={error}
+          className="mt-3"
+          title="Couldn’t save employee"
+        />
+      ) : null}
     </div>
   );
 }

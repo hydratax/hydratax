@@ -675,15 +675,16 @@ body {
   box-shadow: inset 3px 0 0 var(--danger);
 }
 
-/* Blocking form / action errors — clear but calm */
+/* Blocking form / action errors — high visibility */
 .form-error-banner {
   display: flex;
   gap: 0.75rem;
   align-items: flex-start;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(185, 28, 28, 0.45);
   border-radius: 0.75rem;
-  background: var(--sand);
-  padding: 0.875rem 1rem;
+  background: rgba(254, 226, 226, 0.65);
+  box-shadow: inset 4px 0 0 var(--danger);
+  padding: 0.95rem 1.05rem;
   color: var(--ink);
 }
 
@@ -695,9 +696,9 @@ body {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  border: 1px solid var(--mist);
+  border: 1px solid rgba(185, 28, 28, 0.35);
   background: white;
-  color: var(--ink-soft);
+  color: var(--danger);
   font-size: 0.8rem;
   font-weight: 700;
   line-height: 1;
@@ -709,15 +710,15 @@ body {
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: var(--ink);
+  color: #991b1b;
 }
 
 .form-error-banner__body {
   margin: 0.25rem 0 0;
-  font-size: 0.9rem;
-  line-height: 1.45;
-  font-weight: 450;
-  color: var(--ink-soft);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  font-weight: 500;
+  color: var(--ink);
   word-break: break-word;
 }
 

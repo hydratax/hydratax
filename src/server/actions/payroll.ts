@@ -22,6 +22,8 @@ import {
   preflightPayRun,
   taxYearFromDate,
   ytdFromRuns,
+  mergeYtdWithBroughtForward,
+  type BroughtForwardYtd,
 } from "@/lib/payroll";
 import { ensurePayrollSchema } from "@/server/db/ensure-payroll-schema";
 import {
@@ -51,6 +53,11 @@ const addEmployeeForm = z.object({
   hourlyRatePounds: z.string().optional(),
   payBasis: z.enum(["salary", "hourly"]).optional().default("salary"),
   pensionOptOut: z.boolean().optional(),
+  /** Pounds from previous employer this tax year (P45). */
+  bfTaxablePounds: z.string().optional(),
+  bfTaxPounds: z.string().optional(),
+  bfEmployeeNiPounds: z.string().optional(),
+  bfTaxYear: z.string().optional(),
 });
 
 function hoursToHundredths(s: string | undefined): number {
@@ -91,6 +98,10 @@ function asEmployee(row: Record<string, unknown> | MemoryEmployee): PayrollEmplo
     payBasis: r.payBasis === "hourly" ? "hourly" : "salary",
     pensionOptOut: Boolean(r.pensionOptOut),
     sspQualifyingDays: Number(r.sspQualifyingDays ?? 5) || 5,
+    bfTaxYear: r.bfTaxYear ? String(r.bfTaxYear) : null,
+    bfTaxablePence: Number(r.bfTaxablePence ?? 0) || 0,
+    bfTaxPence: Number(r.bfTaxPence ?? 0) || 0,
+    bfEmployeeNiPence: Number(r.bfEmployeeNiPence ?? 0) || 0,
     active: r.active !== false,
   };
 }
@@ -167,6 +178,20 @@ export async function addEmployee(input: z.input<typeof addEmployeeForm>) {
     );
   }
 
+  const bfTaxablePence = data.bfTaxablePounds?.trim()
+    ? Number(poundsToPence(data.bfTaxablePounds))
+    : 0;
+  const bfTaxPence = data.bfTaxPounds?.trim()
+    ? Number(poundsToPence(data.bfTaxPounds))
+    : 0;
+  const bfEmployeeNiPence = data.bfEmployeeNiPounds?.trim()
+    ? Number(poundsToPence(data.bfEmployeeNiPounds))
+    : 0;
+  const bfTaxYear =
+    bfTaxablePence > 0 || bfTaxPence > 0 || bfEmployeeNiPence > 0
+      ? (data.bfTaxYear?.trim() || taxYearFromDate(data.startDate))
+      : null;
+
   const emp: PayrollEmployee = {
     id: crypto.randomUUID(),
     clientId: parsed.clientId,
@@ -189,6 +214,10 @@ export async function addEmployee(input: z.input<typeof addEmployeeForm>) {
     payBasis: parsed.payBasis,
     pensionOptOut: parsed.pensionOptOut,
     sspQualifyingDays: parsed.sspQualifyingDays,
+    bfTaxYear,
+    bfTaxablePence,
+    bfTaxPence,
+    bfEmployeeNiPence,
     active: true,
   };
 
@@ -219,6 +248,10 @@ export async function addEmployee(input: z.input<typeof addEmployeeForm>) {
       payBasis: emp.payBasis,
       pensionOptOut: emp.pensionOptOut,
       sspQualifyingDays: emp.sspQualifyingDays,
+      bfTaxYear: emp.bfTaxYear,
+      bfTaxablePence: emp.bfTaxablePence,
+      bfTaxPence: emp.bfTaxPence,
+      bfEmployeeNiPence: emp.bfEmployeeNiPence,
       active: true,
     });
   }
@@ -447,7 +480,18 @@ async function buildPayRunPackage(
           adjustments: adjustmentsForEmployee(e, sheet),
         },
         data.frequency,
-        ytdFromRuns(e.id, taxYear, runs),
+        mergeYtdWithBroughtForward(
+          e.bfTaxYear
+            ? {
+                taxYear: e.bfTaxYear,
+                taxablePence: e.bfTaxablePence,
+                taxPence: e.bfTaxPence,
+                employeeNiPence: e.bfEmployeeNiPence,
+              }
+            : null,
+          ytdFromRuns(e.id, taxYear, runs),
+          taxYear,
+        ),
       ),
     );
 
@@ -960,5 +1004,113 @@ export async function sendPayrollPack(input: z.infer<typeof sendPackSchema>) {
         ? "Password-protected pack emailed to the client."
         : "Pack built. Set RESEND_API_KEY to email it; you can still download the zip now.",
   };
+}
+
+async function getEmployeeOrThrow(clientId: string, employeeId: string) {
+  const all = await listEmployees(clientId, { includeLeavers: true });
+  const emp = all.find((e) => e.id === employeeId);
+  if (!emp) throw new Error("Employee not found");
+  return emp;
+}
+
+function broughtForwardForYear(
+  emp: PayrollEmployee,
+  taxYear: string,
+): BroughtForwardYtd | null {
+  if (!emp.bfTaxYear || emp.bfTaxYear !== taxYear) return null;
+  if (
+    emp.bfTaxablePence <= 0 &&
+    emp.bfTaxPence <= 0 &&
+    emp.bfEmployeeNiPence <= 0
+  ) {
+    return null;
+  }
+  return {
+    taxYear: emp.bfTaxYear,
+    taxablePence: emp.bfTaxablePence,
+    taxPence: emp.bfTaxPence,
+    employeeNiPence: emp.bfEmployeeNiPence,
+  };
+}
+
+/** P45 HTML for a leaver — totals are this employment only (not previous P45 BF). */
+export async function getEmployeeP45Html(clientId: string, employeeId: string) {
+  await requireSession();
+  await ensurePayrollSchema();
+  const client = await getClient(clientId);
+  const emp = await getEmployeeOrThrow(clientId, employeeId);
+  if (!emp.leaveDate) {
+    throw new Error("Mark the employee as a leaver before issuing a P45.");
+  }
+  const taxYear = taxYearFromDate(emp.leaveDate);
+  const runs = await listPayRuns(clientId);
+  const thisEmployment = ytdFromRuns(emp.id, taxYear, runs);
+  const { renderP45Html } = await import("@/server/payroll/statutory-forms");
+  return renderP45Html({
+    employer: {
+      name: client.name,
+      payeRef: client.payeRef ?? "",
+      accountsOfficeRef: client.accountsOfficeRef,
+    },
+    employee: {
+      forename: emp.forename,
+      surname: emp.surname,
+      nino: emp.nino,
+      taxCode: emp.taxCode,
+      payrollId: emp.payrollId,
+      startDate: emp.startDate,
+      leaveDate: emp.leaveDate,
+      niCategory: emp.niCategory,
+    },
+    taxYear,
+    leaveDate: emp.leaveDate,
+    totals: thisEmployment,
+  });
+}
+
+/** P60 HTML for a tax year (defaults to tax year of today, or ?year=25-26). */
+export async function getEmployeeP60Html(
+  clientId: string,
+  employeeId: string,
+  taxYear?: string,
+) {
+  await requireSession();
+  await ensurePayrollSchema();
+  const client = await getClient(clientId);
+  const emp = await getEmployeeOrThrow(clientId, employeeId);
+  const year =
+    taxYear?.trim() ||
+    taxYearFromDate(new Date().toISOString().slice(0, 10));
+  const runs = await listPayRuns(clientId);
+  const thisEmployment = ytdFromRuns(emp.id, year, runs);
+  const previous = broughtForwardForYear(emp, year);
+  const { renderP60Html } = await import("@/server/payroll/statutory-forms");
+  return renderP60Html({
+    employer: {
+      name: client.name,
+      payeRef: client.payeRef ?? "",
+      accountsOfficeRef: client.accountsOfficeRef,
+    },
+    employee: {
+      forename: emp.forename,
+      surname: emp.surname,
+      nino: emp.nino,
+      taxCode: emp.taxCode,
+      payrollId: emp.payrollId,
+      startDate: emp.startDate,
+      leaveDate: emp.leaveDate,
+      niCategory: emp.niCategory,
+    },
+    taxYear: year,
+    totals: thisEmployment,
+    previousEmployment: previous
+      ? {
+          grossPence: previous.taxablePence,
+          taxablePence: previous.taxablePence,
+          taxPence: previous.taxPence,
+          employeeNiPence: previous.employeeNiPence,
+        }
+      : null,
+  });
 }
 

@@ -227,6 +227,11 @@ export const employees = pgTable(
     payBasis: text("pay_basis").notNull().default("salary"),
     pensionOptOut: boolean("pension_opt_out").notNull().default(false),
     sspQualifyingDays: integer("ssp_qualifying_days").notNull().default(5),
+    /** P45 figures from a previous employer in the same tax year (pence). */
+    bfTaxYear: text("bf_tax_year"),
+    bfTaxablePence: integer("bf_taxable_pence").notNull().default(0),
+    bfTaxPence: integer("bf_tax_pence").notNull().default(0),
+    bfEmployeeNiPence: integer("bf_employee_ni_pence").notNull().default(0),
     active: boolean("active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()

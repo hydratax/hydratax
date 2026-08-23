@@ -10,6 +10,10 @@ export function humanizeActionError(
   const raw = (message ?? "").trim();
   if (!raw) return fallback;
 
+  // Zod / validation dumps (JSON array or stringified issues)
+  const zodFriendly = friendlyZodMessage(raw);
+  if (zodFriendly) return zodFriendly;
+
   if (/Minified React error\s*#441/i.test(raw)) {
     return "The server hit a problem handling this request. Please try again in a moment.";
   }
@@ -22,8 +26,61 @@ export function humanizeActionError(
   if (/pkce|code verifier|not found in storage|auth flow was initiated/i.test(raw)) {
     return "Google sign-in did not finish. Please try again in this browser, or use email and password.";
   }
+  if (/cannot read propert(y|ies) of null/i.test(raw) && /reset/i.test(raw)) {
+    return "The employee was saved, but the form could not clear afterwards. Refresh the page if you still see this message.";
+  }
+  if (/cannot read propert(y|ies) of null/i.test(raw)) {
+    return "Something went wrong updating this screen. Refresh the page and try again.";
+  }
+  if (/invalid nino/i.test(raw)) {
+    return "That National Insurance number is not valid. Use the format AB123456C (last letter must be A, B, C or D).";
+  }
 
   return raw;
+}
+
+function friendlyZodMessage(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("[") && !trimmed.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    const issues = Array.isArray(parsed)
+      ? parsed
+      : parsed &&
+          typeof parsed === "object" &&
+          Array.isArray((parsed as { issues?: unknown }).issues)
+        ? ((parsed as { issues: unknown[] }).issues)
+        : null;
+    if (!issues?.length) return null;
+
+    const parts: string[] = [];
+    for (const issue of issues) {
+      if (!issue || typeof issue !== "object") continue;
+      const msg = String((issue as { message?: string }).message ?? "").trim();
+      const path = (issue as { path?: unknown }).path;
+      const field =
+        Array.isArray(path) && path.length
+          ? String(path[path.length - 1])
+          : "";
+
+      if (/invalid nino/i.test(msg) || field.toLowerCase() === "nino") {
+        parts.push(
+          "National Insurance number is not valid. Use the format AB123456C (last letter must be A, B, C or D).",
+        );
+        continue;
+      }
+      if (msg) {
+        const label = field
+          ? field.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())
+          : "";
+        parts.push(label ? `${label}: ${msg}` : msg);
+      }
+    }
+    if (parts.length) return [...new Set(parts)].join(" ");
+  } catch {
+    /* not JSON */
+  }
+  return null;
 }
 
 export function messageFromUnknown(
@@ -35,6 +92,18 @@ export function messageFromUnknown(
   }
   if (typeof err === "string") {
     return humanizeActionError(err, fallback);
+  }
+  // ZodError-like
+  if (
+    err &&
+    typeof err === "object" &&
+    "issues" in err &&
+    Array.isArray((err as { issues: unknown }).issues)
+  ) {
+    return (
+      friendlyZodMessage(JSON.stringify((err as { issues: unknown }).issues)) ??
+      fallback
+    );
   }
   return fallback;
 }

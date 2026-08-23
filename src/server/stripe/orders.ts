@@ -151,22 +151,31 @@ async function activatePlanFromCheckout(
     try {
       const { createClient } = await import("@/lib/supabase/server");
       const supabase = await createClient();
-      const { error } = await supabase.from("practice_subscriptions").upsert(
-        {
-          practice_id: targetPracticeId,
-          plan_key: record.planKey,
-          status: record.trialEndsAt ? "trialing" : "active",
-          stripe_session_id: record.stripeSessionId,
-          stripe_subscription_id: record.stripeSubscriptionId,
-          trial_ends_at: record.trialEndsAt,
-        },
-        { onConflict: "stripe_session_id" },
-      );
+      const payload = {
+        practice_id: targetPracticeId,
+        plan_key: record.planKey,
+        status: record.trialEndsAt ? "trialing" : "active",
+        stripe_session_id: record.stripeSessionId,
+        stripe_subscription_id: record.stripeSubscriptionId,
+        trial_ends_at: record.trialEndsAt,
+      };
+      let { error } = await supabase
+        .from("practice_subscriptions")
+        .upsert(payload, { onConflict: "stripe_session_id" });
+
+      // Column may be missing before migration — retry without trial fields
+      if (error && /trial_ends_at/i.test(error.message)) {
+        const { trial_ends_at: _trialEndsAt, ...withoutTrial } = payload;
+        ({ error } = await supabase
+          .from("practice_subscriptions")
+          .upsert(withoutTrial, { onConflict: "stripe_session_id" }));
+      }
+
       if (error) {
-        console.error("[stripe] practice_subscriptions upsert failed", error.message);
+        console.warn("[stripe] practice_subscriptions upsert failed", error.message);
       }
     } catch (err) {
-      console.error("[stripe] practice_subscriptions upsert error", err);
+      console.warn("[stripe] practice_subscriptions upsert error", err);
     }
   }
 

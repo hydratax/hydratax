@@ -26,23 +26,24 @@
     "@vercel/blob": "^1.1.1",
     "drizzle-orm": "^0.39.3",
     "next": "16.3.0",
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.10.38",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "stripe": "^18.5.0",
+    "@tailwindcss/postcss": "^4.3.3",
+    "tailwindcss": "^4.3.3",
     "xlsx": "^0.18.5",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@netlify/plugin-nextjs": "^5.15.13",
-    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "drizzle-kit": "^0.30.4",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
-    "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^3.0.5"
   }

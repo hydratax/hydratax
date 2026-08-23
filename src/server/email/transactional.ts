@@ -6,6 +6,7 @@ export async function sendTransactionalEmail(opts: {
   subject: string;
   text: string;
   html?: string;
+  replyTo?: string;
 }): Promise<"resend" | "logged"> {
   const resendKey = process.env.RESEND_API_KEY;
   const from =
@@ -24,6 +25,7 @@ export async function sendTransactionalEmail(opts: {
         subject: opts.subject,
         text: opts.text,
         html: opts.html,
+        ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
       }),
     });
     if (!res.ok) {
@@ -36,6 +38,7 @@ export async function sendTransactionalEmail(opts: {
   console.info("[email:logged]", {
     to: opts.to,
     subject: opts.subject,
+    replyTo: opts.replyTo,
     text: opts.text.slice(0, 200),
   });
   return "logged";

@@ -19,6 +19,13 @@ function setAuthIntentCookies(next: string, orgType?: OrgType) {
   }
 }
 
+function hasPkceVerifierCookie(): boolean {
+  return document.cookie.split(";").some((part) => {
+    const name = part.trim().split("=")[0] ?? "";
+    return name.includes("code-verifier");
+  });
+}
+
 export function GoogleAuthButton({
   next = "/dashboard",
   orgType,
@@ -41,13 +48,14 @@ export function GoogleAuthButton({
       setAuthIntentCookies(destination, orgType);
 
       const supabase = createClient();
-      // Must match the domain the user is on — PKCE verifier cookies are per-origin.
+      // Same origin as this page — PKCE verifier cookies are per-origin.
       const redirectTo = `${window.location.origin}/auth/callback`;
 
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
           redirectTo,
+          skipBrowserRedirect: true,
           queryParams: {
             access_type: "online",
             prompt: "select_account",
@@ -61,13 +69,24 @@ export function GoogleAuthButton({
         return;
       }
 
-      if (data?.url) {
-        window.location.assign(data.url);
+      if (!data?.url) {
+        setError(
+          "Could not start Google sign-in. Check Supabase Google provider settings.",
+        );
+        setPending(false);
         return;
       }
 
-      setError("Could not start Google sign-in. Check Supabase Google provider settings.");
-      setPending(false);
+      // Verifier must be in a cookie before we leave this origin.
+      if (!hasPkceVerifierCookie()) {
+        setError(
+          "Could not start Google sign-in securely. Allow cookies for this site and try again.",
+        );
+        setPending(false);
+        return;
+      }
+
+      window.location.assign(data.url);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Google sign-in failed");
       setPending(false);

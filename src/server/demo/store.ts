@@ -61,6 +61,11 @@ export type MemoryEmployee = {
   payBasis: "salary" | "hourly";
   pensionOptOut: boolean;
   sspQualifyingDays: number;
+  /** Previous employer P45 totals for the named tax year (e.g. 25-26). */
+  bfTaxYear: string | null;
+  bfTaxablePence: number;
+  bfTaxPence: number;
+  bfEmployeeNiPence: number;
   active: boolean;
 };
 

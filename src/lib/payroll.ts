@@ -194,11 +194,40 @@ export function ytdFromRuns(
     const line = lines.find((l) => l.employeeId === employeeId);
     if (!line) continue;
     acc.grossPence += line.grossPence;
-    acc.taxablePence = (acc.taxablePence ?? 0) + (line.taxablePence ?? line.grossPence);
+    acc.taxablePence =
+      (acc.taxablePence ?? 0) + (line.taxablePence ?? line.grossPence);
     acc.taxPence += line.taxPence;
     acc.employeeNiPence += line.employeeNiPence;
   }
   return acc;
+}
+
+/** Previous-employer figures from a P45 for the current tax year. */
+export type BroughtForwardYtd = {
+  taxYear: string;
+  taxablePence: number;
+  taxPence: number;
+  employeeNiPence: number;
+};
+
+/**
+ * Combine P45 brought-forward totals with YTD earned under this employer.
+ * HMRC expects FPS year-to-date to include previous employment in the same tax year.
+ */
+export function mergeYtdWithBroughtForward(
+  broughtForward: BroughtForwardYtd | null | undefined,
+  fromRuns: YtdTotals,
+  taxYear: string,
+): YtdTotals {
+  const bf =
+    broughtForward && broughtForward.taxYear === taxYear ? broughtForward : null;
+  const runTaxable = fromRuns.taxablePence ?? fromRuns.grossPence;
+  return {
+    grossPence: (bf?.taxablePence ?? 0) + fromRuns.grossPence,
+    taxablePence: (bf?.taxablePence ?? 0) + runTaxable,
+    taxPence: (bf?.taxPence ?? 0) + fromRuns.taxPence,
+    employeeNiPence: (bf?.employeeNiPence ?? 0) + fromRuns.employeeNiPence,
+  };
 }
 
 export function renderPayslipHtml(opts: {
