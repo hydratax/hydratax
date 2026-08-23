@@ -80,7 +80,15 @@ export async function getHmrcConnectionStatus(clientId: string) {
     };
   }
 
-  const { getDb } = await import("@/server/db");
+  const { getDb, hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) {
+    return {
+      connected: false,
+      hmrcEnv: getHmrcConfig().env,
+      scopes: "",
+    };
+  }
+
   const { hmrcConnections } = await import("@/server/db/schema");
   const { eq } = await import("drizzle-orm");
   const rows = await getDb()
@@ -109,7 +117,9 @@ export async function getValidAccessToken(clientId: string): Promise<string | nu
     return decryptAccessToken(c.encryptedAccessToken);
   }
 
-  const { getDb } = await import("@/server/db");
+  const { getDb, hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) return null;
+
   const { hmrcConnections } = await import("@/server/db/schema");
   const { eq } = await import("drizzle-orm");
   const rows = await getDb()
@@ -144,7 +154,9 @@ export async function disconnectHmrc(clientId: string) {
     return;
   }
 
-  const { getDb } = await import("@/server/db");
+  const { getDb, hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) return;
+
   const { hmrcConnections } = await import("@/server/db/schema");
   const { eq } = await import("drizzle-orm");
   await getDb()

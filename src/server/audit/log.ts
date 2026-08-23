@@ -142,7 +142,47 @@ export async function listAuditEvents(opts: {
       .slice(0, opts.limit ?? 50);
   }
 
-  const { getDb } = await import("@/server/db");
+  if (isSupabaseConfigured()) {
+    try {
+      const { createClient } = await import("@/lib/supabase/server");
+      const supabase = await createClient();
+      let query = supabase
+        .from("audit_events")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(opts.limit ?? 50);
+      if (opts.clientId) query = query.eq("client_id", opts.clientId);
+      if (opts.practiceId) query = query.eq("practice_id", opts.practiceId);
+      const { data, error } = await query;
+      if (!error && data) {
+        return data.map((row) => ({
+          id: row.id as string,
+          practiceId: (row.practice_id as string | null) ?? null,
+          clientId: (row.client_id as string | null) ?? null,
+          actorId: row.actor_id as string,
+          action: row.action as string,
+          entityType: row.entity_type as string,
+          entityId: (row.entity_id as string | null) ?? null,
+          payloadHash: (row.payload_hash as string | null) ?? null,
+          hmrcStatusCode: (row.hmrc_status_code as number | null) ?? null,
+          hmrcCorrelationId: (row.hmrc_correlation_id as string | null) ?? null,
+          detail: row.detail ?? null,
+          prevHash: (row.prev_hash as string | null) ?? null,
+          eventHash: row.event_hash as string,
+          createdAt: row.created_at as string,
+        }));
+      }
+      if (error) {
+        console.warn("[audit] supabase list failed", error.message);
+      }
+    } catch (err) {
+      console.warn("[audit] supabase list error", err);
+    }
+  }
+
+  const { getDb, hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) return [];
+
   const { auditEvents } = await import("@/server/db/schema");
   const { desc, eq, and } = await import("drizzle-orm");
   const db = getDb();

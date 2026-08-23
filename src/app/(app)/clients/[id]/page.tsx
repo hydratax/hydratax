@@ -35,8 +35,14 @@ export default async function ClientOverviewPage({
   const session = await requireSession();
   const { id } = await params;
   const client = await getClient(id);
-  const connection = await getConnectionStatus(id);
-  const audit = await listAuditEvents({ clientId: id, limit: 8 });
+  const connection = await getConnectionStatus(id).catch(() => ({
+    connected: false,
+    hmrcEnv: "sandbox" as const,
+    scopes: "",
+  }));
+  const audit = await listAuditEvents({ clientId: id, limit: 8 }).catch(
+    () => [],
+  );
   const invoices = canAccessModule(session.moduleAccess, "invoices")
     ? await listClientInvoices(id).catch(() => [])
     : [];
