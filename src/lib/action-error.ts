@@ -14,6 +14,12 @@ export function humanizeActionError(
   const zodFriendly = friendlyZodMessage(raw);
   if (zodFriendly) return zodFriendly;
 
+  if (
+    /unexpected response was received from the server/i.test(raw) ||
+    /invalid server actions request/i.test(raw)
+  ) {
+    return "The server could not complete this request. Refresh the page and try again.";
+  }
   if (/Minified React error\s*#441/i.test(raw)) {
     return "The server hit a problem handling this request. Please try again in a moment.";
   }

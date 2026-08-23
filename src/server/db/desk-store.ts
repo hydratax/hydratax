@@ -476,13 +476,14 @@ export async function deskInsertBankTransactions(
   if (!rows.length) return;
   const chunkSize = 100;
   if (isD1Configured()) {
-    for (const row of rows) {
-      await d1Execute(
-        `INSERT INTO bank_transactions (
-          id, client_id, dated, description, amount_pence, balance_pence,
-          category, matched_ledger_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const chunk = rows.slice(i, i + chunkSize);
+      const placeholders = chunk
+        .map(() => "(?, ?, ?, ?, ?, ?, ?, ?)")
+        .join(", ");
+      const params: unknown[] = [];
+      for (const row of chunk) {
+        params.push(
           row.id ?? newId(),
           row.client_id,
           row.dated,
@@ -491,7 +492,14 @@ export async function deskInsertBankTransactions(
           row.balance_pence ?? null,
           row.category ?? null,
           row.matched_ledger_id ?? null,
-        ],
+        );
+      }
+      await d1Execute(
+        `INSERT INTO bank_transactions (
+          id, client_id, dated, description, amount_pence, balance_pence,
+          category, matched_ledger_id
+        ) VALUES ${placeholders}`,
+        params,
       );
     }
     return;
