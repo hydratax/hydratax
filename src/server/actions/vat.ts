@@ -20,6 +20,10 @@ import { getValidAccessToken } from "@/server/hmrc/tokens";
 import { appendAuditEvent } from "@/server/audit/log";
 import { getHmrcConfig } from "@/server/hmrc/config";
 import { tryGetDb } from "@/server/db";
+import {
+  getSupabaseDataClient,
+  mapSnakeCaseRow,
+} from "@/server/db/supabase-data";
 
 const prepareSchema = z.object({
   clientId: z.string(),
@@ -32,6 +36,128 @@ const prepareSchema = z.object({
 const submitSchema = prepareSchema.extend({
   fraudMetadata: clientFraudMetadataSchema,
 });
+
+async function saveVatReturn(draft: {
+  id: string;
+  clientId: string;
+  periodKey: string;
+  status: string;
+  boxes: unknown;
+}) {
+  const supabase = await getSupabaseDataClient();
+  if (supabase) {
+    const { data: existing, error: findError } = await supabase
+      .from("vat_returns")
+      .select("id")
+      .eq("client_id", draft.clientId)
+      .eq("period_key", draft.periodKey)
+      .maybeSingle();
+    if (findError) {
+      throw new Error(`Could not load VAT return: ${findError.message}`);
+    }
+    const query = existing
+      ? supabase
+          .from("vat_returns")
+          .update({ status: draft.status, boxes: draft.boxes })
+          .eq("id", existing.id)
+      : supabase.from("vat_returns").insert({
+          id: draft.id,
+          client_id: draft.clientId,
+          period_key: draft.periodKey,
+          status: draft.status,
+          boxes: draft.boxes,
+        });
+    const { data, error } = await query.select("*").single();
+    if (error) throw new Error(`Could not save VAT return: ${error.message}`);
+    return mapSnakeCaseRow(data);
+  }
+
+  const db = tryGetDb();
+  if (!db) return null;
+  const { vatReturns } = await import("@/server/db/schema");
+  const { and, eq } = await import("drizzle-orm");
+  const existing = await db
+    .select({ id: vatReturns.id })
+    .from(vatReturns)
+    .where(
+      and(
+        eq(vatReturns.clientId, draft.clientId),
+        eq(vatReturns.periodKey, draft.periodKey),
+      ),
+    )
+    .limit(1);
+  const status = draft.status as
+    | "draft"
+    | "ready"
+    | "submitted"
+    | "accepted"
+    | "rejected"
+    | "error";
+  if (existing[0]) {
+    const [updated] = await db
+      .update(vatReturns)
+      .set({ status, boxes: draft.boxes })
+      .where(eq(vatReturns.id, existing[0].id))
+      .returning();
+    return updated;
+  }
+  const [created] = await db
+    .insert(vatReturns)
+    .values({
+      id: draft.id,
+      clientId: draft.clientId,
+      periodKey: draft.periodKey,
+      status,
+      boxes: draft.boxes,
+    })
+    .returning();
+  return created;
+}
+
+async function updateStoredVatReturn(
+  clientId: string,
+  periodKey: string,
+  result: {
+    status: string;
+    hmrcFormBundleNumber?: string | null;
+    hmrcProcessingDate?: string | null;
+    submittedAt?: string | null;
+  },
+) {
+  const supabase = await getSupabaseDataClient();
+  if (supabase) {
+    const { error } = await supabase
+      .from("vat_returns")
+      .update({
+        status: result.status,
+        hmrc_form_bundle_number: result.hmrcFormBundleNumber ?? null,
+        hmrc_processing_date: result.hmrcProcessingDate ?? null,
+        submitted_at: result.submittedAt ?? null,
+      })
+      .eq("client_id", clientId)
+      .eq("period_key", periodKey);
+    if (error) throw new Error(`Could not update VAT return: ${error.message}`);
+    return;
+  }
+  const db = tryGetDb();
+  if (!db) return;
+  const { vatReturns } = await import("@/server/db/schema");
+  const { and, eq } = await import("drizzle-orm");
+  await db
+    .update(vatReturns)
+    .set({
+      status: result.status as "accepted" | "rejected",
+      hmrcFormBundleNumber: result.hmrcFormBundleNumber ?? null,
+      hmrcProcessingDate: result.hmrcProcessingDate ?? null,
+      submittedAt: result.submittedAt ? new Date(result.submittedAt) : null,
+    })
+    .where(
+      and(
+        eq(vatReturns.clientId, clientId),
+        eq(vatReturns.periodKey, periodKey),
+      ),
+    );
+}
 
 export async function prepareVatReturn(input: z.infer<typeof prepareSchema>) {
   const session = await requireSession();
@@ -78,6 +204,8 @@ export async function prepareVatReturn(input: z.infer<typeof prepareSchema>) {
         !(r.clientId === data.clientId && r.periodKey === data.periodKey),
     );
     demoStore.vatReturns.push(draft);
+  } else {
+    await saveVatReturn(draft);
   }
 
   await appendAuditEvent({
@@ -98,6 +226,16 @@ export async function listVatReturns(clientId: string) {
   await getClient(clientId);
   if (isDemoMode()) {
     return demoStore.vatReturns.filter((r) => r.clientId === clientId);
+  }
+  const supabase = await getSupabaseDataClient();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("vat_returns")
+      .select("*")
+      .eq("client_id", clientId)
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(`Could not load VAT returns: ${error.message}`);
+    return (data ?? []).map((row) => mapSnakeCaseRow(row));
   }
   const db = tryGetDb();
   if (!db) return [];
@@ -148,6 +286,8 @@ export async function submitPreparedVatReturn(
     if (isDemoMode()) {
       const idx = demoStore.vatReturns.findIndex((r) => r.id === draft.id);
       if (idx >= 0) demoStore.vatReturns[idx] = result;
+    } else {
+      await updateStoredVatReturn(data.clientId, data.periodKey, result);
     }
     await appendAuditEvent({
       practiceId: session.practiceId,
@@ -190,6 +330,8 @@ export async function submitPreparedVatReturn(
   if (isDemoMode()) {
     const idx = demoStore.vatReturns.findIndex((r) => r.id === draft.id);
     if (idx >= 0) demoStore.vatReturns[idx] = result;
+  } else {
+    await updateStoredVatReturn(data.clientId, data.periodKey, result);
   }
 
   revalidatePath(`/clients/${data.clientId}/vat`);
@@ -272,22 +414,41 @@ export async function saveVatHmrcConnectDetails(
     (row as { vatRegistrationDate?: string }).vatRegistrationDate =
       data.vatRegistrationDate ?? undefined;
   } else {
-    const { getDb } = await import("@/server/db");
-    const { clients } = await import("@/server/db/schema");
-    const { and, eq } = await import("drizzle-orm");
-    await getDb()
-      .update(clients)
-      .set({
-        vrn: data.vrn,
-        isVatRegistered: true,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(clients.id, data.clientId),
-          eq(clients.practiceId, session.practiceId),
-        ),
-      );
+    const supabase = await getSupabaseDataClient();
+    if (supabase) {
+      const { error } = await supabase
+        .from("clients")
+        .update({
+          vrn: data.vrn,
+          is_vat_registered: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", data.clientId)
+        .eq("practice_id", session.practiceId);
+      if (error) throw new Error(`Could not save VAT details: ${error.message}`);
+    } else {
+      const { getDb, hasDatabase } = await import("@/server/db");
+      if (!hasDatabase()) {
+        throw new Error(
+          "Client storage is not configured. Supabase (or DATABASE_URL) is required.",
+        );
+      }
+      const { clients } = await import("@/server/db/schema");
+      const { and, eq } = await import("drizzle-orm");
+      await getDb()
+        .update(clients)
+        .set({
+          vrn: data.vrn,
+          isVatRegistered: true,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(clients.id, data.clientId),
+            eq(clients.practiceId, session.practiceId),
+          ),
+        );
+    }
   }
 
   await appendAuditEvent({
@@ -360,6 +521,8 @@ export async function prepareVatReturnFromBoxes(
         !(r.clientId === data.clientId && r.periodKey === data.periodKey),
     );
     demoStore.vatReturns.push(draft);
+  } else {
+    await saveVatReturn(draft);
   }
 
   await appendAuditEvent({

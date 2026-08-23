@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireSession } from "@/server/auth/session";
 import { getClient } from "./clients";
-import { isDemoMode } from "@/lib/env";
+import { isDemoMode, isSupabaseConfigured } from "@/lib/env";
 import { demoStore, type MemoryEmployee } from "@/server/demo/store";
 import { employeeInputSchema } from "@/server/money/schemas";
 import { poundsToPence } from "@/server/money/pence";
@@ -36,6 +36,10 @@ import { buildPayrollPackZip } from "@/server/payroll/pack";
 import { decryptSecret, encryptSecret } from "@/server/hmrc/crypto";
 import type { TimesheetAdjustments } from "@/server/payroll/statutory";
 import { hasDatabase, tryGetDb } from "@/server/db";
+import {
+  getSupabaseDataClient,
+  mapSnakeCaseRow,
+} from "@/server/db/supabase-data";
 
 const addEmployeeForm = z.object({
   clientId: z.string(),
@@ -71,7 +75,7 @@ function hoursToHundredths(s: string | undefined): number {
 export type PayrollEmployee = MemoryEmployee;
 
 function asEmployee(row: Record<string, unknown> | MemoryEmployee): PayrollEmployee {
-  const r = row as Record<string, unknown>;
+  const r = mapSnakeCaseRow(row as Record<string, unknown>);
   return {
     id: String(r.id),
     clientId: String(r.clientId),
@@ -115,9 +119,21 @@ export async function listEmployees(clientId: string, opts?: { includeLeavers?: 
       .filter((e) => (opts?.includeLeavers ? true : e.active))
       .map((e) => asEmployee(e));
   }
+  const supabase = await getSupabaseDataClient();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("employees")
+      .select("*")
+      .eq("client_id", clientId)
+      .order("created_at", { ascending: true });
+    if (error) throw new Error(`Could not load employees: ${error.message}`);
+    return (data ?? [])
+      .map((row) => asEmployee(row))
+      .filter((e) => (opts?.includeLeavers ? true : e.active));
+  }
   const db = tryGetDb();
   if (!db) return [];
-  await ensurePayrollSchema();
+  if (!isSupabaseConfigured()) await ensurePayrollSchema();
   const { employees } = await import("@/server/db/schema");
   const { eq } = await import("drizzle-orm");
   const rows = await db
@@ -225,6 +241,38 @@ export async function addEmployee(input: z.input<typeof addEmployeeForm>) {
 
   if (isDemoMode()) {
     demoStore.employees.push(emp);
+  } else if (isSupabaseConfigured()) {
+    const supabase = await getSupabaseDataClient();
+    if (!supabase) throw new Error("Supabase is not configured");
+    const { error } = await supabase.from("employees").insert({
+      id: emp.id,
+      client_id: emp.clientId,
+      forename: emp.forename,
+      surname: emp.surname,
+      nino: emp.nino,
+      tax_code: emp.taxCode,
+      annual_salary_pence: emp.annualSalaryPence,
+      start_date: emp.startDate,
+      payroll_id: emp.payrollId,
+      pay_frequency: emp.payFrequency,
+      ni_category: emp.niCategory,
+      job_title: emp.jobTitle,
+      leave_date: emp.leaveDate,
+      starter_declaration: emp.starterDeclaration,
+      first_fps_sent: emp.firstFpsSent,
+      previous_payroll_id: emp.previousPayrollId,
+      hours_per_week: emp.hoursPerWeek,
+      hourly_rate_pence: emp.hourlyRatePence,
+      pay_basis: emp.payBasis,
+      pension_opt_out: emp.pensionOptOut,
+      ssp_qualifying_days: emp.sspQualifyingDays,
+      bf_tax_year: emp.bfTaxYear,
+      bf_taxable_pence: emp.bfTaxablePence,
+      bf_tax_pence: emp.bfTaxPence,
+      bf_employee_ni_pence: emp.bfEmployeeNiPence,
+      active: true,
+    });
+    if (error) throw new Error(`Could not add employee: ${error.message}`);
   } else {
     const { getDb } = await import("@/server/db");
     const { employees } = await import("@/server/db/schema");
@@ -288,6 +336,18 @@ export async function markEmployeeLeaver(input: z.infer<typeof leaveSchema>) {
     if (!emp) throw new Error("Employee not found");
     emp.leaveDate = data.leaveDate;
     emp.active = false;
+  } else if (isSupabaseConfigured()) {
+    const supabase = await getSupabaseDataClient();
+    if (!supabase) throw new Error("Supabase is not configured");
+    const { data: updated, error } = await supabase
+      .from("employees")
+      .update({ leave_date: data.leaveDate, active: false })
+      .eq("id", data.employeeId)
+      .eq("client_id", data.clientId)
+      .select("id")
+      .maybeSingle();
+    if (error) throw new Error(`Could not update employee: ${error.message}`);
+    if (!updated) throw new Error("Employee not found");
   } else {
     const { getDb } = await import("@/server/db");
     const { employees } = await import("@/server/db/schema");
@@ -319,6 +379,20 @@ export async function enableEmployerPayroll(input: z.infer<typeof employerSchema
     row.isEmployer = true;
     row.payeRef = data.payeRef.trim();
     row.accountsOfficeRef = data.accountsOfficeRef.trim();
+  } else if (isSupabaseConfigured()) {
+    const supabase = await getSupabaseDataClient();
+    if (!supabase) throw new Error("Supabase is not configured");
+    const { error } = await supabase
+      .from("clients")
+      .update({
+        is_employer: true,
+        paye_ref: data.payeRef.trim(),
+        accounts_office_ref: data.accountsOfficeRef.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", data.clientId)
+      .eq("practice_id", session.practiceId);
+    if (error) throw new Error(`Could not enable payroll: ${error.message}`);
   } else {
     const { getDb } = await import("@/server/db");
     const { clients } = await import("@/server/db/schema");
@@ -359,6 +433,18 @@ async function loadTimesheetRows(
         t.periodEnd === periodEnd,
     );
     return Array.isArray(row?.rows) ? (row.rows as TimesheetRow[]) : [];
+  }
+  const supabase = await getSupabaseDataClient();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("payroll_timesheets")
+      .select("rows")
+      .eq("client_id", clientId)
+      .eq("period_start", periodStart)
+      .eq("period_end", periodEnd)
+      .maybeSingle();
+    if (error) throw new Error(`Could not load timesheet: ${error.message}`);
+    return Array.isArray(data?.rows) ? (data.rows as TimesheetRow[]) : [];
   }
   const db = tryGetDb();
   if (!db) return [];
@@ -604,6 +690,38 @@ export async function createAndSubmitPayRun(input: z.input<typeof payRunSchema>)
         emp.previousPayrollId = null;
       }
     }
+  } else if (isSupabaseConfigured()) {
+    const supabase = await getSupabaseDataClient();
+    if (!supabase) throw new Error("Supabase is not configured");
+    const { error: insertError } = await supabase.from("pay_runs").insert({
+      id: payRun.id,
+      client_id: payRun.clientId,
+      pay_date: payRun.payDate,
+      period_start: payRun.periodStart,
+      period_end: payRun.periodEnd,
+      pay_frequency: payRun.payFrequency,
+      kind: payRun.kind,
+      status: payRun.status,
+      totals: payRun.totals,
+      lines: payRun.lines,
+      fps_xml_hash: payRun.fpsXmlHash,
+      hmrc_correlation_id: payRun.hmrcCorrelationId ?? null,
+      submitted_at: payRun.submittedAt,
+    });
+    if (insertError) {
+      throw new Error(`Could not save pay run: ${insertError.message}`);
+    }
+    const ids = pack.lines.map((line) => line.employeeId);
+    if (ids.length) {
+      const { error: updateError } = await supabase
+        .from("employees")
+        .update({ first_fps_sent: true, previous_payroll_id: null })
+        .in("id", ids)
+        .eq("client_id", data.clientId);
+      if (updateError) {
+        throw new Error(`Could not update employees: ${updateError.message}`);
+      }
+    }
   } else {
     const { getDb } = await import("@/server/db");
     const { payRuns, employees } = await import("@/server/db/schema");
@@ -681,7 +799,46 @@ export async function submitEpsNoPayment(clientId: string, taxYear: string) {
     submittedAt: new Date().toISOString(),
     createdAt: new Date().toISOString(),
   };
-  if (isDemoMode()) demoStore.payRuns.push(payRun);
+  if (isDemoMode()) {
+    demoStore.payRuns.push(payRun);
+  } else if (isSupabaseConfigured()) {
+    const supabase = await getSupabaseDataClient();
+    if (!supabase) throw new Error("Supabase is not configured");
+    const { error } = await supabase.from("pay_runs").insert({
+      id: payRun.id,
+      client_id: payRun.clientId,
+      pay_date: payRun.payDate,
+      period_start: payRun.periodStart,
+      period_end: payRun.periodEnd,
+      pay_frequency: payRun.payFrequency,
+      kind: payRun.kind,
+      status: payRun.status,
+      totals: payRun.totals,
+      lines: payRun.lines,
+      fps_xml_hash: payRun.fpsXmlHash,
+      hmrc_correlation_id: payRun.hmrcCorrelationId ?? null,
+      submitted_at: payRun.submittedAt,
+    });
+    if (error) throw new Error(`Could not save EPS: ${error.message}`);
+  } else {
+    const { getDb } = await import("@/server/db");
+    const { payRuns } = await import("@/server/db/schema");
+    await getDb().insert(payRuns).values({
+      id: payRun.id,
+      clientId: payRun.clientId,
+      payDate: payRun.payDate,
+      periodStart: payRun.periodStart,
+      periodEnd: payRun.periodEnd,
+      payFrequency: "M1",
+      kind: "EPS",
+      status: payRun.status as "accepted" | "rejected",
+      totals: payRun.totals,
+      lines: [],
+      fpsXmlHash: payRun.fpsXmlHash,
+      hmrcCorrelationId: payRun.hmrcCorrelationId ?? null,
+      submittedAt: new Date(),
+    });
+  }
 
   revalidatePath(`/clients/${clientId}/payroll`);
   return res;
@@ -694,6 +851,16 @@ export async function listPayRuns(clientId: string) {
       .filter((p) => p.clientId === clientId)
       .slice()
       .reverse();
+  }
+  const supabase = await getSupabaseDataClient();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("pay_runs")
+      .select("*")
+      .eq("client_id", clientId)
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(`Could not load pay runs: ${error.message}`);
+    return (data ?? []).map((row) => mapSnakeCaseRow(row));
   }
   const db = tryGetDb();
   if (!db) return [];
@@ -767,6 +934,21 @@ export async function importTimesheet(formData: FormData) {
         ),
     );
     demoStore.payrollTimesheets.push(record);
+  } else if (isSupabaseConfigured()) {
+    const supabase = await getSupabaseDataClient();
+    if (!supabase) throw new Error("Supabase is not configured");
+    const { error } = await supabase.from("payroll_timesheets").upsert(
+      {
+        id: record.id,
+        client_id: clientId,
+        period_start: periodStart,
+        period_end: periodEnd,
+        filename: record.filename,
+        rows: parsed.rows,
+      },
+      { onConflict: "client_id,period_start,period_end" },
+    );
+    if (error) throw new Error(`Could not save timesheet: ${error.message}`);
   } else {
     const { getDb } = await import("@/server/db");
     const { payrollTimesheets } = await import("@/server/db/schema");
@@ -815,17 +997,26 @@ export async function timesheetTemplateBase64() {
 
 export async function getPayrollPackSettings(clientId: string) {
   const client = await getClient(clientId);
-  if (!isDemoMode() && !hasDatabase()) {
-    return {
-      hasPackPassword: false,
-      contactEmail: client.contactEmail ?? null,
-    };
+  let encrypted: string | null | undefined;
+  if (isDemoMode()) {
+    encrypted = demoStore.clients.find(
+      (c) => c.id === clientId,
+    )?.payrollPackPasswordEncrypted;
+  } else if (isSupabaseConfigured()) {
+    const supabase = await getSupabaseDataClient();
+    if (!supabase) throw new Error("Supabase is not configured");
+    const { data, error } = await supabase
+      .from("clients")
+      .select("payroll_pack_password_encrypted")
+      .eq("id", clientId)
+      .maybeSingle();
+    if (error) throw new Error(`Could not load payroll settings: ${error.message}`);
+    encrypted = data?.payroll_pack_password_encrypted;
+  } else if (hasDatabase()) {
+    await ensurePayrollSchema();
+    encrypted = (client as { payrollPackPasswordEncrypted?: string | null })
+      .payrollPackPasswordEncrypted;
   }
-  await ensurePayrollSchema();
-  const encrypted = isDemoMode()
-    ? demoStore.clients.find((c) => c.id === clientId)?.payrollPackPasswordEncrypted
-    : (client as { payrollPackPasswordEncrypted?: string | null })
-        .payrollPackPasswordEncrypted;
   return {
     hasPackPassword: Boolean(encrypted),
     contactEmail: client.contactEmail ?? null,
@@ -849,6 +1040,18 @@ export async function savePayrollPackPassword(
     const row = demoStore.clients.find((c) => c.id === data.clientId);
     if (!row) throw new Error("Client not found");
     row.payrollPackPasswordEncrypted = encrypted;
+  } else if (isSupabaseConfigured()) {
+    const supabase = await getSupabaseDataClient();
+    if (!supabase) throw new Error("Supabase is not configured");
+    const { error } = await supabase
+      .from("clients")
+      .update({
+        payroll_pack_password_encrypted: encrypted,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", data.clientId)
+      .eq("practice_id", session.practiceId);
+    if (error) throw new Error(`Could not save payroll password: ${error.message}`);
   } else {
     const { getDb } = await import("@/server/db");
     const { clients } = await import("@/server/db/schema");
@@ -873,10 +1076,25 @@ export async function savePayrollPackPassword(
 async function resolvePackPassword(clientId: string, override?: string) {
   if (override && override.length >= 8) return override;
   const client = await getClient(clientId);
-  const encrypted = isDemoMode()
-    ? demoStore.clients.find((c) => c.id === clientId)?.payrollPackPasswordEncrypted
-    : (client as { payrollPackPasswordEncrypted?: string | null })
-        .payrollPackPasswordEncrypted;
+  let encrypted: string | null | undefined;
+  if (isDemoMode()) {
+    encrypted = demoStore.clients.find(
+      (c) => c.id === clientId,
+    )?.payrollPackPasswordEncrypted;
+  } else if (isSupabaseConfigured()) {
+    const supabase = await getSupabaseDataClient();
+    if (!supabase) throw new Error("Supabase is not configured");
+    const { data, error } = await supabase
+      .from("clients")
+      .select("payroll_pack_password_encrypted")
+      .eq("id", clientId)
+      .maybeSingle();
+    if (error) throw new Error(`Could not load payroll password: ${error.message}`);
+    encrypted = data?.payroll_pack_password_encrypted;
+  } else {
+    encrypted = (client as { payrollPackPasswordEncrypted?: string | null })
+      .payrollPackPasswordEncrypted;
+  }
   if (!encrypted) {
     throw new Error(
       "Set a pack password first (at least 8 characters). You choose it — the client uses the same password to open the zip.",

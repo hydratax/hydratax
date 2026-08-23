@@ -19,6 +19,32 @@ import { appendAuditEvent } from "@/server/audit/log";
 import { put } from "@vercel/blob";
 import { isBlobConfigured } from "@/lib/env";
 import { tryGetDb } from "@/server/db";
+import {
+  getSupabaseDataClient,
+  mapSnakeCaseRow,
+} from "@/server/db/supabase-data";
+
+function mapSupabaseBankTransaction(row: Record<string, unknown>) {
+  const mapped = mapSnakeCaseRow(row);
+  return {
+    id: String(mapped.id),
+    clientId: String(mapped.clientId),
+    dated: String(mapped.dated),
+    description: String(mapped.description),
+    amountPence: Number(mapped.amountPence),
+    balancePence:
+      mapped.balancePence == null ? null : Number(mapped.balancePence),
+    category: String(
+      mapped.category ??
+        (Number(mapped.amountPence) > 0 ? "turnover" : "admin_expenses"),
+    ) as BankCategory,
+    matchedLedgerId:
+      mapped.matchedLedgerId == null ? null : String(mapped.matchedLedgerId),
+    confidence: "low" as const,
+    source: "supabase",
+    createdAt: String(mapped.createdAt),
+  };
+}
 
 export async function importBankCsv(formData: FormData) {
   const session = await requireSession();
@@ -112,20 +138,39 @@ export async function importBankCsv(formData: FormData) {
       });
     }
   } else {
-    const { getDb } = await import("@/server/db");
-    const { bankTransactions } = await import("@/server/db/schema");
-    await getDb().insert(bankTransactions).values(
-      lines.map((line) => ({
-        practiceId: session.practiceId,
-        clientId,
-        dated: line.dated,
-        description: line.description,
-        amountPence: line.amountPence,
-        category: line.category,
-        confidence: line.confidence,
-        source: name.endsWith(".csv") ? "csv" : "spreadsheet",
-      })),
-    );
+    const supabase = await getSupabaseDataClient();
+    if (supabase) {
+      const { error } = await supabase.from("bank_transactions").insert(
+        lines.map((line) => ({
+          client_id: clientId,
+          dated: line.dated,
+          description: line.description,
+          amount_pence: line.amountPence,
+          category: line.category,
+        })),
+      );
+      if (error) throw new Error(`Could not save bank transactions: ${error.message}`);
+    } else {
+      const { getDb, hasDatabase } = await import("@/server/db");
+      if (!hasDatabase()) {
+        throw new Error(
+          "Bank storage is not configured. Supabase (or DATABASE_URL) is required.",
+        );
+      }
+      const { bankTransactions } = await import("@/server/db/schema");
+      await getDb().insert(bankTransactions).values(
+        lines.map((line) => ({
+          practiceId: session.practiceId,
+          clientId,
+          dated: line.dated,
+          description: line.description,
+          amountPence: line.amountPence,
+          category: line.category,
+          confidence: line.confidence,
+          source: name.endsWith(".csv") ? "csv" : "spreadsheet",
+        })),
+      );
+    }
   }
 
   await appendAuditEvent({
@@ -151,6 +196,16 @@ export async function listBankTransactions(clientId: string) {
   if (isMemoryStore()) {
     return memoryStore.bankTransactions.filter((t) => t.clientId === clientId);
   }
+  const supabase = await getSupabaseDataClient();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("bank_transactions")
+      .select("*")
+      .eq("client_id", clientId)
+      .order("dated", { ascending: false });
+    if (error) throw new Error(`Could not load bank transactions: ${error.message}`);
+    return (data ?? []).map((row) => mapSupabaseBankTransaction(row));
+  }
   const db = tryGetDb();
   if (!db) return [];
   const { bankTransactions } = await import("@/server/db/schema");
@@ -175,15 +230,28 @@ export async function updateBankCategory(
     row.confidence = "high";
     clientId = row.clientId;
   } else {
-    const { getDb } = await import("@/server/db");
-    const { bankTransactions } = await import("@/server/db/schema");
-    const { eq } = await import("drizzle-orm");
-    const [updated] = await getDb()
-      .update(bankTransactions)
-      .set({ category, confidence: "high" })
-      .where(eq(bankTransactions.id, transactionId))
-      .returning({ clientId: bankTransactions.clientId });
-    clientId = updated?.clientId ?? null;
+    const supabase = await getSupabaseDataClient();
+    if (supabase) {
+      const { data: updated, error } = await supabase
+        .from("bank_transactions")
+        .update({ category })
+        .eq("id", transactionId)
+        .select("client_id")
+        .maybeSingle();
+      if (error) throw new Error(`Could not update bank category: ${error.message}`);
+      if (!updated) throw new Error("Not found");
+      clientId = updated.client_id;
+    } else {
+      const { getDb } = await import("@/server/db");
+      const { bankTransactions } = await import("@/server/db/schema");
+      const { eq } = await import("drizzle-orm");
+      const [updated] = await getDb()
+        .update(bankTransactions)
+        .set({ category, confidence: "high" })
+        .where(eq(bankTransactions.id, transactionId))
+        .returning({ clientId: bankTransactions.clientId });
+      clientId = updated?.clientId ?? null;
+    }
   }
   revalidatePath(`/clients`);
   if (clientId) {

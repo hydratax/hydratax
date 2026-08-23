@@ -9,6 +9,10 @@ import { demoStore } from "@/server/demo/store";
 import { vatOnNet, poundsToPence } from "@/server/money/pence";
 import { appendAuditEvent } from "@/server/audit/log";
 import { tryGetDb } from "@/server/db";
+import {
+  getSupabaseDataClient,
+  mapSnakeCaseRow,
+} from "@/server/db/supabase-data";
 
 const addEntrySchema = z.object({
   clientId: z.string().min(1),
@@ -20,12 +24,54 @@ const addEntrySchema = z.object({
   category: z.string().optional(),
 });
 
+type LedgerRecord = {
+  id: string;
+  clientId: string;
+  type: "income" | "expense";
+  description: string;
+  amountPence: number;
+  vatRateBps: number;
+  vatPence: number;
+  dated: string;
+  category: string | null;
+  createdBy: string;
+  createdAt: string | Date;
+};
+
+function mapSupabaseLedger(row: Record<string, unknown>): LedgerRecord {
+  const mapped = mapSnakeCaseRow(row);
+  return {
+    id: String(mapped.id),
+    clientId: String(mapped.clientId),
+    type: mapped.type === "expense" ? "expense" : "income",
+    description: String(mapped.description),
+    amountPence: Number(mapped.amountPence),
+    vatRateBps: Number(mapped.vatRateBps),
+    vatPence: Number(mapped.vatPence),
+    dated: String(mapped.dated),
+    category: mapped.category == null ? null : String(mapped.category),
+    createdBy: String(mapped.createdBy),
+    createdAt: String(mapped.createdAt),
+  };
+}
+
 export async function listLedgerEntries(clientId: string) {
   await getClient(clientId);
   if (isDemoMode()) {
     return demoStore.ledger
       .filter((e) => e.clientId === clientId)
       .sort((a, b) => b.dated.localeCompare(a.dated));
+  }
+
+  const supabase = await getSupabaseDataClient();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("ledger_entries")
+      .select("*")
+      .eq("client_id", clientId)
+      .order("dated", { ascending: false });
+    if (error) throw new Error(`Could not load ledger: ${error.message}`);
+    return (data ?? []).map((row) => mapSupabaseLedger(row));
   }
 
   const db = tryGetDb();
@@ -81,7 +127,45 @@ export async function addLedgerEntry(input: z.infer<typeof addEntrySchema>) {
     return entry;
   }
 
-  const { getDb } = await import("@/server/db");
+  const supabase = await getSupabaseDataClient();
+  if (supabase) {
+    const { data: row, error } = await supabase
+      .from("ledger_entries")
+      .insert({
+        client_id: data.clientId,
+        type: data.type,
+        description: data.description,
+        amount_pence: amountPence,
+        vat_rate_bps: data.vatRateBps,
+        vat_pence: vatPence,
+        dated: data.dated,
+        category: data.category ?? null,
+        created_by: session.userId,
+      })
+      .select("*")
+      .single();
+    if (error) throw new Error(`Could not save ledger entry: ${error.message}`);
+    const created = mapSupabaseLedger(row);
+    await appendAuditEvent({
+      practiceId: session.practiceId,
+      clientId: data.clientId,
+      actorId: session.userId,
+      action: "ledger.create",
+      entityType: "ledger_entry",
+      entityId: String(created.id),
+      detail: { type: data.type, amountPence, vatPence },
+    });
+    revalidatePath(`/clients/${data.clientId}`);
+    revalidatePath(`/clients/${data.clientId}/books`);
+    return created;
+  }
+
+  const { getDb, hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) {
+    throw new Error(
+      "Ledger storage is not configured. Supabase (or DATABASE_URL) is required.",
+    );
+  }
   const { ledgerEntries } = await import("@/server/db/schema");
   const [created] = await getDb()
     .insert(ledgerEntries)
