@@ -43,9 +43,11 @@ export function BankWorkspace({
   };
 }) {
   const formRef = useRef<HTMLFormElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   function gbp(pence: number) {
@@ -77,6 +79,7 @@ export function BankWorkspace({
                   return;
                 }
                 setMsg(res.message);
+                setFileName(null);
                 formRef.current?.reset();
                 router.refresh();
                 document
@@ -94,13 +97,30 @@ export function BankWorkspace({
             subcontractors, finance, and other account heads. Reallocate any line
             below, then open accounts with one click.
           </p>
-          <input
-            type="file"
-            name="file"
-            required
-            accept=".csv,.xlsx,.xls,.pdf,text/csv,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            className="block w-full text-sm"
-          />
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              ref={fileInputRef}
+              type="file"
+              name="file"
+              required
+              accept=".csv,.xlsx,.xls,.pdf,text/csv,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              className="sr-only"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                setFileName(file?.name ?? null);
+              }}
+            />
+            <button
+              type="button"
+              className="btn btn-secondary px-3 py-1.5 text-sm"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Choose file
+            </button>
+            <span className="text-sm text-ink-soft">
+              {fileName ?? "No file chosen"}
+            </span>
+          </div>
           <FormErrorBanner error={err} />
           {msg && <p className="text-sm text-ok">{msg}</p>}
           <button type="submit" disabled={pending} className="btn btn-primary">
