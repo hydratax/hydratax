@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { isDemoMode } from "@/lib/env";
+import { isDemoMode, isSupabaseConfigured } from "@/lib/env";
 import { demoStore } from "@/server/demo/store";
 
 export type AuditInput = {
@@ -65,7 +65,45 @@ export async function appendAuditEvent(input: AuditInput): Promise<{ id: string;
     return { id, eventHash };
   }
 
-  const { getDb } = await import("@/server/db");
+  // Prefer Supabase when configured (production Netlify has no DATABASE_URL).
+  if (isSupabaseConfigured()) {
+    try {
+      const { createClient } = await import("@/lib/supabase/server");
+      const supabase = await createClient();
+      const { error } = await supabase.from("audit_events").insert({
+        id,
+        practice_id: input.practiceId ?? null,
+        client_id: input.clientId ?? null,
+        actor_id: input.actorId,
+        action: input.action,
+        entity_type: input.entityType,
+        entity_id: input.entityId ?? null,
+        payload_hash: input.payloadHash ?? null,
+        hmrc_status_code: input.hmrcStatusCode ?? null,
+        hmrc_correlation_id: input.hmrcCorrelationId ?? null,
+        detail: input.detail ?? null,
+        prev_hash: prevHash,
+        event_hash: eventHash,
+        created_at: createdAt,
+      });
+      if (error) {
+        console.warn("[audit] supabase insert failed", error.message);
+      } else {
+        lastHash = eventHash;
+      }
+      return { id, eventHash };
+    } catch (err) {
+      console.warn("[audit] supabase insert error", err);
+      return { id, eventHash };
+    }
+  }
+
+  const { getDb, hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) {
+    console.warn("[audit] skipped — no database configured");
+    return { id, eventHash };
+  }
+
   const { auditEvents } = await import("@/server/db/schema");
   const db = getDb();
   await db.insert(auditEvents).values({

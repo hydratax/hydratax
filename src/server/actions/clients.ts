@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireSession } from "@/server/auth/session";
-import { isDemoMode } from "@/lib/env";
+import { isDemoMode, isSupabaseConfigured } from "@/lib/env";
 import { demoStore, type DemoClient } from "@/server/demo/store";
 import { appendAuditEvent } from "@/server/audit/log";
 import {
@@ -38,6 +38,47 @@ export type BulkImportRowResult = {
   companiesHouse?: boolean;
 };
 
+export type ClientRecord = {
+  id: string;
+  practiceId: string;
+  name: string;
+  type: "sole_trader" | "limited_company" | "partnership";
+  companyNumber: string | null;
+  utr: string | null;
+  vrn: string | null;
+  nino: string | null;
+  payeRef: string | null;
+  accountsOfficeRef: string | null;
+  contactEmail: string | null;
+  isEmployer: boolean;
+  isVatRegistered: boolean;
+  companiesHouse: ClientCompaniesHouseSnapshot | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+};
+
+function mapSupabaseClient(row: Record<string, unknown>): ClientRecord {
+  return {
+    id: row.id as string,
+    practiceId: row.practice_id as string,
+    name: row.name as string,
+    type: row.type as ClientRecord["type"],
+    companyNumber: (row.company_number as string | null) ?? null,
+    utr: (row.utr as string | null) ?? null,
+    vrn: (row.vrn as string | null) ?? null,
+    nino: (row.nino as string | null) ?? null,
+    payeRef: (row.paye_ref as string | null) ?? null,
+    accountsOfficeRef: (row.accounts_office_ref as string | null) ?? null,
+    contactEmail: (row.contact_email as string | null) ?? null,
+    isEmployer: Boolean(row.is_employer),
+    isVatRegistered: Boolean(row.is_vat_registered),
+    companiesHouse:
+      (row.companies_house as ClientCompaniesHouseSnapshot | null) ?? null,
+    createdAt: (row.created_at as string) ?? new Date().toISOString(),
+    updatedAt: (row.updated_at as string) ?? new Date().toISOString(),
+  };
+}
+
 async function resolveCompaniesHouse(
   type: string,
   companyNumber: string | undefined,
@@ -53,6 +94,16 @@ async function resolveCompaniesHouse(
   }
 }
 
+async function safeAudit(
+  input: Parameters<typeof appendAuditEvent>[0],
+): Promise<void> {
+  try {
+    await appendAuditEvent(input);
+  } catch (err) {
+    console.warn("[audit] append failed", err);
+  }
+}
+
 export async function listClients() {
   const session = await requireSession();
   if (isDemoMode()) {
@@ -61,6 +112,27 @@ export async function listClients() {
         c.practiceId === session.practiceId ||
         c.practiceId === demoStore.practice.id,
     );
+  }
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { createClient: createSupabase } = await import(
+        "@/lib/supabase/server"
+      );
+      const supabase = await createSupabase();
+      const { data, error } = await supabase
+        .from("clients")
+        .select("*")
+        .eq("practice_id", session.practiceId)
+        .order("created_at", { ascending: false });
+      if (error) {
+        console.warn("[clients] supabase list failed", error.message);
+      } else if (data) {
+        return data.map((row) => mapSupabaseClient(row));
+      }
+    } catch (err) {
+      console.warn("[clients] supabase list error", err);
+    }
   }
 
   const { getDb, hasDatabase } = await import("@/server/db");
@@ -94,7 +166,33 @@ export async function getClient(clientId: string) {
     return client;
   }
 
-  const { getDb } = await import("@/server/db");
+  if (isSupabaseConfigured()) {
+    try {
+      const { createClient: createSupabase } = await import(
+        "@/lib/supabase/server"
+      );
+      const supabase = await createSupabase();
+      const { data, error } = await supabase
+        .from("clients")
+        .select("*")
+        .eq("id", clientId)
+        .eq("practice_id", session.practiceId)
+        .maybeSingle();
+      if (!error && data) return mapSupabaseClient(data);
+      if (error) {
+        console.warn("[clients] supabase get failed", error.message);
+      }
+    } catch (err) {
+      console.warn("[clients] supabase get error", err);
+    }
+  }
+
+  const { getDb, hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) {
+    const { notFound } = await import("next/navigation");
+    return notFound();
+  }
+
   const { clients } = await import("@/server/db/schema");
   const { and, eq } = await import("drizzle-orm");
   const rows = await getDb()
@@ -115,19 +213,21 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
   const session = await requireSession();
   if (session.role === "readonly") throw new Error("Forbidden");
 
+  const { hasDatabase } = await import("@/server/db");
   if (
     process.env.NODE_ENV === "production" &&
-    !process.env.DATABASE_URL?.trim()
+    !hasDatabase() &&
+    !isSupabaseConfigured()
   ) {
     throw new Error(
-      "Client storage is not configured (DATABASE_URL missing). Add your Postgres connection string in Netlify env.",
+      "Client storage is not configured. Add DATABASE_URL or Supabase env vars in Netlify.",
     );
   }
 
   const data = createClientSchema.parse(input);
   const now = new Date().toISOString();
 
-  let ch = await resolveCompaniesHouse(
+  const ch = await resolveCompaniesHouse(
     data.type,
     data.companyNumber,
     data.skipCompaniesHouse,
@@ -168,7 +268,7 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
       hmrcEnv: process.env.HMRC_ENV === "production" ? "production" : "test",
       scopes: "",
     });
-    await appendAuditEvent({
+    await safeAudit({
       practiceId: session.practiceId,
       clientId: client.id,
       actorId: session.userId,
@@ -184,6 +284,54 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
     revalidatePath("/clients");
     revalidatePath("/dashboard");
     return client;
+  }
+
+  if (isSupabaseConfigured()) {
+    const { createClient: createSupabase } = await import(
+      "@/lib/supabase/server"
+    );
+    const supabase = await createSupabase();
+    const { data: row, error } = await supabase
+      .from("clients")
+      .insert({
+        practice_id: session.practiceId,
+        name,
+        type: data.type,
+        company_number: companyNumber,
+        utr: data.utr ?? null,
+        vrn: data.vrn ?? null,
+        nino: data.nino ?? null,
+        paye_ref: data.payeRef ?? null,
+        accounts_office_ref: data.accountsOfficeRef ?? null,
+        contact_email: data.contactEmail || null,
+        is_employer: data.isEmployer,
+        is_vat_registered: data.isVatRegistered,
+        companies_house: ch,
+      })
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const created = mapSupabaseClient(row);
+    await safeAudit({
+      practiceId: session.practiceId,
+      clientId: created.id,
+      actorId: session.userId,
+      action: "client.create",
+      entityType: "client",
+      entityId: created.id,
+      detail: {
+        name: created.name,
+        type: created.type,
+        companiesHouse: Boolean(ch),
+      },
+    });
+    revalidatePath("/clients");
+    revalidatePath("/dashboard");
+    return created;
   }
 
   const { getDb } = await import("@/server/db");
@@ -207,7 +355,7 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
     })
     .returning();
 
-  await appendAuditEvent({
+  await safeAudit({
     practiceId: session.practiceId,
     clientId: created.id,
     actorId: session.userId,
@@ -258,6 +406,29 @@ export async function refreshClientCompaniesHouse(clientId: string) {
     return row;
   }
 
+  if (isSupabaseConfigured()) {
+    const { createClient: createSupabase } = await import(
+      "@/lib/supabase/server"
+    );
+    const supabase = await createSupabase();
+    const { data, error } = await supabase
+      .from("clients")
+      .update({
+        companies_house: ch,
+        name: ch.companyName,
+        company_number: ch.companyNumber,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", clientId)
+      .eq("practice_id", session.practiceId)
+      .select("*")
+      .single();
+    if (error) throw new Error(error.message);
+    revalidatePath(`/clients/${clientId}`);
+    revalidatePath("/clients");
+    return mapSupabaseClient(data);
+  }
+
   const { getDb } = await import("@/server/db");
   const { clients } = await import("@/server/db/schema");
   const { and, eq } = await import("drizzle-orm");
@@ -302,10 +473,6 @@ function normalizeType(
     return "limited_company";
   }
   if (s === "partnership" || s === "partner") return "partnership";
-  if (s === "sole_trader" || s === "soletrader" || s === "individual") {
-    return "sole_trader";
-  }
-  // Default: company number present → ltd, else sole trader handled by caller
   return "sole_trader";
 }
 
@@ -346,14 +513,12 @@ export async function bulkImportClients(
   }
 
   const results: BulkImportRowResult[] = [];
-
-  // Process in chunks so CH lookups don't stampede
   const CHUNK = 5;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const slice = rows.slice(i, i + CHUNK);
     const chunkResults = await Promise.all(
       slice.map(async (raw, offset) => {
-        const rowNum = i + offset + 2; // +2 = header row + 1-based
+        const rowNum = i + offset + 2;
         const companyNumber = cell(
           raw,
           "company_number",
@@ -364,10 +529,7 @@ export async function bulkImportClients(
         let type = normalizeType(
           cell(raw, "type", "client_type", "entity_type"),
         );
-        if (
-          !cell(raw, "type", "client_type", "entity_type") &&
-          companyNumber
-        ) {
+        if (!cell(raw, "type", "client_type", "entity_type") && companyNumber) {
           type = "limited_company";
         }
 
