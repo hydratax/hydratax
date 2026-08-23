@@ -2,17 +2,24 @@ import { PRACTICE_TRIAL_DAYS } from "@/lib/trial";
 import { PRACTICE_PLAN_PRICE_POUNDS } from "@/lib/pricing";
 
 export async function sendTransactionalEmail(opts: {
-  to: string;
+  to: string | string[];
   subject: string;
   text: string;
   html?: string;
   replyTo?: string;
+  listUnsubscribeUrl?: string;
 }): Promise<"resend" | "logged"> {
   const resendKey = process.env.RESEND_API_KEY;
   const from =
     process.env.EMAIL_FROM ?? "HydraTax <onboarding@resend.dev>";
+  const recipients = Array.isArray(opts.to) ? opts.to : [opts.to];
 
   if (resendKey) {
+    const headers: Record<string, string> = {};
+    if (opts.listUnsubscribeUrl) {
+      headers["List-Unsubscribe"] = `<${opts.listUnsubscribeUrl}>`;
+      headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+    }
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -21,11 +28,12 @@ export async function sendTransactionalEmail(opts: {
       },
       body: JSON.stringify({
         from,
-        to: [opts.to],
+        to: recipients,
         subject: opts.subject,
         text: opts.text,
         html: opts.html,
         ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
+        ...(Object.keys(headers).length ? { headers } : {}),
       }),
     });
     if (!res.ok) {

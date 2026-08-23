@@ -4,16 +4,13 @@ import { useRef, useState, useTransition } from "react";
 import {
   importBankCsv,
   requestBankConnect,
-  updateBankCategory,
 } from "@/server/actions/bank";
-import {
-  CATEGORY_LABELS,
-  type BankCategory,
-} from "@/lib/bank-categories";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { messageFromUnknown } from "@/lib/action-error";
+import { BankCategorisedView } from "@/components/forms/bank-categorised-view";
+import { recategoriseBankTransactions } from "@/server/actions/bank-recategorise";
 
 type Tx = {
   id: string;
@@ -58,6 +55,8 @@ export function BankWorkspace({
     }).format(pence / 100);
   }
 
+  const hasTransactions = transactions.length > 0;
+
   return (
     <div className="space-y-6">
       <div className="grid gap-4 lg:grid-cols-2">
@@ -80,6 +79,9 @@ export function BankWorkspace({
                 setMsg(res.message);
                 formRef.current?.reset();
                 router.refresh();
+                document
+                  .getElementById("categorised-transactions")
+                  ?.scrollIntoView({ behavior: "smooth" });
               } catch (error) {
                 setErr(messageFromUnknown(error, "Import failed"));
               }
@@ -88,8 +90,9 @@ export function BankWorkspace({
         >
           <h3 className="display text-xl text-ink">Upload bank statement</h3>
           <p className="text-sm text-ink-soft">
-            CSV or Excel for auto-categorisation (fuel, travel, rent, etc.). PDF
-            is stored for review. Then prepare the year-end accounts pack.
+            Import CSV or Excel — we auto-sort into fuel, insurance, salaries,
+            subcontractors, finance, and other account heads. Reallocate any line
+            below, then open accounts with one click.
           </p>
           <input
             type="file"
@@ -130,19 +133,25 @@ export function BankWorkspace({
         </div>
       </div>
 
-      <div className="panel p-5">
-        <h3 className="display text-xl text-ink">Year-end accounts pack</h3>
-        <p className="mt-1 text-sm text-ink-soft">
-          After reviewing categories below, build Digitus-style financial
-          statements (P&amp;L, balance sheet, Note 8) and print or save as PDF.
-        </p>
-        <Link
-          href={`/clients/${clientId}/accounts-pack`}
-          className="btn btn-primary mt-4 inline-flex"
-        >
-          Prepare accounts from bank
-        </Link>
-      </div>
+      {hasTransactions ? (
+        <div className="panel overflow-hidden border-sea/30 bg-sea/5 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 className="display text-xl text-ink">Ready for accounts</h3>
+              <p className="mt-1 text-sm text-ink-soft">
+                {draft.lineCount} categorised lines — review sections below, then
+                build the year-end pack.
+              </p>
+            </div>
+            <Link
+              href={`/clients/${clientId}/accounts-pack`}
+              className="btn btn-primary shrink-0"
+            >
+              Open accounts pack →
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       <div className="panel p-5">
         <h3 className="display text-xl text-ink">One-click tax drafts</h3>
@@ -205,68 +214,37 @@ export function BankWorkspace({
         </div>
       </div>
 
-      <div className="panel overflow-hidden">
-        <div className="border-b border-line bg-sand/60 px-4 py-3">
-          <h3 className="font-semibold text-ink">
-            Transactions ({transactions.length})
-          </h3>
-        </div>
-        {transactions.length === 0 ? (
-          <p className="p-6 text-sm text-ink-soft">
-            No bank lines yet. Upload a CSV or Excel export from the client’s
-            bank.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase text-ink-soft">
-                <tr>
-                  <th className="px-3 py-2">Date</th>
-                  <th className="px-3 py-2">Description</th>
-                  <th className="px-3 py-2">Amount</th>
-                  <th className="px-3 py-2">Category</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {transactions.map((t) => (
-                  <tr key={t.id}>
-                    <td className="mono px-3 py-2 whitespace-nowrap">
-                      {t.dated}
-                    </td>
-                    <td className="px-3 py-2">{t.description}</td>
-                    <td className="mono px-3 py-2 whitespace-nowrap">
-                      {gbp(t.amountPence)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <select
-                        className="rounded border border-line bg-white px-2 py-1 text-xs"
-                        defaultValue={t.category}
-                        onChange={(e) =>
-                          start(async () => {
-                            await updateBankCategory(
-                              t.id,
-                              e.target.value as BankCategory,
-                            );
-                            router.refresh();
-                          })
-                        }
-                      >
-                        {Object.entries(CATEGORY_LABELS).map(([k, label]) => (
-                          <option key={k} value={k}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="ml-2 text-[10px] text-ink-soft">
-                        {t.confidence}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div id="categorised-transactions" className="panel overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-sand/60 px-4 py-3">
+          <div>
+            <h3 className="font-semibold text-ink">Categorised transactions</h3>
+            <p className="text-xs text-ink-soft">
+              Grouped by account head — use Move to reallocate (e.g. Esso → fuel).
+            </p>
           </div>
-        )}
+          {hasTransactions ? (
+            <button
+              type="button"
+              className="btn btn-secondary text-sm"
+              disabled={pending}
+              onClick={() =>
+                start(async () => {
+                  setErr(null);
+                  const res = await recategoriseBankTransactions(clientId);
+                  if (!res.ok) {
+                    setErr(res.error);
+                    return;
+                  }
+                  setMsg(`Re-applied merchant rules to ${res.updated} lines.`);
+                  router.refresh();
+                })
+              }
+            >
+              Re-apply auto rules
+            </button>
+          ) : null}
+        </div>
+        <BankCategorisedView clientId={clientId} transactions={transactions} />
       </div>
     </div>
   );

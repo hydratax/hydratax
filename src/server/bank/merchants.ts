@@ -46,6 +46,15 @@ export const MERCHANT_HINTS: MerchantHint[] = [
   // Insurance
   { pattern: /\binsurance\b|\baviva\b|\baxa\b|\bdirect line\b|\bhiscox\b|\bzurich\b/i, category: "insurance", confidence: "high", label: "Insurance" },
 
+  // Finance costs
+  { pattern: /\bloan\b|\binterest\b|\bhire purchase\b|\bhp\b|\bleasing\b|\bfinance charge\b/i, category: "finance", confidence: "high", label: "Finance" },
+
+  // Salaries & wages
+  { pattern: /\bpayroll\b|\bwages\b|\bsalary\b|\bpaye\b|\bauto enrol\b|\bnest pension\b/i, category: "salaries", confidence: "high", label: "Salaries" },
+
+  // Subcontractors
+  { pattern: /\bsubcontract\b|\bcontractor\b|\bfreelance\b|\bupwork\b|\bfiverr\b/i, category: "subcontractors", confidence: "medium", label: "Subcontractor" },
+
   // Rent / rates / utilities → rent_rates
   { pattern: /\brent\b|\blandlord\b|\bproperty management\b/i, category: "rent_rates", confidence: "high", label: "Rent" },
   { pattern: /\bbusiness rates\b|\bcouncil\b/i, category: "rent_rates", confidence: "high", label: "Rates" },

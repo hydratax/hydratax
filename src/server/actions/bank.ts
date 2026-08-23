@@ -156,6 +156,11 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
     };
   }
 
+  const { applyIdentifierRules } = await import(
+    "@/server/bank/merchant-identifiers"
+  );
+  lines = await applyIdentifierRules(lines, session.practiceId);
+
   if (isMemoryStore()) {
     for (const line of lines) {
       memoryStore.bankTransactions.push({

@@ -24,6 +24,8 @@ const PUBLIC_PREFIXES = [
   "/api/checkout",
   "/api/stripe/webhook",
   "/api/cron",
+  "/api/unsubscribe",
+  "/unsubscribe",
   "/api/companies-house",
 ];
 

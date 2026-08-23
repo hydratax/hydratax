@@ -35,6 +35,19 @@ export default async function AdminHomePage() {
           </span>
         </Link>
         <Link
+          href="/admin/emails"
+          className="panel panel-interactive block p-6 transition hover:border-sea"
+        >
+          <h2 className="display text-2xl text-ink">Email &amp; reminders</h2>
+          <p className="mt-2 text-sm text-ink-soft">
+            Send filing reminders, custom broadcasts, and monitor R2 storage
+            alerts.
+          </p>
+          <span className="mt-4 inline-block text-sm font-semibold text-sea">
+            Manage email →
+          </span>
+        </Link>
+        <Link
           href="/admin/promo-codes"
           className="panel panel-interactive block p-6 transition hover:border-sea"
         >

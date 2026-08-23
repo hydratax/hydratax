@@ -10,5 +10,9 @@
 [functions."trial-reminders"]
   schedule = "0 9 * * *"
 
+# Filing reminders + R2 storage quota alerts (09:00 UTC daily)
+[functions."notification-cron"]
+  schedule = "0 9 * * *"
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"
