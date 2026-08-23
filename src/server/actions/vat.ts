@@ -20,10 +20,14 @@ import { getValidAccessToken } from "@/server/hmrc/tokens";
 import { appendAuditEvent } from "@/server/audit/log";
 import { getHmrcConfig } from "@/server/hmrc/config";
 import { tryGetDb } from "@/server/db";
+import { getSupabaseDataClient } from "@/server/db/supabase-data";
 import {
-  getSupabaseDataClient,
+  isDeskStoreConfigured,
+  deskListVatReturns,
+  deskSaveVatReturn,
+  deskUpdateVatReturn,
   mapSnakeCaseRow,
-} from "@/server/db/supabase-data";
+} from "@/server/db/desk-store";
 
 const prepareSchema = z.object({
   clientId: z.string(),
@@ -44,33 +48,14 @@ async function saveVatReturn(draft: {
   status: string;
   boxes: unknown;
 }) {
-  const supabase = await getSupabaseDataClient();
-  if (supabase) {
-    const { data: existing, error: findError } = await supabase
-      .from("vat_returns")
-      .select("id")
-      .eq("client_id", draft.clientId)
-      .eq("period_key", draft.periodKey)
-      .maybeSingle();
-    if (findError) {
-      throw new Error(`Could not load VAT return: ${findError.message}`);
-    }
-    const query = existing
-      ? supabase
-          .from("vat_returns")
-          .update({ status: draft.status, boxes: draft.boxes })
-          .eq("id", existing.id)
-      : supabase.from("vat_returns").insert({
-          id: draft.id,
-          client_id: draft.clientId,
-          period_key: draft.periodKey,
-          status: draft.status,
-          boxes: draft.boxes,
-        });
-    const { data, error } = await query.select("*").single();
-    if (error) throw new Error(`Could not save VAT return: ${error.message}`);
-    return mapSnakeCaseRow(data);
-  }
+  const saved = await deskSaveVatReturn({
+    id: draft.id,
+    clientId: draft.clientId,
+    periodKey: draft.periodKey,
+    status: draft.status,
+    boxes: draft.boxes,
+  });
+  if (saved !== null) return saved;
 
   const db = tryGetDb();
   if (!db) return null;
@@ -124,19 +109,13 @@ async function updateStoredVatReturn(
     submittedAt?: string | null;
   },
 ) {
-  const supabase = await getSupabaseDataClient();
-  if (supabase) {
-    const { error } = await supabase
-      .from("vat_returns")
-      .update({
-        status: result.status,
-        hmrc_form_bundle_number: result.hmrcFormBundleNumber ?? null,
-        hmrc_processing_date: result.hmrcProcessingDate ?? null,
-        submitted_at: result.submittedAt ?? null,
-      })
-      .eq("client_id", clientId)
-      .eq("period_key", periodKey);
-    if (error) throw new Error(`Could not update VAT return: ${error.message}`);
+  if (isDeskStoreConfigured()) {
+    await deskUpdateVatReturn(clientId, periodKey, {
+      status: result.status,
+      hmrc_form_bundle_number: result.hmrcFormBundleNumber ?? null,
+      hmrc_processing_date: result.hmrcProcessingDate ?? null,
+      submitted_at: result.submittedAt ?? null,
+    });
     return;
   }
   const db = tryGetDb();
@@ -227,15 +206,9 @@ export async function listVatReturns(clientId: string) {
   if (isDemoMode()) {
     return demoStore.vatReturns.filter((r) => r.clientId === clientId);
   }
-  const supabase = await getSupabaseDataClient();
-  if (supabase) {
-    const { data, error } = await supabase
-      .from("vat_returns")
-      .select("*")
-      .eq("client_id", clientId)
-      .order("created_at", { ascending: false });
-    if (error) throw new Error(`Could not load VAT returns: ${error.message}`);
-    return (data ?? []).map((row) => mapSnakeCaseRow(row));
+  const deskRows = await deskListVatReturns(clientId);
+  if (deskRows !== null) {
+    return deskRows.map((row) => mapSnakeCaseRow(row));
   }
   const db = tryGetDb();
   if (!db) return [];

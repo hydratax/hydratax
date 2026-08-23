@@ -10,9 +10,11 @@ import { vatOnNet, poundsToPence } from "@/server/money/pence";
 import { appendAuditEvent } from "@/server/audit/log";
 import { tryGetDb } from "@/server/db";
 import {
-  getSupabaseDataClient,
+  isDeskStoreConfigured,
+  deskListLedger,
+  deskInsertLedger,
   mapSnakeCaseRow,
-} from "@/server/db/supabase-data";
+} from "@/server/db/desk-store";
 
 const addEntrySchema = z.object({
   clientId: z.string().min(1),
@@ -38,7 +40,7 @@ type LedgerRecord = {
   createdAt: string | Date;
 };
 
-function mapSupabaseLedger(row: Record<string, unknown>): LedgerRecord {
+function mapDeskLedger(row: Record<string, unknown>): LedgerRecord {
   const mapped = mapSnakeCaseRow(row);
   return {
     id: String(mapped.id),
@@ -63,15 +65,9 @@ export async function listLedgerEntries(clientId: string) {
       .sort((a, b) => b.dated.localeCompare(a.dated));
   }
 
-  const supabase = await getSupabaseDataClient();
-  if (supabase) {
-    const { data, error } = await supabase
-      .from("ledger_entries")
-      .select("*")
-      .eq("client_id", clientId)
-      .order("dated", { ascending: false });
-    if (error) throw new Error(`Could not load ledger: ${error.message}`);
-    return (data ?? []).map((row) => mapSupabaseLedger(row));
+  const deskRows = await deskListLedger(clientId);
+  if (deskRows !== null) {
+    return deskRows.map((row) => mapDeskLedger(row));
   }
 
   const db = tryGetDb();
@@ -127,25 +123,19 @@ export async function addLedgerEntry(input: z.infer<typeof addEntrySchema>) {
     return entry;
   }
 
-  const supabase = await getSupabaseDataClient();
-  if (supabase) {
-    const { data: row, error } = await supabase
-      .from("ledger_entries")
-      .insert({
-        client_id: data.clientId,
-        type: data.type,
-        description: data.description,
-        amount_pence: amountPence,
-        vat_rate_bps: data.vatRateBps,
-        vat_pence: vatPence,
-        dated: data.dated,
-        category: data.category ?? null,
-        created_by: session.userId,
-      })
-      .select("*")
-      .single();
-    if (error) throw new Error(`Could not save ledger entry: ${error.message}`);
-    const created = mapSupabaseLedger(row);
+  if (isDeskStoreConfigured()) {
+    const row = await deskInsertLedger({
+      client_id: data.clientId,
+      type: data.type,
+      description: data.description,
+      amount_pence: amountPence,
+      vat_rate_bps: data.vatRateBps,
+      vat_pence: vatPence,
+      dated: data.dated,
+      category: data.category ?? null,
+      created_by: session.userId,
+    });
+    const created = mapDeskLedger(row as Record<string, unknown>);
     await appendAuditEvent({
       practiceId: session.practiceId,
       clientId: data.clientId,

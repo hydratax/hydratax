@@ -128,3 +128,13 @@ export function isR2Configured(): boolean {
       process.env.CLOUDFLARE_R2_BUCKET,
   );
 }
+
+/** Cloudflare D1 for heavy desk tables (payroll, books, VAT, bank). */
+export function isD1Configured(): boolean {
+  return Boolean(
+    (process.env.CLOUDFLARE_ACCOUNT_ID ||
+      process.env.CLOUDFLARE_R2_ACCOUNT_ID) &&
+      process.env.CLOUDFLARE_API_TOKEN &&
+      process.env.CLOUDFLARE_D1_DATABASE_ID,
+  );
+}

@@ -43,3 +43,16 @@ CLOUDFLARE_R2_BUCKET=hydratax-documents
 Uploads in **Client → Documents** prefer R2, then Vercel Blob, then local memory.  
 Private R2 files download via `/api/documents/download?key=...` (session required).  
 When Supabase is configured, document metadata is stored in `client_documents`.
+
+## Cloudflare D1 (payroll, books, VAT, bank)
+
+Heavy desk tables are intended to live on **D1**, not Supabase Postgres — see  
+[`docs/supabase-cloudflare-split.md`](./supabase-cloudflare-split.md).
+
+```bash
+npx wrangler login
+npx wrangler d1 create hydratax-desk
+npx wrangler d1 migrations apply hydratax-desk --remote
+```
+
+Env: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_D1_DATABASE_ID`.

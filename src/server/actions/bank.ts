@@ -20,11 +20,14 @@ import { put } from "@vercel/blob";
 import { isBlobConfigured } from "@/lib/env";
 import { tryGetDb } from "@/server/db";
 import {
-  getSupabaseDataClient,
+  isDeskStoreConfigured,
+  deskListBankTransactions,
+  deskInsertBankTransactions,
+  deskUpdateBankCategory,
   mapSnakeCaseRow,
-} from "@/server/db/supabase-data";
+} from "@/server/db/desk-store";
 
-function mapSupabaseBankTransaction(row: Record<string, unknown>) {
+function mapDeskBankTransaction(row: Record<string, unknown>) {
   const mapped = mapSnakeCaseRow(row);
   return {
     id: String(mapped.id),
@@ -41,89 +44,116 @@ function mapSupabaseBankTransaction(row: Record<string, unknown>) {
     matchedLedgerId:
       mapped.matchedLedgerId == null ? null : String(mapped.matchedLedgerId),
     confidence: "low" as const,
-    source: "supabase",
+    source: "desk",
     createdAt: String(mapped.createdAt),
   };
 }
 
-export async function importBankCsv(formData: FormData) {
-  const session = await requireSession();
-  if (session.role === "readonly") throw new Error("Forbidden");
-
-  const clientId = String(formData.get("clientId") ?? "");
-  await getClient(clientId);
-
-  const file = formData.get("file");
-  if (!(file instanceof File)) throw new Error("Missing statement file");
-
-  const name = file.name.toLowerCase();
-  let lines: CategorisedLine[] = [];
-
-  if (
-    name.endsWith(".csv") ||
-    name.endsWith(".xlsx") ||
-    name.endsWith(".xls") ||
-    file.type.includes("csv") ||
-    file.type === "text/plain" ||
-    file.type.includes("spreadsheet") ||
-    file.type.includes("excel")
-  ) {
-    if (name.endsWith(".csv") || file.type.includes("csv") || file.type === "text/plain") {
-      const text = await file.text();
-      lines = parseBankCsv(text);
-    } else {
-      const buffer = await file.arrayBuffer();
-      lines = parseBankSpreadsheet(buffer, file.name);
+export type BankImportResult =
+  | {
+      ok: true;
+      lines: CategorisedLine[];
+      pdfStored: boolean;
+      message: string;
     }
-  } else if (name.endsWith(".pdf") || file.type === "application/pdf") {
-    // Store PDF for review; text extraction needs OCR/vendor — flag for ops
-    let blobUrl = "";
-    if (isBlobConfigured()) {
-      const blob = await put(
-        `bank-statements/${session.practiceId}/${clientId}/${Date.now()}-${file.name}`,
-        file,
-        { access: "public", addRandomSuffix: true },
-      );
-      blobUrl = blob.url;
+  | { ok: false; error: string };
+
+export async function importBankCsv(formData: FormData): Promise<BankImportResult> {
+  try {
+    const session = await requireSession();
+    if (session.role === "readonly") {
+      return { ok: false, error: "You do not have permission to import bank data." };
     }
-    if (isMemoryStore()) {
-      memoryStore.documents.push({
-        id: crypto.randomUUID(),
-        clientId,
+
+    const clientId = String(formData.get("clientId") ?? "");
+    await getClient(clientId);
+
+    const file = formData.get("file");
+    if (!(file instanceof File)) {
+      return { ok: false, error: "Choose a bank statement file to upload." };
+    }
+
+    const name = file.name.toLowerCase();
+    let lines: CategorisedLine[] = [];
+
+    if (
+      name.endsWith(".csv") ||
+      name.endsWith(".xlsx") ||
+      name.endsWith(".xls") ||
+      file.type.includes("csv") ||
+      file.type === "text/plain" ||
+      file.type.includes("spreadsheet") ||
+      file.type.includes("excel")
+    ) {
+      if (
+        name.endsWith(".csv") ||
+        file.type.includes("csv") ||
+        file.type === "text/plain"
+      ) {
+        const text = await file.text();
+        lines = parseBankCsv(text);
+      } else {
+        const buffer = await file.arrayBuffer();
+        lines = parseBankSpreadsheet(buffer, file.name);
+      }
+    } else if (name.endsWith(".pdf") || file.type === "application/pdf") {
+      // Store PDF for review; text extraction needs OCR/vendor — flag for ops
+      let blobUrl = "";
+      if (isBlobConfigured()) {
+        const blob = await put(
+          `bank-statements/${session.practiceId}/${clientId}/${Date.now()}-${file.name}`,
+          file,
+          { access: "public", addRandomSuffix: true },
+        );
+        blobUrl = blob.url;
+      }
+      if (isMemoryStore()) {
+        memoryStore.documents.push({
+          id: crypto.randomUUID(),
+          clientId,
+          practiceId: session.practiceId,
+          filename: file.name,
+          contentType: file.type || "application/pdf",
+          sizeBytes: file.size,
+          blobUrl: blobUrl || `pdf-pending:${file.name}`,
+          category: "accounts",
+          uploadedBy: session.userId,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      await appendAuditEvent({
         practiceId: session.practiceId,
-        filename: file.name,
-        contentType: file.type || "application/pdf",
-        sizeBytes: file.size,
-        blobUrl: blobUrl || `pdf-pending:${file.name}`,
-        category: "accounts",
-        uploadedBy: session.userId,
-        createdAt: new Date().toISOString(),
+        clientId,
+        actorId: session.userId,
+        action: "bank.statement.pdf_uploaded",
+        entityType: "bank_statement",
+        entityId: clientId,
+        detail: {
+          filename: file.name,
+          note: "PDF stored — use CSV for auto-categorisation, or connect Open Banking",
+        },
       });
+      revalidatePath(`/clients/${clientId}/bank`);
+      return {
+        ok: true,
+        lines: [] as CategorisedLine[],
+        pdfStored: true,
+        message:
+          "PDF stored on the client file. For automatic categorisation upload CSV, or connect Open Banking when enabled.",
+      };
+    } else {
+      return {
+        ok: false,
+        error: "Upload a CSV or Excel bank export (or PDF to store for review).",
+      };
     }
-    await appendAuditEvent({
-      practiceId: session.practiceId,
-      clientId,
-      actorId: session.userId,
-      action: "bank.statement.pdf_uploaded",
-      entityType: "bank_statement",
-      entityId: clientId,
-      detail: { filename: file.name, note: "PDF stored — use CSV for auto-categorisation, or connect Open Banking" },
-    });
-    revalidatePath(`/clients/${clientId}/bank`);
-    return {
-      lines: [] as CategorisedLine[],
-      pdfStored: true,
-      message:
-        "PDF stored on the client file. For automatic categorisation upload CSV, or connect Open Banking when enabled.",
-    };
-  } else {
-    throw new Error(
-      "Upload a CSV or Excel bank export (or PDF to store for review)",
-    );
-  }
 
   if (!lines.length) {
-    throw new Error("No transactions parsed from the statement file");
+    return {
+      ok: false,
+      error:
+        "No transactions were found in that file. For Monzo/Starling exports, use the CSV download from your bank app.",
+    };
   }
 
   if (isMemoryStore()) {
@@ -137,10 +167,9 @@ export async function importBankCsv(formData: FormData) {
         createdAt: new Date().toISOString(),
       });
     }
-  } else {
-    const supabase = await getSupabaseDataClient();
-    if (supabase) {
-      const { error } = await supabase.from("bank_transactions").insert(
+  } else if (isDeskStoreConfigured()) {
+    try {
+      await deskInsertBankTransactions(
         lines.map((line) => ({
           client_id: clientId,
           dated: line.dated,
@@ -149,27 +178,36 @@ export async function importBankCsv(formData: FormData) {
           category: line.category,
         })),
       );
-      if (error) throw new Error(`Could not save bank transactions: ${error.message}`);
-    } else {
-      const { getDb, hasDatabase } = await import("@/server/db");
-      if (!hasDatabase()) {
-        throw new Error(
-          "Bank storage is not configured. Supabase (or DATABASE_URL) is required.",
-        );
-      }
-      const { bankTransactions } = await import("@/server/db/schema");
-      await getDb().insert(bankTransactions).values(
-        lines.map((line) => ({
-          practiceId: session.practiceId,
-          clientId,
-          dated: line.dated,
-          description: line.description,
-          amountPence: line.amountPence,
-          category: line.category,
-          confidence: line.confidence,
-          source: name.endsWith(".csv") ? "csv" : "spreadsheet",
-        })),
-      );
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Could not save bank transactions.";
+      return { ok: false, error: message };
+    }
+  } else {
+    const { getDb, hasDatabase } = await import("@/server/db");
+    if (!hasDatabase()) {
+      return {
+        ok: false,
+        error:
+          "Bank storage is not configured. Contact support if this persists.",
+      };
+    }
+    const { bankTransactions } = await import("@/server/db/schema");
+    const chunkSize = 100;
+    const mapped = lines.map((line) => ({
+      practiceId: session.practiceId,
+      clientId,
+      dated: line.dated,
+      description: line.description,
+      amountPence: line.amountPence,
+      category: line.category,
+      confidence: line.confidence,
+      source: name.endsWith(".csv") ? "csv" : "spreadsheet",
+    }));
+    for (let i = 0; i < mapped.length; i += chunkSize) {
+      await getDb()
+        .insert(bankTransactions)
+        .values(mapped.slice(i, i + chunkSize));
     }
   }
 
@@ -188,7 +226,29 @@ export async function importBankCsv(formData: FormData) {
   revalidatePath(`/clients/${clientId}/corporation-tax`);
   revalidatePath(`/clients/${clientId}/accounts-pack`);
 
-  return { lines, pdfStored: false, message: `Imported ${lines.length} lines` };
+  return {
+    ok: true,
+    lines,
+    pdfStored: false,
+    message: `Imported ${lines.length} lines`,
+  };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Bank import failed. Please try again.";
+    if (/row-level security|permission denied|not authorized/i.test(message)) {
+      return {
+        ok: false,
+        error: "You do not have permission to save bank data for this client.",
+      };
+    }
+    if (/not configured|desk storage/i.test(message)) {
+      return {
+        ok: false,
+        error: "Bank storage is not configured yet. Please try again shortly.",
+      };
+    }
+    return { ok: false, error: message };
+  }
 }
 
 export async function listBankTransactions(clientId: string) {
@@ -196,15 +256,9 @@ export async function listBankTransactions(clientId: string) {
   if (isMemoryStore()) {
     return memoryStore.bankTransactions.filter((t) => t.clientId === clientId);
   }
-  const supabase = await getSupabaseDataClient();
-  if (supabase) {
-    const { data, error } = await supabase
-      .from("bank_transactions")
-      .select("*")
-      .eq("client_id", clientId)
-      .order("dated", { ascending: false });
-    if (error) throw new Error(`Could not load bank transactions: ${error.message}`);
-    return (data ?? []).map((row) => mapSupabaseBankTransaction(row));
+  const deskRows = await deskListBankTransactions(clientId);
+  if (deskRows !== null) {
+    return deskRows.map((row) => mapDeskBankTransaction(row));
   }
   const db = tryGetDb();
   if (!db) return [];
@@ -229,29 +283,19 @@ export async function updateBankCategory(
     row.category = category;
     row.confidence = "high";
     clientId = row.clientId;
+  } else if (isDeskStoreConfigured()) {
+    clientId = await deskUpdateBankCategory(transactionId, category);
+    if (!clientId) throw new Error("Not found");
   } else {
-    const supabase = await getSupabaseDataClient();
-    if (supabase) {
-      const { data: updated, error } = await supabase
-        .from("bank_transactions")
-        .update({ category })
-        .eq("id", transactionId)
-        .select("client_id")
-        .maybeSingle();
-      if (error) throw new Error(`Could not update bank category: ${error.message}`);
-      if (!updated) throw new Error("Not found");
-      clientId = updated.client_id;
-    } else {
-      const { getDb } = await import("@/server/db");
-      const { bankTransactions } = await import("@/server/db/schema");
-      const { eq } = await import("drizzle-orm");
-      const [updated] = await getDb()
-        .update(bankTransactions)
-        .set({ category, confidence: "high" })
-        .where(eq(bankTransactions.id, transactionId))
-        .returning({ clientId: bankTransactions.clientId });
-      clientId = updated?.clientId ?? null;
-    }
+    const { getDb } = await import("@/server/db");
+    const { bankTransactions } = await import("@/server/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const [updated] = await getDb()
+      .update(bankTransactions)
+      .set({ category, confidence: "high" })
+      .where(eq(bankTransactions.id, transactionId))
+      .returning({ clientId: bankTransactions.clientId });
+    clientId = updated?.clientId ?? null;
   }
   revalidatePath(`/clients`);
   if (clientId) {

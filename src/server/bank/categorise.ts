@@ -30,7 +30,35 @@ export function categoriseDescription(
   return { category: "admin_expenses", confidence: "low" };
 }
 
-/** Parse simple CSV: date,description,amount OR date,description,debit,credit */
+function normalizeHeaderKey(key: string): string {
+  return key.toLowerCase().replace(/\s+/g, "").replace(/#/g, "");
+}
+
+function findHeaderIndex(headers: string[], ...candidates: string[]): number | undefined {
+  const normalized = headers.map(normalizeHeaderKey);
+  for (const candidate of candidates) {
+    const idx = normalized.indexOf(candidate);
+    if (idx >= 0) return idx;
+  }
+  return undefined;
+}
+
+function parseBankRecord(input: {
+  dated: string;
+  description: string;
+  amountPence: number;
+}): CategorisedLine | null {
+  const dated = normaliseDate(input.dated);
+  const description = input.description.trim();
+  if (!dated || !description || !Number.isFinite(input.amountPence)) return null;
+  const { category, confidence } = categoriseDescription(
+    description,
+    input.amountPence,
+  );
+  return { dated, description, amountPence: input.amountPence, category, confidence };
+}
+
+/** Parse CSV exports (Monzo, Starling, simple date/description/amount). */
 export function parseBankCsv(text: string): CategorisedLine[] {
   const lines = text
     .replace(/^\uFEFF/, "")
@@ -39,10 +67,93 @@ export function parseBankCsv(text: string): CategorisedLine[] {
     .filter(Boolean);
   if (lines.length < 2) return [];
 
-  const header = lines[0].toLowerCase();
+  const headerCells = splitCsvRow(lines[0]);
+  const headerNorm = headerCells.map(normalizeHeaderKey);
+  const hasNamedHeader =
+    headerNorm.includes("date") ||
+    headerNorm.includes("dated") ||
+    headerNorm.includes("transactiondate") ||
+    headerNorm.includes("amount") ||
+    headerNorm.includes("transactionid");
+
   const rows = lines.slice(1);
   const out: CategorisedLine[] = [];
 
+  if (hasNamedHeader) {
+    const dateIdx =
+      findHeaderIndex(
+        headerCells,
+        "date",
+        "dated",
+        "transactiondate",
+        "bookingdate",
+        "valuedate",
+      ) ?? 0;
+    const descIdx = findHeaderIndex(
+      headerCells,
+      "description",
+      "narrative",
+      "details",
+      "transactiondescription",
+      "merchant",
+      "reference",
+      "name",
+    );
+    const nameIdx = findHeaderIndex(headerCells, "name");
+    const amountIdx = findHeaderIndex(
+      headerCells,
+      "amount",
+      "value",
+      "transactionamount",
+    );
+    const debitIdx = findHeaderIndex(
+      headerCells,
+      "debit",
+      "moneyout",
+      "out",
+      "paidout",
+      "withdrawal",
+    );
+    const creditIdx = findHeaderIndex(
+      headerCells,
+      "credit",
+      "moneyin",
+      "in",
+      "paidin",
+      "deposit",
+    );
+
+    for (const row of rows) {
+      const cols = splitCsvRow(row);
+      if (cols.length < 2) continue;
+
+      const description =
+        (descIdx !== undefined ? cols[descIdx] : "") ||
+        (nameIdx !== undefined ? cols[nameIdx] : "") ||
+        cols[1] ||
+        "";
+      let amountPence = 0;
+      if (debitIdx !== undefined && creditIdx !== undefined) {
+        const debit = parseMoneyToPence(cols[debitIdx] ?? "0");
+        const credit = parseMoneyToPence(cols[creditIdx] ?? "0");
+        amountPence = credit - debit;
+      } else if (amountIdx !== undefined) {
+        amountPence = parseMoneyToPence(cols[amountIdx] ?? "0");
+      } else {
+        continue;
+      }
+
+      const parsed = parseBankRecord({
+        dated: cols[dateIdx] ?? "",
+        description,
+        amountPence,
+      });
+      if (parsed) out.push(parsed);
+    }
+    return out;
+  }
+
+  const header = lines[0].toLowerCase();
   for (const row of rows) {
     const cols = splitCsvRow(row);
     if (cols.length < 3) continue;
@@ -58,13 +169,16 @@ export function parseBankCsv(text: string): CategorisedLine[] {
     } else {
       description = cols[1];
       amountPence = parseMoneyToPence(cols[2] ?? "0");
-      if (cols[3]?.toLowerCase().startsWith("d")) amountPence = -Math.abs(amountPence);
-      if (cols[3]?.toLowerCase().startsWith("c")) amountPence = Math.abs(amountPence);
+      if (cols[3]?.toLowerCase().startsWith("d")) {
+        amountPence = -Math.abs(amountPence);
+      }
+      if (cols[3]?.toLowerCase().startsWith("c")) {
+        amountPence = Math.abs(amountPence);
+      }
     }
 
-    dated = normaliseDate(dated);
-    const { category, confidence } = categoriseDescription(description, amountPence);
-    out.push({ dated, description, amountPence, category, confidence });
+    const parsed = parseBankRecord({ dated, description, amountPence });
+    if (parsed) out.push(parsed);
   }
 
   return out;
@@ -108,17 +222,16 @@ export function parseBankSpreadsheet(
       "transactiondescription",
       "merchant",
       "reference",
+      "name",
     ) ?? keys[1];
+  const nameKey = findKey("name");
   const amountKey = findKey("amount", "value", "transactionamount");
   const debitKey = findKey("debit", "moneyout", "out", "paidout", "withdrawal");
   const creditKey = findKey("credit", "moneyin", "in", "paidin", "deposit");
 
   const out: CategorisedLine[] = [];
   for (const row of rows) {
-    const dated = normaliseDate(String(row[dateKey] ?? ""));
-    const description = String(row[descKey] ?? "").trim();
-    if (!dated || !description) continue;
-
+    const description = String(row[descKey] ?? row[nameKey ?? ""] ?? "").trim();
     let amountPence = 0;
     if (debitKey && creditKey) {
       const debit = parseMoneyToPence(String(row[debitKey] ?? "0"));
@@ -130,11 +243,12 @@ export function parseBankSpreadsheet(
       continue;
     }
 
-    const { category, confidence } = categoriseDescription(
+    const parsed = parseBankRecord({
+      dated: String(row[dateKey] ?? ""),
       description,
       amountPence,
-    );
-    out.push({ dated, description, amountPence, category, confidence });
+    });
+    if (parsed) out.push(parsed);
   }
   return out;
 }

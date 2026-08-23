@@ -73,6 +73,10 @@ export function BankWorkspace({
             start(async () => {
               try {
                 const res = await importBankCsv(fd);
+                if (!res.ok) {
+                  setErr(res.error);
+                  return;
+                }
                 setMsg(res.message);
                 formRef.current?.reset();
                 router.refresh();

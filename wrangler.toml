@@ -1,0 +1,9 @@
+name = "hydratax-desk"
+compatibility_date = "2026-08-01"
+
+[[d1_databases]]
+binding = "DESK_DB"
+database_name = "hydratax-desk"
+# Set after: npx wrangler d1 create hydratax-desk
+database_id = "8bbc2fe9-a137-428a-9560-f191f6011bb0"
+migrations_dir = "migrations/d1"

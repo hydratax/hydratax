@@ -10,6 +10,9 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
+    "d1:create": "wrangler d1 create hydratax-desk",
+    "d1:migrate:local": "wrangler d1 migrations apply hydratax-desk --local",
+    "d1:migrate:remote": "wrangler d1 migrations apply hydratax-desk --remote",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ct-ets": "node scripts/ct600-ets-test.cjs",
@@ -45,6 +48,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "typescript": "^5",
-    "vitest": "^3.0.5"
+    "vitest": "^3.0.5",
+    "wrangler": "^4.125.0"
   }
 }

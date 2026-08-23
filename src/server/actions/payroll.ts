@@ -40,6 +40,17 @@ import {
   getSupabaseDataClient,
   mapSnakeCaseRow,
 } from "@/server/db/supabase-data";
+import {
+  isDeskStoreConfigured,
+  deskListEmployees,
+  deskInsertEmployee,
+  deskUpdateEmployee,
+  deskMarkEmployeesFpsSent,
+  deskListPayRuns,
+  deskInsertPayRun,
+  deskListTimesheets,
+  deskUpsertTimesheet,
+} from "@/server/db/desk-store";
 
 const addEmployeeForm = z.object({
   clientId: z.string(),
@@ -119,15 +130,9 @@ export async function listEmployees(clientId: string, opts?: { includeLeavers?: 
       .filter((e) => (opts?.includeLeavers ? true : e.active))
       .map((e) => asEmployee(e));
   }
-  const supabase = await getSupabaseDataClient();
-  if (supabase) {
-    const { data, error } = await supabase
-      .from("employees")
-      .select("*")
-      .eq("client_id", clientId)
-      .order("created_at", { ascending: true });
-    if (error) throw new Error(`Could not load employees: ${error.message}`);
-    return (data ?? [])
+  const deskRows = await deskListEmployees(clientId);
+  if (deskRows !== null) {
+    return deskRows
       .map((row) => asEmployee(row))
       .filter((e) => (opts?.includeLeavers ? true : e.active));
   }
@@ -241,10 +246,8 @@ export async function addEmployee(input: z.input<typeof addEmployeeForm>) {
 
   if (isDemoMode()) {
     demoStore.employees.push(emp);
-  } else if (isSupabaseConfigured()) {
-    const supabase = await getSupabaseDataClient();
-    if (!supabase) throw new Error("Supabase is not configured");
-    const { error } = await supabase.from("employees").insert({
+  } else if (isDeskStoreConfigured()) {
+    await deskInsertEmployee({
       id: emp.id,
       client_id: emp.clientId,
       forename: emp.forename,
@@ -272,7 +275,6 @@ export async function addEmployee(input: z.input<typeof addEmployeeForm>) {
       bf_employee_ni_pence: emp.bfEmployeeNiPence,
       active: true,
     });
-    if (error) throw new Error(`Could not add employee: ${error.message}`);
   } else {
     const { getDb } = await import("@/server/db");
     const { employees } = await import("@/server/db/schema");
@@ -336,18 +338,11 @@ export async function markEmployeeLeaver(input: z.infer<typeof leaveSchema>) {
     if (!emp) throw new Error("Employee not found");
     emp.leaveDate = data.leaveDate;
     emp.active = false;
-  } else if (isSupabaseConfigured()) {
-    const supabase = await getSupabaseDataClient();
-    if (!supabase) throw new Error("Supabase is not configured");
-    const { data: updated, error } = await supabase
-      .from("employees")
-      .update({ leave_date: data.leaveDate, active: false })
-      .eq("id", data.employeeId)
-      .eq("client_id", data.clientId)
-      .select("id")
-      .maybeSingle();
-    if (error) throw new Error(`Could not update employee: ${error.message}`);
-    if (!updated) throw new Error("Employee not found");
+  } else if (isDeskStoreConfigured()) {
+    await deskUpdateEmployee(data.employeeId, data.clientId, {
+      leave_date: data.leaveDate,
+      active: false,
+    });
   } else {
     const { getDb } = await import("@/server/db");
     const { employees } = await import("@/server/db/schema");
@@ -434,17 +429,14 @@ async function loadTimesheetRows(
     );
     return Array.isArray(row?.rows) ? (row.rows as TimesheetRow[]) : [];
   }
-  const supabase = await getSupabaseDataClient();
-  if (supabase) {
-    const { data, error } = await supabase
-      .from("payroll_timesheets")
-      .select("rows")
-      .eq("client_id", clientId)
-      .eq("period_start", periodStart)
-      .eq("period_end", periodEnd)
-      .maybeSingle();
-    if (error) throw new Error(`Could not load timesheet: ${error.message}`);
-    return Array.isArray(data?.rows) ? (data.rows as TimesheetRow[]) : [];
+  const deskSheets = await deskListTimesheets(clientId);
+  if (deskSheets !== null) {
+    const hit = deskSheets.find(
+      (t) =>
+        String(t.period_start) === periodStart &&
+        String(t.period_end) === periodEnd,
+    );
+    return Array.isArray(hit?.rows) ? (hit.rows as TimesheetRow[]) : [];
   }
   const db = tryGetDb();
   if (!db) return [];
@@ -690,10 +682,8 @@ export async function createAndSubmitPayRun(input: z.input<typeof payRunSchema>)
         emp.previousPayrollId = null;
       }
     }
-  } else if (isSupabaseConfigured()) {
-    const supabase = await getSupabaseDataClient();
-    if (!supabase) throw new Error("Supabase is not configured");
-    const { error: insertError } = await supabase.from("pay_runs").insert({
+  } else if (isDeskStoreConfigured()) {
+    await deskInsertPayRun({
       id: payRun.id,
       client_id: payRun.clientId,
       pay_date: payRun.payDate,
@@ -708,20 +698,8 @@ export async function createAndSubmitPayRun(input: z.input<typeof payRunSchema>)
       hmrc_correlation_id: payRun.hmrcCorrelationId ?? null,
       submitted_at: payRun.submittedAt,
     });
-    if (insertError) {
-      throw new Error(`Could not save pay run: ${insertError.message}`);
-    }
     const ids = pack.lines.map((line) => line.employeeId);
-    if (ids.length) {
-      const { error: updateError } = await supabase
-        .from("employees")
-        .update({ first_fps_sent: true, previous_payroll_id: null })
-        .in("id", ids)
-        .eq("client_id", data.clientId);
-      if (updateError) {
-        throw new Error(`Could not update employees: ${updateError.message}`);
-      }
-    }
+    await deskMarkEmployeesFpsSent(data.clientId, ids);
   } else {
     const { getDb } = await import("@/server/db");
     const { payRuns, employees } = await import("@/server/db/schema");
@@ -801,10 +779,8 @@ export async function submitEpsNoPayment(clientId: string, taxYear: string) {
   };
   if (isDemoMode()) {
     demoStore.payRuns.push(payRun);
-  } else if (isSupabaseConfigured()) {
-    const supabase = await getSupabaseDataClient();
-    if (!supabase) throw new Error("Supabase is not configured");
-    const { error } = await supabase.from("pay_runs").insert({
+  } else if (isDeskStoreConfigured()) {
+    await deskInsertPayRun({
       id: payRun.id,
       client_id: payRun.clientId,
       pay_date: payRun.payDate,
@@ -819,7 +795,6 @@ export async function submitEpsNoPayment(clientId: string, taxYear: string) {
       hmrc_correlation_id: payRun.hmrcCorrelationId ?? null,
       submitted_at: payRun.submittedAt,
     });
-    if (error) throw new Error(`Could not save EPS: ${error.message}`);
   } else {
     const { getDb } = await import("@/server/db");
     const { payRuns } = await import("@/server/db/schema");
@@ -852,15 +827,9 @@ export async function listPayRuns(clientId: string) {
       .slice()
       .reverse();
   }
-  const supabase = await getSupabaseDataClient();
-  if (supabase) {
-    const { data, error } = await supabase
-      .from("pay_runs")
-      .select("*")
-      .eq("client_id", clientId)
-      .order("created_at", { ascending: false });
-    if (error) throw new Error(`Could not load pay runs: ${error.message}`);
-    return (data ?? []).map((row) => mapSnakeCaseRow(row));
+  const deskRows = await deskListPayRuns(clientId);
+  if (deskRows !== null) {
+    return deskRows.map((row) => mapSnakeCaseRow(row));
   }
   const db = tryGetDb();
   if (!db) return [];
@@ -934,21 +903,15 @@ export async function importTimesheet(formData: FormData) {
         ),
     );
     demoStore.payrollTimesheets.push(record);
-  } else if (isSupabaseConfigured()) {
-    const supabase = await getSupabaseDataClient();
-    if (!supabase) throw new Error("Supabase is not configured");
-    const { error } = await supabase.from("payroll_timesheets").upsert(
-      {
-        id: record.id,
-        client_id: clientId,
-        period_start: periodStart,
-        period_end: periodEnd,
-        filename: record.filename,
-        rows: parsed.rows,
-      },
-      { onConflict: "client_id,period_start,period_end" },
-    );
-    if (error) throw new Error(`Could not save timesheet: ${error.message}`);
+  } else if (isDeskStoreConfigured()) {
+    await deskUpsertTimesheet({
+      id: record.id,
+      client_id: clientId,
+      period_start: periodStart,
+      period_end: periodEnd,
+      filename: record.filename,
+      rows: parsed.rows,
+    });
   } else {
     const { getDb } = await import("@/server/db");
     const { payrollTimesheets } = await import("@/server/db/schema");
