@@ -23,9 +23,13 @@ export default async function VatPage({
   const { id } = await params;
   const client = await getClient(id);
   const [obligations, returns, connection] = await Promise.all([
-    listVatObligations(id),
-    listVatReturns(id),
-    getConnectionStatus(id),
+    listVatObligations(id).catch(() => []),
+    listVatReturns(id).catch(() => []),
+    getConnectionStatus(id).catch(() => ({
+      connected: false,
+      hmrcEnv: "sandbox" as const,
+      scopes: "",
+    })),
   ]);
 
   return (

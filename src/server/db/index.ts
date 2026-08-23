@@ -19,4 +19,14 @@ export function getDb() {
   return db;
 }
 
+/** Prefer this in page loaders — never throw when Neon is not configured. */
+export function tryGetDb() {
+  if (!hasDatabase()) return null;
+  try {
+    return getDb();
+  } catch {
+    return null;
+  }
+}
+
 export { schema };

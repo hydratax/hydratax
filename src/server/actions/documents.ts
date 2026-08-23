@@ -14,6 +14,7 @@ import { getClient } from "@/server/actions/clients";
 import { memoryStore, type MemoryDocument } from "@/server/demo/store";
 import { appendAuditEvent } from "@/server/audit/log";
 import { uploadToR2 } from "@/server/storage/r2";
+import { tryGetDb } from "@/server/db";
 
 const MAX_BYTES = 15 * 1024 * 1024;
 
@@ -71,10 +72,11 @@ export async function listClientDocuments(clientId: string) {
     return memoryStore.documents.filter((d) => d.clientId === clientId);
   }
 
-  const { getDb } = await import("@/server/db");
+  const db = tryGetDb();
+  if (!db) return [];
   const { clientDocuments } = await import("@/server/db/schema");
   const { eq, desc } = await import("drizzle-orm");
-  return getDb()
+  return db
     .select()
     .from(clientDocuments)
     .where(eq(clientDocuments.clientId, clientId))

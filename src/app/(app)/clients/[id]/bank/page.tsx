@@ -13,7 +13,7 @@ export default async function ClientBankPage({
 }) {
   const { id } = await params;
   const client = await getClient(id);
-  const transactions = await listBankTransactions(id);
+  const transactions = await listBankTransactions(id).catch(() => []);
   const draft = await getTaxDraftFromBank(id);
 
   return (

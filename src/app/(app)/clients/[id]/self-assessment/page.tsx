@@ -18,9 +18,11 @@ export default async function SelfAssessmentPage({
 }) {
   const { id } = await params;
   const client = await getClient(id);
-  const submissions = await listSaSubmissions(id);
-  const sa100Draft = await getSa100Draft(id, "2025-26");
-  const sa100Returns = await listSa100Returns(id);
+  const [submissions, sa100Draft, sa100Returns] = await Promise.all([
+    listSaSubmissions(id).catch(() => []),
+    getSa100Draft(id, "2025-26").catch(() => null),
+    listSa100Returns(id).catch(() => []),
+  ]);
 
   return (
     <div>

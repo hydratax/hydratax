@@ -19,6 +19,7 @@ import {
 import { getValidAccessToken } from "@/server/hmrc/tokens";
 import { appendAuditEvent } from "@/server/audit/log";
 import { getHmrcConfig } from "@/server/hmrc/config";
+import { tryGetDb } from "@/server/db";
 
 const prepareSchema = z.object({
   clientId: z.string(),
@@ -98,10 +99,11 @@ export async function listVatReturns(clientId: string) {
   if (isDemoMode()) {
     return demoStore.vatReturns.filter((r) => r.clientId === clientId);
   }
-  const { getDb } = await import("@/server/db");
+  const db = tryGetDb();
+  if (!db) return [];
   const { vatReturns } = await import("@/server/db/schema");
   const { eq } = await import("drizzle-orm");
-  return getDb().select().from(vatReturns).where(eq(vatReturns.clientId, clientId));
+  return db.select().from(vatReturns).where(eq(vatReturns.clientId, clientId));
 }
 
 export async function submitPreparedVatReturn(

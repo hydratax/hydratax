@@ -14,6 +14,7 @@ import {
   submitCt600Xml,
 } from "@/server/hmrc/ct600";
 import { appendAuditEvent } from "@/server/audit/log";
+import { tryGetDb } from "@/server/db";
 
 const figuresFormSchema = z.object({
   clientId: z.string(),
@@ -111,10 +112,11 @@ export async function listCt600Returns(clientId: string) {
   if (isDemoMode()) {
     return demoStore.ct600Returns.filter((r) => r.clientId === clientId);
   }
-  const { getDb } = await import("@/server/db");
+  const db = tryGetDb();
+  if (!db) return [];
   const { ct600Returns } = await import("@/server/db/schema");
   const { eq } = await import("drizzle-orm");
-  return getDb()
+  return db
     .select()
     .from(ct600Returns)
     .where(eq(ct600Returns.clientId, clientId));

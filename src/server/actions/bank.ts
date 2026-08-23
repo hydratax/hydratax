@@ -18,6 +18,7 @@ import { summariseForYearEndAccounts } from "@/server/accounts/year-end-from-ban
 import { appendAuditEvent } from "@/server/audit/log";
 import { put } from "@vercel/blob";
 import { isBlobConfigured } from "@/lib/env";
+import { tryGetDb } from "@/server/db";
 
 export async function importBankCsv(formData: FormData) {
   const session = await requireSession();
@@ -150,10 +151,11 @@ export async function listBankTransactions(clientId: string) {
   if (isMemoryStore()) {
     return memoryStore.bankTransactions.filter((t) => t.clientId === clientId);
   }
-  const { getDb } = await import("@/server/db");
+  const db = tryGetDb();
+  if (!db) return [];
   const { bankTransactions } = await import("@/server/db/schema");
   const { eq, desc } = await import("drizzle-orm");
-  return getDb()
+  return db
     .select()
     .from(bankTransactions)
     .where(eq(bankTransactions.clientId, clientId))

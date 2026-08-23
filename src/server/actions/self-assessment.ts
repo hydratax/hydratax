@@ -21,6 +21,7 @@ import {
 import { getValidAccessToken } from "@/server/hmrc/tokens";
 import { appendAuditEvent } from "@/server/audit/log";
 import { getHmrcConfig } from "@/server/hmrc/config";
+import { tryGetDb } from "@/server/db";
 
 const draftSchema = z.object({
   clientId: z.string(),
@@ -93,10 +94,11 @@ export async function listSaSubmissions(clientId: string) {
   if (isDemoMode()) {
     return demoStore.saSubmissions.filter((s) => s.clientId === clientId);
   }
-  const { getDb } = await import("@/server/db");
+  const db = tryGetDb();
+  if (!db) return [];
   const { saSubmissions } = await import("@/server/db/schema");
   const { eq } = await import("drizzle-orm");
-  return getDb()
+  return db
     .select()
     .from(saSubmissions)
     .where(eq(saSubmissions.clientId, clientId));

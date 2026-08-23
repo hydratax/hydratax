@@ -35,6 +35,7 @@ import {
 import { buildPayrollPackZip } from "@/server/payroll/pack";
 import { decryptSecret, encryptSecret } from "@/server/hmrc/crypto";
 import type { TimesheetAdjustments } from "@/server/payroll/statutory";
+import { hasDatabase, tryGetDb } from "@/server/db";
 
 const addEmployeeForm = z.object({
   clientId: z.string(),
@@ -107,7 +108,6 @@ function asEmployee(row: Record<string, unknown> | MemoryEmployee): PayrollEmplo
 }
 
 export async function listEmployees(clientId: string, opts?: { includeLeavers?: boolean }) {
-  await ensurePayrollSchema();
   await getClient(clientId);
   if (isDemoMode()) {
     return demoStore.employees
@@ -115,10 +115,12 @@ export async function listEmployees(clientId: string, opts?: { includeLeavers?: 
       .filter((e) => (opts?.includeLeavers ? true : e.active))
       .map((e) => asEmployee(e));
   }
-  const { getDb } = await import("@/server/db");
+  const db = tryGetDb();
+  if (!db) return [];
+  await ensurePayrollSchema();
   const { employees } = await import("@/server/db/schema");
   const { eq } = await import("drizzle-orm");
-  const rows = await getDb()
+  const rows = await db
     .select()
     .from(employees)
     .where(eq(employees.clientId, clientId));
@@ -358,10 +360,11 @@ async function loadTimesheetRows(
     );
     return Array.isArray(row?.rows) ? (row.rows as TimesheetRow[]) : [];
   }
-  const { getDb } = await import("@/server/db");
+  const db = tryGetDb();
+  if (!db) return [];
   const { payrollTimesheets } = await import("@/server/db/schema");
   const { and, eq } = await import("drizzle-orm");
-  const rows = await getDb()
+  const rows = await db
     .select()
     .from(payrollTimesheets)
     .where(
@@ -685,7 +688,6 @@ export async function submitEpsNoPayment(clientId: string, taxYear: string) {
 }
 
 export async function listPayRuns(clientId: string) {
-  await ensurePayrollSchema();
   await getClient(clientId);
   if (isDemoMode()) {
     return demoStore.payRuns
@@ -693,10 +695,12 @@ export async function listPayRuns(clientId: string) {
       .slice()
       .reverse();
   }
-  const { getDb } = await import("@/server/db");
+  const db = tryGetDb();
+  if (!db) return [];
+  await ensurePayrollSchema();
   const { payRuns } = await import("@/server/db/schema");
   const { eq, desc } = await import("drizzle-orm");
-  return getDb()
+  return db
     .select()
     .from(payRuns)
     .where(eq(payRuns.clientId, clientId))
@@ -810,8 +814,14 @@ export async function timesheetTemplateBase64() {
 }
 
 export async function getPayrollPackSettings(clientId: string) {
-  await ensurePayrollSchema();
   const client = await getClient(clientId);
+  if (!isDemoMode() && !hasDatabase()) {
+    return {
+      hasPackPassword: false,
+      contactEmail: client.contactEmail ?? null,
+    };
+  }
+  await ensurePayrollSchema();
   const encrypted = isDemoMode()
     ? demoStore.clients.find((c) => c.id === clientId)?.payrollPackPasswordEncrypted
     : (client as { payrollPackPasswordEncrypted?: string | null })

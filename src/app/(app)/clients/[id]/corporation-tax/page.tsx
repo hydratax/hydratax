@@ -22,7 +22,7 @@ export default async function CorporationTaxPage({
   const { id } = await params;
   const query = await searchParams;
   const client = await getClient(id);
-  const returns = await listCt600Returns(id);
+  const returns = await listCt600Returns(id).catch(() => []);
   const filedElsewhere = query.note === "filed-elsewhere";
 
   return (

@@ -13,7 +13,7 @@ export default async function ClientDocumentsPage({
 }) {
   const { id } = await params;
   const client = await getClient(id);
-  const docs = await listClientDocuments(id);
+  const docs = await listClientDocuments(id).catch(() => []);
   const storageHint = isBlobConfigured()
     ? "Vercel Blob"
     : isMemoryStore()

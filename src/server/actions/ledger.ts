@@ -8,6 +8,7 @@ import { isDemoMode } from "@/lib/env";
 import { demoStore } from "@/server/demo/store";
 import { vatOnNet, poundsToPence } from "@/server/money/pence";
 import { appendAuditEvent } from "@/server/audit/log";
+import { tryGetDb } from "@/server/db";
 
 const addEntrySchema = z.object({
   clientId: z.string().min(1),
@@ -27,10 +28,11 @@ export async function listLedgerEntries(clientId: string) {
       .sort((a, b) => b.dated.localeCompare(a.dated));
   }
 
-  const { getDb } = await import("@/server/db");
+  const db = tryGetDb();
+  if (!db) return [];
   const { ledgerEntries } = await import("@/server/db/schema");
   const { eq, desc } = await import("drizzle-orm");
-  return getDb()
+  return db
     .select()
     .from(ledgerEntries)
     .where(eq(ledgerEntries.clientId, clientId))

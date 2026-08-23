@@ -21,10 +21,15 @@ export default async function PayrollPage({
     redirect("/clients");
   }
   const { id } = await params;
-  const pack = await getPayrollPackSettings(id);
   const client = await getClient(id);
-  const employees = await listEmployees(id, { includeLeavers: true });
-  const payRuns = await listPayRuns(id);
+  const [pack, employees, payRuns] = await Promise.all([
+    getPayrollPackSettings(id).catch(() => ({
+      hasPackPassword: false,
+      contactEmail: client.contactEmail ?? null,
+    })),
+    listEmployees(id, { includeLeavers: true }).catch(() => []),
+    listPayRuns(id).catch(() => []),
+  ]);
 
   return (
     <div>

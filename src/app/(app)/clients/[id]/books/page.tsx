@@ -11,7 +11,7 @@ export default async function BooksPage({
 }) {
   const { id } = await params;
   const client = await getClient(id);
-  const entries = await listLedgerEntries(id);
+  const entries = await listLedgerEntries(id).catch(() => []);
 
   const income = entries
     .filter((e) => e.type === "income")
