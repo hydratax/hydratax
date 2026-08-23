@@ -474,10 +474,12 @@ export async function deskInsertBankTransactions(
   rows: Array<Record<string, unknown>>,
 ) {
   if (!rows.length) return;
-  const chunkSize = 100;
+  // D1/SQLite caps bound parameters per statement (~100); 8 cols → max ~12 rows.
+  const d1ChunkSize = 12;
+  const supabaseChunkSize = 100;
   if (isD1Configured()) {
-    for (let i = 0; i < rows.length; i += chunkSize) {
-      const chunk = rows.slice(i, i + chunkSize);
+    for (let i = 0; i < rows.length; i += d1ChunkSize) {
+      const chunk = rows.slice(i, i + d1ChunkSize);
       const placeholders = chunk
         .map(() => "(?, ?, ?, ?, ?, ?, ?, ?)")
         .join(", ");
@@ -506,8 +508,8 @@ export async function deskInsertBankTransactions(
   }
   const supabase = await getSupabaseDataClient();
   if (!supabase) throw new Error("Desk storage is not configured");
-  for (let i = 0; i < rows.length; i += chunkSize) {
-    const chunk = rows.slice(i, i + chunkSize);
+  for (let i = 0; i < rows.length; i += supabaseChunkSize) {
+    const chunk = rows.slice(i, i + supabaseChunkSize);
     const { error } = await supabase.from("bank_transactions").insert(chunk);
     if (error) {
       throw new Error(`Could not save bank transactions: ${error.message}`);
