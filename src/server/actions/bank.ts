@@ -15,6 +15,9 @@ import {
   type BankCategory,
 } from "@/server/bank/categorise";
 import { summariseForYearEndAccounts } from "@/server/accounts/year-end-from-bank";
+import { parseComparatives, companiesHouseAccountsPeriod } from "@/lib/accounting-periods";
+import { buildCategoryLabelMap } from "@/lib/bank-categories";
+import { deskListCustomBankCategories } from "@/server/db/desk-store";
 import { appendAuditEvent } from "@/server/audit/log";
 import { put } from "@vercel/blob";
 import { isBlobConfigured } from "@/lib/env";
@@ -23,7 +26,11 @@ import {
   isDeskStoreConfigured,
   deskListBankTransactions,
   deskInsertBankTransactions,
+  deskDeleteBankTransactionsForClient,
+  deskDedupeBankTransactionsForClient,
+  deskReplaceBankTransactions,
   deskUpdateBankCategory,
+  deskUpdateBankCategoriesBulk,
   mapSnakeCaseRow,
 } from "@/server/db/desk-store";
 
@@ -39,7 +46,7 @@ function mapDeskBankTransaction(row: Record<string, unknown>) {
       mapped.balancePence == null ? null : Number(mapped.balancePence),
     category: String(
       mapped.category ??
-        (Number(mapped.amountPence) > 0 ? "turnover" : "admin_expenses"),
+        (Number(mapped.amountPence) > 0 ? "turnover" : "expense_queries"),
     ) as BankCategory,
     matchedLedgerId:
       mapped.matchedLedgerId == null ? null : String(mapped.matchedLedgerId),
@@ -57,6 +64,18 @@ export type BankImportResult =
       message: string;
     }
   | { ok: false; error: string };
+
+function dedupeImportLines(lines: CategorisedLine[]): CategorisedLine[] {
+  const seen = new Set<string>();
+  const out: CategorisedLine[] = [];
+  for (const line of lines) {
+    const key = `${line.dated}|${line.description}|${line.amountPence}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(line);
+  }
+  return out;
+}
 
 export async function importBankCsv(formData: FormData): Promise<BankImportResult> {
   try {
@@ -160,8 +179,12 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
     "@/server/bank/merchant-identifiers"
   );
   lines = await applyIdentifierRules(lines, session.practiceId);
+  lines = dedupeImportLines(lines);
 
   if (isMemoryStore()) {
+    memoryStore.bankTransactions = memoryStore.bankTransactions.filter(
+      (t) => t.clientId !== clientId,
+    );
     for (const line of lines) {
       memoryStore.bankTransactions.push({
         id: crypto.randomUUID(),
@@ -174,7 +197,8 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
     }
   } else if (isDeskStoreConfigured()) {
     try {
-      await deskInsertBankTransactions(
+      await deskReplaceBankTransactions(
+        clientId,
         lines.map((line) => ({
           client_id: clientId,
           dated: line.dated,
@@ -198,6 +222,10 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
       };
     }
     const { bankTransactions } = await import("@/server/db/schema");
+    const { eq } = await import("drizzle-orm");
+    await getDb()
+      .delete(bankTransactions)
+      .where(eq(bankTransactions.clientId, clientId));
     const chunkSize = 100;
     const mapped = lines.map((line) => ({
       practiceId: session.practiceId,
@@ -235,7 +263,7 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
     ok: true,
     lines,
     pdfStored: false,
-    message: `Imported ${lines.length} lines`,
+    message: `Replaced bank data with ${lines.length} lines from ${file.name}`,
   };
   } catch (err) {
     const message =
@@ -278,7 +306,7 @@ export async function listBankTransactions(clientId: string) {
 
 export async function updateBankCategory(
   transactionId: string,
-  category: BankCategory,
+  category: string,
 ) {
   const session = await requireSession();
   let clientId: string | null = null;
@@ -310,7 +338,156 @@ export async function updateBankCategory(
   return { ok: true, actor: session.userId };
 }
 
+export async function updateBankCategoriesBulk(
+  transactionIds: string[],
+  category: string,
+) {
+  const session = await requireSession();
+  if (session.role === "readonly") {
+    return { ok: false as const, error: "Read-only access." };
+  }
+  const ids = [...new Set(transactionIds.filter(Boolean))];
+  if (!ids.length) {
+    return { ok: true as const, updated: 0 };
+  }
+
+  let clientId: string | null = null;
+  let updated = 0;
+
+  if (isMemoryStore()) {
+    for (const id of ids) {
+      const row = memoryStore.bankTransactions.find((t) => t.id === id);
+      if (!row) continue;
+      row.category = category;
+      row.confidence = "high";
+      clientId = row.clientId;
+      updated += 1;
+    }
+  } else if (isDeskStoreConfigured()) {
+    clientId = await deskUpdateBankCategoriesBulk(ids, category);
+    updated = ids.length;
+  } else {
+    const { getDb } = await import("@/server/db");
+    const { bankTransactions } = await import("@/server/db/schema");
+    const { eq, inArray } = await import("drizzle-orm");
+    const chunkSize = 100;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const result = await getDb()
+        .update(bankTransactions)
+        .set({ category, confidence: "high" })
+        .where(inArray(bankTransactions.id, chunk))
+        .returning({ clientId: bankTransactions.clientId });
+      if (result[0]?.clientId) clientId = result[0].clientId;
+      updated += result.length;
+    }
+  }
+
+  revalidatePath(`/clients`);
+  if (clientId) {
+    revalidatePath(`/clients/${clientId}/bank`);
+    revalidatePath(`/clients/${clientId}/accounts-pack`);
+  }
+  return { ok: true as const, updated };
+}
+
+export async function clearBankTransactions(clientId: string) {
+  const session = await requireSession();
+  if (session.role === "readonly") {
+    return { ok: false as const, error: "Read-only access." };
+  }
+  await getClient(clientId);
+
+  if (isMemoryStore()) {
+    const before = memoryStore.bankTransactions.filter(
+      (t) => t.clientId === clientId,
+    ).length;
+    memoryStore.bankTransactions = memoryStore.bankTransactions.filter(
+      (t) => t.clientId !== clientId,
+    );
+    revalidatePath(`/clients/${clientId}/bank`);
+    return { ok: true as const, removed: before };
+  }
+
+  if (isDeskStoreConfigured()) {
+    const txs = await listBankTransactions(clientId);
+    await deskDeleteBankTransactionsForClient(clientId);
+    revalidatePath(`/clients/${clientId}/bank`);
+    revalidatePath(`/clients/${clientId}/accounts-pack`);
+    return { ok: true as const, removed: txs.length };
+  }
+
+  const { getDb, hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) {
+    return { ok: false as const, error: "Bank storage is not configured." };
+  }
+  const { bankTransactions } = await import("@/server/db/schema");
+  const { eq } = await import("drizzle-orm");
+  const txs = await listBankTransactions(clientId);
+  await getDb()
+    .delete(bankTransactions)
+    .where(eq(bankTransactions.clientId, clientId));
+  revalidatePath(`/clients/${clientId}/bank`);
+  revalidatePath(`/clients/${clientId}/accounts-pack`);
+  return { ok: true as const, removed: txs.length };
+}
+
+export async function dedupeBankTransactions(clientId: string) {
+  const session = await requireSession();
+  if (session.role === "readonly") {
+    return { ok: false as const, error: "Read-only access." };
+  }
+  await getClient(clientId);
+
+  if (isMemoryStore()) {
+    const kept = new Map<string, (typeof memoryStore.bankTransactions)[number]>();
+    const toRemove: string[] = [];
+    for (const tx of memoryStore.bankTransactions) {
+      if (tx.clientId !== clientId) continue;
+      const key = `${tx.dated}|${tx.description}|${tx.amountPence}`;
+      if (!kept.has(key)) kept.set(key, tx);
+      else toRemove.push(tx.id);
+    }
+    memoryStore.bankTransactions = memoryStore.bankTransactions.filter(
+      (t) => !toRemove.includes(t.id),
+    );
+    revalidatePath(`/clients/${clientId}/bank`);
+    return { ok: true as const, removed: toRemove.length };
+  }
+
+  if (isDeskStoreConfigured()) {
+    const removed = await deskDedupeBankTransactionsForClient(clientId);
+    revalidatePath(`/clients/${clientId}/bank`);
+    revalidatePath(`/clients/${clientId}/accounts-pack`);
+    return { ok: true as const, removed };
+  }
+
+  const db = tryGetDb();
+  if (!db) {
+    return { ok: false as const, error: "Bank storage is not configured." };
+  }
+  const txs = await listBankTransactions(clientId);
+  const seen = new Map<string, string>();
+  const deleteIds: string[] = [];
+  for (const tx of txs) {
+    const key = `${tx.dated}|${tx.description}|${tx.amountPence}`;
+    if (!seen.has(key)) seen.set(key, tx.id);
+    else deleteIds.push(tx.id);
+  }
+  if (deleteIds.length) {
+    const { bankTransactions } = await import("@/server/db/schema");
+    const { eq, inArray } = await import("drizzle-orm");
+    await db
+      .delete(bankTransactions)
+      .where(inArray(bankTransactions.id, deleteIds));
+  }
+  revalidatePath(`/clients/${clientId}/bank`);
+  revalidatePath(`/clients/${clientId}/accounts-pack`);
+  return { ok: true as const, removed: deleteIds.length };
+}
+
 export async function getTaxDraftFromBank(clientId: string) {
+  const client = await getClient(clientId);
   const txs = await listBankTransactions(clientId);
   const lines: CategorisedLine[] = txs.map((t) => ({
     dated: t.dated,
@@ -320,9 +497,12 @@ export async function getTaxDraftFromBank(clientId: string) {
     confidence: (t.confidence as CategorisedLine["confidence"]) ?? "low",
   }));
   return {
-    selfAssessment: summariseForSelfAssessment(lines),
+    selfAssessment: summariseForSelfAssessment(lines, {
+      clientType: client.type,
+    }),
     corporationTax: summariseForCorporationTax(lines),
     lineCount: lines.length,
+    clientType: client.type,
   };
 }
 
@@ -331,16 +511,40 @@ export async function getYearEndAccountsDraftFromBank(
   periodStart: string,
   periodEnd: string,
 ) {
-  await getClient(clientId);
+  const session = await requireSession();
+  const client = await getClient(clientId);
   const txs = await listBankTransactions(clientId);
+  const custom = await deskListCustomBankCategories(session.practiceId);
+  const customCategoryLabels = buildCategoryLabelMap(custom);
   const lines: CategorisedLine[] = txs.map((t) => ({
     dated: t.dated,
     description: t.description,
     amountPence: t.amountPence,
-    category: t.category as BankCategory,
+    category: t.category,
     confidence: (t.confidence as CategorisedLine["confidence"]) ?? "low",
   }));
-  return summariseForYearEndAccounts(lines, { periodStart, periodEnd });
+  const ch =
+    "companiesHouse" in client ? client.companiesHouse : null;
+  const poa = companiesHouseAccountsPeriod({
+    incorporatedOn: ch?.incorporatedOn,
+    accountsPeriodEnd: ch?.accountsPeriodEnd,
+    lastAccountsMadeUpTo: ch?.lastAccountsMadeUpTo,
+  });
+  const comps = parseComparatives(
+    "accountsComparatives" in client ? client.accountsComparatives : null,
+  );
+  const firstYear = poa.firstYear;
+  return summariseForYearEndAccounts(lines, {
+    periodStart,
+    periodEnd,
+    customCategoryLabels,
+    openingCashPence: firstYear
+      ? 0
+      : (comps.cashAtBankPence ?? undefined),
+    retainedBroughtForwardPence: firstYear
+      ? 0
+      : (comps.profitAndLossReservePence ?? undefined),
+  });
 }
 
 const connectSchema = z.object({

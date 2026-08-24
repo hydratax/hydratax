@@ -30,6 +30,7 @@ const COLUMNS = [
     title: "Learn",
     links: [
       { href: "/blog", label: "Guides" },
+      { href: "/blog/how-to-verify-identity-companies-house", label: "Verify CH identity" },
       { href: "/blog/what-is-making-tax-digital", label: "Making Tax Digital" },
       { href: "/blog/what-is-a-confirmation-statement", label: "Confirmation statement" },
       { href: "/blog/hmrc-ct600-regulation-changes", label: "CT600 changes" },

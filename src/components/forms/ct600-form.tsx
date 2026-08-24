@@ -15,12 +15,22 @@ function penceToInput(n: number) {
   return (n / 100).toFixed(2);
 }
 
-export function Ct600Form({ clientId }: { clientId: string }) {
+export function Ct600Form({
+  clientId,
+  defaultPeriodStart,
+  defaultPeriodEnd,
+}: {
+  clientId: string;
+  defaultPeriodStart?: string;
+  defaultPeriodEnd?: string;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [step, setStep] = useState(0);
-  const [periodStart, setPeriodStart] = useState("2025-04-01");
-  const [periodEnd, setPeriodEnd] = useState("2026-03-31");
+  const [periodStart, setPeriodStart] = useState(
+    defaultPeriodStart ?? "2025-04-01",
+  );
+  const [periodEnd, setPeriodEnd] = useState(defaultPeriodEnd ?? "2026-03-31");
   const [filingMode, setFilingMode] = useState<
     "ct600" | "accounts" | "both"
   >("ct600");

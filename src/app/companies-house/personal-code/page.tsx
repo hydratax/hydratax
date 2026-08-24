@@ -53,7 +53,15 @@ export default function PersonalCodePage() {
           >
             Companies House personal codes guidance (GOV.UK)
           </a>
-          . Always use the official guidance for the latest rules.
+          . Always use the official guidance for the latest rules. For a
+          first-timer walkthrough, see our guide:{" "}
+          <Link
+            href="/blog/how-to-verify-identity-companies-house"
+            className="font-semibold text-sea"
+          >
+            How to verify your identity for Companies House
+          </Link>
+          .
         </aside>
 
         <section className="mt-10 space-y-4">

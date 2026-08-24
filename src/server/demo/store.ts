@@ -18,9 +18,11 @@ export type MemoryClient = {
   isEmployer: boolean;
   isVatRegistered: boolean;
   contactEmail?: string | null;
+  contactPhone?: string | null;
   payrollPackPasswordEncrypted?: string | null;
   /** Companies House enrichment for limited companies */
   companiesHouse?: import("@/server/companies-house/enrich-client").ClientCompaniesHouseSnapshot | null;
+  accountsComparatives?: import("@/lib/accounting-periods").PriorYearComparatives | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -109,10 +111,15 @@ export type MemoryEmailLog = {
   id: string;
   practiceId: string;
   clientId: string;
-  toDomain: string;
+  sentBy: string | null;
+  fromEmail: string;
+  toEmail: string;
   subject: string;
+  messagePreview: string | null;
+  kind: string;
   documentCount: number;
   delivery: string;
+  accountsDue: string | null;
   createdAt: string;
 };
 
@@ -149,6 +156,7 @@ export type MemoryAccountProfile = {
   orgType: "company" | "sole_trader" | "partnership" | "practice";
   orgSearch: string;
   firstName: string;
+  surname?: string;
   /** Not exposed on admin dashboards */
   createdAt: string;
 };
@@ -186,7 +194,25 @@ export type MemoryInvoice = {
   vatPence: number;
   totalPence: number;
   notes: string | null;
+  /** Customer PO / reference */
+  reference: string | null;
+  /** Bank details / how to pay */
+  paymentInstructions: string | null;
   lines: MemoryInvoiceLine[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Practice-level reusable invoice line (description + amount + VAT). */
+export type MemoryInvoiceLineTemplate = {
+  id: string;
+  practiceId: string;
+  label: string | null;
+  description: string;
+  quantity: number;
+  unitPricePence: number;
+  vatRateBps: 0 | 500 | 2000;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -235,6 +261,7 @@ type MemoryStore = {
   trialBalances: import("@/server/trial-balance/map").TrialBalance[];
   teamMembers: MemoryTeamMember[];
   invoices: MemoryInvoice[];
+  invoiceLineTemplates: MemoryInvoiceLineTemplate[];
   featureRequests: MemoryFeatureRequest[];
   featureVotes: MemoryFeatureVote[];
   csFilings: import("@/server/companies-house/filing/types").CsFilingRecord[];
@@ -316,6 +343,7 @@ function emptyStore(): MemoryStore {
     trialBalances: [],
     teamMembers: [],
     invoices: [],
+    invoiceLineTemplates: [],
     featureRequests: seedFeatureRequests(),
     featureVotes: [],
     csFilings: [],

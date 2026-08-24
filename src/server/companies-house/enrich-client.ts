@@ -13,6 +13,7 @@ export type ClientCompaniesHouseSnapshot = {
   incorporatedOn: string | null;
   accountsNextDue: string | null;
   accountsPeriodEnd: string | null;
+  lastAccountsMadeUpTo?: string | null;
   confirmationStatementNextDue: string | null;
   confirmationStatementLastMadeUpTo: string | null;
   registeredOffice: string | null;
@@ -111,6 +112,10 @@ export async function enrichLimitedCompanyFromCh(
       accounts?.next_accounts?.period_end_on ??
       accounts?.next_made_up_to ??
       accounts?.last_accounts?.made_up_to ??
+      null,
+    lastAccountsMadeUpTo:
+      accounts?.last_accounts?.made_up_to ??
+      accounts?.last_accounts?.period_end_on ??
       null,
     confirmationStatementNextDue: conf?.next_due ?? null,
     confirmationStatementLastMadeUpTo: conf?.last_made_up_to ?? null,

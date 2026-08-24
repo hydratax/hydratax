@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 import { isSupabaseConfigured } from "@/lib/env";
+import { isClientUuid } from "@/lib/client-slug";
 
 const PUBLIC_PREFIXES = [
   "/",
@@ -114,6 +115,27 @@ export default async function proxy(request: NextRequest) {
     const redirectResponse = NextResponse.redirect(url);
     copyCookies(response, redirectResponse);
     return redirectResponse;
+  }
+
+  // Canonical client URLs: /clients/<uuid>/… → /clients/<name-slug>/…
+  const clientMatch = pathname.match(/^\/clients\/([^/]+)(\/.*)?$/);
+  if (clientMatch && isClientUuid(clientMatch[1])) {
+    try {
+      const slugRes = await fetch(
+        new URL(`/api/internal/client-slug/${clientMatch[1]}`, request.url),
+        { headers: { cookie: request.headers.get("cookie") ?? "" } },
+      );
+      if (slugRes.ok) {
+        const { slug } = (await slugRes.json()) as { slug: string };
+        const url = request.nextUrl.clone();
+        url.pathname = `/clients/${slug}${clientMatch[2] ?? ""}`;
+        const redirectResponse = NextResponse.redirect(url, 308);
+        copyCookies(response, redirectResponse);
+        return redirectResponse;
+      }
+    } catch {
+      // page loader resolves or 404s
+    }
   }
 
   return response;

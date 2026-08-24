@@ -8,10 +8,11 @@ import { breadcrumbJsonLd } from "@/lib/seo";
 export const metadata: Metadata = {
   title: "Guides — UK accounting, CT600, MTD VAT, bookkeeping & Companies House",
   description:
-    "HydraTax guides for accountants and small businesses: accounting challenges, bookkeeping difficulties, CT600 HMRC changes, Making Tax Digital, and confirmation statements.",
+    "HydraTax guides for accountants and small businesses: Companies House identity verification, confirmation statements, CT600 HMRC changes, Making Tax Digital, and bookkeeping.",
   keywords: [
     "UK accounting blog",
     "small business tax guides",
+    "Companies House identity verification",
     "CT600 guide",
     "Making Tax Digital explained",
     "confirmation statement guide",
@@ -21,7 +22,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "HydraTax guides for UK accountants and small businesses",
     description:
-      "Practical articles on bookkeeping, CT600, Making Tax Digital and Companies House confirmation statements.",
+      "Practical articles on Companies House identity verification, confirmation statements, CT600, Making Tax Digital and bookkeeping.",
     type: "website",
     url: "/blog",
     images: [

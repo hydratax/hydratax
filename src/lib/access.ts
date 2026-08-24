@@ -39,6 +39,7 @@ export type AppModule =
   | "corporation_tax"
   | "payroll"
   | "documents"
+  | "communications"
   | "bank"
   | "invoices"
   | "team"
@@ -55,6 +56,7 @@ const FULL: AppModule[] = [
   "documents",
   "bank",
   "invoices",
+  "communications",
   "team",
   "admin",
   "clients",
@@ -62,9 +64,9 @@ const FULL: AppModule[] = [
 
 const BY_ACCESS: Record<ModuleAccess, AppModule[]> = {
   full: FULL,
-  payroll: ["overview", "payroll", "documents", "clients"],
-  vat: ["overview", "vat", "documents", "clients"],
-  corporation_tax: ["overview", "corporation_tax", "documents", "clients"],
+  payroll: ["overview", "payroll", "documents", "communications", "clients"],
+  vat: ["overview", "vat", "documents", "communications", "clients"],
+  corporation_tax: ["overview", "corporation_tax", "documents", "communications", "clients"],
 };
 
 export function modulesForAccess(access: ModuleAccess): Set<AppModule> {

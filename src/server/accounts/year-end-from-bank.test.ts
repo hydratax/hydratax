@@ -43,6 +43,7 @@ describe("year-end rollup from bank", () => {
     expect(draft.turnoverPence).toBe(100000);
     expect(draft.note8.fuel).toBe(5000);
     expect(draft.adminExpensesPence).toBe(5000);
-    expect(draft.balanceSheet.cashAtBankPence).toBe(95000);
+    expect(draft.balanceSheet.cashAtBankPence).toBeNull();
+    expect(draft.cashMovementPence).toBe(95000);
   });
 });

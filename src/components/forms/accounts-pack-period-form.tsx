@@ -4,11 +4,11 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export function AccountsPackPeriodForm({
-  clientId,
+  clientSlug,
   periodStart,
   periodEnd,
 }: {
-  clientId: string;
+  clientSlug: string;
   periodStart: string;
   periodEnd: string;
 }) {
@@ -22,7 +22,7 @@ export function AccountsPackPeriodForm({
       onSubmit={(e) => {
         e.preventDefault();
         router.push(
-          `/clients/${clientId}/accounts-pack?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
+          `/clients/${clientSlug}/accounts-pack?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
         );
       }}
     >

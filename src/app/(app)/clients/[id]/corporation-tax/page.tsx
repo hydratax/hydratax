@@ -1,17 +1,22 @@
-import { getClient } from "@/server/actions/clients";
 import { listCt600Returns } from "@/server/actions/ct600";
 import { requireModule } from "@/server/auth/session";
 import { ClientTabs } from "@/components/client-tabs";
 import { Ct600Form } from "@/components/forms/ct600-form";
 import { money } from "@/lib/format";
 import { redirect } from "next/navigation";
+import { loadClientPage } from "@/server/clients/resolve-client-page";
+import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
+import {
+  companiesHouseAccountsPeriod,
+  corporationTaxAccountingPeriods,
+} from "@/lib/accounting-periods";
 
 export default async function CorporationTaxPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ note?: string }>;
+  searchParams: Promise<{ note?: string; start?: string; end?: string }>;
 }) {
   let session;
   try {
@@ -19,11 +24,26 @@ export default async function CorporationTaxPage({
   } catch {
     redirect("/clients");
   }
-  const { id } = await params;
+  const { id: ref } = await params;
   const query = await searchParams;
-  const client = await getClient(id);
-  const returns = await listCt600Returns(id).catch(() => []);
+  const { client, slug, clientId } = await loadClientPage(ref, "corporation-tax");
+  const returns = await listCt600Returns(clientId).catch(() => []);
   const filedElsewhere = query.note === "filed-elsewhere";
+  const ch =
+    ("companiesHouse" in client
+      ? (client.companiesHouse as ClientCompaniesHouseSnapshot | null)
+      : null) ?? null;
+  const poa = companiesHouseAccountsPeriod({
+    incorporatedOn: ch?.incorporatedOn,
+    accountsPeriodEnd: ch?.accountsPeriodEnd,
+    lastAccountsMadeUpTo: ch?.lastAccountsMadeUpTo,
+  });
+  const ctPeriods = corporationTaxAccountingPeriods(poa);
+  const selected =
+    query.start && query.end
+      ? ctPeriods.find((p) => p.start === query.start && p.end === query.end) ??
+        ctPeriods[0]
+      : ctPeriods[0];
 
   return (
     <div>
@@ -33,7 +53,7 @@ export default async function CorporationTaxPage({
         {client.companyNumber ?? "not set"}
       </p>
       <ClientTabs
-        clientId={id}
+        clientSlug={slug}
         active="corporation-tax"
         moduleAccess={session.moduleAccess}
       />
@@ -62,7 +82,12 @@ export default async function CorporationTaxPage({
               Trial balance → CT figures → HMRC checklist → XML → submit.
             </p>
             <div className="mt-4">
-              <Ct600Form clientId={id} />
+              <Ct600Form
+                key={`${selected?.start ?? poa.start}-${selected?.end ?? poa.end}`}
+                clientId={clientId}
+                defaultPeriodStart={selected?.start ?? poa.start}
+                defaultPeriodEnd={selected?.end ?? poa.end}
+              />
             </div>
           </div>
           <div className="panel p-5">

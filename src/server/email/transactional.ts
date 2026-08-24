@@ -7,11 +7,14 @@ export async function sendTransactionalEmail(opts: {
   text: string;
   html?: string;
   replyTo?: string;
+  from?: string;
   listUnsubscribeUrl?: string;
 }): Promise<"resend" | "logged"> {
   const resendKey = process.env.RESEND_API_KEY;
   const from =
-    process.env.EMAIL_FROM ?? "HydraTax <onboarding@resend.dev>";
+    opts.from ??
+    process.env.EMAIL_FROM ??
+    "HydraTax <onboarding@resend.dev>";
   const recipients = Array.isArray(opts.to) ? opts.to : [opts.to];
 
   if (resendKey) {

@@ -1,4 +1,3 @@
-import { getClient } from "@/server/actions/clients";
 import {
   getPayrollPackSettings,
   listEmployees,
@@ -8,6 +7,7 @@ import { requireModule } from "@/server/auth/session";
 import { ClientTabs } from "@/components/client-tabs";
 import { PayrollWorkspace } from "@/components/forms/payroll-workspace";
 import { redirect } from "next/navigation";
+import { loadClientPage } from "@/server/clients/resolve-client-page";
 
 export default async function PayrollPage({
   params,
@@ -20,15 +20,15 @@ export default async function PayrollPage({
   } catch {
     redirect("/clients");
   }
-  const { id } = await params;
-  const client = await getClient(id);
+  const { id: ref } = await params;
+  const { client, slug, clientId } = await loadClientPage(ref, "payroll");
   const [pack, employees, payRuns] = await Promise.all([
-    getPayrollPackSettings(id).catch(() => ({
+    getPayrollPackSettings(clientId).catch(() => ({
       hasPackPassword: false,
       contactEmail: client.contactEmail ?? null,
     })),
-    listEmployees(id, { includeLeavers: true }).catch(() => []),
-    listPayRuns(id).catch(() => []),
+    listEmployees(clientId, { includeLeavers: true }).catch(() => []),
+    listPayRuns(clientId).catch(() => []),
   ]);
 
   return (
@@ -38,12 +38,12 @@ export default async function PayrollPage({
         PAYE / RTI payroll · timesheets · statutory pay · password-protected packs
       </p>
       <ClientTabs
-        clientId={id}
+        clientSlug={slug}
         active="payroll"
         moduleAccess={session.moduleAccess}
       />
       <PayrollWorkspace
-        clientId={id}
+        clientId={clientId}
         clientName={client.name}
         payeRef={client.payeRef}
         accountsOfficeRef={client.accountsOfficeRef}

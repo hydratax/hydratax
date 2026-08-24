@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
-import { getClient } from "@/server/actions/clients";
 import { listClientDocuments } from "@/server/actions/documents";
 import { requireSession } from "@/server/auth/session";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
@@ -13,6 +12,7 @@ import {
   YearEndFilingForm,
   type YearEndFilingMode,
 } from "@/components/forms/year-end-filing-form";
+import { loadClientPage } from "@/server/clients/resolve-client-page";
 
 function parseMode(raw: string | undefined): YearEndFilingMode {
   if (raw === "accounts" || raw === "both" || raw === "ct600") return raw;
@@ -27,12 +27,12 @@ export default async function YearEndFilingPage({
   searchParams: Promise<{ mode?: string; company?: string }>;
 }) {
   await requireSession();
-  const { id } = await params;
+  const { id: ref } = await params;
   const query = await searchParams;
-  const client = await getClient(id);
+  const { client, slug, clientId } = await loadClientPage(ref, "year-end");
 
   if (client.type !== "limited_company") {
-    redirect(`/clients/${id}`);
+    redirect(`/clients/${slug}`);
   }
 
   const mode = parseMode(query.mode);
@@ -51,7 +51,7 @@ export default async function YearEndFilingPage({
     companyNumber && isCompaniesHouseApiConfigured()
       ? getLastAccountsFiling(companyNumber).catch(() => null)
       : Promise.resolve(null),
-    listClientDocuments(id).catch(() => []),
+    listClientDocuments(clientId).catch(() => []),
   ]);
 
   const localAccounts = documents.find((d) => {
@@ -115,13 +115,13 @@ export default async function YearEndFilingPage({
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <Link
-          href={`/clients/${id}`}
+          href={`/clients/${slug}`}
           className="text-sm font-semibold text-sea hover:underline"
         >
           ← Back to {client.name}
         </Link>
         <Link
-          href={`/clients/${id}/corporation-tax`}
+          href={`/clients/${slug}/corporation-tax`}
           className="text-sm text-ink-soft hover:text-ink"
         >
           Classic CT600 workspace
@@ -134,11 +134,11 @@ export default async function YearEndFilingPage({
         }
       >
         <YearEndFilingForm
-          clientId={id}
+          clientId={clientId}
           initialMode={mode}
           lockFilingMode
-          persistKey={`hydratax_year_end_client_${id}`}
-          postSignInPath={`/clients/${id}/year-end?mode=${mode}${companyNumber ? `&company=${encodeURIComponent(companyNumber)}` : ""}&resume=1`}
+          persistKey={`hydratax_year_end_client_${clientId}`}
+          postSignInPath={`/clients/${slug}/year-end?mode=${mode}${companyNumber ? `&company=${encodeURIComponent(companyNumber)}` : ""}&resume=1`}
           company={{
             name: ch?.companyName || client.name,
             companyNumber,
@@ -155,8 +155,8 @@ export default async function YearEndFilingPage({
           defaultPeriodEnd={ch?.accountsPeriodEnd ?? null}
           accountsCheckoutHref={
             companyNumber
-              ? `/companies-house/accounts-ixbrl?company=${encodeURIComponent(companyNumber)}&clientId=${encodeURIComponent(id)}&pay=1`
-              : `/companies-house/accounts-ixbrl?clientId=${encodeURIComponent(id)}&pay=1`
+              ? `/companies-house/accounts-ixbrl?company=${encodeURIComponent(companyNumber)}&clientId=${encodeURIComponent(clientId)}&pay=1`
+              : `/companies-house/accounts-ixbrl?clientId=${encodeURIComponent(clientId)}&pay=1`
           }
           lastFiledAccounts={lastFiledAccounts}
         />

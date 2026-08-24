@@ -4,6 +4,10 @@ import {
   formatDueShort,
   type FilingUrgency,
 } from "@/lib/filing-due";
+import {
+  companiesHouseAccountsPeriod,
+  corporationTaxAccountingPeriods,
+} from "@/lib/accounting-periods";
 
 export type PracticeFilingKind =
   | "corporation_tax"
@@ -109,36 +113,53 @@ export function buildPracticeFilings(
       });
     }
 
-    // Corporation Tax — approximate AP end from accounts period when available
-    const ctPeriodEnd = snap?.accountsPeriodEnd ?? null;
-    if (ctPeriodEnd || number) {
-      let ctDeadline: string | null = null;
-      if (ctPeriodEnd) {
-        const end = new Date(ctPeriodEnd);
-        if (!Number.isNaN(end.getTime())) {
-          // CT600 usually due 12 months after period end
-          const due = new Date(end);
-          due.setFullYear(due.getFullYear() + 1);
-          ctDeadline = due.toISOString().slice(0, 10);
-        }
+    const poa = companiesHouseAccountsPeriod({
+      incorporatedOn: snap?.incorporatedOn,
+      accountsPeriodEnd: snap?.accountsPeriodEnd,
+      lastAccountsMadeUpTo: snap?.lastAccountsMadeUpTo,
+    });
+    const hasPoaDates = Boolean(
+      snap?.accountsPeriodEnd || snap?.incorporatedOn,
+    );
+    const ctAps = hasPoaDates ? corporationTaxAccountingPeriods(poa) : [];
+    if (ctAps.length || number) {
+      for (const ap of ctAps) {
+        const urgency = urgencyForDueDate(ap.filingDue, now);
+        rows.push({
+          id: `${client.id}:ct:${ap.index}`,
+          clientId: client.id,
+          companyName: snap?.companyName ?? client.name,
+          companyNumber: number,
+          kind: "corporation_tax",
+          label:
+            ap.of > 1
+              ? `Corporation Tax (${ap.index} of ${ap.of})`
+              : "Corporation Tax",
+          periodLabel: `${formatDueShort(ap.start)} – ${formatDueShort(ap.end)}`,
+          deadlineIso: ap.filingDue,
+          deadlineLabel: formatDueShort(ap.filingDue) ?? "—",
+          urgency,
+          daysLabel: daysLabel(ap.filingDue, urgency),
+          href: `/clients/${client.id}/corporation-tax?start=${ap.start}&end=${ap.end}`,
+        });
       }
-      const urgency = urgencyForDueDate(ctDeadline, now);
-      rows.push({
-        id: `${client.id}:ct`,
-        clientId: client.id,
-        companyName: snap?.companyName ?? client.name,
-        companyNumber: number,
-        kind: "corporation_tax",
-        label: "Corporation Tax",
-        periodLabel: ctPeriodEnd
-          ? `Period to ${formatDueShort(ctPeriodEnd)}`
-          : "Corporation Tax return",
-        deadlineIso: ctDeadline,
-        deadlineLabel: formatDueShort(ctDeadline) ?? "—",
-        urgency,
-        daysLabel: daysLabel(ctDeadline, urgency),
-        href: `/clients/${client.id}/corporation-tax`,
-      });
+      if (!ctAps.length) {
+        const urgency = urgencyForDueDate(null, now);
+        rows.push({
+          id: `${client.id}:ct`,
+          clientId: client.id,
+          companyName: snap?.companyName ?? client.name,
+          companyNumber: number,
+          kind: "corporation_tax",
+          label: "Corporation Tax",
+          periodLabel: "Corporation Tax return",
+          deadlineIso: null,
+          deadlineLabel: "—",
+          urgency,
+          daysLabel: daysLabel(null, urgency),
+          href: `/clients/${client.id}/corporation-tax`,
+        });
+      }
     }
   }
 

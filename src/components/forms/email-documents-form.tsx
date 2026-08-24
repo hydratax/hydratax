@@ -47,9 +47,8 @@ export function EmailDocumentsForm({
       <div>
         <h3 className="display text-xl text-ink">Email client</h3>
         <p className="mt-1 text-sm text-ink-soft">
-          Send demanded documents or requests directly from the practice desk.
-          Set <code className="mono text-xs">RESEND_API_KEY</code> for live
-          delivery.
+          Sent from your account email — replies come to your inbox. Recorded
+          under Communications.
         </p>
       </div>
 

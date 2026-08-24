@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { getClient } from "@/server/actions/clients";
 import { getConnectionStatus } from "@/server/actions/hmrc-connect";
 import { listClientInvoices } from "@/server/actions/invoices";
 import { requireSession } from "@/server/auth/session";
@@ -16,6 +15,8 @@ import {
 } from "@/lib/filing-due";
 import { FileAccountsMenu } from "@/components/file-accounts-menu";
 import { refreshClientCompaniesHouse } from "@/server/actions/clients";
+import { loadClientPage } from "@/server/clients/resolve-client-page";
+import { DeleteClientButton } from "@/components/forms/delete-client-button";
 
 function urgencyText(u: FilingUrgency) {
   if (u === "overdue") return "text-danger font-semibold";
@@ -33,18 +34,18 @@ export default async function ClientOverviewPage({
   params: Promise<{ id: string }>;
 }) {
   const session = await requireSession();
-  const { id } = await params;
-  const client = await getClient(id);
-  const connection = await getConnectionStatus(id).catch(() => ({
+  const { id: ref } = await params;
+  const { client, slug, clientId } = await loadClientPage(ref);
+  const connection = await getConnectionStatus(clientId).catch(() => ({
     connected: false,
     hmrcEnv: "sandbox" as const,
     scopes: "",
   }));
-  const audit = await listAuditEvents({ clientId: id, limit: 8 }).catch(
+  const audit = await listAuditEvents({ clientId, limit: 8 }).catch(
     () => [],
   );
   const invoices = canAccessModule(session.moduleAccess, "invoices")
-    ? await listClientInvoices(id).catch(() => [])
+    ? await listClientInvoices(clientId).catch(() => [])
     : [];
   const ch =
     ("companiesHouse" in client
@@ -97,10 +98,10 @@ export default async function ClientOverviewPage({
     ? encodeURIComponent(client.companyNumber)
     : "";
   const csHref = company
-    ? `/companies-house/confirmation-statement?company=${company}&clientId=${encodeURIComponent(id)}`
+    ? `/companies-house/confirmation-statement?company=${company}&clientId=${encodeURIComponent(clientId)}`
     : "/companies-house/confirmation-statement";
   const accountsHref = company
-    ? `/companies-house/accounts-ixbrl?company=${company}&clientId=${encodeURIComponent(id)}`
+    ? `/companies-house/accounts-ixbrl?company=${company}&clientId=${encodeURIComponent(clientId)}`
     : "/companies-house/accounts-ixbrl";
 
   const csUrgency = urgencyForDueDate(ch?.confirmationStatementNextDue);
@@ -109,49 +110,49 @@ export default async function ClientOverviewPage({
   const modules = [
     {
       label: "Books",
-      href: `/clients/${id}/books`,
+      href: `/clients/${slug}/books`,
       desc: "Income & expenses in pence",
       module: "books" as const,
       show: true,
     },
     {
       label: "Bank",
-      href: `/clients/${id}/bank`,
+      href: `/clients/${slug}/bank`,
       desc: "Statements → SA / CT drafts",
       module: "bank" as const,
       show: true,
     },
     {
       label: "Documents",
-      href: `/clients/${id}/documents`,
+      href: `/clients/${slug}/documents`,
       desc: "Upload working papers",
       module: "documents" as const,
       show: true,
     },
     {
       label: "VAT",
-      href: `/clients/${id}/vat`,
+      href: `/clients/${slug}/vat`,
       desc: "Prepare → review → submit",
       module: "vat" as const,
       show: client.isVatRegistered,
     },
     {
       label: "Self Assessment",
-      href: `/clients/${id}/self-assessment`,
+      href: `/clients/${slug}/self-assessment`,
       desc: "MTD income tax updates",
       module: "self_assessment" as const,
       show: client.type !== "limited_company",
     },
     {
       label: "Corporation Tax",
-      href: `/clients/${id}/corporation-tax`,
+      href: `/clients/${slug}/corporation-tax`,
       desc: "CT600 XML filing",
       module: "corporation_tax" as const,
       show: isLtd,
     },
     {
       label: "Payroll",
-      href: `/clients/${id}/payroll`,
+      href: `/clients/${slug}/payroll`,
       desc: "Pay runs, FPS & EPS",
       module: "payroll" as const,
       show: client.isEmployer,
@@ -160,7 +161,7 @@ export default async function ClientOverviewPage({
 
   async function refreshCh() {
     "use server";
-    await refreshClientCompaniesHouse(id);
+    await refreshClientCompaniesHouse(clientId);
   }
 
   return (
@@ -178,29 +179,87 @@ export default async function ClientOverviewPage({
             {connection.connected ? " · HMRC linked" : " · HMRC not linked"}
           </p>
         </div>
-        {session.moduleAccess === "full" && (
-          <HmrcConnectButton clientId={id} connected={connection.connected} />
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {session.role !== "readonly" && (
+            <Link
+              href={`/clients/${slug}/edit`}
+              className="btn btn-secondary text-sm"
+            >
+              Edit details
+            </Link>
+          )}
+          {session.moduleAccess === "full" && (
+            <HmrcConnectButton
+              clientId={clientId}
+              connected={connection.connected}
+            />
+          )}
+        </div>
       </div>
 
       <ClientTabs
-        clientId={id}
+        clientSlug={slug}
         active="overview"
         moduleAccess={session.moduleAccess}
       />
 
       <div className="space-y-6">
+        <div className="panel p-5">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="display text-2xl">Contact</h2>
+              <p className="mt-1 text-sm text-ink-soft">
+                Email and phone used for statements, payroll packs, and
+                correspondence.
+              </p>
+            </div>
+            {session.role !== "readonly" && (
+              <Link
+                href={`/clients/${slug}/edit`}
+                className="btn btn-secondary text-sm"
+              >
+                Edit
+              </Link>
+            )}
+          </div>
+          <dl className="mt-4 grid gap-3 sm:grid-cols-2 text-sm">
+            <div>
+              <dt className="text-ink-soft">Email</dt>
+              <dd className="mt-0.5 font-medium text-ink">
+                {client.contactEmail || "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-ink-soft">Phone</dt>
+              <dd className="mt-0.5 font-medium text-ink">
+                {"contactPhone" in client &&
+                (client as { contactPhone?: string | null }).contactPhone
+                  ? (client as { contactPhone?: string | null }).contactPhone
+                  : "—"}
+              </dd>
+            </div>
+          </dl>
+        </div>
+
         {/* Top: Identifiers + people */}
         <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
           <div className="panel p-5">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <h2 className="display text-2xl">Identifiers</h2>
-              {missingIds.length > 0 && (
-                <span className="rounded-md border border-line bg-sand px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink-soft">
-                  {missingIds.length} missing
-                </span>
+              {session.role !== "readonly" && (
+                <Link
+                  href={`/clients/${slug}/edit`}
+                  className="btn btn-secondary text-sm"
+                >
+                  Edit
+                </Link>
               )}
             </div>
+            {missingIds.length > 0 && (
+              <span className="mt-2 inline-block rounded-md border border-line bg-sand px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink-soft">
+                {missingIds.length} missing
+              </span>
+            )}
             {requiredMissing.length > 0 && (
               <p className="mt-2 text-sm text-ink-soft">
                 Add before filing:{" "}
@@ -359,7 +418,7 @@ export default async function ClientOverviewPage({
         {/* Invoices due */}
         {canAccessModule(session.moduleAccess, "invoices") && (
           <InvoiceSummaryCards
-            clientId={id}
+            clientId={clientId}
             invoices={invoices}
             title="Invoices due"
           />
@@ -437,7 +496,7 @@ export default async function ClientOverviewPage({
               <div className="mt-auto pt-4">
                 {client.companyNumber ? (
                   <FileAccountsMenu
-                    clientId={id}
+                    clientId={clientId}
                     companyNumber={client.companyNumber}
                     className="w-full"
                   />
@@ -507,6 +566,10 @@ export default async function ClientOverviewPage({
               ))}
             </ul>
           </div>
+        )}
+
+        {session.role !== "readonly" && (
+          <DeleteClientButton clientId={clientId} clientName={client.name} />
         )}
       </div>
     </div>

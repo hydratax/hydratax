@@ -5,9 +5,7 @@ import { z } from "zod";
 import { requireSession } from "@/server/auth/session";
 import { getClient } from "@/server/actions/clients";
 import { listClientDocuments } from "@/server/actions/documents";
-import { isMemoryStore } from "@/lib/env";
-import { memoryStore } from "@/server/demo/store";
-import { appendAuditEvent } from "@/server/audit/log";
+import { sendClientCommunicationEmail } from "@/server/actions/client-communications";
 import { getEnv } from "@/lib/env";
 
 const sendSchema = z.object({
@@ -43,96 +41,25 @@ export async function sendClientDocumentEmail(input: z.infer<typeof sendSchema>)
 
   const bodyText = `${data.message}
 
-${selected.length ? `Documents:\n${links}\n` : ""}
-— Sent via HydraTax on behalf of ${session.practiceName}
-Client: ${client.name}
-`;
+${selected.length ? `Documents:\n${links}\n` : ""}`;
 
-  const resendKey = process.env.RESEND_API_KEY;
-  const from =
-    process.env.EMAIL_FROM ?? "HydraTax <onboarding@resend.dev>";
-
-  let delivery: "resend" | "logged" = "logged";
-
-  if (resendKey) {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: [data.toEmail],
-        subject: data.subject,
-        text: bodyText,
-      }),
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Email provider error: ${err.slice(0, 200)}`);
-    }
-    delivery = "resend";
-  }
-
-  const log = {
-    id: crypto.randomUUID(),
-    practiceId: session.practiceId,
+  const res = await sendClientCommunicationEmail({
     clientId: data.clientId,
-    toDomain: data.toEmail.split("@")[1] ?? "unknown",
+    toEmail: data.toEmail,
     subject: data.subject,
+    message: bodyText,
+    kind: "documents",
     documentCount: selected.length,
-    delivery,
-    createdAt: new Date().toISOString(),
-  };
-
-  if (isMemoryStore()) {
-    memoryStore.emailLogs.push(log);
-    // Persist contact email on client for convenience (not shown on CH admin)
-    const c = memoryStore.clients.find((x) => x.id === data.clientId);
-    if (c) (c as { contactEmail?: string }).contactEmail = data.toEmail;
-  } else {
-    const { getDb } = await import("@/server/db");
-    const { clientEmailLogs, clients } = await import("@/server/db/schema");
-    const { eq } = await import("drizzle-orm");
-    await getDb().insert(clientEmailLogs).values({
-      practiceId: session.practiceId,
-      clientId: data.clientId,
-      toDomain: log.toDomain,
-      subject: data.subject,
-      documentCount: selected.length,
-      delivery,
-    });
-    await getDb()
-      .update(clients)
-      .set({ contactEmail: data.toEmail })
-      .where(eq(clients.id, data.clientId));
-  }
-
-  await appendAuditEvent({
-    practiceId: session.practiceId,
-    clientId: data.clientId,
-    actorId: session.userId,
-    action: "client.email.documents",
-    entityType: "email",
-    entityId: log.id,
-    detail: {
-      toDomain: log.toDomain,
-      documentCount: selected.length,
-      delivery,
-      // no full email address in audit for minimisation
-    },
   });
 
-  revalidatePath(`/clients/${data.clientId}`);
   revalidatePath(`/clients/${data.clientId}/documents`);
 
   return {
     ok: true,
-    delivery,
+    delivery: res.delivery,
     message:
-      delivery === "resend"
+      res.delivery === "resend"
         ? "Email sent to the client."
-        : "Email queued locally (set RESEND_API_KEY to send for real). Audit log recorded.",
+        : "Email logged locally (set RESEND_API_KEY to send for real).",
   };
 }

@@ -1,4 +1,3 @@
-import { getClient } from "@/server/actions/clients";
 import {
   listSaSubmissions,
 } from "@/server/actions/self-assessment";
@@ -10,18 +9,19 @@ import { ClientTabs } from "@/components/client-tabs";
 import { SaFilingForm } from "@/components/forms/sa-filing-form";
 import { Sa100Wizard } from "@/components/forms/sa100-wizard";
 import { money } from "@/lib/format";
+import { loadClientPage } from "@/server/clients/resolve-client-page";
 
 export default async function SelfAssessmentPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
-  const client = await getClient(id);
+  const { id: ref } = await params;
+  const { client, slug, clientId } = await loadClientPage(ref, "self-assessment");
   const [submissions, sa100Draft, sa100Returns] = await Promise.all([
-    listSaSubmissions(id).catch(() => []),
-    getSa100Draft(id, "2025-26").catch(() => null),
-    listSa100Returns(id).catch(() => []),
+    listSaSubmissions(clientId).catch(() => []),
+    getSa100Draft(clientId, "2025-26").catch(() => null),
+    listSa100Returns(clientId).catch(() => []),
   ]);
 
   return (
@@ -31,7 +31,7 @@ export default async function SelfAssessmentPage({
         Self Assessment · tax year 2025–26 (SA100) · NINO{" "}
         {client.nino ?? "not set"} · UTR {client.utr ?? "not set"}
       </p>
-      <ClientTabs clientId={id} active="self-assessment" />
+      <ClientTabs clientSlug={slug} active="self-assessment" />
 
       {client.type === "limited_company" ? (
         <div className="panel p-5 text-ink-soft">
@@ -50,7 +50,7 @@ export default async function SelfAssessmentPage({
             </p>
             <div className="mt-5">
               <Sa100Wizard
-                clientId={id}
+                clientId={clientId}
                 clientName={client.name}
                 utr={client.utr}
                 nino={client.nino}
@@ -87,7 +87,7 @@ export default async function SelfAssessmentPage({
                     <div className="flex gap-3 text-xs font-semibold">
                       <a
                         className="text-sea underline-offset-2 hover:underline"
-                        href={`/api/clients/${id}/sa100/${r.id}/sa100.pdf`}
+                        href={`/api/clients/${clientId}/sa100/${r.id}/sa100.pdf`}
                         target="_blank"
                         rel="noreferrer"
                       >
@@ -95,7 +95,7 @@ export default async function SelfAssessmentPage({
                       </a>
                       <a
                         className="text-sea underline-offset-2 hover:underline"
-                        href={`/api/clients/${id}/sa100/${r.id}/sa302.pdf`}
+                        href={`/api/clients/${clientId}/sa100/${r.id}/sa302.pdf`}
                         target="_blank"
                         rel="noreferrer"
                       >
@@ -116,7 +116,7 @@ export default async function SelfAssessmentPage({
                 Assessment periodic updates from the books.
               </p>
               <div className="mt-4">
-                <SaFilingForm clientId={id} />
+                <SaFilingForm clientId={clientId} />
               </div>
             </div>
             <div className="panel p-5">

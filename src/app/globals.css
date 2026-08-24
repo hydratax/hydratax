@@ -309,6 +309,14 @@ body {
   font-family: var(--font-ibm-plex), ui-monospace, monospace;
 }
 
+/** Financial figures — same sans as UI, aligned digits without monospace look */
+.figures {
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
+  font-variant-numeric: lining-nums tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  letter-spacing: -0.01em;
+}
+
 .hero-plane {
   position: relative;
   isolation: isolate;
@@ -1049,5 +1057,24 @@ body {
 
 .section-reveal {
   animation: rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.category-picker-list {
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 transparent;
+}
+
+.category-picker-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.category-picker-list::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 999px;
+}
+
+.bank-tx-table td,
+.bank-tx-table th {
+  vertical-align: middle;
 }
 

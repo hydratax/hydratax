@@ -1,5 +1,6 @@
 import {
   isD1Configured,
+  d1Batch,
   d1BoolInt,
   d1Execute,
   d1Json,
@@ -470,6 +471,124 @@ export async function deskListBankTransactions(clientId: string) {
   return data ?? [];
 }
 
+export async function deskDeleteBankTransactionsForClient(clientId: string) {
+  if (isD1Configured()) {
+    await d1Execute("DELETE FROM bank_transactions WHERE client_id = ?", [
+      clientId,
+    ]);
+    return;
+  }
+  const supabase = await getSupabaseDataClient();
+  if (!supabase) throw new Error("Desk storage is not configured");
+  const { error } = await supabase
+    .from("bank_transactions")
+    .delete()
+    .eq("client_id", clientId);
+  if (error) {
+    throw new Error(`Could not clear bank transactions: ${error.message}`);
+  }
+}
+
+/** Remove exact duplicate rows (same date, description, amount), keeping the oldest id. */
+export async function deskDedupeBankTransactionsForClient(
+  clientId: string,
+): Promise<number> {
+  const rows = await deskListBankTransactions(clientId);
+  if (!rows?.length) return 0;
+
+  const seen = new Map<string, string>();
+  const deleteIds: string[] = [];
+  for (const row of rows) {
+    const id = String(row.id);
+    const dated = String(row.dated ?? "");
+    const description = String(row.description ?? "");
+    const amountPence = Number(row.amount_pence ?? 0);
+    const key = `${dated}|${description}|${amountPence}`;
+    if (!seen.has(key)) {
+      seen.set(key, id);
+    } else {
+      deleteIds.push(id);
+    }
+  }
+  if (!deleteIds.length) return 0;
+
+  if (isD1Configured()) {
+    const chunkSize = 50;
+    for (let i = 0; i < deleteIds.length; i += chunkSize) {
+      const chunk = deleteIds.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => "?").join(", ");
+      await d1Execute(
+        `DELETE FROM bank_transactions WHERE client_id = ? AND id IN (${placeholders})`,
+        [clientId, ...chunk],
+      );
+    }
+    return deleteIds.length;
+  }
+
+  const supabase = await getSupabaseDataClient();
+  if (!supabase) throw new Error("Desk storage is not configured");
+  const chunkSize = 100;
+  for (let i = 0; i < deleteIds.length; i += chunkSize) {
+    const chunk = deleteIds.slice(i, i + chunkSize);
+    const { error } = await supabase
+      .from("bank_transactions")
+      .delete()
+      .eq("client_id", clientId)
+      .in("id", chunk);
+    if (error) {
+      throw new Error(`Could not remove duplicate transactions: ${error.message}`);
+    }
+  }
+  return deleteIds.length;
+}
+
+/** Replace all bank lines for a client (used on CSV re-import). */
+export async function deskReplaceBankTransactions(
+  clientId: string,
+  rows: Array<Record<string, unknown>>,
+) {
+  if (isD1Configured()) {
+    const statements: Array<{ sql: string; params?: unknown[] }> = [
+      {
+        sql: "DELETE FROM bank_transactions WHERE client_id = ?",
+        params: [clientId],
+      },
+    ];
+    const d1ChunkSize = 12;
+    for (let i = 0; i < rows.length; i += d1ChunkSize) {
+      const chunk = rows.slice(i, i + d1ChunkSize);
+      const placeholders = chunk
+        .map(() => "(?, ?, ?, ?, ?, ?, ?, ?)")
+        .join(", ");
+      const params: unknown[] = [];
+      for (const row of chunk) {
+        params.push(
+          row.id ?? newId(),
+          row.client_id,
+          row.dated,
+          row.description,
+          row.amount_pence,
+          row.balance_pence ?? null,
+          row.category ?? null,
+          row.matched_ledger_id ?? null,
+        );
+      }
+      statements.push({
+        sql: `INSERT INTO bank_transactions (
+          id, client_id, dated, description, amount_pence, balance_pence,
+          category, matched_ledger_id
+        ) VALUES ${placeholders}`,
+        params,
+      });
+    }
+    await d1Batch(statements);
+    return;
+  }
+
+  await deskDeleteBankTransactionsForClient(clientId);
+  await deskInsertBankTransactions(rows);
+}
+
 export async function deskInsertBankTransactions(
   rows: Array<Record<string, unknown>>,
 ) {
@@ -542,6 +661,113 @@ export async function deskUpdateBankCategory(
     .maybeSingle();
   if (error) throw new Error(`Could not update bank category: ${error.message}`);
   return data?.client_id ? String(data.client_id) : null;
+}
+
+export async function deskUpdateBankCategoriesBulk(
+  transactionIds: string[],
+  category: string,
+): Promise<string | null> {
+  if (!transactionIds.length) return null;
+
+  if (isD1Configured()) {
+    const chunkSize = 50;
+    for (let i = 0; i < transactionIds.length; i += chunkSize) {
+      const chunk = transactionIds.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => "?").join(", ");
+      await d1Execute(
+        `UPDATE bank_transactions SET category = ? WHERE id IN (${placeholders})`,
+        [category, ...chunk],
+      );
+    }
+    const rows = await d1Query(
+      "SELECT client_id FROM bank_transactions WHERE id = ? LIMIT 1",
+      [transactionIds[0]],
+    );
+    return rows[0] ? String(rows[0].client_id) : null;
+  }
+
+  const supabase = await getSupabaseDataClient();
+  if (!supabase) throw new Error("Desk storage is not configured");
+  const chunkSize = 100;
+  for (let i = 0; i < transactionIds.length; i += chunkSize) {
+    const chunk = transactionIds.slice(i, i + chunkSize);
+    const { error } = await supabase
+      .from("bank_transactions")
+      .update({ category })
+      .in("id", chunk);
+    if (error) {
+      throw new Error(`Could not update bank categories: ${error.message}`);
+    }
+  }
+  const { data } = await supabase
+    .from("bank_transactions")
+    .select("client_id")
+    .eq("id", transactionIds[0])
+    .maybeSingle();
+  return data?.client_id ? String(data.client_id) : null;
+}
+
+// ── Custom bank categories ───────────────────────────────────────────────────
+
+export async function deskListCustomBankCategories(
+  practiceId: string,
+): Promise<Array<{ id: string; label: string }>> {
+  if (isD1Configured()) {
+    try {
+      const rows = await d1Query<{ id: string; label: string }>(
+        "SELECT id, label FROM custom_bank_categories WHERE practice_id = ? ORDER BY label ASC",
+        [practiceId],
+      );
+      return rows.map((r) => ({ id: String(r.id), label: String(r.label) }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/no such table:\s*custom_bank_categories/i.test(msg)) {
+        // Migration not applied yet — bank page should still load.
+        console.warn(
+          "[desk] custom_bank_categories missing; run: npm run d1:migrate:remote",
+        );
+        return [];
+      }
+      throw err;
+    }
+  }
+  const supabase = await getSupabaseDataClient();
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("custom_bank_categories")
+    .select("id, label")
+    .eq("practice_id", practiceId)
+    .order("label");
+  if (error) return [];
+  return (data ?? []).map((r) => ({
+    id: String(r.id),
+    label: String(r.label),
+  }));
+}
+
+export async function deskCreateCustomBankCategory(
+  practiceId: string,
+  label: string,
+): Promise<{ id: string; label: string }> {
+  const id = newId();
+  if (isD1Configured()) {
+    await d1Execute(
+      "INSERT INTO custom_bank_categories (id, practice_id, label) VALUES (?, ?, ?)",
+      [id, practiceId, label],
+    );
+    return { id, label };
+  }
+  const supabase = await getSupabaseDataClient();
+  if (!supabase) throw new Error("Desk storage is not configured");
+  const { error } = await supabase.from("custom_bank_categories").insert({
+    id,
+    practice_id: practiceId,
+    label,
+  });
+  if (error) {
+    throw new Error(`Could not create custom category: ${error.message}`);
+  }
+  return { id, label };
 }
 
 export { mapSnakeCaseRow };

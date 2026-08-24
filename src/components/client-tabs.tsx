@@ -17,15 +17,16 @@ const tabs = [
   { href: "/payroll", label: "Payroll", key: "payroll" },
   { href: "/invoices", label: "Invoices", key: "invoices" },
   { href: "/documents", label: "Documents", key: "documents" },
+  { href: "/communications", label: "Communications", key: "communications" },
   { href: "/bank", label: "Bank", key: "bank" },
 ] as const;
 
 export function ClientTabs({
-  clientId,
+  clientSlug,
   active,
   moduleAccess = "full",
 }: {
-  clientId: string;
+  clientSlug: string;
   active: string;
   moduleAccess?: ModuleAccess;
 }) {
@@ -38,7 +39,7 @@ export function ClientTabs({
     <div className="mb-7 overflow-x-auto border-b border-line pb-0">
       <div className="flex min-w-max gap-1">
         {visible.map((tab) => {
-          const href = `/clients/${clientId}${tab.href}`;
+          const href = `/clients/${clientSlug}${tab.href}`;
           const isActive =
             active === tab.key ||
             (tab.href !== "" && pathname.endsWith(tab.href));

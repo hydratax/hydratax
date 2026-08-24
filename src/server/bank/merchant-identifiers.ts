@@ -100,7 +100,12 @@ export async function matchMerchantIdentifier(
 }
 
 export async function applyIdentifierRules<
-  T extends { description: string; amountPence: number; category: BankCategory; confidence: string },
+  T extends {
+    description: string;
+    amountPence: number;
+    category: string;
+    confidence: string;
+  },
 >(lines: T[], practiceId?: string | null): Promise<T[]> {
   const rows = await loadIdentifiers(practiceId);
   return lines.map((line) => {
@@ -112,7 +117,7 @@ export async function applyIdentifierRules<
     if (line.amountPence > 0) {
       return { ...line, category: "turnover", confidence: "low" };
     }
-    return { ...line, category: "admin_expenses", confidence: "low" };
+    return { ...line, category: "expense_queries", confidence: "low" };
   });
 }
 
@@ -131,7 +136,7 @@ export async function categoriseWithIdentifiers(
   if (amountPence > 0) {
     return { category: "turnover", confidence: "low" };
   }
-  return { category: "admin_expenses", confidence: "low" };
+  return { category: "expense_queries", confidence: "low" };
 }
 
 export async function listMerchantIdentifiers(practiceId?: string | null) {

@@ -1,19 +1,19 @@
 import Link from "next/link";
-import { getClient } from "@/server/actions/clients";
 import { listClientDocuments } from "@/server/actions/documents";
 import { DocumentUploadForm } from "@/components/forms/document-upload-form";
 import { EmailDocumentsForm } from "@/components/forms/email-documents-form";
 import { ClientTabs } from "@/components/client-tabs";
 import { isBlobConfigured, isMemoryStore } from "@/lib/env";
+import { loadClientPage } from "@/server/clients/resolve-client-page";
 
 export default async function ClientDocumentsPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
-  const client = await getClient(id);
-  const docs = await listClientDocuments(id).catch(() => []);
+  const { id: ref } = await params;
+  const { client, slug, clientId } = await loadClientPage(ref, "documents");
+  const docs = await listClientDocuments(clientId).catch(() => []);
   const storageHint = isBlobConfigured()
     ? "Vercel Blob"
     : isMemoryStore()
@@ -37,12 +37,12 @@ export default async function ClientDocumentsPage({
         </p>
       </div>
 
-      <ClientTabs clientId={id} active="documents" />
+      <ClientTabs clientSlug={slug} active="documents" />
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <DocumentUploadForm clientId={id} />
+        <DocumentUploadForm clientId={clientId} />
         <EmailDocumentsForm
-          clientId={id}
+          clientId={clientId}
           defaultEmail={contactEmail}
           documents={docs.map((d) => ({ id: d.id, filename: d.filename }))}
         />
@@ -95,11 +95,11 @@ export default async function ClientDocumentsPage({
           <li>Upload source documents to this client file.</li>
           <li>
             Enter books under{" "}
-            <Link href={`/clients/${id}/books`} className="font-semibold text-sea">
+            <Link href={`/clients/${slug}/books`} className="font-semibold text-sea">
               Books
             </Link>
             ; prepare VAT / SA / CT600 / Payroll. Or use{" "}
-            <Link href={`/clients/${id}/bank`} className="font-semibold text-sea">
+            <Link href={`/clients/${slug}/bank`} className="font-semibold text-sea">
               Bank
             </Link>{" "}
             CSV categorisation for SA / CT drafts.

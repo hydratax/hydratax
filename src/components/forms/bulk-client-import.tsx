@@ -81,15 +81,20 @@ export function BulkClientImport() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [previewCount, setPreviewCount] = useState(0);
   const [rows, setRows] = useState<Record<string, unknown>[] | null>(null);
+  const [importDone, setImportDone] = useState(false);
   const [summary, setSummary] = useState<{
     created: number;
+    skipped: number;
     failed: number;
     results: BulkImportRowResult[];
   } | null>(null);
 
   const canImport = useMemo(
-    () => Boolean(rows && rows.length > 0 && rows.length <= 1000 && !pending),
-    [rows, pending],
+    () =>
+      Boolean(
+        rows && rows.length > 0 && rows.length <= 1000 && !pending && !importDone,
+      ),
+    [rows, pending, importDone],
   );
 
   return (
@@ -109,9 +114,11 @@ export function BulkClientImport() {
           type="file"
           accept=".xlsx,.xls,.csv"
           className="sr-only"
+          disabled={pending}
           onChange={async (e) => {
             setError(null);
             setSummary(null);
+            setImportDone(false);
             const file = e.target.files?.[0];
             e.target.value = "";
             if (!file) return;
@@ -155,12 +162,23 @@ export function BulkClientImport() {
         className="btn btn-primary disabled:opacity-60"
         disabled={!canImport}
         onClick={() => {
-          if (!rows) return;
+          if (!rows || importDone) return;
           setError(null);
           start(async () => {
             try {
               const res = await bulkImportClients(rows);
-              setSummary(res);
+              setImportDone(true);
+
+              if (res.failed > 0) {
+                setSummary(res);
+                return;
+              }
+
+              const params = new URLSearchParams();
+              if (res.created) params.set("imported", String(res.created));
+              if (res.skipped) params.set("skipped", String(res.skipped));
+              const qs = params.toString();
+              router.push(qs ? `/clients?${qs}` : "/clients");
               router.refresh();
             } catch (err) {
               setError(err instanceof Error ? err.message : "Import failed");
@@ -170,14 +188,22 @@ export function BulkClientImport() {
       >
         {pending
           ? "Importing… (Companies House lookups may take a minute)"
-          : `Import ${previewCount || ""} clients`}
+          : importDone
+            ? "Import complete"
+            : `Import ${previewCount || ""} clients`}
       </button>
 
       {summary && (
         <div className="panel overflow-hidden">
           <div className="border-b border-line px-4 py-3">
             <p className="font-semibold text-ink">
-              Imported {summary.created} · failed {summary.failed}
+              Imported {summary.created}
+              {summary.skipped ? ` · skipped ${summary.skipped}` : ""}
+              {summary.failed ? ` · failed ${summary.failed}` : ""}
+            </p>
+            <p className="mt-1 text-sm text-ink-soft">
+              Fix the failed rows below, then upload again. Existing clients are
+              skipped automatically.
             </p>
           </div>
           <div className="max-h-80 overflow-auto">
@@ -195,7 +221,11 @@ export function BulkClientImport() {
                     <td className="mono px-4 py-2">{r.row}</td>
                     <td className="px-4 py-2">{r.name}</td>
                     <td className="px-4 py-2">
-                      {r.ok ? (
+                      {r.ok && r.skipped ? (
+                        <span className="text-ink-soft">
+                          Skipped · {r.error ?? "Already exists"}
+                        </span>
+                      ) : r.ok ? (
                         <span className="text-sea">
                           OK
                           {r.companiesHouse ? " · CH" : ""}

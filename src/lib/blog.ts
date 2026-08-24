@@ -22,6 +22,223 @@ export type BlogPost = {
 
 export const BLOG_POSTS: BlogPost[] = [
   {
+    slug: "how-to-verify-identity-companies-house",
+    title:
+      "How to verify your identity for Companies House — personal codes, deadlines and what to do next",
+    description:
+      "A plain-English guide to Companies House identity verification: who must verify, GOV.UK One Login vs ACSP, photo ID you need, finding your personal code, FAQs for first-timers, and how HydraTax helps with confirmation statements, name changes and incorporation after you are verified.",
+    keywords: [
+      "Companies House identity verification",
+      "verify identity Companies House",
+      "Companies House personal code",
+      "GOV.UK One Login Companies House",
+      "ACSP identity verification",
+      "director ID verification UK",
+      "PSC verify identity",
+      "confirmation statement personal code",
+    ],
+    publishedAt: "2026-08-24",
+    updatedAt: "2026-08-24",
+    readingMinutes: 12,
+    category: "Companies House",
+    relatedHref: "/companies-house/personal-code",
+    relatedLabel: "Personal codes explained",
+    faq: [
+      {
+        q: "Do I have to verify my identity for Companies House?",
+        a: "Yes if you are a director (or equivalent), a person with significant control (PSC), or you want to register as an Authorised Corporate Service Provider (ACSP). Identity verification became a legal requirement from 18 November 2025. In most cases you only verify once.",
+      },
+      {
+        q: "Is Companies House identity verification free?",
+        a: "Verifying yourself through the official ‘Verify your identity for Companies House’ service (GOV.UK One Login) is free. An ACSP such as an accountant or solicitor may charge a fee if they verify you on your behalf.",
+      },
+      {
+        q: "What photo ID can I use?",
+        a: "For the online GOV.UK One Login route you can usually use a biometric passport from any country, a UK photo driving licence (full or provisional), a UK biometric residence permit or card, or a UK Frontier Worker permit. You will also need your current address and the year you moved in. If you do not have those documents, One Login may offer bank details plus National Insurance questions, or a Post Office route after you enter photo ID details online first.",
+      },
+      {
+        q: "Can I post or email my passport to Companies House?",
+        a: "No. Companies House only accepts verification through GOV.UK One Login or an Authorised Corporate Service Provider (ACSP). Do not post or email identity documents to Companies House.",
+      },
+      {
+        q: "What is a Companies House personal code?",
+        a: "It is an 11-character code issued to you after successful verification. The code is personal to you — not to your company. You reuse the same code for every directorship and PSC role. Keep it secure, like a UTR, but you may share it with a trusted agent who files on your behalf.",
+      },
+      {
+        q: "Where do I find my personal code after verifying?",
+        a: "If you used GOV.UK One Login, sign in to Companies House with the same email and open Manage account. If you verified after 8 July 2026, Companies House also emails the code. If an ACSP verified you, the code is emailed to the address they supplied — contact them if it never arrived. ACSPs should save the code into a Companies House account for later access.",
+      },
+      {
+        q: "Do I need a different personal code for each company?",
+        a: "No. Verify once, then use the same personal code when you confirm identity for each company role. Directors of several companies still enter the code on each company’s confirmation statement (or appointment filing).",
+      },
+      {
+        q: "When do directors need to provide their personal code?",
+        a: "Existing directors provide it on the company’s next confirmation statement from 18 November 2025. New directors provide it when they are appointed or when the company is incorporated. The company cannot file its confirmation statement until all directors are verified.",
+      },
+      {
+        q: "I am a PSC — what is different?",
+        a: "PSCs must provide their personal code within a 14-day window. If you are also a director of the same company, you still provide the code separately for the PSC role via Companies House’s ‘Provide identity verification details for a PSC’ service (often starting the day after the confirmation statement date). Check the register for your exact dates.",
+      },
+      {
+        q: "What happens if I do not verify on time?",
+        a: "You may commit an offence and face prosecution, a fine or a financial penalty. Companies House can also block new director appointments, new company registrations and ACSP registration, and may later publish a note against your name on the public register.",
+      },
+      {
+        q: "Can HydraTax verify my identity or create a personal code?",
+        a: "No. Only GOV.UK One Login or a registered ACSP can verify identity and issue a personal code. HydraTax helps after verification: you enter codes when filing confirmation statements, incorporating a company, or updating register details such as a company name change.",
+      },
+      {
+        q: "We share one email for the company — can both directors verify with it?",
+        a: "No. Your verified identity is tied to a GOV.UK One Login, and each email address can only be used once to verify an identity. Each director or PSC needs their own email and One Login.",
+      },
+    ],
+    body: [
+      {
+        type: "p",
+        text: "If you set up, run, own or control a UK company, Companies House now needs proof that you are who you say you are. Identity verification is a legal requirement under the Economic Crime and Corporate Transparency reforms. This guide walks first-timers through what to do on GOV.UK, how personal codes work, common sticking points — then how HydraTax helps with confirmation statements, company name changes and incorporation once your ID is verified.",
+      },
+      {
+        type: "callout",
+        text: "Official rules live on GOV.UK. Always check Companies House guidance if your situation is unusual (overseas companies, Post Office routes, date-of-birth mismatches). HydraTax does not replace GOV.UK One Login or ACSP verification.",
+      },
+      {
+        type: "h2",
+        text: "Why Companies House asks you to verify",
+      },
+      {
+        type: "p",
+        text: "Verification reduces fraud and makes the public register more trustworthy. By law you must confirm your identity so Companies House can link the right person to director and PSC roles — not a fake name or someone else’s details.",
+      },
+      {
+        type: "h2",
+        text: "Who needs to verify",
+      },
+      {
+        type: "ul",
+        items: [
+          "Directors, and equivalents (for example members, general partners and managing officers).",
+          "Directors of an overseas company with a UK establishment.",
+          "People with significant control (PSCs).",
+          "Anyone registering as an Authorised Corporate Service Provider (ACSP / Companies House authorised agent).",
+        ],
+      },
+      {
+        type: "p",
+        text: "In most cases you only verify once. Do not verify again unless Companies House tells you to. Identity checks for some other roles (for example people who only file on behalf of a company, or corporate directors) are planned for later.",
+      },
+      {
+        type: "h2",
+        text: "Two official ways to verify (and nothing else)",
+      },
+      {
+        type: "p",
+        text: "Companies House is clear: only use the routes below. Do not post or email passports, driving licences or other ID documents to Companies House.",
+      },
+      {
+        type: "h3",
+        text: "1. GOV.UK One Login (usually free)",
+      },
+      {
+        type: "p",
+        text: "Use the ‘Verify your identity for Companies House’ service. One Login asks questions about you (not your company), then guides you to verify with an app, security questions online, or by entering photo ID details first and finishing at a participating Post Office.",
+      },
+      {
+        type: "p",
+        text: "Photo ID that commonly works online includes a biometric passport (any country), a UK photo driving licence, or a UK BRP / BRC / Frontier Worker permit. You also need your current address and the year you moved in. Create or sign in to GOV.UK One Login with an email only you use for this identity.",
+      },
+      {
+        type: "h3",
+        text: "2. An Authorised Corporate Service Provider (ACSP)",
+      },
+      {
+        type: "p",
+        text: "Ask an AML-supervised accountant, solicitor or formation agent who is registered with Companies House as an authorised agent. You provide documents from their approved list; they may charge a fee. This route works from outside the UK as well. If your existing adviser is not an ACSP yet, use the official ACSP list on GOV.UK.",
+      },
+      {
+        type: "h2",
+        text: "Step-by-step for someone verifying for the first time",
+      },
+      {
+        type: "ul",
+        items: [
+          "Decide: free GOV.UK One Login yourself, or pay an ACSP to verify you.",
+          "Gather photo ID (and address history). Each person needs their own email for One Login.",
+          "Complete verification until it succeeds — answer about yourself, not the company.",
+          "Collect your 11-character Companies House personal code (Manage account, or email from Companies House / your ACSP).",
+          "Save the code somewhere safe. If an ACSP verified you, save it into a Companies House account so you can find it later.",
+          "Connect the code to each role: confirmation statement for existing directors; appointment or incorporation for new directors; PSC service within your 14-day window.",
+        ],
+      },
+      {
+        type: "h2",
+        text: "What your personal code is for",
+      },
+      {
+        type: "p",
+        text: "After a successful check you receive a personal code. It proves you have verified. Existing directors enter it on the next confirmation statement. New directors supply it on appointment or when incorporating. PSCs provide it through Companies House’s PSC verification service within their 14-day period. ACSPs need a code to register as an authorised agent.",
+      },
+      {
+        type: "p",
+        text: "Share the code only with people you trust to file for you. If you think it has been compromised, contact Companies House — they can cancel it and issue a new one by email.",
+      },
+      {
+        type: "h2",
+        text: "After ID verification: how HydraTax helps",
+      },
+      {
+        type: "p",
+        text: "HydraTax does not run GOV.UK identity checks or mint personal codes. Once directors and PSCs are verified, HydraTax is the practice desk for the Companies House filings that need those codes and company details.",
+      },
+      {
+        type: "h3",
+        text: "Confirmation statement",
+      },
+      {
+        type: "p",
+        text: "Your company’s next confirmation statement is where existing directors prove they have verified. HydraTax looks up the company on the public register, collects the company authentication code, director personal codes and payment, and submits the confirmation statement so the register stays current — without juggling a separate CH-only login for every client.",
+      },
+      {
+        type: "h3",
+        text: "Company name change",
+      },
+      {
+        type: "p",
+        text: "When the business rebrands, HydraTax’s Companies House name-change service files the digital change-of-name request (statutory Companies House fee plus Hydra’s service charge). Identity verification comes first for the people who hold roles; the name change then updates what appears on the register for the company itself.",
+      },
+      {
+        type: "h3",
+        text: "Company incorporation",
+      },
+      {
+        type: "p",
+        text: "Forming a new limited company needs verified directors from day one: each proposed director’s personal code goes on the incorporation filing. HydraTax’s incorporation wizard gathers company name, registered office, SIC codes, share capital and those personal codes, then submits the IN01 through software presenting — standard or same-day options — so you are not bouncing between GOV.UK forms and a spreadsheet of codes.",
+      },
+      {
+        type: "callout",
+        text: "Practical order for a new client: verify ID on GOV.UK (or via an ACSP) → keep personal codes → file incorporation, confirmation statement or name change in HydraTax with those codes ready. Same client record as CT600, VAT and payroll.",
+      },
+      {
+        type: "h2",
+        text: "Quick checks before you file anything",
+      },
+      {
+        type: "ul",
+        items: [
+          "Every director has verified and has their personal code to hand.",
+          "PSC 14-day windows are diarised separately from the confirmation statement where needed.",
+          "Date of birth on Companies House matches the verified identity — mismatches block connecting the code.",
+          "Company authentication code is available for confirmation statements and other filings.",
+          "You are using HydraTax (or another software presenter) for the filing step after verification, not expecting the personal-code page alone to submit CS01, IN01 or a name change.",
+        ],
+      },
+      {
+        type: "p",
+        text: "Verify on GOV.UK once. File the ongoing Companies House work from HydraTax with confidence that the identity step is already done.",
+      },
+    ],
+  },
+  {
     slug: "how-to-use-payroll-at-hydratax",
     title: "How to run payroll at HydraTax",
     description:

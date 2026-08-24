@@ -1,4 +1,3 @@
-import { getClient } from "@/server/actions/clients";
 import {
   listVatObligations,
   listVatReturns,
@@ -8,6 +7,7 @@ import { requireModule } from "@/server/auth/session";
 import { ClientTabs } from "@/components/client-tabs";
 import { VatReturnsWorkspace } from "@/components/forms/vat-returns-workspace";
 import { redirect } from "next/navigation";
+import { loadClientPage } from "@/server/clients/resolve-client-page";
 
 export default async function VatPage({
   params,
@@ -20,12 +20,12 @@ export default async function VatPage({
   } catch {
     redirect("/clients");
   }
-  const { id } = await params;
-  const client = await getClient(id);
+  const { id: ref } = await params;
+  const { client, slug, clientId } = await loadClientPage(ref, "vat");
   const [obligations, returns, connection] = await Promise.all([
-    listVatObligations(id).catch(() => []),
-    listVatReturns(id).catch(() => []),
-    getConnectionStatus(id).catch(() => ({
+    listVatObligations(clientId).catch(() => []),
+    listVatReturns(clientId).catch(() => []),
+    getConnectionStatus(clientId).catch(() => ({
       connected: false,
       hmrcEnv: "sandbox" as const,
       scopes: "",
@@ -35,12 +35,12 @@ export default async function VatPage({
   return (
     <div>
       <ClientTabs
-        clientId={id}
+        clientSlug={slug}
         active="vat"
         moduleAccess={session.moduleAccess}
       />
       <VatReturnsWorkspace
-        clientId={id}
+        clientId={clientId}
         clientName={client.name}
         vrn={client.vrn ?? null}
         connected={connection.connected}

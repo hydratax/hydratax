@@ -12,7 +12,7 @@ export type CategorisedLine = {
   dated: string;
   description: string;
   amountPence: number;
-  category: BankCategory;
+  category: string;
   confidence: "high" | "medium" | "low";
 };
 
@@ -27,7 +27,8 @@ export function categoriseDescription(
   if (amountPence > 0) {
     return { category: "turnover", confidence: "low" };
   }
-  return { category: "admin_expenses", confidence: "low" };
+  // Unclear outflows — review under Expense queries (rolls to trade debtors).
+  return { category: "expense_queries", confidence: "low" };
 }
 
 function normalizeHeaderKey(key: string): string {
@@ -133,12 +134,16 @@ export function parseBankCsv(text: string): CategorisedLine[] {
         cols[1] ||
         "";
       let amountPence = 0;
-      if (debitIdx !== undefined && creditIdx !== undefined) {
-        const debit = parseMoneyToPence(cols[debitIdx] ?? "0");
-        const credit = parseMoneyToPence(cols[creditIdx] ?? "0");
-        amountPence = credit - debit;
-      } else if (amountIdx !== undefined) {
-        amountPence = parseMoneyToPence(cols[amountIdx] ?? "0");
+      const hasSplitCols = debitIdx !== undefined && creditIdx !== undefined;
+      const hasAmountCol = amountIdx !== undefined;
+      if (hasAmountCol || hasSplitCols) {
+        amountPence = resolveAmountPence(
+          amountIdx !== undefined ? (cols[amountIdx] ?? "0") : "0",
+          debitIdx !== undefined ? (cols[debitIdx] ?? "0") : "0",
+          creditIdx !== undefined ? (cols[creditIdx] ?? "0") : "0",
+          hasAmountCol,
+          hasSplitCols,
+        );
       } else {
         continue;
       }
@@ -233,12 +238,16 @@ export function parseBankSpreadsheet(
   for (const row of rows) {
     const description = String(row[descKey] ?? row[nameKey ?? ""] ?? "").trim();
     let amountPence = 0;
-    if (debitKey && creditKey) {
-      const debit = parseMoneyToPence(String(row[debitKey] ?? "0"));
-      const credit = parseMoneyToPence(String(row[creditKey] ?? "0"));
-      amountPence = credit - debit;
-    } else if (amountKey) {
-      amountPence = parseMoneyToPence(String(row[amountKey] ?? "0"));
+    const hasSplitCols = Boolean(debitKey && creditKey);
+    const hasAmountCol = Boolean(amountKey);
+    if (hasAmountCol || hasSplitCols) {
+      amountPence = resolveAmountPence(
+        amountKey ? String(row[amountKey] ?? "0") : "0",
+        debitKey ? String(row[debitKey] ?? "0") : "0",
+        creditKey ? String(row[creditKey] ?? "0") : "0",
+        hasAmountCol,
+        hasSplitCols,
+      );
     } else {
       continue;
     }
@@ -275,13 +284,59 @@ function splitCsvRow(row: string): string[] {
 }
 
 function parseMoneyToPence(raw: string): number {
-  const cleaned = raw.replace(/[£,\s]/g, "");
-  if (!cleaned || cleaned === "-") return 0;
-  const neg = cleaned.startsWith("(") && cleaned.endsWith(")");
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === "-") return 0;
+  const neg = trimmed.startsWith("-") || trimmed.startsWith("−");
+  const cleaned = trimmed
+    .replace(/[£,\s]/g, "")
+    .replace(/^[−–—]/, "-")
+    .replace(/^-/, "");
+  const parenNeg = cleaned.startsWith("(") && cleaned.endsWith(")");
   const n = Number(cleaned.replace(/[()]/g, ""));
   if (Number.isNaN(n)) return 0;
   const pence = Math.round(n * 100);
-  return neg ? -Math.abs(pence) : pence;
+  if (parenNeg) return -Math.abs(pence);
+  if (neg) return -Math.abs(pence);
+  return pence;
+}
+
+/**
+ * Resolve signed pence from bank export columns.
+ * Supports Monzo signed Amount, unsigned Money Out/In magnitudes, and Excel
+ * exports that put "- 1,500.00" directly in the Money Out column.
+ */
+export function resolveAmountPence(
+  rawAmount: string,
+  rawDebit: string,
+  rawCredit: string,
+  hasAmountCol: boolean,
+  hasSplitCols: boolean,
+): number {
+  const amount = hasAmountCol ? parseMoneyToPence(rawAmount) : 0;
+  const debit = hasSplitCols ? parseMoneyToPence(rawDebit) : 0;
+  const credit = hasSplitCols ? parseMoneyToPence(rawCredit) : 0;
+
+  if (hasAmountCol && amount !== 0) {
+    if (amount < 0) return amount;
+    if (hasSplitCols) {
+      if (debit > 0 && credit === 0) return -Math.abs(debit);
+      if (credit > 0 && debit === 0) return Math.abs(credit);
+      if (debit < 0) return debit;
+      if (credit < 0) return credit;
+      if (credit !== 0 || debit !== 0) return credit - debit;
+    }
+    return amount;
+  }
+
+  if (hasSplitCols) {
+    if (debit < 0) return debit;
+    if (credit < 0) return credit;
+    if (credit > 0 && debit === 0) return credit;
+    if (debit > 0 && credit === 0) return -debit;
+    if (credit !== 0 || debit !== 0) return credit - debit;
+  }
+
+  return amount;
 }
 
 function normaliseDate(raw: string): string {
@@ -305,7 +360,43 @@ function normaliseDate(raw: string): string {
   return raw;
 }
 
-export function summariseForSelfAssessment(lines: CategorisedLine[]) {
+export type SelfAssessmentBankSummary = {
+  turnoverPence: number;
+  otherIncomePence: number;
+  expensesPence: number;
+  /** Limited company bank — director SA income only */
+  fromCompanyBank?: boolean;
+  directorRemunerationPence?: number;
+  dividendPence?: number;
+};
+
+export function summariseForSelfAssessment(
+  lines: CategorisedLine[],
+  options?: {
+    clientType?: "sole_trader" | "limited_company" | "partnership";
+  },
+): SelfAssessmentBankSummary {
+  if (options?.clientType === "limited_company") {
+    let directorRemunerationPence = 0;
+    let dividendPence = 0;
+    for (const line of lines) {
+      if (line.category === "transfer") continue;
+      if (line.category === "directors_remuneration") {
+        directorRemunerationPence += Math.abs(line.amountPence);
+      } else if (line.category === "dividends") {
+        dividendPence += Math.abs(line.amountPence);
+      }
+    }
+    return {
+      fromCompanyBank: true,
+      directorRemunerationPence,
+      dividendPence,
+      turnoverPence: directorRemunerationPence,
+      otherIncomePence: dividendPence,
+      expensesPence: 0,
+    };
+  }
+
   let turnoverPence = 0;
   let otherIncomePence = 0;
   let expensesPence = 0;

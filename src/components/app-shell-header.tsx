@@ -8,32 +8,52 @@ import { signOutSupabase } from "@/server/actions/auth";
 type NavItem = { href: string; label: string };
 
 /**
- * Practice desk header — same pattern as the public site:
- * Services dropdown + a few top-level links + Sign out (no Menu button).
+ * Practice desk header — Services dropdown, top links, and account menu
+ * (person icon) for profile, team, and sign-out.
  */
 export function AppShellHeader({
   serviceItems,
   links,
   hmrcLabel,
   accessBadge,
+  userEmail,
+  canManageTeam,
 }: {
   serviceItems: NavItem[];
   links: NavItem[];
   hmrcLabel: string;
   accessBadge?: string | null;
+  userEmail?: string | null;
+  canManageTeam?: boolean;
 }) {
   const [servicesOpen, setServicesOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const servicesRef = useRef<HTMLDivElement>(null);
+  const accountRef = useRef<HTMLDivElement>(null);
   const [pending, start] = useTransition();
+
+  const initials = (userEmail ?? "U")
+    .split("@")[0]
+    .split(/[.\s_-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? "")
+    .join("") || "U";
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (!servicesRef.current?.contains(e.target as Node)) {
         setServicesOpen(false);
       }
+      if (!accountRef.current?.contains(e.target as Node)) {
+        setAccountOpen(false);
+      }
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setServicesOpen(false);
+      if (e.key === "Escape") {
+        setServicesOpen(false);
+        setAccountOpen(false);
+      }
     }
     document.addEventListener("mousedown", onDocClick);
     document.addEventListener("keydown", onKey);
@@ -68,7 +88,10 @@ export function AppShellHeader({
                 className="inline-flex items-center gap-1 text-ink-soft hover:text-ink"
                 aria-expanded={servicesOpen}
                 aria-haspopup="menu"
-                onClick={() => setServicesOpen((v) => !v)}
+                onClick={() => {
+                  setServicesOpen((v) => !v);
+                  setAccountOpen(false);
+                }}
               >
                 Services
                 <span className="text-[0.65rem] opacity-70" aria-hidden>
@@ -113,18 +136,67 @@ export function AppShellHeader({
             <span className="badge badge-muted">{accessBadge}</span>
           ) : null}
 
-          <button
-            type="button"
-            disabled={pending}
-            className="btn btn-secondary text-sm"
-            onClick={() => {
-              start(async () => {
-                await signOutSupabase();
-              });
-            }}
-          >
-            {pending ? "Signing out…" : "Sign out"}
-          </button>
+          <div className="relative" ref={accountRef}>
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-line bg-sand text-xs font-bold text-ink hover:border-sea hover:text-sea"
+              aria-label="Account menu"
+              aria-expanded={accountOpen}
+              aria-haspopup="menu"
+              onClick={() => {
+                setAccountOpen((v) => !v);
+                setServicesOpen(false);
+              }}
+            >
+              {initials}
+            </button>
+            {accountOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 top-full z-40 min-w-[220px] pt-2"
+              >
+                <div className="rounded-lg border border-line bg-white py-2 shadow-lg">
+                  {userEmail ? (
+                    <p className="truncate border-b border-line px-4 py-2 text-xs text-ink-soft">
+                      {userEmail}
+                    </p>
+                  ) : null}
+                  <Link
+                    href="/settings/account"
+                    role="menuitem"
+                    className="block px-4 py-2 text-ink-soft hover:bg-sand hover:text-ink"
+                    onClick={() => setAccountOpen(false)}
+                  >
+                    Account
+                  </Link>
+                  {canManageTeam ? (
+                    <Link
+                      href="/settings/team"
+                      role="menuitem"
+                      className="block px-4 py-2 text-ink-soft hover:bg-sand hover:text-ink"
+                      onClick={() => setAccountOpen(false)}
+                    >
+                      Team & roles
+                    </Link>
+                  ) : null}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={pending}
+                    className="block w-full px-4 py-2 text-left text-ink-soft hover:bg-sand hover:text-ink disabled:opacity-60"
+                    onClick={() => {
+                      setAccountOpen(false);
+                      start(async () => {
+                        await signOutSupabase();
+                      });
+                    }}
+                  >
+                    {pending ? "Signing out…" : "Sign out"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </nav>
       </div>
     </header>

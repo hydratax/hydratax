@@ -33,7 +33,7 @@ export function humanizeActionError(
     return "Google sign-in did not finish. Please try again in this browser, or use email and password.";
   }
   if (/cannot read propert(y|ies) of null/i.test(raw) && /reset/i.test(raw)) {
-    return "The employee was saved, but the form could not clear afterwards. Refresh the page if you still see this message.";
+    return "Saved successfully, but the form could not clear afterwards. Refresh the page if you still see this message.";
   }
   if (/cannot read propert(y|ies) of null/i.test(raw)) {
     return "Something went wrong updating this screen. Refresh the page and try again.";

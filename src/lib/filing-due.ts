@@ -110,3 +110,39 @@ export function matchesFilingFilter(
       return true;
   }
 }
+
+/** Calendar month offset from today: 1 = next month, 2 = month after. */
+export type AccountsDueMonthWindow = "next_month" | "month_after";
+
+function isDateInMonthOffset(
+  iso: string,
+  now: Date,
+  monthOffset: 1 | 2,
+): boolean {
+  const due = new Date(iso);
+  if (Number.isNaN(due.getTime())) return false;
+  const target = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+  return (
+    due.getFullYear() === target.getFullYear() &&
+    due.getMonth() === target.getMonth()
+  );
+}
+
+export function accountsDueMonthWindow(
+  dueIso: string | null | undefined,
+  now = new Date(),
+): AccountsDueMonthWindow | null {
+  if (!dueIso) return null;
+  if (isDateInMonthOffset(dueIso, now, 1)) return "next_month";
+  if (isDateInMonthOffset(dueIso, now, 2)) return "month_after";
+  return null;
+}
+
+export function monthWindowLabel(
+  window: AccountsDueMonthWindow,
+  now = new Date(),
+): string {
+  const offset = window === "next_month" ? 1 : 2;
+  const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+  return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+}

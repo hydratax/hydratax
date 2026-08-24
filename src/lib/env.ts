@@ -71,14 +71,18 @@ export function getEnv(): AppEnv {
 }
 
 /**
- * Local memory practice (empty) when MEMORY_STORE/DEMO_MODE is set, or no DATABASE_URL.
+ * Local memory practice (empty) when MEMORY_STORE/DEMO_MODE is set explicitly.
  * Never enabled in production (Netlify / NODE_ENV) — serverless instances do not share
  * memory, so clients created there vanish on the next request (500 / not found).
+ *
+ * When Supabase and/or Cloudflare D1 are configured, local dev uses those stores
+ * even without DATABASE_URL (Postgres drizzle is optional).
  */
 export function isMemoryStore(): boolean {
   if (isProductionRuntime()) return false;
   const env = getEnv();
   if (env.MEMORY_STORE) return true;
+  if (isSupabaseConfigured() || isD1Configured()) return false;
   if (!env.DATABASE_URL) return true;
   return false;
 }

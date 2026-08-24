@@ -1,17 +1,17 @@
-import { getClient } from "@/server/actions/clients";
 import { listLedgerEntries } from "@/server/actions/ledger";
 import { ClientTabs } from "@/components/client-tabs";
 import { LedgerForm } from "@/components/forms/ledger-form";
 import { money } from "@/lib/format";
+import { loadClientPage } from "@/server/clients/resolve-client-page";
 
 export default async function BooksPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
-  const client = await getClient(id);
-  const entries = await listLedgerEntries(id).catch(() => []);
+  const { id: ref } = await params;
+  const { client, slug, clientId } = await loadClientPage(ref, "books");
+  const entries = await listLedgerEntries(clientId).catch(() => []);
 
   const income = entries
     .filter((e) => e.type === "income")
@@ -24,7 +24,7 @@ export default async function BooksPage({
     <div>
       <h1 className="display text-4xl text-ink">{client.name}</h1>
       <p className="mt-1 text-ink-soft">Digital books in integer pence</p>
-      <ClientTabs clientId={id} active="books" />
+      <ClientTabs clientSlug={slug} active="books" />
 
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
         <div className="panel p-4">
@@ -45,7 +45,7 @@ export default async function BooksPage({
         <div className="panel p-5">
           <h2 className="display text-2xl">Add entry</h2>
           <div className="mt-4">
-            <LedgerForm clientId={id} />
+            <LedgerForm clientId={clientId} />
           </div>
         </div>
         <div className="panel overflow-hidden">

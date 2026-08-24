@@ -22,6 +22,8 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
         ]
       : []),
     ...(full ? [{ href: "/settings/hmrc", label: "HMRC connection" }] : []),
+    ...(full ? [{ href: "/settings/channels", label: "Channels" }] : []),
+    ...(full ? [{ href: "/settings/account", label: "Account" }] : []),
     ...(full ? [{ href: "/settings/team", label: "Team" }] : []),
     ...(admin ? [{ href: "/admin", label: "Admin" }] : []),
   ];
@@ -44,6 +46,8 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             ? session.moduleAccess.replace("_", " ")
             : null
         }
+        userEmail={session.email}
+        canManageTeam={full}
       />
       <main className="mx-auto max-w-6xl px-4 py-8 md:px-6 md:py-10">
         {children}

@@ -10,6 +10,7 @@ export type BankCategory =
   | "salaries"
   | "subcontractors"
   | "directors_remuneration"
+  | "dividends"
   | "accountancy"
   | "consultancy"
   | "legal_professional"
@@ -23,6 +24,8 @@ export type BankCategory =
   | "admin_office"
   | "depreciation"
   | "admin_expenses"
+  | "expense_queries"
+  | "trade_debtors"
   | "premises"
   | "professional_fees"
   | "drawings"
@@ -37,6 +40,7 @@ export const CATEGORY_LABELS: Record<BankCategory, string> = {
   salaries: "Salaries & wages",
   subcontractors: "Subcontractors",
   directors_remuneration: "Directors’ remuneration",
+  dividends: "Dividends",
   accountancy: "Accountancy and audit",
   consultancy: "Consultancy",
   legal_professional: "Legal and professional",
@@ -50,6 +54,8 @@ export const CATEGORY_LABELS: Record<BankCategory, string> = {
   admin_office: "Administration and office",
   depreciation: "Depreciation",
   admin_expenses: "Admin expenses (general)",
+  expense_queries: "Expense queries",
+  trade_debtors: "Trade debtors",
   premises: "Premises (legacy → rent/rates)",
   professional_fees: "Professional fees (legacy)",
   drawings: "Drawings",
@@ -132,9 +138,58 @@ export function isExpenseCategory(category: BankCategory): boolean {
   return (
     resolveNote8Key(category) !== null ||
     category === "cost_of_sales" ||
+    category === "expense_queries" ||
     category === "uncategorised"
   );
 }
+
+/**
+ * Unclear bank outflows sit in Expense queries until reviewed.
+ * On the accounts pack they roll into trade debtors unless reallocated.
+ */
+export function rollsToTradeDebtors(category: string): boolean {
+  return category === "expense_queries" || category === "trade_debtors";
+}
+
+export const CUSTOM_CATEGORY_PREFIX = "custom:";
+
+export function customCategoryId(uuid: string): string {
+  return `${CUSTOM_CATEGORY_PREFIX}${uuid}`;
+}
+
+export function isCustomCategoryId(category: string): boolean {
+  return category.startsWith(CUSTOM_CATEGORY_PREFIX);
+}
+
+export function customCategoryUuid(category: string): string | null {
+  return isCustomCategoryId(category)
+    ? category.slice(CUSTOM_CATEGORY_PREFIX.length)
+    : null;
+}
+
+/** Built-in + custom labels for UI and accounts pack. */
+export function buildCategoryLabelMap(
+  custom: Array<{ id: string; label: string }>,
+): Record<string, string> {
+  const map: Record<string, string> = { ...CATEGORY_LABELS };
+  for (const row of custom) {
+    map[customCategoryId(row.id)] = row.label;
+  }
+  return map;
+}
+
+export function resolveCategoryLabel(
+  category: string,
+  custom: Array<{ id: string; label: string }>,
+): string {
+  if (!isCustomCategoryId(category)) {
+    return CATEGORY_LABELS[category as BankCategory] ?? category;
+  }
+  const id = customCategoryUuid(category);
+  return custom.find((c) => c.id === id)?.label ?? "Custom category";
+}
+
+export const BANK_CATEGORIES = Object.keys(CATEGORY_LABELS) as BankCategory[];
 
 /** Primary workspace sections — income first, then expense heads users review after CSV import. */
 export const WORKSPACE_CATEGORY_SECTIONS: BankCategory[] = [
@@ -144,6 +199,7 @@ export const WORKSPACE_CATEGORY_SECTIONS: BankCategory[] = [
   "salaries",
   "subcontractors",
   "directors_remuneration",
+  "dividends",
   "fuel",
   "travel",
   "insurance",
@@ -157,6 +213,8 @@ export const WORKSPACE_CATEGORY_SECTIONS: BankCategory[] = [
   "admin_office",
   "depreciation",
   "admin_expenses",
+  "expense_queries",
+  "trade_debtors",
   "tax",
   "transfer",
   "drawings",

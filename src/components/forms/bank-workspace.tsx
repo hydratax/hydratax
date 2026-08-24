@@ -2,6 +2,8 @@
 
 import { useRef, useState, useTransition } from "react";
 import {
+  clearBankTransactions,
+  dedupeBankTransactions,
   importBankCsv,
   requestBankConnect,
 } from "@/server/actions/bank";
@@ -23,16 +25,23 @@ type Tx = {
 
 export function BankWorkspace({
   clientId,
+  clientSlug,
   transactions,
   draft,
+  customCategories,
 }: {
   clientId: string;
+  clientSlug: string;
   transactions: Tx[];
+  customCategories: Array<{ id: string; label: string }>;
   draft: {
     selfAssessment: {
       turnoverPence: number;
       otherIncomePence: number;
       expensesPence: number;
+      fromCompanyBank?: boolean;
+      directorRemunerationPence?: number;
+      dividendPence?: number;
     };
     corporationTax: {
       turnoverPence: number;
@@ -40,6 +49,7 @@ export function BankWorkspace({
       profitPence: number;
     };
     lineCount: number;
+    clientType?: "sole_trader" | "limited_company" | "partnership";
   };
 }) {
   const formRef = useRef<HTMLFormElement>(null);
@@ -94,8 +104,8 @@ export function BankWorkspace({
           <h3 className="display text-xl text-ink">Upload bank statement</h3>
           <p className="text-sm text-ink-soft">
             Import CSV or Excel — we auto-sort into fuel, insurance, salaries,
-            subcontractors, finance, and other account heads. Reallocate any line
-            below, then open accounts with one click.
+            subcontractors, finance, and other account heads. Re-uploading
+            replaces the previous statement for this client.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <input
@@ -164,7 +174,7 @@ export function BankWorkspace({
               </p>
             </div>
             <Link
-              href={`/clients/${clientId}/accounts-pack`}
+              href={`/clients/${clientSlug}/accounts-pack`}
               className="btn btn-primary shrink-0"
             >
               Open accounts pack →
@@ -181,30 +191,67 @@ export function BankWorkspace({
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div className="rounded-lg border border-line bg-sand/40 p-4">
             <p className="text-xs font-bold uppercase text-ink-soft">
-              Self Assessment draft
+              {draft.selfAssessment.fromCompanyBank
+                ? "Director SA income (from company bank)"
+                : "Self Assessment draft"}
             </p>
+            {draft.selfAssessment.fromCompanyBank ? (
+              <p className="mt-1 text-xs text-ink-soft">
+                Business turnover feeds Corporation Tax only. Tag director pay
+                and dividends below for the director&apos;s personal return.
+              </p>
+            ) : null}
             <dl className="mt-2 space-y-1 text-sm">
               <div className="flex justify-between">
-                <dt>Turnover</dt>
-                <dd className="mono">{gbp(draft.selfAssessment.turnoverPence)}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>Other income</dt>
+                <dt>
+                  {draft.selfAssessment.fromCompanyBank
+                    ? "Director remuneration"
+                    : "Turnover"}
+                </dt>
                 <dd className="mono">
-                  {gbp(draft.selfAssessment.otherIncomePence)}
+                  {gbp(
+                    draft.selfAssessment.fromCompanyBank
+                      ? (draft.selfAssessment.directorRemunerationPence ?? 0)
+                      : draft.selfAssessment.turnoverPence,
+                  )}
                 </dd>
               </div>
               <div className="flex justify-between">
-                <dt>Expenses</dt>
-                <dd className="mono">{gbp(draft.selfAssessment.expensesPence)}</dd>
+                <dt>
+                  {draft.selfAssessment.fromCompanyBank
+                    ? "Dividends"
+                    : "Other income"}
+                </dt>
+                <dd className="mono">
+                  {gbp(
+                    draft.selfAssessment.fromCompanyBank
+                      ? (draft.selfAssessment.dividendPence ?? 0)
+                      : draft.selfAssessment.otherIncomePence,
+                  )}
+                </dd>
               </div>
+              {!draft.selfAssessment.fromCompanyBank ? (
+                <div className="flex justify-between">
+                  <dt>Expenses</dt>
+                  <dd className="mono">
+                    {gbp(draft.selfAssessment.expensesPence)}
+                  </dd>
+                </div>
+              ) : null}
             </dl>
-            <Link
-              href={`/clients/${clientId}/self-assessment`}
-              className="btn btn-primary mt-4 text-sm"
-            >
-              Open Self Assessment
-            </Link>
+            {draft.clientType === "limited_company" ? (
+              <p className="mt-3 text-xs text-ink-soft">
+                Open the director&apos;s personal client record for the full
+                SA100 return.
+              </p>
+            ) : (
+              <Link
+                href={`/clients/${clientSlug}/self-assessment`}
+                className="btn btn-primary mt-4 text-sm"
+              >
+                Open Self Assessment
+              </Link>
+            )}
           </div>
           <div className="rounded-lg border border-line bg-sand/40 p-4">
             <p className="text-xs font-bold uppercase text-ink-soft">
@@ -225,7 +272,7 @@ export function BankWorkspace({
               </div>
             </dl>
             <Link
-              href={`/clients/${clientId}/corporation-tax`}
+              href={`/clients/${clientSlug}/corporation-tax`}
               className="btn btn-primary mt-4 text-sm"
             >
               Open CT600
@@ -243,28 +290,83 @@ export function BankWorkspace({
             </p>
           </div>
           {hasTransactions ? (
-            <button
-              type="button"
-              className="btn btn-secondary text-sm"
-              disabled={pending}
-              onClick={() =>
-                start(async () => {
-                  setErr(null);
-                  const res = await recategoriseBankTransactions(clientId);
-                  if (!res.ok) {
-                    setErr(res.error);
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary text-sm"
+                disabled={pending}
+                onClick={() =>
+                  start(async () => {
+                    setErr(null);
+                    const res = await dedupeBankTransactions(clientId);
+                    if (!res.ok) {
+                      setErr(res.error);
+                      return;
+                    }
+                    setMsg(
+                      res.removed
+                        ? `Removed ${res.removed} duplicate lines.`
+                        : "No duplicate lines found.",
+                    );
+                    router.refresh();
+                  })
+                }
+              >
+                Remove duplicates
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary text-sm"
+                disabled={pending}
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      "Clear all bank transactions for this client? You can re-import the CSV afterwards.",
+                    )
+                  ) {
                     return;
                   }
-                  setMsg(`Re-applied merchant rules to ${res.updated} lines.`);
-                  router.refresh();
-                })
-              }
-            >
-              Re-apply auto rules
-            </button>
+                  start(async () => {
+                    setErr(null);
+                    const res = await clearBankTransactions(clientId);
+                    if (!res.ok) {
+                      setErr(res.error);
+                      return;
+                    }
+                    setMsg(`Cleared ${res.removed} lines. Upload your CSV again.`);
+                    router.refresh();
+                  });
+                }}
+              >
+                Clear all
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary text-sm"
+                disabled={pending}
+                onClick={() =>
+                  start(async () => {
+                    setErr(null);
+                    const res = await recategoriseBankTransactions(clientId);
+                    if (!res.ok) {
+                      setErr(res.error);
+                      return;
+                    }
+                    setMsg(`Re-applied merchant rules to ${res.updated} lines.`);
+                    router.refresh();
+                  })
+                }
+              >
+                Re-apply auto rules
+              </button>
+            </div>
           ) : null}
         </div>
-        <BankCategorisedView clientId={clientId} transactions={transactions} />
+        <BankCategorisedView
+          clientId={clientId}
+          transactions={transactions}
+          customCategories={customCategories}
+        />
       </div>
     </div>
   );

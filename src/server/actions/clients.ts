@@ -10,6 +10,7 @@ import {
   enrichLimitedCompanyFromCh,
   type ClientCompaniesHouseSnapshot,
 } from "@/server/companies-house/enrich-client";
+import type { PriorYearComparatives } from "@/lib/accounting-periods";
 
 const createClientSchema = z.object({
   name: z.string().min(1).max(200),
@@ -21,11 +22,20 @@ const createClientSchema = z.object({
   payeRef: z.string().optional(),
   accountsOfficeRef: z.string().optional(),
   contactEmail: z.string().email().optional().or(z.literal("")),
+  contactPhone: z.string().max(40).optional().or(z.literal("")),
   isEmployer: z.boolean().default(false),
   isVatRegistered: z.boolean().default(false),
   /** Skip CH lookup (bulk importer controls batching) */
   skipCompaniesHouse: z.boolean().optional(),
 });
+
+const updateClientSchema = createClientSchema
+  .omit({ skipCompaniesHouse: true })
+  .partial()
+  .extend({
+    clientId: z.string().min(1),
+    name: z.string().min(1).max(200).optional(),
+  });
 
 const MAX_BULK = 1000;
 
@@ -33,6 +43,7 @@ export type BulkImportRowResult = {
   row: number;
   name: string;
   ok: boolean;
+  skipped?: boolean;
   error?: string;
   clientId?: string;
   companiesHouse?: boolean;
@@ -50,9 +61,11 @@ export type ClientRecord = {
   payeRef: string | null;
   accountsOfficeRef: string | null;
   contactEmail: string | null;
+  contactPhone: string | null;
   isEmployer: boolean;
   isVatRegistered: boolean;
   companiesHouse: ClientCompaniesHouseSnapshot | null;
+  accountsComparatives: PriorYearComparatives | null;
   createdAt: string | Date;
   updatedAt: string | Date;
 };
@@ -70,10 +83,12 @@ function mapSupabaseClient(row: Record<string, unknown>): ClientRecord {
     payeRef: (row.paye_ref as string | null) ?? null,
     accountsOfficeRef: (row.accounts_office_ref as string | null) ?? null,
     contactEmail: (row.contact_email as string | null) ?? null,
+    contactPhone: (row.contact_phone as string | null) ?? null,
     isEmployer: Boolean(row.is_employer),
     isVatRegistered: Boolean(row.is_vat_registered),
     companiesHouse:
       (row.companies_house as ClientCompaniesHouseSnapshot | null) ?? null,
+    accountsComparatives: (row.accounts_comparatives as ClientRecord["accountsComparatives"]) ?? null,
     createdAt: (row.created_at as string) ?? new Date().toISOString(),
     updatedAt: (row.updated_at as string) ?? new Date().toISOString(),
   };
@@ -150,63 +165,12 @@ export async function listClients() {
   }
 }
 
-export async function getClient(clientId: string) {
-  const session = await requireSession();
-  if (isDemoMode()) {
-    const client = demoStore.clients.find(
-      (c) =>
-        c.id === clientId &&
-        (c.practiceId === session.practiceId ||
-          c.practiceId === demoStore.practice.id),
-    );
-    if (!client) {
-      const { notFound } = await import("next/navigation");
-      return notFound();
-    }
-    return client;
-  }
-
-  if (isSupabaseConfigured()) {
-    try {
-      const { createClient: createSupabase } = await import(
-        "@/lib/supabase/server"
-      );
-      const supabase = await createSupabase();
-      const { data, error } = await supabase
-        .from("clients")
-        .select("*")
-        .eq("id", clientId)
-        .eq("practice_id", session.practiceId)
-        .maybeSingle();
-      if (!error && data) return mapSupabaseClient(data);
-      if (error) {
-        console.warn("[clients] supabase get failed", error.message);
-      }
-    } catch (err) {
-      console.warn("[clients] supabase get error", err);
-    }
-  }
-
-  const { getDb, hasDatabase } = await import("@/server/db");
-  if (!hasDatabase()) {
-    const { notFound } = await import("next/navigation");
-    return notFound();
-  }
-
-  const { clients } = await import("@/server/db/schema");
-  const { and, eq } = await import("drizzle-orm");
-  const rows = await getDb()
-    .select()
-    .from(clients)
-    .where(
-      and(eq(clients.id, clientId), eq(clients.practiceId, session.practiceId)),
-    )
-    .limit(1);
-  if (!rows[0]) {
-    const { notFound } = await import("next/navigation");
-    return notFound();
-  }
-  return rows[0];
+export async function getClient(ref: string) {
+  const { resolveClientFromRef } = await import(
+    "@/server/clients/resolve-client-page"
+  );
+  const { client } = await resolveClientFromRef(ref);
+  return client;
 }
 
 export async function createClient(input: z.infer<typeof createClientSchema>) {
@@ -255,9 +219,11 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
       payeRef: data.payeRef ?? null,
       accountsOfficeRef: data.accountsOfficeRef ?? null,
       contactEmail: data.contactEmail || null,
+      contactPhone: data.contactPhone?.trim() || null,
       isEmployer: data.isEmployer,
       isVatRegistered: data.isVatRegistered,
       companiesHouse: ch,
+      accountsComparatives: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -304,6 +270,7 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
         paye_ref: data.payeRef ?? null,
         accounts_office_ref: data.accountsOfficeRef ?? null,
         contact_email: data.contactEmail || null,
+        contact_phone: data.contactPhone?.trim() || null,
         is_employer: data.isEmployer,
         is_vat_registered: data.isVatRegistered,
         companies_house: ch,
@@ -349,6 +316,7 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
       payeRef: data.payeRef ?? null,
       accountsOfficeRef: data.accountsOfficeRef ?? null,
       contactEmail: data.contactEmail || null,
+      contactPhone: data.contactPhone?.trim() || null,
       isEmployer: data.isEmployer,
       isVatRegistered: data.isVatRegistered,
       companiesHouse: ch,
@@ -372,6 +340,151 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
   revalidatePath("/clients");
   revalidatePath("/dashboard");
   return created;
+}
+
+/** Amend client name, contact details, tax identifiers and flags. */
+export async function updateClient(input: z.infer<typeof updateClientSchema>) {
+  const session = await requireSession();
+  if (session.role === "readonly") throw new Error("Forbidden");
+
+  const data = updateClientSchema.parse(input);
+  const existing = await getClient(data.clientId);
+  if (!existing || existing.practiceId !== session.practiceId) {
+    throw new Error("Client not found");
+  }
+
+  const patch = {
+    name: data.name?.trim() || existing.name,
+    companyNumber:
+      data.companyNumber !== undefined
+        ? data.companyNumber.trim().toUpperCase() || null
+        : existing.companyNumber,
+    utr: data.utr !== undefined ? data.utr.trim() || null : existing.utr,
+    vrn: data.vrn !== undefined ? data.vrn.trim() || null : existing.vrn,
+    nino: data.nino !== undefined ? data.nino.trim() || null : existing.nino,
+    payeRef:
+      data.payeRef !== undefined
+        ? data.payeRef.trim() || null
+        : existing.payeRef,
+    accountsOfficeRef:
+      data.accountsOfficeRef !== undefined
+        ? data.accountsOfficeRef.trim() || null
+        : existing.accountsOfficeRef,
+    contactEmail:
+      data.contactEmail !== undefined
+        ? data.contactEmail.trim() || null
+        : existing.contactEmail,
+    contactPhone:
+      data.contactPhone !== undefined
+        ? data.contactPhone.trim() || null
+        : existing.contactPhone,
+    isEmployer:
+      data.isEmployer !== undefined ? data.isEmployer : existing.isEmployer,
+    isVatRegistered:
+      data.isVatRegistered !== undefined
+        ? data.isVatRegistered
+        : existing.isVatRegistered,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (isDemoMode()) {
+    const row = demoStore.clients.find((c) => c.id === data.clientId);
+    if (!row) throw new Error("Client not found");
+    Object.assign(row, patch);
+    await safeAudit({
+      practiceId: session.practiceId,
+      clientId: data.clientId,
+      actorId: session.userId,
+      action: "client.update",
+      entityType: "client",
+      entityId: data.clientId,
+      detail: { name: patch.name },
+    });
+    revalidatePath(`/clients/${data.clientId}`);
+    revalidatePath("/clients");
+    return row as ClientRecord;
+  }
+
+  if (isSupabaseConfigured()) {
+    const { createClient: createSupabase } = await import(
+      "@/lib/supabase/server"
+    );
+    const supabase = await createSupabase();
+    const { data: row, error } = await supabase
+      .from("clients")
+      .update({
+        name: patch.name,
+        company_number: patch.companyNumber,
+        utr: patch.utr,
+        vrn: patch.vrn,
+        nino: patch.nino,
+        paye_ref: patch.payeRef,
+        accounts_office_ref: patch.accountsOfficeRef,
+        contact_email: patch.contactEmail,
+        contact_phone: patch.contactPhone,
+        is_employer: patch.isEmployer,
+        is_vat_registered: patch.isVatRegistered,
+        updated_at: patch.updatedAt,
+      })
+      .eq("id", data.clientId)
+      .eq("practice_id", session.practiceId)
+      .select("*")
+      .single();
+    if (error) throw new Error(error.message);
+    await safeAudit({
+      practiceId: session.practiceId,
+      clientId: data.clientId,
+      actorId: session.userId,
+      action: "client.update",
+      entityType: "client",
+      entityId: data.clientId,
+      detail: { name: patch.name },
+    });
+    revalidatePath(`/clients/${data.clientId}`);
+    revalidatePath("/clients");
+    return mapSupabaseClient(row);
+  }
+
+  const { getDb } = await import("@/server/db");
+  const { clients } = await import("@/server/db/schema");
+  const { and, eq } = await import("drizzle-orm");
+  const [updated] = await getDb()
+    .update(clients)
+    .set({
+      name: patch.name,
+      companyNumber: patch.companyNumber,
+      utr: patch.utr,
+      vrn: patch.vrn,
+      nino: patch.nino,
+      payeRef: patch.payeRef,
+      accountsOfficeRef: patch.accountsOfficeRef,
+      contactEmail: patch.contactEmail,
+      contactPhone: patch.contactPhone,
+      isEmployer: patch.isEmployer,
+      isVatRegistered: patch.isVatRegistered,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(clients.id, data.clientId),
+        eq(clients.practiceId, session.practiceId),
+      ),
+    )
+    .returning();
+  if (!updated) throw new Error("Client not found");
+
+  await safeAudit({
+    practiceId: session.practiceId,
+    clientId: data.clientId,
+    actorId: session.userId,
+    action: "client.update",
+    entityType: "client",
+    entityId: data.clientId,
+    detail: { name: patch.name },
+  });
+  revalidatePath(`/clients/${data.clientId}`);
+  revalidatePath("/clients");
+  return updated as ClientRecord;
 }
 
 /** Refresh Companies House data for an existing limited company client */
@@ -449,6 +562,169 @@ export async function refreshClientCompaniesHouse(clientId: string) {
   return updated;
 }
 
+function purgeDemoClientData(clientId: string) {
+  const notClient = <T extends { clientId: string }>(row: T) =>
+    row.clientId !== clientId;
+  demoStore.clients = demoStore.clients.filter((c) => c.id !== clientId);
+  demoStore.hmrcConnections = demoStore.hmrcConnections.filter(
+    (c) => c.clientId !== clientId,
+  );
+  demoStore.ledger = demoStore.ledger.filter(notClient);
+  demoStore.vatReturns = demoStore.vatReturns.filter(
+    (r) => String(r.clientId ?? "") !== clientId,
+  );
+  demoStore.saSubmissions = demoStore.saSubmissions.filter(
+    (r) => String(r.clientId ?? "") !== clientId,
+  );
+  demoStore.ct600Returns = demoStore.ct600Returns.filter(
+    (r) => String(r.clientId ?? "") !== clientId,
+  );
+  demoStore.employees = demoStore.employees.filter(notClient);
+  demoStore.payRuns = demoStore.payRuns.filter(
+    (r) => String(r.clientId ?? "") !== clientId,
+  );
+  demoStore.payrollTimesheets = demoStore.payrollTimesheets.filter(notClient);
+  demoStore.documents = demoStore.documents.filter(notClient);
+  demoStore.bankTransactions = demoStore.bankTransactions.filter(notClient);
+  demoStore.emailLogs = demoStore.emailLogs.filter(notClient);
+  demoStore.invoices = demoStore.invoices.filter(notClient);
+  demoStore.csFilings = demoStore.csFilings.filter(
+    (r) => r.clientId !== clientId,
+  );
+  demoStore.in01Filings = demoStore.in01Filings.filter(
+    (r) => r.clientId !== clientId,
+  );
+  demoStore.trialBalances = demoStore.trialBalances.filter(
+    (r) => r.clientId !== clientId,
+  );
+}
+
+/** Permanently remove a client and all workspace data for the practice. */
+export async function deleteClient(clientId: string) {
+  const session = await requireSession();
+  if (session.role === "readonly") throw new Error("Forbidden");
+
+  const client = await getClient(clientId);
+  if (!client || client.practiceId !== session.practiceId) {
+    throw new Error("Client not found");
+  }
+
+  try {
+    const { deskDeleteBankTransactionsForClient } = await import(
+      "@/server/db/desk-store"
+    );
+    await deskDeleteBankTransactionsForClient(clientId);
+  } catch (err) {
+    console.warn("[clients] desk bank cleanup failed", err);
+  }
+
+  if (isDemoMode()) {
+    purgeDemoClientData(clientId);
+    await safeAudit({
+      practiceId: session.practiceId,
+      clientId,
+      actorId: session.userId,
+      action: "client.delete",
+      entityType: "client",
+      entityId: clientId,
+      detail: { name: client.name },
+    });
+    revalidatePath("/clients");
+    revalidatePath("/dashboard");
+    return { ok: true as const };
+  }
+
+  if (isSupabaseConfigured()) {
+    const { createClient: createSupabase } = await import(
+      "@/lib/supabase/server"
+    );
+    const supabase = await createSupabase();
+
+    const { error: invoicesError } = await supabase
+      .from("client_invoices")
+      .delete()
+      .eq("client_id", clientId);
+    if (invoicesError) {
+      console.warn("[clients] invoice cleanup failed", invoicesError.message);
+    }
+
+    const { error } = await supabase
+      .from("clients")
+      .delete()
+      .eq("id", clientId)
+      .eq("practice_id", session.practiceId);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    await safeAudit({
+      practiceId: session.practiceId,
+      clientId,
+      actorId: session.userId,
+      action: "client.delete",
+      entityType: "client",
+      entityId: clientId,
+      detail: { name: client.name },
+    });
+    revalidatePath("/clients");
+    revalidatePath("/dashboard");
+    return { ok: true as const };
+  }
+
+  const { getDb, hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) throw new Error("Client storage is not configured");
+
+  const { eq, and } = await import("drizzle-orm");
+  const {
+    clients,
+    hmrcConnections,
+    ledgerEntries,
+    vatReturns,
+    saSubmissions,
+    ct600Returns,
+    employees,
+    payRuns,
+    payrollTimesheets,
+    clientDocuments,
+    bankTransactions,
+  } = await import("@/server/db/schema");
+
+  const db = getDb();
+  await db.delete(hmrcConnections).where(eq(hmrcConnections.clientId, clientId));
+  await db.delete(bankTransactions).where(eq(bankTransactions.clientId, clientId));
+  await db.delete(clientDocuments).where(eq(clientDocuments.clientId, clientId));
+  await db.delete(payrollTimesheets).where(eq(payrollTimesheets.clientId, clientId));
+  await db.delete(payRuns).where(eq(payRuns.clientId, clientId));
+  await db.delete(employees).where(eq(employees.clientId, clientId));
+  await db.delete(vatReturns).where(eq(vatReturns.clientId, clientId));
+  await db.delete(saSubmissions).where(eq(saSubmissions.clientId, clientId));
+  await db.delete(ct600Returns).where(eq(ct600Returns.clientId, clientId));
+  await db.delete(ledgerEntries).where(eq(ledgerEntries.clientId, clientId));
+
+  const [removed] = await db
+    .delete(clients)
+    .where(
+      and(eq(clients.id, clientId), eq(clients.practiceId, session.practiceId)),
+    )
+    .returning({ id: clients.id });
+
+  if (!removed) throw new Error("Client not found");
+
+  await safeAudit({
+    practiceId: session.practiceId,
+    clientId,
+    actorId: session.userId,
+    action: "client.delete",
+    entityType: "client",
+    entityId: clientId,
+    detail: { name: client.name },
+  });
+  revalidatePath("/clients");
+  revalidatePath("/dashboard");
+  return { ok: true as const };
+}
+
 function parseBool(v: unknown): boolean {
   if (typeof v === "boolean") return v;
   const s = String(v ?? "")
@@ -490,6 +766,50 @@ function cell(
   return undefined;
 }
 
+function normalizeClientName(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function normalizeCompanyNumber(raw: string): string {
+  const compact = raw.replace(/\s/g, "").toUpperCase();
+  if (/^\d+$/.test(compact)) return compact.padStart(8, "0");
+  return compact;
+}
+
+function buildExistingClientIndex(
+  clients: Array<{ id: string; name: string; companyNumber?: string | null }>,
+) {
+  const byCompanyNumber = new Map<
+    string,
+    { id: string; name: string; companyNumber?: string | null }
+  >();
+  const byName = new Map<
+    string,
+    { id: string; name: string; companyNumber?: string | null }
+  >();
+  for (const c of clients) {
+    if (c.companyNumber) {
+      byCompanyNumber.set(normalizeCompanyNumber(c.companyNumber), c);
+    }
+    byName.set(normalizeClientName(c.name), c);
+  }
+  return { byCompanyNumber, byName };
+}
+
+function findExistingClient(
+  index: ReturnType<typeof buildExistingClientIndex>,
+  name: string,
+  companyNumber?: string,
+): { id: string; name: string; companyNumber?: string | null } | undefined {
+  if (companyNumber) {
+    const hit = index.byCompanyNumber.get(normalizeCompanyNumber(companyNumber));
+    if (hit) return hit;
+  }
+  const normalized = normalizeClientName(name);
+  if (normalized) return index.byName.get(normalized);
+  return undefined;
+}
+
 /**
  * Import up to 1000 clients from parsed Excel/CSV rows.
  * Limited companies with a company number are enriched via Companies House
@@ -499,6 +819,7 @@ export async function bulkImportClients(
   rows: Array<Record<string, unknown>>,
 ): Promise<{
   created: number;
+  skipped: number;
   failed: number;
   results: BulkImportRowResult[];
 }> {
@@ -511,6 +832,11 @@ export async function bulkImportClients(
   if (rows.length > MAX_BULK) {
     throw new Error(`Maximum ${MAX_BULK} clients per upload`);
   }
+
+  const existing = await listClients();
+  const index = buildExistingClientIndex(existing);
+  const seenCompanyNumbers = new Set<string>();
+  const seenNames = new Set<string>();
 
   const results: BulkImportRowResult[] = [];
   const CHUNK = 5;
@@ -536,10 +862,53 @@ export async function bulkImportClients(
         const name =
           cell(raw, "name", "client_name", "client name", "company_name") ??
           "";
+        const displayName = name || companyNumber || "(blank)";
 
         try {
           if (!name && !(type === "limited_company" && companyNumber)) {
             throw new Error("Missing name");
+          }
+
+          const normalizedName = normalizeClientName(
+            name || companyNumber || "Unnamed client",
+          );
+          const normalizedCo = companyNumber
+            ? normalizeCompanyNumber(companyNumber)
+            : null;
+
+          if (normalizedCo && seenCompanyNumbers.has(normalizedCo)) {
+            return {
+              row: rowNum,
+              name: displayName,
+              ok: true,
+              skipped: true,
+              error: "Duplicate row in file (same company number)",
+            };
+          }
+          if (seenNames.has(normalizedName)) {
+            return {
+              row: rowNum,
+              name: displayName,
+              ok: true,
+              skipped: true,
+              error: "Duplicate row in file (same name)",
+            };
+          }
+
+          const existingClient = findExistingClient(
+            index,
+            name || companyNumber || "Unnamed client",
+            companyNumber,
+          );
+          if (existingClient) {
+            return {
+              row: rowNum,
+              name: displayName,
+              ok: true,
+              skipped: true,
+              clientId: existingClient.id,
+              error: "Already in your practice",
+            };
           }
 
           const client = await createClient({
@@ -566,10 +935,24 @@ export async function bulkImportClients(
             skipCompaniesHouse: false,
           });
 
+          if (normalizedCo) seenCompanyNumbers.add(normalizedCo);
+          seenNames.add(normalizedName);
+          if (client.companyNumber) {
+            index.byCompanyNumber.set(
+              normalizeCompanyNumber(client.companyNumber),
+              { id: client.id, name: client.name, companyNumber: client.companyNumber },
+            );
+          }
+          index.byName.set(normalizeClientName(client.name), {
+            id: client.id,
+            name: client.name,
+            companyNumber: client.companyNumber ?? null,
+          });
+
           return {
             row: rowNum,
             name: client.name,
-            ok: true as const,
+            ok: true,
             clientId: client.id,
             companiesHouse: Boolean(
               "companiesHouse" in client && client.companiesHouse,
@@ -578,7 +961,7 @@ export async function bulkImportClients(
         } catch (err) {
           return {
             row: rowNum,
-            name: name || "(blank)",
+            name: displayName,
             ok: false as const,
             error: err instanceof Error ? err.message : "Failed",
           };
@@ -592,7 +975,8 @@ export async function bulkImportClients(
   revalidatePath("/clients");
   revalidatePath("/dashboard");
   return {
-    created: results.filter((r) => r.ok).length,
+    created: results.filter((r) => r.ok && !r.skipped).length,
+    skipped: results.filter((r) => r.ok && r.skipped).length,
     failed: results.filter((r) => !r.ok).length,
     results,
   };

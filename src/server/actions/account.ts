@@ -315,3 +315,107 @@ export async function activatePlanLocally(planKey: string) {
   revalidatePath("/dashboard");
   return { ok: true };
 }
+
+const amendProfileSchema = z.object({
+  firstName: z.string().min(1).max(80),
+  surname: z.string().min(1).max(80),
+  practiceName: z.string().min(1).max(200),
+});
+
+export type AccountProfile = {
+  email: string | null;
+  firstName: string;
+  surname: string;
+  practiceName: string;
+  role: string;
+  moduleAccess: string;
+};
+
+export async function getAccountProfile(): Promise<AccountProfile> {
+  const session = await requireSession();
+  let firstName = "";
+  let surname = "";
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { createClient } = await import("@/lib/supabase/server");
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("profiles")
+        .select("first_name, surname, email")
+        .eq("id", session.userId)
+        .maybeSingle();
+      firstName = data?.first_name?.trim() ?? "";
+      surname = data?.surname?.trim() ?? "";
+    } catch {
+      /* ignore */
+    }
+  } else if (isMemoryStore()) {
+    const profile = memoryStore.accountProfile;
+    firstName = profile?.firstName ?? "Practice";
+    surname = profile?.surname ?? "";
+  }
+
+  if (!firstName && session.email) {
+    firstName = session.email.split("@")[0] ?? "";
+  }
+
+  return {
+    email: session.email,
+    firstName,
+    surname,
+    practiceName: session.practiceName,
+    role: session.role,
+    moduleAccess: session.moduleAccess,
+  };
+}
+
+export async function updateAccountProfile(
+  input: z.infer<typeof amendProfileSchema>,
+) {
+  const session = await requireSession();
+  const data = amendProfileSchema.parse(input);
+
+  if (isMemoryStore()) {
+    memoryStore.accountProfile = {
+      orgType: "practice",
+      orgSearch: data.practiceName,
+      firstName: data.firstName,
+      surname: data.surname,
+      createdAt:
+        memoryStore.accountProfile?.createdAt ?? new Date().toISOString(),
+    };
+    memoryStore.practice.name = data.practiceName;
+    revalidatePath("/settings/account");
+    revalidatePath("/settings/team");
+    revalidatePath("/dashboard");
+    return { ok: true as const };
+  }
+
+  if (!isSupabaseConfigured()) {
+    throw new Error("Account storage is not configured");
+  }
+
+  const { createClient } = await import("@/lib/supabase/server");
+  const supabase = await createClient();
+
+  const { error: profileError } = await supabase.from("profiles").upsert({
+    id: session.userId,
+    email: session.email,
+    first_name: data.firstName.trim(),
+    surname: data.surname.trim(),
+  });
+  if (profileError) throw new Error(profileError.message);
+
+  const { error: practiceError } = await supabase
+    .from("practices")
+    .update({ name: data.practiceName.trim() })
+    .eq("id", session.practiceId);
+  if (practiceError) throw new Error(practiceError.message);
+
+  revalidatePath("/settings/account");
+  revalidatePath("/settings/team");
+  revalidatePath("/dashboard");
+  return { ok: true as const };
+}
+

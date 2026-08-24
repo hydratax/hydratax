@@ -13,6 +13,7 @@ import {
 
 export type ClientListItem = {
   id: string;
+  slug: string;
   name: string;
   type: "sole_trader" | "limited_company" | "partnership";
   companyNumber: string | null;
@@ -189,7 +190,7 @@ export function ClientsList({ clients }: { clients: ClientListItem[] }) {
           return (
             <Link
               key={c.id}
-              href={`/clients/${c.id}`}
+              href={`/clients/${c.slug}`}
               className={`panel panel-interactive block p-5 ${highlight}`}
             >
               <div className="flex items-start justify-between gap-3">

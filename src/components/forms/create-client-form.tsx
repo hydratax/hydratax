@@ -52,6 +52,7 @@ export function CreateClientForm() {
               accountsOfficeRef:
                 String(fd.get("accountsOfficeRef") || "") || undefined,
               contactEmail: String(fd.get("contactEmail") || "") || undefined,
+              contactPhone: String(fd.get("contactPhone") || "") || undefined,
               isEmployer: fd.get("isEmployer") === "on",
               isVatRegistered: fd.get("isVatRegistered") === "on",
             });
@@ -133,6 +134,18 @@ export function CreateClientForm() {
             type="email"
             className="input"
             placeholder="client@example.com"
+          />
+        </div>
+        <div>
+          <label className="label" htmlFor="contactPhone">
+            Client phone
+          </label>
+          <input
+            id="contactPhone"
+            name="contactPhone"
+            type="tel"
+            className="input"
+            placeholder="07…"
           />
         </div>
         <div>

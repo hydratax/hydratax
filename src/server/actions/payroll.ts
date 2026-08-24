@@ -1163,10 +1163,17 @@ export async function sendPayrollPack(input: z.infer<typeof sendPackSchema>) {
       id: crypto.randomUUID(),
       practiceId: session.practiceId,
       clientId: data.clientId,
-      toDomain: data.toEmail.split("@")[1] ?? "unknown",
+      sentBy: session.userId,
+      fromEmail:
+        session.email ??
+        (from.match(/<([^>]+)>/)?.[1] ?? "unknown"),
+      toEmail: data.toEmail,
       subject: `Payroll pack ${pack.payDate}`,
+      messagePreview: `Payroll pack for ${pack.payDate}`,
+      kind: "payroll_pack",
       documentCount: pack.lineCount + 1,
       delivery,
+      accountsDue: null,
       createdAt: new Date().toISOString(),
     });
   }

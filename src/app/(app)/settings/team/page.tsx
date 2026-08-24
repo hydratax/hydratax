@@ -25,8 +25,13 @@ export default async function TeamSettingsPage() {
         </p>
         <h1 className="display mt-1 text-4xl text-ink">Team</h1>
         <p className="mt-2 max-w-2xl text-ink-soft">
-          Add staff and limit them to payroll, VAT, or corporation tax across
-          all clients. You keep full access as the account holder.
+          Add staff and limit each person to payroll (PAYE), VAT, or corporation
+          tax across all clients. You keep full access as the account holder.
+          Manage your own name and practice from{" "}
+          <Link href="/settings/account" className="font-semibold text-sea">
+            Account
+          </Link>
+          .
         </p>
       </div>
 

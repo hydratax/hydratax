@@ -136,7 +136,7 @@ export const SUPPORT_ARTICLES: SupportArticle[] = [
     category: "ct600",
     popular: true,
     body: [
-      "Confirm the accounting period dates match Companies House and HMRC. Extended periods over twelve months usually need two CT600 submissions.",
+      "Confirm the accounting period dates before you start. Hydra pre-fills them from the client record where available.",
       "Enter turnover, costs, and balance sheet figures in pounds and pence â€” Hydra stores them as integer pence and builds the XML payload for you.",
       "If an earlier period is overdue and filed elsewhere, mark it filed so the current period can proceed.",
     ],

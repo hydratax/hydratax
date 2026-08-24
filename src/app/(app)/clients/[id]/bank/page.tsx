@@ -1,20 +1,19 @@
-import { getClient } from "@/server/actions/clients";
-import {
-  getTaxDraftFromBank,
-  listBankTransactions,
-} from "@/server/actions/bank";
+import { getTaxDraftFromBank, listBankTransactions } from "@/server/actions/bank";
+import { listCustomBankCategories } from "@/server/actions/custom-categories";
 import { ClientTabs } from "@/components/client-tabs";
 import { BankWorkspace } from "@/components/forms/bank-workspace";
+import { loadClientPage } from "@/server/clients/resolve-client-page";
 
 export default async function ClientBankPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
-  const client = await getClient(id);
-  const transactions = await listBankTransactions(id).catch(() => []);
-  const draft = await getTaxDraftFromBank(id);
+  const { id: ref } = await params;
+  const { client, slug, clientId } = await loadClientPage(ref, "bank");
+  const transactions = await listBankTransactions(clientId).catch(() => []);
+  const draft = await getTaxDraftFromBank(clientId);
+  const customCategories = await listCustomBankCategories().catch(() => []);
 
   return (
     <div>
@@ -25,9 +24,10 @@ export default async function ClientBankPage({
       <p className="mt-1 text-ink-soft">
         Bank feeds &amp; statements · categorise · draft SA / CT
       </p>
-      <ClientTabs clientId={id} active="bank" />
+      <ClientTabs clientSlug={slug} active="bank" />
       <BankWorkspace
-        clientId={id}
+        clientId={clientId}
+        clientSlug={slug}
         transactions={transactions.map((t) => ({
           id: t.id,
           dated: t.dated,
@@ -37,6 +37,7 @@ export default async function ClientBankPage({
           confidence: t.confidence,
         }))}
         draft={draft}
+        customCategories={customCategories}
       />
     </div>
   );

@@ -85,9 +85,12 @@ export const clients = pgTable(
     isEmployer: boolean("is_employer").notNull().default(false),
     isVatRegistered: boolean("is_vat_registered").notNull().default(false),
     contactEmail: text("contact_email"),
+    contactPhone: text("contact_phone"),
     payrollPackPasswordEncrypted: text("payroll_pack_password_encrypted"),
     /** JSON snapshot from Companies House Public Data API */
     companiesHouse: jsonb("companies_house"),
+    /** Prior-year P&L/BS comparatives entered for year-end packs */
+    accountsComparatives: jsonb("accounts_comparatives"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -527,7 +530,7 @@ export const confirmationStatementFilings = pgTable(
   ],
 );
 
-/** Ops log — stores recipient domain only, not full mailbox, for admin safety */
+/** Communication log — emails sent to clients from practice users */
 export const clientEmailLogs = pgTable(
   "client_email_logs",
   {
@@ -538,15 +541,23 @@ export const clientEmailLogs = pgTable(
     clientId: uuid("client_id")
       .notNull()
       .references(() => clients.id),
-    toDomain: text("to_domain").notNull(),
+    sentBy: uuid("sent_by"),
+    fromEmail: text("from_email").notNull(),
+    toEmail: text("to_email").notNull(),
     subject: text("subject").notNull(),
+    messagePreview: text("message_preview"),
+    kind: text("kind").notNull().default("general"),
     documentCount: integer("document_count").notNull().default(0),
     delivery: text("delivery").notNull(),
+    accountsDue: text("accounts_due"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
   },
-  (t) => [index("email_logs_client_idx").on(t.clientId)],
+  (t) => [
+    index("email_logs_client_idx").on(t.clientId),
+    index("email_logs_practice_idx").on(t.practiceId),
+  ],
 );
 
 export type Practice = typeof practices.$inferSelect;

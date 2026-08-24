@@ -1,9 +1,12 @@
-import { getClient } from "@/server/actions/clients";
-import { listClientInvoices } from "@/server/actions/invoices";
+import {
+  listClientInvoices,
+  listInvoiceLineTemplates,
+} from "@/server/actions/invoices";
 import { requireModule } from "@/server/auth/session";
 import { ClientTabs } from "@/components/client-tabs";
 import { InvoiceWorkspace } from "@/components/forms/invoice-workspace";
 import { redirect } from "next/navigation";
+import { loadClientPage } from "@/server/clients/resolve-client-page";
 
 export default async function ClientInvoicesPage({
   params,
@@ -17,20 +20,29 @@ export default async function ClientInvoicesPage({
     redirect("/clients");
   }
 
-  const { id } = await params;
-  const client = await getClient(id);
-  const invoices = await listClientInvoices(id);
+  const { id: ref } = await params;
+  const { client, slug, clientId } = await loadClientPage(ref, "invoices");
+  const [invoices, templates] = await Promise.all([
+    listClientInvoices(clientId),
+    listInvoiceLineTemplates(),
+  ]);
 
   return (
     <div>
       <h1 className="display text-4xl text-ink">{client.name}</h1>
       <p className="mt-1 text-ink-soft">Invoices</p>
       <ClientTabs
-        clientId={id}
+        clientSlug={slug}
         active="invoices"
         moduleAccess={session.moduleAccess}
       />
-      <InvoiceWorkspace clientId={id} invoices={invoices} />
+      <InvoiceWorkspace
+        clientId={clientId}
+        clientName={client.name}
+        clientEmail={client.contactEmail}
+        invoices={invoices}
+        templates={templates}
+      />
     </div>
   );
 }
