@@ -10,7 +10,7 @@ import {
 import { buildFraudPreventionHeaders } from "@/server/hmrc/fraud-headers";
 import { getHmrcConfig } from "@/server/hmrc/config";
 import { draftVatBoxesFromLedger } from "@/server/hmrc/vat";
-import { buildCt600Xml } from "@/server/hmrc/ct600";
+import { buildCt600Xml } from "@/server/hmrc/ct600/build-envelope";
 import { calculateMonthlyPay, buildFpsXml } from "@/server/hmrc/payroll";
 import { encryptSecret, decryptSecret } from "@/server/hmrc/crypto";
 
@@ -146,8 +146,30 @@ describe("ct600 + payroll builders", () => {
       frequency: "M1",
       lines: [line],
     });
-    expect(fps.xml).toContain("HMRC-PAYE-RTI-FPS");
+    expect(fps.bodyInner).toContain("FullPaymentSubmission");
+    expect(fps.bodyInner).toContain('<IRmark Type="generic">');
+    expect(fps.bodyInner).toContain("<IRheader>");
+    expect(fps.bodyInner).toContain(
+      "http://www.govtalk.gov.uk/taxation/PAYE/RTI/FullPaymentSubmission/25-26/1",
+    );
+    expect(fps.bodyInner).toContain("<PayeRef>AB45678</PayeRef>");
+    expect(fps.irmark.length).toBeGreaterThan(10);
     expect(fps.xml).toContain("TaxablePayToDate");
     expect(fps.xml).toContain("<PayFreq>M1</PayFreq>");
+    const live = buildFpsXml({
+      employerPayeRef: "123/AB45678",
+      accountsOfficeRef: "123PA00045678",
+      payDate: "2026-03-28",
+      taxYear: "25-26",
+      frequency: "M1",
+      lines: [line],
+      senderId: "123456789012",
+      senderPassword: "secret",
+      gatewayTest: true,
+    });
+    expect(live.xml).toContain("HMRC-PAYE-RTI-FPS");
+    expect(live.xml).toContain("<SenderID>123456789012</SenderID>");
+    expect(live.xml).toContain("<GatewayTest>1</GatewayTest>");
+    expect(live.xml).toContain(`<IRmark Type="generic">${live.irmark}</IRmark>`);
   });
 });

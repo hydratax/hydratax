@@ -4,7 +4,6 @@ import {
   listPayRuns,
 } from "@/server/actions/payroll";
 import { requireModule } from "@/server/auth/session";
-import { ClientTabs } from "@/components/client-tabs";
 import { PayrollWorkspace } from "@/components/forms/payroll-workspace";
 import { redirect } from "next/navigation";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
@@ -33,15 +32,9 @@ export default async function PayrollPage({
 
   return (
     <div>
-      <h1 className="display text-4xl text-ink">{client.name}</h1>
-      <p className="mt-1 text-ink-soft">
+      <p className="mb-4 text-sm text-ink-soft">
         PAYE / RTI payroll · timesheets · statutory pay · password-protected packs
       </p>
-      <ClientTabs
-        clientSlug={slug}
-        active="payroll"
-        moduleAccess={session.moduleAccess}
-      />
       <PayrollWorkspace
         clientId={clientId}
         clientName={client.name}

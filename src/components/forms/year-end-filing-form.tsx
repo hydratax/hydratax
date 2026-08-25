@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { prepareCt600, submitCt600 } from "@/server/actions/ct600";
+import { prepareCt600, submitCt600, getCt600SubmitInfo, downloadCt600Draft } from "@/server/actions/ct600";
 import { money } from "@/lib/format";
 import { authEntryHref } from "@/lib/auth-return";
 import { CT600_PHASES } from "@/lib/hmrc/filing-guides";
@@ -19,6 +19,11 @@ import {
   type Ct600TbFigures,
 } from "@/components/forms/trial-balance-upload";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { FilingConfirmation } from "@/components/filing-confirmation";
+import {
+  GatewayCredentialsFields,
+  gatewayCredentialsReady,
+} from "@/components/forms/gateway-credentials-fields";
 
 export type YearEndFilingMode = "ct600" | "accounts" | "both";
 
@@ -442,7 +447,9 @@ export function YearEndFilingForm({
   const [declarant, setDeclarant] = useState(directorOptions[0] ?? "");
   const [positionStatus, setPositionStatus] = useState("Director");
   const [lastSaved, setLastSaved] = useState<string | null>(null);
-  const [draftId, setDraftId] = useState<string | null>(null);
+  const [draftId, setDraftId] = useState<string | null>(() =>
+    typeof restored?.draftId === "string" ? restored.draftId : null,
+  );
   const [taxable, setTaxable] = useState<number | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -450,6 +457,32 @@ export function YearEndFilingForm({
   const [companyAuthCode, setCompanyAuthCode] = useState("");
   const [authAttempted, setAuthAttempted] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [ggUserId, setGgUserId] = useState("");
+  const [ggPassword, setGgPassword] = useState("");
+  const [rememberPassword, setRememberPassword] = useState(false);
+  const [hasSavedPassword, setHasSavedPassword] = useState(false);
+  const [confirmation, setConfirmation] = useState<{
+    ok: boolean;
+    kind: string;
+    title: string;
+    subtitle?: string;
+    correlationId?: string | null;
+    details?: Array<{ label: string; value: string }>;
+  } | null>(null);
+  const [ctSubmitInfo, setCtSubmitInfo] = useState<{
+    env: "sandbox" | "production";
+    live: boolean;
+    vendorIdConfigured: boolean;
+    productName: string;
+    hasTestCredentials: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!clientId) return;
+    void getCt600SubmitInfo()
+      .then(setCtSubmitInfo)
+      .catch(() => setCtSubmitInfo(null));
+  }, [clientId]);
 
   const needsCt = filingMode === "ct600" || filingMode === "both";
   const needsAccounts = filingMode === "accounts" || filingMode === "both";
@@ -495,18 +528,25 @@ export function YearEndFilingForm({
   const balanceMismatch =
     Math.round(bsCur.netAssets) !== Math.round(bsCur.shareholdersFunds);
 
-  function saveProgress() {
+  function saveProgress(patch?: {
+    phase?: number;
+    draftId?: string | null;
+  }) {
     const at = new Date().toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
     });
     setLastSaved(at);
     if (!persistKey) return;
+    const nextPhase = patch?.phase ?? phase;
+    const nextDraftId =
+      patch && "draftId" in patch ? patch.draftId : draftId;
     try {
       localStorage.setItem(
         persistKey,
         JSON.stringify({
-          phase,
+          phase: nextPhase,
+          draftId: nextDraftId,
           companyType,
           filingMode,
           periodStart,
@@ -533,6 +573,46 @@ export function YearEndFilingForm({
     }
   }
 
+  async function ensureCtDraft(): Promise<string> {
+    if (draftId) return draftId;
+    if (!clientId) throw new Error("Client is required for CT600");
+    const res = await prepareCt600({
+      clientId,
+      periodStart,
+      periodEnd,
+      turnoverPounds: fmtPounds(plCur.turnover),
+      costOfSalesPounds: fmtPounds(plCur.costOfMaterials),
+      administrativeExpensesPounds: fmtPounds(
+        plCur.staffCosts + plCur.depreciation + plCur.otherCharges,
+      ),
+      otherIncomePounds: fmtPounds(plCur.interestIncome),
+      tangibleAssetsPounds: fmtPounds(bsCur.fixedAssets),
+      cashAtBankPounds: fmtPounds(bsCur.totalCurrentAssets),
+      debtorsPounds: "0.00",
+      creditorsPounds: fmtPounds(bsCur.totalCreditorsWithin),
+      calledUpShareCapitalPounds: fmtPounds(bsCur.shareCapital),
+      profitAndLossAccountPounds: fmtPounds(bsCur.retainedEarnings),
+      questionnaire: {
+        period_dates: true,
+        accounts_attached: true,
+        computations_attached: true,
+        declaration: true,
+        repayments: false,
+        estimated_figures: false,
+        close_company_loans: false,
+        group_relief: false,
+        rd_claim: false,
+        capital_allowances: num(capitalAllowances) > 0,
+        associated_companies: 0,
+      },
+    });
+    setDraftId(res.draft.id);
+    setTaxable(res.draft.taxableProfitPence ?? null);
+    setPreview(res.xmlPreview);
+    saveProgress({ draftId: res.draft.id });
+    return res.draft.id;
+  }
+
   function viewDraft() {
     setError(null);
     if (!directorName.trim()) {
@@ -551,39 +631,20 @@ export function YearEndFilingForm({
     }
     if (!needsCt) {
       setPhase(1);
-      saveProgress();
+      saveProgress({ phase: 1 });
       return;
     }
     if (!clientId) {
       // Public CH flow — review figures first; CT600 submit needs a practice client
       setPhase(1);
-      saveProgress();
+      saveProgress({ phase: 1 });
       return;
     }
     start(async () => {
       try {
-        const res = await prepareCt600({
-          clientId,
-          periodStart,
-          periodEnd,
-          turnoverPounds: fmtPounds(plCur.turnover),
-          costOfSalesPounds: fmtPounds(plCur.costOfMaterials),
-          administrativeExpensesPounds: fmtPounds(
-            plCur.staffCosts + plCur.depreciation + plCur.otherCharges,
-          ),
-          otherIncomePounds: fmtPounds(plCur.interestIncome),
-          tangibleAssetsPounds: fmtPounds(bsCur.fixedAssets),
-          cashAtBankPounds: fmtPounds(bsCur.totalCurrentAssets),
-          debtorsPounds: "0.00",
-          creditorsPounds: fmtPounds(bsCur.totalCreditorsWithin),
-          calledUpShareCapitalPounds: fmtPounds(bsCur.shareCapital),
-          profitAndLossAccountPounds: fmtPounds(bsCur.retainedEarnings),
-        });
-        setDraftId(res.draft.id);
-        setTaxable(res.draft.taxableProfitPence);
-        setPreview(res.xmlPreview);
+        const id = await ensureCtDraft();
         setPhase(1);
-        saveProgress();
+        saveProgress({ phase: 1, draftId: id });
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to build draft");
@@ -595,6 +656,30 @@ export function YearEndFilingForm({
     FILING_MODES.find((m) => m.id === filingMode)?.title ?? filingMode;
   const typeLabel =
     COMPANY_TYPES.find((t) => t.id === companyType)?.title ?? companyType;
+
+  if (confirmation) {
+    return (
+      <div className="mx-auto max-w-4xl space-y-8 py-10 pb-16">
+        <FilingConfirmation
+          ok={confirmation.ok}
+          kind={confirmation.kind}
+          title={confirmation.title}
+          subtitle={confirmation.subtitle}
+          correlationId={confirmation.correlationId}
+          details={confirmation.details}
+          onDone={() => {
+            setConfirmation(null);
+            setGgPassword("");
+            router.refresh();
+          }}
+          onRetry={() => {
+            setConfirmation(null);
+            setError(null);
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-4xl space-y-8 pb-16">
@@ -1306,7 +1391,7 @@ export function YearEndFilingForm({
             <button
               type="button"
               className="btn btn-secondary flex-1"
-              onClick={saveProgress}
+              onClick={() => saveProgress()}
             >
               Save Progress
             </button>
@@ -1351,7 +1436,7 @@ export function YearEndFilingForm({
           preview={preview}
           onBack={() => setPhase(0)}
           onNext={() => {
-            saveProgress();
+            saveProgress({ phase: 2 });
             setPhase(2);
           }}
         />
@@ -1372,23 +1457,235 @@ export function YearEndFilingForm({
               {clientId ? (
                 <>
                   <p className="mt-1 text-sm text-ink-soft">
-                    Submit to HMRC CT Online. Ensure UTR and HMRC credentials are
-                    connected in Settings.
+                    Enter the client&apos;s Government Gateway User ID and
+                    password to submit. Download PDFs for review first — no
+                    Gateway needed for downloads.
                   </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      disabled={!clientId || pending}
+                      onClick={() =>
+                        start(async () => {
+                          if (!clientId) return;
+                          setError(null);
+                          setMessage(null);
+                          try {
+                            const id = await ensureCtDraft();
+                            const pack = await downloadCt600Draft(
+                              id,
+                              clientId,
+                              "accounts",
+                            );
+                            for (const file of pack.files) {
+                              const bin = atob(file.base64);
+                              const bytes = new Uint8Array(bin.length);
+                              for (let i = 0; i < bin.length; i++) {
+                                bytes[i] = bin.charCodeAt(i);
+                              }
+                              const blob = new Blob([bytes], {
+                                type: file.mimeType,
+                              });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = file.filename;
+                              a.click();
+                              URL.revokeObjectURL(url);
+                            }
+                          } catch (err) {
+                            setError(
+                              err instanceof Error
+                                ? err.message
+                                : "Download failed",
+                            );
+                          }
+                        })
+                      }
+                      className="group flex items-start gap-3 rounded-2xl border border-line bg-white p-4 text-left transition hover:border-sea/40 hover:bg-sea/[0.03] disabled:opacity-50"
+                    >
+                      <span
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sea/10 text-sea"
+                        aria-hidden
+                      >
+                        <svg
+                          width="22"
+                          height="22"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                        >
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                          <path d="M14 2v6h6" />
+                          <path d="M8 13h8M8 17h5" />
+                        </svg>
+                      </span>
+                      <span>
+                        <span className="block font-semibold text-ink">
+                          Year end accounts
+                        </span>
+                        <span className="mt-0.5 block text-sm text-ink-soft">
+                          Download accounts PDF for review
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!clientId || pending}
+                      onClick={() =>
+                        start(async () => {
+                          if (!clientId) return;
+                          setError(null);
+                          setMessage(null);
+                          try {
+                            const id = await ensureCtDraft();
+                            const pack = await downloadCt600Draft(
+                              id,
+                              clientId,
+                              "ct600",
+                            );
+                            for (const file of pack.files) {
+                              const bin = atob(file.base64);
+                              const bytes = new Uint8Array(bin.length);
+                              for (let i = 0; i < bin.length; i++) {
+                                bytes[i] = bin.charCodeAt(i);
+                              }
+                              const blob = new Blob([bytes], {
+                                type: file.mimeType,
+                              });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = file.filename;
+                              a.click();
+                              URL.revokeObjectURL(url);
+                            }
+                          } catch (err) {
+                            setError(
+                              err instanceof Error
+                                ? err.message
+                                : "Download failed",
+                            );
+                          }
+                        })
+                      }
+                      className="group flex items-start gap-3 rounded-2xl border border-line bg-white p-4 text-left transition hover:border-sea/40 hover:bg-sea/[0.03] disabled:opacity-50"
+                    >
+                      <span
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sea/10 text-sea"
+                        aria-hidden
+                      >
+                        <svg
+                          width="22"
+                          height="22"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                        >
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                          <path d="M14 2v6h6" />
+                          <path d="M9 15h6" />
+                        </svg>
+                      </span>
+                      <span>
+                        <span className="block font-semibold text-ink">
+                          CT600 download
+                        </span>
+                        <span className="mt-0.5 block text-sm text-ink-soft">
+                          Download filled CT600 PDF for review
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                  {clientId ? (
+                    <GatewayCredentialsFields
+                      clientId={clientId}
+                      ggUserId={ggUserId}
+                      ggPassword={ggPassword}
+                      onUserIdChange={setGgUserId}
+                      onPasswordChange={setGgPassword}
+                      rememberPassword={rememberPassword}
+                      onRememberPasswordChange={setRememberPassword}
+                      hasSavedPassword={hasSavedPassword}
+                      onHasSavedPasswordChange={setHasSavedPassword}
+                      live={ctSubmitInfo?.live === true}
+                    />
+                  ) : null}
+                  <FormErrorBanner error={error} />
+                  {message && (
+                    <p className="mt-2 text-sm font-semibold text-ok">{message}</p>
+                  )}
                   <button
                     type="button"
                     className="btn btn-primary mt-4"
-                    disabled={!draftId || pending}
+                    disabled={
+                      !clientId ||
+                      pending ||
+                      (ctSubmitInfo?.live === true &&
+                        !gatewayCredentialsReady(
+                          ggUserId,
+                          ggPassword,
+                          hasSavedPassword,
+                        )) ||
+                      ctSubmitInfo?.vendorIdConfigured === false
+                    }
                     onClick={() =>
                       start(async () => {
-                        if (!draftId || !clientId) return;
-                        const res = await submitCt600(draftId, clientId);
-                        setMessage(`CT600 submitted · ${res.res.correlationId}`);
-                        router.refresh();
+                        if (!clientId) return;
+                        setError(null);
+                        setMessage(null);
+                        try {
+                          const id = await ensureCtDraft();
+                          const res = await submitCt600(id, clientId, {
+                            senderId: ggUserId.trim() || undefined,
+                            senderPassword: ggPassword.trim() || undefined,
+                            useSavedPassword:
+                              hasSavedPassword && !ggPassword.trim(),
+                            rememberPassword,
+                          });
+                          if (rememberPassword && ggPassword.trim()) {
+                            setHasSavedPassword(true);
+                            setRememberPassword(false);
+                          }
+                          setConfirmation({
+                            ok: Boolean(res.res.ok),
+                            kind: "Corporation Tax · CT600",
+                            title: res.res.ok
+                              ? "CT600 accepted"
+                              : "CT600 rejected",
+                            subtitle: res.res.ok
+                              ? "Return lodged with HMRC Transaction Engine."
+                              : "HMRC did not accept this return. Check credentials and package.",
+                            correlationId: res.res.correlationId,
+                            details: [
+                              {
+                                label: "Period",
+                                value: `${periodStart} → ${periodEnd}`,
+                              },
+                              {
+                                label: "Environment",
+                                value:
+                                  ctSubmitInfo?.env === "production"
+                                    ? "Live"
+                                    : "Test",
+                              },
+                            ],
+                          });
+                          setGgPassword("");
+                          router.refresh();
+                        } catch (err) {
+                          setError(
+                            err instanceof Error ? err.message : "Submit failed",
+                          );
+                        }
                       })
                     }
                   >
-                    {pending ? "Submitting…" : "Submit CT600 to HMRC"}
+                    {pending
+                      ? "Submitting…"
+                      : "Submit CT600 to HMRC"}
                   </button>
                 </>
               ) : (
@@ -1752,12 +2049,6 @@ function ReviewPhase({
           </article>
         )}
       </div>
-
-      {preview && (
-        <pre className="max-h-48 overflow-auto rounded-md bg-ink p-3 text-xs text-sand">
-          {preview}
-        </pre>
-      )}
 
       <div className="flex flex-wrap gap-2">
         <button type="button" className="btn btn-secondary" onClick={onBack}>

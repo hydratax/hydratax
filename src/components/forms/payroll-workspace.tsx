@@ -17,11 +17,16 @@ import {
   type PayRunPreview,
   type PayrollEmployee,
 } from "@/server/actions/payroll";
-import { defaultPayPeriod, taxYearFromDate } from "@/lib/payroll";
+import { defaultPayPeriod } from "@/lib/payroll";
 import { money } from "@/lib/format";
 import type { PayFrequency, PayLine } from "@/server/hmrc/payroll";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { messageFromUnknown } from "@/lib/action-error";
+import { FilingConfirmation } from "@/components/filing-confirmation";
+import {
+  GatewayCredentialsFields,
+  gatewayCredentialsReady,
+} from "@/components/forms/gateway-credentials-fields";
 
 type RunRow = {
   id?: string;
@@ -68,6 +73,18 @@ export function PayrollWorkspace({
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const [ggUserId, setGgUserId] = useState("");
+  const [ggPassword, setGgPassword] = useState("");
+  const [rememberPassword, setRememberPassword] = useState(false);
+  const [hasSavedPassword, setHasSavedPassword] = useState(false);
+  const [confirmation, setConfirmation] = useState<{
+    ok: boolean;
+    kind: string;
+    title: string;
+    subtitle?: string;
+    correlationId?: string | null;
+    details?: Array<{ label: string; value: string }>;
+  } | null>(null);
 
   function applyFrequency(next: PayFrequency) {
     setFrequency(next);
@@ -80,22 +97,35 @@ export function PayrollWorkspace({
 
   const latest = payRuns[0];
 
+  if (confirmation) {
+    return (
+      <div className="space-y-6 py-6">
+        <FilingConfirmation
+          ok={confirmation.ok}
+          kind={confirmation.kind}
+          title={confirmation.title}
+          subtitle={confirmation.subtitle}
+          correlationId={confirmation.correlationId}
+          details={confirmation.details}
+          onDone={() => {
+            setConfirmation(null);
+            setGgPassword("");
+            setTab("history");
+            router.refresh();
+          }}
+          onRetry={() => {
+            setConfirmation(null);
+            setError(null);
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <div className="relative overflow-hidden rounded-2xl border border-line bg-gradient-to-br from-sand via-white to-sea/10 p-5 md:p-6">
-        <p className="text-xs font-bold uppercase tracking-[0.16em] text-sea">
-          PAYE · Real Time Information
-        </p>
-        <h2 className="display mt-1 text-2xl text-ink md:text-3xl">
-          Run payroll without the FPS panic
-        </h2>
-        <p className="mt-2 max-w-2xl text-sm text-ink-soft">
-          Add people once. Upload a timesheet if you pay by the hour. Preview
-          pay (including statutory sick, holiday, maternity and auto-enrolment
-          pension). Submit FPS on or before payday, then email a
-          password-protected pack of payslips to the client.
-        </p>
-        <dl className="mt-4 flex flex-wrap gap-6 text-sm">
+      <div className="rounded-xl border border-line bg-white p-4 md:p-5">
+        <dl className="flex flex-wrap gap-6 text-sm">
           <div>
             <dt className="text-ink-soft">PAYE</dt>
             <dd className="font-mono font-semibold">{payeRef || "Not set"}</dd>
@@ -212,6 +242,19 @@ export function PayrollWorkspace({
             </label>
           </div>
 
+          <GatewayCredentialsFields
+            clientId={clientId}
+            ggUserId={ggUserId}
+            ggPassword={ggPassword}
+            onUserIdChange={setGgUserId}
+            onPasswordChange={setGgPassword}
+            rememberPassword={rememberPassword}
+            onRememberPasswordChange={setRememberPassword}
+            hasSavedPassword={hasSavedPassword}
+            onHasSavedPasswordChange={setHasSavedPassword}
+            hint="Required for FPS and EPS submit to HMRC Transaction Engine."
+          />
+
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -241,15 +284,48 @@ export function PayrollWorkspace({
             <button
               type="button"
               className="btn btn-secondary text-sm"
-              disabled={pending}
+              disabled={
+                pending ||
+                !gatewayCredentialsReady(ggUserId, ggPassword, hasSavedPassword)
+              }
               onClick={() => {
+                setError(null);
+                setOk(null);
                 start(async () => {
                   try {
-                    const res = await submitEpsNoPayment(
+                    const res = await submitEpsNoPayment({
                       clientId,
-                      taxYearFromDate(payDate),
-                    );
-                    setOk(`EPS (no payment) sent · ${res.correlationId}`);
+                      periodStart,
+                      periodEnd,
+                      senderId: ggUserId.trim() || undefined,
+                      senderPassword: ggPassword.trim() || undefined,
+                      useSavedPassword: hasSavedPassword && !ggPassword.trim(),
+                      rememberPassword,
+                    });
+                    if (rememberPassword && ggPassword.trim()) {
+                      setHasSavedPassword(true);
+                      setRememberPassword(false);
+                    }
+                    setConfirmation({
+                      ok: true,
+                      kind: "PAYE · EPS",
+                      title: "EPS accepted",
+                      subtitle:
+                        "No-payment Employer Payment Summary submitted for this period.",
+                      correlationId: res.correlationId,
+                      details: [
+                        {
+                          label: "Period",
+                          value: `${res.periodStart} → ${res.periodEnd}`,
+                        },
+                        { label: "Tax year", value: res.taxYear },
+                        {
+                          label: "Environment",
+                          value: res.env === "production" ? "Live" : "Test",
+                        },
+                      ],
+                    });
+                    setGgPassword("");
                     router.refresh();
                   } catch (err) {
                     setError(err instanceof Error ? err.message : "EPS failed");
@@ -362,7 +438,11 @@ export function PayrollWorkspace({
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={pending || preview.checks.some((c) => c.level === "error")}
+                disabled={
+                  pending ||
+                  preview.checks.some((c) => c.level === "error") ||
+                  !gatewayCredentialsReady(ggUserId, ggPassword, hasSavedPassword)
+                }
                 onClick={() => {
                   setError(null);
                   start(async () => {
@@ -374,13 +454,42 @@ export function PayrollWorkspace({
                         periodEnd,
                         frequency,
                         submit: true,
+                        senderId: ggUserId.trim() || undefined,
+                        senderPassword: ggPassword.trim() || undefined,
+                        useSavedPassword: hasSavedPassword && !ggPassword.trim(),
+                        rememberPassword,
                       });
-                      setOk(
-                        `FPS ${run.status} · ${String(run.hmrcCorrelationId ?? "")}. Payslips are in History.`,
-                      );
+                      if (rememberPassword && ggPassword.trim()) {
+                        setHasSavedPassword(true);
+                        setRememberPassword(false);
+                      }
+                      setConfirmation({
+                        ok: Boolean(run.ok),
+                        kind: "PAYE · FPS",
+                        title: run.ok ? "FPS accepted" : "FPS rejected",
+                        subtitle: run.ok
+                          ? "Full Payment Submission filed. Payslips are in History."
+                          : "HMRC did not accept this FPS. Check the message and retry.",
+                        correlationId: run.correlationId ?? run.hmrcCorrelationId,
+                        details: [
+                          { label: "Pay date", value: payDate },
+                          {
+                            label: "Period",
+                            value: `${periodStart} → ${periodEnd}`,
+                          },
+                          {
+                            label: "Employees",
+                            value: String(run.lines?.length ?? 0),
+                          },
+                          {
+                            label: "Net pay",
+                            value: money(run.totals?.netPence ?? 0),
+                          },
+                        ],
+                      });
                       setPreview(null);
+                      setGgPassword("");
                       router.refresh();
-                      setTab("history");
                     } catch (err) {
                       setError(err instanceof Error ? err.message : "Submit failed");
                     }

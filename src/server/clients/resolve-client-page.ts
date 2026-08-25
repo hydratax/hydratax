@@ -2,10 +2,11 @@ import { permanentRedirect } from "next/navigation";
 import { headers } from "next/headers";
 import { cache } from "react";
 import {
-  listClients,
+  fetchClientRecord,
+  listClientIdNames,
   type ClientRecord,
 } from "@/server/actions/clients";
-import { clientSlugFor } from "@/lib/client-slug";
+import { clientSlugFor, isClientUuid } from "@/lib/client-slug";
 import { requireSession } from "@/server/auth/session";
 
 export type ResolvedClientPage = {
@@ -14,25 +15,35 @@ export type ResolvedClientPage = {
   clientId: string;
 };
 
-const listClientsCached = cache(async () => listClients());
+const listClientIdNamesCached = cache(async () => listClientIdNames());
+const fetchClientRecordCached = cache(async (clientId: string) =>
+  fetchClientRecord(clientId),
+);
 
 export const resolveClientFromRef = cache(
   async (ref: string): Promise<ResolvedClientPage> => {
     const session = await requireSession();
-    const clients = await listClientsCached();
-    const inPractice = clients.filter((c) => c.practiceId === session.practiceId);
+    const peers = await listClientIdNamesCached();
 
-    const found =
-      inPractice.find((c) => c.id === ref) ??
-      inPractice.find((c) => clientSlugFor(c, inPractice) === ref);
-    if (!found) {
+    const peerMatch = isClientUuid(ref)
+      ? peers.find((c) => c.id === ref)
+      : peers.find((c) => clientSlugFor(c, peers) === ref);
+
+    if (!peerMatch) {
       const { notFound } = await import("next/navigation");
       notFound();
       throw new Error("Client not found");
     }
 
-    const slug = clientSlugFor(found, inPractice);
-    return { client: found as ClientRecord, slug, clientId: found.id };
+    const client = await fetchClientRecordCached(peerMatch.id);
+    if (!client || client.practiceId !== session.practiceId) {
+      const { notFound } = await import("next/navigation");
+      notFound();
+      throw new Error("Client not found");
+    }
+
+    const slug = clientSlugFor(client, peers);
+    return { client, slug, clientId: client.id };
   },
 );
 

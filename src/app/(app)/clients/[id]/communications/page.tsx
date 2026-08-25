@@ -1,4 +1,3 @@
-import { ClientTabs } from "@/components/client-tabs";
 import { EmailDocumentsForm } from "@/components/forms/email-documents-form";
 import { ClientCorrespondencePanel } from "@/components/forms/client-correspondence-panel";
 import { listClientDocuments } from "@/server/actions/documents";
@@ -43,21 +42,9 @@ export default async function ClientCommunicationsPage({
 
   return (
     <div>
-      <div className="mb-2">
-        <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
-          Client workspace
-        </p>
-        <h1 className="display mt-1 text-4xl text-ink">{client.name}</h1>
-        <p className="mt-1 text-ink-soft">
-          Communications · templates, email &amp; WhatsApp
-        </p>
-      </div>
-
-      <ClientTabs
-        clientSlug={slug}
-        active="communications"
-        moduleAccess={session.moduleAccess}
-      />
+      <p className="mb-4 text-sm text-ink-soft">
+        Communications · templates, email &amp; WhatsApp
+      </p>
 
       <div className="space-y-6">
         {canSend && (

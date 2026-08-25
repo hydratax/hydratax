@@ -119,6 +119,118 @@ async function safeAudit(
   }
 }
 
+export type ClientIdName = { id: string; name: string };
+
+export async function listClientIdNames(): Promise<ClientIdName[]> {
+  const session = await requireSession();
+  if (isDemoMode()) {
+    return demoStore.clients
+      .filter(
+        (c) =>
+          c.practiceId === session.practiceId ||
+          c.practiceId === demoStore.practice.id,
+      )
+      .map((c) => ({ id: c.id, name: c.name }));
+  }
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { createClient: createSupabase } = await import(
+        "@/lib/supabase/server"
+      );
+      const supabase = await createSupabase();
+      const { data, error } = await supabase
+        .from("clients")
+        .select("id, name")
+        .eq("practice_id", session.practiceId)
+        .order("created_at", { ascending: false });
+      if (error) {
+        console.warn("[clients] supabase id list failed", error.message);
+      } else if (data) {
+        return data.map((row) => ({
+          id: row.id as string,
+          name: row.name as string,
+        }));
+      }
+    } catch (err) {
+      console.warn("[clients] supabase id list error", err);
+    }
+  }
+
+  const { getDb, hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) return [];
+
+  try {
+    const { clients } = await import("@/server/db/schema");
+    const { eq } = await import("drizzle-orm");
+    const rows = await getDb()
+      .select({ id: clients.id, name: clients.name })
+      .from(clients)
+      .where(eq(clients.practiceId, session.practiceId));
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchClientRecord(
+  clientId: string,
+): Promise<ClientRecord | null> {
+  const session = await requireSession();
+  if (isDemoMode()) {
+    const found = demoStore.clients.find(
+      (c) =>
+        c.id === clientId &&
+        (c.practiceId === session.practiceId ||
+          c.practiceId === demoStore.practice.id),
+    );
+    return (found as ClientRecord) ?? null;
+  }
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { createClient: createSupabase } = await import(
+        "@/lib/supabase/server"
+      );
+      const supabase = await createSupabase();
+      const { data, error } = await supabase
+        .from("clients")
+        .select("*")
+        .eq("id", clientId)
+        .eq("practice_id", session.practiceId)
+        .maybeSingle();
+      if (error) {
+        console.warn("[clients] supabase fetch failed", error.message);
+      } else if (data) {
+        return mapSupabaseClient(data);
+      }
+    } catch (err) {
+      console.warn("[clients] supabase fetch error", err);
+    }
+  }
+
+  const { getDb, hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) return null;
+
+  try {
+    const { clients } = await import("@/server/db/schema");
+    const { and, eq } = await import("drizzle-orm");
+    const [row] = await getDb()
+      .select()
+      .from(clients)
+      .where(
+        and(
+          eq(clients.id, clientId),
+          eq(clients.practiceId, session.practiceId),
+        ),
+      )
+      .limit(1);
+    return (row as ClientRecord) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function listClients() {
   const session = await requireSession();
   if (isDemoMode()) {

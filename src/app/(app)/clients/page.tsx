@@ -3,8 +3,6 @@ import { listClients } from "@/server/actions/clients";
 import { ClientsList, type ClientListItem } from "@/components/clients-list";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import { clientSlugFor } from "@/lib/client-slug";
-import { DedupeClientsButton } from "@/components/forms/dedupe-clients-button";
-
 type Props = {
   searchParams: Promise<{ imported?: string; skipped?: string }>;
 };
@@ -45,9 +43,6 @@ export default async function ClientsPage({ searchParams }: Props) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href="/settings/channels" className="btn btn-secondary">
-            Channels
-          </Link>
           <Link href="/clients/bulk-email" className="btn btn-secondary">
             Bulk email
           </Link>
@@ -59,8 +54,6 @@ export default async function ClientsPage({ searchParams }: Props) {
           </Link>
         </div>
       </div>
-
-      <DedupeClientsButton />
 
       {(imported > 0 || skipped > 0) && (
         <div className="rounded-lg border border-sea/30 bg-sea/5 px-4 py-3 text-sm text-ink">

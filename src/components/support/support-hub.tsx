@@ -8,8 +8,6 @@ import {
   popularArticles,
   searchArticles,
 } from "@/lib/support-content";
-import { LEGAL_CONTACT_EMAIL } from "@/lib/legal";
-
 export function SupportHub() {
   const [query, setQuery] = useState("");
   const results = useMemo(() => searchArticles(query), [query]);
@@ -123,12 +121,12 @@ export function SupportHub() {
             the audit trail — Hydra support can move faster with those details.
           </p>
         </div>
-        <a
-          href={`mailto:${LEGAL_CONTACT_EMAIL}?subject=HydraTax%20support`}
+        <Link
+          href="/contact"
           className="btn btn-primary mt-4 shrink-0 md:mt-0"
         >
-          Email support
-        </a>
+          Contact support
+        </Link>
       </section>
     </div>
   );

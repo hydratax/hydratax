@@ -238,6 +238,15 @@ export type MemoryFeatureVote = {
   createdAt: string;
 };
 
+export type MemoryGatewayCredential = {
+  userId: string;
+  practiceId: string;
+  clientId: string;
+  senderIdEncrypted: string;
+  passwordEncrypted: string | null;
+  updatedAt: string;
+};
+
 type MemoryStore = {
   practice: {
     id: string;
@@ -257,6 +266,7 @@ type MemoryStore = {
   bankTransactions: MemoryBankTx[];
   emailLogs: MemoryEmailLog[];
   chRequests: MemoryChRequest[];
+  gatewayCredentials: MemoryGatewayCredential[];
   subscriptions: MemorySubscription[];
   trialBalances: import("@/server/trial-balance/map").TrialBalance[];
   teamMembers: MemoryTeamMember[];
@@ -339,6 +349,7 @@ function emptyStore(): MemoryStore {
     bankTransactions: [],
     emailLogs: [],
     chRequests: [],
+    gatewayCredentials: [],
     subscriptions: [],
     trialBalances: [],
     teamMembers: [],

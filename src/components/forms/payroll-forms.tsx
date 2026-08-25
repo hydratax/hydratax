@@ -9,6 +9,7 @@ import {
 } from "@/server/actions/payroll";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { messageFromUnknown } from "@/lib/action-error";
+import { FilingConfirmation } from "@/components/filing-confirmation";
 
 export function AddEmployeeForm({ clientId }: { clientId: string }) {
   const router = useRouter();
@@ -91,6 +92,38 @@ export function PayRunForm({ clientId }: { clientId: string }) {
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ggUserId, setGgUserId] = useState("");
+  const [ggPassword, setGgPassword] = useState("");
+  const [confirmation, setConfirmation] = useState<{
+    ok: boolean;
+    kind: string;
+    title: string;
+    subtitle?: string;
+    correlationId?: string | null;
+    details?: Array<{ label: string; value: string }>;
+  } | null>(null);
+
+  if (confirmation) {
+    return (
+      <FilingConfirmation
+        ok={confirmation.ok}
+        kind={confirmation.kind}
+        title={confirmation.title}
+        subtitle={confirmation.subtitle}
+        correlationId={confirmation.correlationId}
+        details={confirmation.details}
+        onDone={() => {
+          setConfirmation(null);
+          setGgPassword("");
+          router.refresh();
+        }}
+        onRetry={() => {
+          setConfirmation(null);
+          setError(null);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -108,8 +141,22 @@ export function PayRunForm({ clientId }: { clientId: string }) {
                 payDate: String(fd.get("payDate") || ""),
                 periodStart: String(fd.get("periodStart") || ""),
                 periodEnd: String(fd.get("periodEnd") || ""),
+                senderId: ggUserId.trim(),
+                senderPassword: ggPassword.trim(),
               });
-              setMessage(`FPS submitted · ${String(run.hmrcCorrelationId)}`);
+              setConfirmation({
+                ok: Boolean(run.ok),
+                kind: "PAYE · FPS",
+                title: run.ok ? "FPS accepted" : "FPS rejected",
+                subtitle: run.ok
+                  ? "Full Payment Submission filed."
+                  : "HMRC did not accept this FPS.",
+                correlationId: run.correlationId ?? run.hmrcCorrelationId,
+                details: [
+                  { label: "Pay date", value: String(fd.get("payDate") || "") },
+                ],
+              });
+              setGgPassword("");
               router.refresh();
             } catch (err) {
               setError(
@@ -152,12 +199,40 @@ export function PayRunForm({ clientId }: { clientId: string }) {
             required
           />
         </div>
+        <div className="sm:col-span-3 grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="label">Government Gateway User ID</label>
+            <input
+              className="input mono"
+              autoComplete="username"
+              value={ggUserId}
+              onChange={(e) => setGgUserId(e.target.value)}
+              placeholder="12-digit Sender ID"
+              required
+            />
+          </div>
+          <div>
+            <label className="label">Government Gateway password</label>
+            <input
+              type="password"
+              className="input"
+              autoComplete="current-password"
+              value={ggPassword}
+              onChange={(e) => setGgPassword(e.target.value)}
+              required
+            />
+          </div>
+        </div>
         <FormErrorBanner error={error} title="Couldn’t run payroll" />
         {message ? (
           <p className="text-sm font-semibold text-ok sm:col-span-3">{message}</p>
         ) : null}
         <div className="sm:col-span-3">
-          <button type="submit" className="btn btn-primary" disabled={pending}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={pending || !ggUserId.trim() || !ggPassword.trim()}
+          >
             {pending ? "Running…" : "Run payroll & submit FPS"}
           </button>
         </div>
@@ -166,12 +241,31 @@ export function PayRunForm({ clientId }: { clientId: string }) {
       <button
         type="button"
         className="btn btn-secondary text-sm"
-        disabled={pending}
+        disabled={pending || !ggUserId.trim() || !ggPassword.trim()}
         onClick={() =>
           start(async () => {
             try {
-              const res = await submitEpsNoPayment(clientId, "25-26");
-              setMessage(`EPS submitted · ${res.correlationId}`);
+              const res = await submitEpsNoPayment({
+                clientId,
+                periodStart: "2026-03-01",
+                periodEnd: "2026-03-31",
+                senderId: ggUserId.trim(),
+                senderPassword: ggPassword.trim(),
+              });
+              setConfirmation({
+                ok: true,
+                kind: "PAYE · EPS",
+                title: "EPS accepted",
+                subtitle: "No-payment Employer Payment Summary submitted.",
+                correlationId: res.correlationId,
+                details: [
+                  {
+                    label: "Period",
+                    value: `${res.periodStart} → ${res.periodEnd}`,
+                  },
+                ],
+              });
+              setGgPassword("");
               router.refresh();
             } catch (err) {
               setError(

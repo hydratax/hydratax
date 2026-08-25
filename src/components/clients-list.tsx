@@ -24,6 +24,20 @@ export type ClientListItem = {
   companiesHouse?: ClientCompaniesHouseSnapshot | null;
 };
 
+function matchesClientSearch(client: ClientListItem, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const typeLabel = client.type.replace("_", " ");
+  return (
+    client.name.toLowerCase().includes(q) ||
+    typeLabel.includes(q) ||
+    (client.vrn ?? "").toLowerCase().includes(q) ||
+    (client.utr ?? "").toLowerCase().includes(q) ||
+    (client.companyNumber ?? "").toLowerCase().includes(q) ||
+    client.slug.toLowerCase().includes(q)
+  );
+}
+
 const FILTERS: { id: FilingFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "cs_due_soon", label: "CS due soon" },
@@ -97,6 +111,7 @@ function AccountsStatusButton({
 
 export function ClientsList({ clients }: { clients: ClientListItem[] }) {
   const [filter, setFilter] = useState<FilingFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const enriched = useMemo(
     () =>
@@ -126,12 +141,31 @@ export function ClientsList({ clients }: { clients: ClientListItem[] }) {
   }, [enriched]);
 
   const visible = useMemo(
-    () => enriched.filter((row) => matchesFilingFilter(row.status, filter)),
-    [enriched, filter],
+    () =>
+      enriched.filter(
+        (row) =>
+          matchesFilingFilter(row.status, filter) &&
+          matchesClientSearch(row.client, searchQuery),
+      ),
+    [enriched, filter, searchQuery],
   );
+
+  const searchTrimmed = searchQuery.trim();
 
   return (
     <div className="space-y-4">
+      <label className="sr-only" htmlFor="clients-search">
+        Search clients
+      </label>
+      <input
+        id="clients-search"
+        type="search"
+        className="input max-w-md"
+        placeholder="Search name, company number, UTR, VRN…"
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+      />
+
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filing filters">
         {FILTERS.map((f) => {
           const active = filter === f.id;
@@ -176,7 +210,9 @@ export function ClientsList({ clients }: { clients: ClientListItem[] }) {
       <div className="grid gap-3 md:grid-cols-2">
         {visible.length === 0 && (
           <p className="col-span-full py-10 text-center text-ink-soft">
-            No clients match this filter.
+            {searchTrimmed
+              ? `No clients match “${searchTrimmed}”.`
+              : "No clients match this filter."}
           </p>
         )}
         {visible.map(({ client: c, status }) => {

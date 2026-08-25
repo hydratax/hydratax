@@ -195,9 +195,12 @@ export const ct600Returns = pgTable("ct600_returns", {
   periodEnd: text("period_end").notNull(),
   status: submissionStatusEnum("status").notNull().default("draft"),
   figures: jsonb("figures").notNull(),
+  questionnaire: jsonb("questionnaire").notNull().default({}),
+  taxableProfitPence: integer("taxable_profit_pence"),
   xmlPayloadHash: text("xml_payload_hash"),
   hmrcCorrelationId: text("hmrc_correlation_id"),
   hmrcReceipt: text("hmrc_receipt"),
+  validationIssues: jsonb("validation_issues"),
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()

@@ -3,7 +3,6 @@ import {
   listInvoiceLineTemplates,
 } from "@/server/actions/invoices";
 import { requireModule } from "@/server/auth/session";
-import { ClientTabs } from "@/components/client-tabs";
 import { InvoiceWorkspace } from "@/components/forms/invoice-workspace";
 import { redirect } from "next/navigation";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
@@ -29,13 +28,7 @@ export default async function ClientInvoicesPage({
 
   return (
     <div>
-      <h1 className="display text-4xl text-ink">{client.name}</h1>
-      <p className="mt-1 text-ink-soft">Invoices</p>
-      <ClientTabs
-        clientSlug={slug}
-        active="invoices"
-        moduleAccess={session.moduleAccess}
-      />
+      <p className="mb-4 text-sm text-ink-soft">Invoices</p>
       <InvoiceWorkspace
         clientId={clientId}
         clientName={client.name}

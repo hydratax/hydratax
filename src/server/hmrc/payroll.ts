@@ -1,13 +1,19 @@
 import { pence, multiplyPence, type Pence } from "@/server/money/pence";
 import { sha256Hex } from "./crypto";
 import { getHmrcConfig } from "./config";
-import { appendAuditEvent } from "@/server/audit/log";
 import {
   autoEnrolmentPension,
   buildStatutoryElements,
   TAX_YEAR_2026_27,
   type TimesheetAdjustments,
 } from "@/server/payroll/statutory";
+import {
+  wrapRtiGovTalk,
+  submitAndPollRtiXml,
+  parsePayeRef,
+  escapeXml,
+} from "@/server/hmrc/rti-submit";
+import { computeIrmark, injectIrmark } from "@/server/hmrc/ct600/irmark";
 
 export type PayFrequency = "M1" | "W1";
 
@@ -190,14 +196,51 @@ export function calculatePeriodPay(
   };
 }
 
-export function buildFpsXml(opts: {
+function penceXml(amount: number) {
+  return (amount / 100).toFixed(2);
+}
+
+function rtiSchemaNs(
+  kind: "FullPaymentSubmission" | "EmployerPaymentSummary",
+  taxYear: string,
+): string {
+  const year = taxYear.trim() || "25-26";
+  return `http://www.govtalk.gov.uk/taxation/PAYE/RTI/${kind}/${year}/1`;
+}
+
+function buildRtiIrHeader(opts: {
+  employerPayeRef: string;
+  periodEnd: string;
+}): string {
+  const { officeNo, reference } = parsePayeRef(opts.employerPayeRef);
+  return `<IRheader>
+        <Keys>
+          <Key Type="TaxOfficeNumber">${escapeXml(officeNo)}</Key>
+          <Key Type="TaxOfficeReference">${escapeXml(reference)}</Key>
+        </Keys>
+        <PeriodEnd>${escapeXml(opts.periodEnd)}</PeriodEnd>
+        <DefaultCurrency>GBP</DefaultCurrency>
+        <Sender>Employer</Sender>
+      </IRheader>`;
+}
+
+function withIrmark(bodyWithoutMark: string): {
+  bodyInner: string;
+  irmark: string;
+} {
+  const irmark = computeIrmark(bodyWithoutMark);
+  return { bodyInner: injectIrmark(bodyWithoutMark, irmark), irmark };
+}
+
+function buildFpsBodyInner(opts: {
   employerPayeRef: string;
   accountsOfficeRef: string;
   payDate: string;
   taxYear: string;
   frequency: PayFrequency;
   lines: PayLine[];
-}): { xml: string; hash: string } {
+}): { bodyInner: string; irmark: string } {
+  const { officeNo, reference } = parsePayeRef(opts.employerPayeRef);
   const employeeXml = opts.lines
     .map((l) => {
       const starter =
@@ -247,22 +290,15 @@ export function buildFpsXml(opts: {
     })
     .join("\n");
 
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope">
-  <EnvelopeVersion>2.0</EnvelopeVersion>
-  <Header>
-    <MessageDetails>
-      <Class>HMRC-PAYE-RTI-FPS</Class>
-      <Qualifier>request</Qualifier>
-      <Function>submit</Function>
-    </MessageDetails>
-  </Header>
-  <Body>
-    <IRenvelope xmlns="http://www.govtalk.gov.uk/taxation/PAYE/RTI/FullPaymentSubmission/24-25/1">
+  const draft = `<IRenvelope xmlns="${rtiSchemaNs("FullPaymentSubmission", opts.taxYear)}">
+      ${buildRtiIrHeader({
+        employerPayeRef: opts.employerPayeRef,
+        periodEnd: opts.payDate,
+      })}
       <FullPaymentSubmission>
         <EmpRefs>
-          <OfficeNo>${escapeXml(opts.employerPayeRef.split("/")[0] ?? "")}</OfficeNo>
-          <PayeRef>${escapeXml(opts.employerPayeRef)}</PayeRef>
+          <OfficeNo>${escapeXml(officeNo)}</OfficeNo>
+          <PayeRef>${escapeXml(reference)}</PayeRef>
           <AORef>${escapeXml(opts.accountsOfficeRef)}</AORef>
         </EmpRefs>
         <RelatedTaxYear>${escapeXml(opts.taxYear)}</RelatedTaxYear>
@@ -272,108 +308,124 @@ export function buildFpsXml(opts: {
         </EmpPayment>
         ${employeeXml}
       </FullPaymentSubmission>
-    </IRenvelope>
-  </Body>
-</GovTalkMessage>`;
+    </IRenvelope>`;
+  return withIrmark(draft);
+}
 
-  return { xml, hash: sha256Hex(xml) };
+function buildEpsBodyInner(opts: {
+  employerPayeRef: string;
+  accountsOfficeRef: string;
+  taxYear: string;
+  periodStart: string;
+  periodEnd: string;
+  noPaymentForPeriod?: boolean;
+}): { bodyInner: string; irmark: string } {
+  const { officeNo, reference } = parsePayeRef(opts.employerPayeRef);
+  const noPay = opts.noPaymentForPeriod
+    ? `<NoPaymentDates>
+        <NoPaymentPeriod>
+          <From>${escapeXml(opts.periodStart)}</From>
+          <To>${escapeXml(opts.periodEnd)}</To>
+        </NoPaymentPeriod>
+      </NoPaymentDates>`
+    : "";
+
+  const draft = `<IRenvelope xmlns="${rtiSchemaNs("EmployerPaymentSummary", opts.taxYear)}">
+      ${buildRtiIrHeader({
+        employerPayeRef: opts.employerPayeRef,
+        periodEnd: opts.periodEnd,
+      })}
+      <EmployerPaymentSummary>
+        <EmpRefs>
+          <OfficeNo>${escapeXml(officeNo)}</OfficeNo>
+          <PayeRef>${escapeXml(reference)}</PayeRef>
+          <AORef>${escapeXml(opts.accountsOfficeRef)}</AORef>
+        </EmpRefs>
+        <RelatedTaxYear>${escapeXml(opts.taxYear)}</RelatedTaxYear>
+        ${noPay}
+      </EmployerPaymentSummary>
+    </IRenvelope>`;
+  return withIrmark(draft);
+}
+
+export function buildFpsXml(opts: {
+  employerPayeRef: string;
+  accountsOfficeRef: string;
+  payDate: string;
+  taxYear: string;
+  frequency: PayFrequency;
+  lines: PayLine[];
+  senderId?: string;
+  senderPassword?: string;
+  gatewayTest?: boolean;
+}): { xml: string; hash: string; bodyInner: string; irmark: string } {
+  const { bodyInner, irmark } = buildFpsBodyInner(opts);
+  const cfg = getHmrcConfig();
+  const gatewayTest = opts.gatewayTest ?? cfg.env !== "production";
+  const xml =
+    opts.senderId && opts.senderPassword
+      ? wrapRtiGovTalk({
+          className: "HMRC-PAYE-RTI-FPS",
+          bodyInner,
+          payeRef: opts.employerPayeRef,
+          senderId: opts.senderId,
+          senderPassword: opts.senderPassword,
+          gatewayTest,
+        })
+      : `<?xml version="1.0" encoding="UTF-8"?><GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope"><Body>${bodyInner}</Body></GovTalkMessage>`;
+  return { xml, hash: sha256Hex(xml), bodyInner, irmark };
 }
 
 export function buildEpsXml(opts: {
   employerPayeRef: string;
   accountsOfficeRef: string;
   taxYear: string;
+  periodStart: string;
+  periodEnd: string;
   noPaymentForPeriod?: boolean;
-}): { xml: string; hash: string } {
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope">
-  <EnvelopeVersion>2.0</EnvelopeVersion>
-  <Header>
-    <MessageDetails>
-      <Class>HMRC-PAYE-RTI-EPS</Class>
-      <Qualifier>request</Qualifier>
-      <Function>submit</Function>
-    </MessageDetails>
-  </Header>
-  <Body>
-    <IRenvelope xmlns="http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/24-25/1">
-      <EmployerPaymentSummary>
-        <EmpRefs>
-          <PayeRef>${escapeXml(opts.employerPayeRef)}</PayeRef>
-          <AORef>${escapeXml(opts.accountsOfficeRef)}</AORef>
-        </EmpRefs>
-        <RelatedTaxYear>${escapeXml(opts.taxYear)}</RelatedTaxYear>
-        ${opts.noPaymentForPeriod ? "<NoPaymentForPeriod>yes</NoPaymentForPeriod>" : ""}
-      </EmployerPaymentSummary>
-    </IRenvelope>
-  </Body>
-</GovTalkMessage>`;
-
-  return { xml, hash: sha256Hex(xml) };
+  senderId?: string;
+  senderPassword?: string;
+  gatewayTest?: boolean;
+}): { xml: string; hash: string; bodyInner: string; irmark: string } {
+  const { bodyInner, irmark } = buildEpsBodyInner(opts);
+  const cfg = getHmrcConfig();
+  const gatewayTest = opts.gatewayTest ?? cfg.env !== "production";
+  const xml =
+    opts.senderId && opts.senderPassword
+      ? wrapRtiGovTalk({
+          className: "HMRC-PAYE-RTI-EPS",
+          bodyInner,
+          payeRef: opts.employerPayeRef,
+          senderId: opts.senderId,
+          senderPassword: opts.senderPassword,
+          gatewayTest,
+        })
+      : `<?xml version="1.0" encoding="UTF-8"?><GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope"><Body>${bodyInner}</Body></GovTalkMessage>`;
+  return { xml, hash: sha256Hex(xml), bodyInner, irmark };
 }
 
 export async function submitRtiXml(opts: {
   xml: string;
   kind: "FPS" | "EPS";
+  payeRef: string;
+  senderId: string;
+  senderPassword: string;
   actorId: string;
   clientId: string;
   practiceId?: string;
   demo?: boolean;
 }) {
-  const cfg = getHmrcConfig();
-  const hash = sha256Hex(opts.xml);
-
-  if (opts.demo || !cfg.clientId) {
-    const correlationId = `demo-rti-${opts.kind}-${Date.now()}`;
-    await appendAuditEvent({
-      practiceId: opts.practiceId,
-      clientId: opts.clientId,
-      actorId: opts.actorId,
-      action: `hmrc.rti.${opts.kind.toLowerCase()}.demo`,
-      entityType: "pay_run",
-      entityId: opts.clientId,
-      payloadHash: hash,
-      hmrcStatusCode: 200,
-      hmrcCorrelationId: correlationId,
-      detail: { mode: "demo", kind: opts.kind },
-    });
-    return { ok: true, status: 200, correlationId, hash };
-  }
-
-  const res = await fetch(`${cfg.rtiSubmissionUrl}/rti/submit`, {
-    method: "POST",
-    headers: { "Content-Type": "application/xml" },
-    body: opts.xml,
-  });
-  const text = await res.text();
-  const correlationId = res.headers.get("X-Correlation-ID");
-
-  await appendAuditEvent({
-    practiceId: opts.practiceId,
-    clientId: opts.clientId,
+  return submitAndPollRtiXml({
+    xml: opts.xml,
+    kind: opts.kind,
+    payeRef: opts.payeRef,
+    senderId: opts.senderId,
+    senderPassword: opts.senderPassword,
     actorId: opts.actorId,
-    action: `hmrc.rti.${opts.kind.toLowerCase()}`,
-    entityType: "pay_run",
-    entityId: opts.clientId,
-    payloadHash: hash,
-    hmrcStatusCode: res.status,
-    hmrcCorrelationId: correlationId,
-    detail: { responseSnippet: text.slice(0, 2000) },
+    clientId: opts.clientId,
+    practiceId: opts.practiceId,
+    demo: opts.demo,
   });
-
-  return { ok: res.ok, status: res.status, correlationId, hash };
-}
-
-function penceXml(amount: number) {
-  return (amount / 100).toFixed(2);
-}
-
-function escapeXml(s: string | null | undefined): string {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 export type { Pence };

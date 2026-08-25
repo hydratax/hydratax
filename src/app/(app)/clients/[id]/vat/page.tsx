@@ -4,7 +4,6 @@ import {
 } from "@/server/actions/vat";
 import { getConnectionStatus } from "@/server/actions/hmrc-connect";
 import { requireModule } from "@/server/auth/session";
-import { ClientTabs } from "@/components/client-tabs";
 import { VatReturnsWorkspace } from "@/components/forms/vat-returns-workspace";
 import { redirect } from "next/navigation";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
@@ -34,11 +33,6 @@ export default async function VatPage({
 
   return (
     <div>
-      <ClientTabs
-        clientSlug={slug}
-        active="vat"
-        moduleAccess={session.moduleAccess}
-      />
       <VatReturnsWorkspace
         clientId={clientId}
         clientName={client.name}

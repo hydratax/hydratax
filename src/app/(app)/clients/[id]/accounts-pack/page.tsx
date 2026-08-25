@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { getYearEndAccountsDraftFromBank } from "@/server/actions/bank";
-import { ClientTabs } from "@/components/client-tabs";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import { AccountsPackPeriodForm } from "@/components/forms/accounts-pack-period-form";
 import { AccountsPackStatements } from "@/components/forms/accounts-pack-statements";
@@ -58,14 +57,9 @@ export default async function AccountsPackPage({
 
   return (
     <div>
-      <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
-        Client workspace
-      </p>
-      <h1 className="display mt-1 text-4xl text-ink">{client.name}</h1>
-      <p className="mt-1 text-ink-soft">
+      <p className="mb-4 text-sm text-ink-soft">
         Year-end accounts from bank statements · review heads · print PDF pack
       </p>
-      <ClientTabs clientSlug={slug} active="bank" />
 
       <div className="mt-6 space-y-6">
         <AccountsPackPeriodForm

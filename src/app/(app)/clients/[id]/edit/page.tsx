@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireSession } from "@/server/auth/session";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
-import { ClientTabs } from "@/components/client-tabs";
 import { EditClientForm } from "@/components/forms/edit-client-form";
 
 export const metadata = { title: "Edit client — HydraTax" };
@@ -21,19 +20,10 @@ export default async function EditClientPage({
 
   return (
     <div>
-      <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
-        Client workspace
-      </p>
-      <h1 className="display mt-1 text-4xl text-ink">Edit client</h1>
-      <p className="mt-1 text-ink-soft">
+      <p className="mb-4 text-sm text-ink-soft">
         Update contact details, tax identifiers, and filing flags for{" "}
         <span className="font-medium text-ink">{client.name}</span>.
       </p>
-      <ClientTabs
-        clientSlug={slug}
-        active="overview"
-        moduleAccess={session.moduleAccess}
-      />
 
       <div className="panel mt-6 p-5">
         <EditClientForm

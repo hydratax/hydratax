@@ -2,7 +2,6 @@ import Link from "next/link";
 import { listClientDocuments } from "@/server/actions/documents";
 import { DocumentUploadForm } from "@/components/forms/document-upload-form";
 import { EmailDocumentsForm } from "@/components/forms/email-documents-form";
-import { ClientTabs } from "@/components/client-tabs";
 import { isBlobConfigured, isMemoryStore } from "@/lib/env";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 
@@ -27,17 +26,9 @@ export default async function ClientDocumentsPage({
 
   return (
     <div>
-      <div className="mb-2">
-        <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
-          Client workspace
-        </p>
-        <h1 className="display mt-1 text-4xl text-ink">{client.name}</h1>
-        <p className="mt-1 text-ink-soft">
-          Documents · storage: {storageHint}
-        </p>
-      </div>
-
-      <ClientTabs clientSlug={slug} active="documents" />
+      <p className="mb-4 text-sm text-ink-soft">
+        Documents · storage: {storageHint}
+      </p>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <DocumentUploadForm clientId={clientId} />

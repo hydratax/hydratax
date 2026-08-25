@@ -8,17 +8,16 @@
  * CT600: an HMRC accounting period cannot exceed 12 months
  * (CTA 2009 s.9–12; GOV.UK “Accounting periods for Corporation Tax”).
  * If the CH period of account is longer than 12 months, file two CT600s:
- *   AP1 — from incorporation, ending 12 months after it started
- *   AP2 — the remaining days through the ARD (usually month-end)
+ *   AP1 — from incorporation through the day before the first anniversary
+ *   AP2 — from the anniversary through the ARD (usually month-end)
  *
- * Example — incorporated 4 August 2025, ARD 31 August 2026:
- *   CH accounts:  4 Aug 2025 → 31 Aug 2026 (one pack)
- *   CT600 #1:     4 Aug 2025 → 4 Aug 2026  (12 months after start)
- *   CT600 #2:     5 Aug 2026 → 31 Aug 2026 (remainder to ARD)
- * Both CT600s are due 12 months after the CH period of account ends.
+ * Example — incorporated 2 February 2024, ARD 28 February 2025:
+ *   CH accounts:  2 Feb 2024 → 28 Feb 2025 (one pack)
+ *   CT600 #1:     2 Feb 2024 → 1 Feb 2025
+ *   CT600 #2:     2 Feb 2025 → 28 Feb 2025
+ * Subsequent year: 1 Mar 2025 → 28 Feb 2026 (one CT600 if ≤ 12 months).
+ * Both first-year CT600s are due 12 months after the CH period of account ends.
  * Tax for each AP is payable 9 months + 1 day after that AP ends.
- * Late CT600: typically £100 (increases if 3 months late). Missing AP2
- * is a common first-year error.
  */
 
 export type IsoDate = string; // YYYY-MM-DD
@@ -41,6 +40,11 @@ export type CtAccountingPeriod = {
   paymentDue: IsoDate;
   days: number;
   label: string;
+  /** Companies House period of account this CT AP belongs to */
+  periodOfAccountStart?: IsoDate;
+  periodOfAccountEnd?: IsoDate;
+  /** True for the first CH period after incorporation */
+  firstYear?: boolean;
 };
 
 function parseIso(iso: string): Date | null {
@@ -86,20 +90,33 @@ export function defaultAccountingReferenceDate(
 }
 
 /**
- * First CT accounting period ends 12 months after it started
- * (GOV.UK: earlier of 12 months after start, or accounts made-up date).
- * 4 Aug 2025 → 4 Aug 2026.
+ * First CT accounting period ends the day before the 12-month anniversary
+ * of its start. Example: 2 Feb 2024 → 1 Feb 2025.
  */
 export function twelveMonthCtPeriodEnd(start: IsoDate): IsoDate | null {
   const d = parseIso(start);
   if (!d) return null;
-  return toIsoDate(addYears(d, 1));
+  return toIsoDate(addDays(addYears(d, 1), -1));
 }
 
 export function addCalendarYear(iso: IsoDate, years: number): IsoDate | null {
   const d = parseIso(iso);
   if (!d) return null;
   return toIsoDate(addYears(d, years));
+}
+
+/** Advance an ARD (month-end) by N years, staying on last day of that month. */
+export function advanceAccountingReferenceDate(
+  ard: IsoDate,
+  years: number,
+): IsoDate | null {
+  const d = parseIso(ard);
+  if (!d) return null;
+  return toIsoDate(
+    lastDayOfMonth(
+      new Date(Date.UTC(d.getUTCFullYear() + years, d.getUTCMonth(), 15, 12)),
+    ),
+  );
 }
 
 export function companiesHouseAccountsPeriod(opts: {
@@ -169,26 +186,119 @@ function addDaysIso(iso: string | null, days: number): IsoDate | null {
 }
 
 export function corporationTaxAccountingPeriods(
-  periodOfAccount: Pick<PeriodOfAccount, "start" | "end">,
+  periodOfAccount: Pick<PeriodOfAccount, "start" | "end" | "firstYear">,
 ): CtAccountingPeriod[] {
   const twelveEnd = twelveMonthCtPeriodEnd(periodOfAccount.start);
   const poaEnd = parseIso(periodOfAccount.end);
   const splitEnd = twelveEnd ? parseIso(twelveEnd) : null;
   const poaEndIso = periodOfAccount.end;
+  const firstYear = Boolean(periodOfAccount.firstYear);
+
   if (!poaEnd || !splitEnd) {
-    return [buildCtAp(1, 1, periodOfAccount.start, periodOfAccount.end, poaEndIso)];
+    return [
+      buildCtAp(1, 1, periodOfAccount.start, periodOfAccount.end, poaEndIso, {
+        periodOfAccountStart: periodOfAccount.start,
+        periodOfAccountEnd: poaEndIso,
+        firstYear,
+      }),
+    ];
   }
 
   const needsSplit = poaEnd.getTime() > splitEnd.getTime();
   if (!needsSplit) {
-    return [buildCtAp(1, 1, periodOfAccount.start, periodOfAccount.end, poaEndIso)];
+    return [
+      buildCtAp(1, 1, periodOfAccount.start, periodOfAccount.end, poaEndIso, {
+        periodOfAccountStart: periodOfAccount.start,
+        periodOfAccountEnd: poaEndIso,
+        firstYear,
+      }),
+    ];
   }
 
   const ap2Start = toIsoDate(addDays(splitEnd, 1));
   return [
-    buildCtAp(1, 2, periodOfAccount.start, twelveEnd!, poaEndIso),
-    buildCtAp(2, 2, ap2Start, periodOfAccount.end, poaEndIso),
+    buildCtAp(1, 2, periodOfAccount.start, twelveEnd!, poaEndIso, {
+      periodOfAccountStart: periodOfAccount.start,
+      periodOfAccountEnd: poaEndIso,
+      firstYear,
+    }),
+    buildCtAp(2, 2, ap2Start, periodOfAccount.end, poaEndIso, {
+      periodOfAccountStart: periodOfAccount.start,
+      periodOfAccountEnd: poaEndIso,
+      firstYear,
+    }),
   ];
+}
+
+/**
+ * All CT600 accounting periods from incorporation through the current /
+ * next open Companies House year (so every year since the company started
+ * has a card).
+ */
+export function listCorporationTaxPeriodsSinceIncorporation(opts: {
+  incorporatedOn?: string | null;
+  accountsPeriodEnd?: string | null;
+  lastAccountsMadeUpTo?: string | null;
+  /** Include periods ending up to this many years after today (default 1). */
+  yearsAhead?: number;
+}): CtAccountingPeriod[] {
+  const incorporated = opts.incorporatedOn?.slice(0, 10) || null;
+  if (!incorporated) {
+    const poa = companiesHouseAccountsPeriod(opts);
+    return corporationTaxAccountingPeriods(poa);
+  }
+
+  const firstArd =
+    defaultAccountingReferenceDate(incorporated) ??
+    opts.accountsPeriodEnd?.slice(0, 10) ??
+    null;
+  if (!firstArd) {
+    const poa = companiesHouseAccountsPeriod(opts);
+    return corporationTaxAccountingPeriods(poa);
+  }
+
+  const yearsAhead = opts.yearsAhead ?? 0;
+  const today = isoToday();
+  const horizon =
+    yearsAhead > 0
+      ? (addCalendarYear(today, yearsAhead) ?? today)
+      : today;
+  // Only extend past "today" when explicitly requesting future years.
+  const chNextEnd =
+    yearsAhead > 0 ? opts.accountsPeriodEnd?.slice(0, 10) || null : null;
+  const horizonEnd =
+    chNextEnd && chNextEnd > horizon ? chNextEnd : horizon;
+
+  const out: CtAccountingPeriod[] = [];
+  let poaStart = incorporated;
+  let poaEnd = firstArd;
+  let firstYear = true;
+  let guard = 0;
+
+  while (guard < 40) {
+    guard += 1;
+    // When not requesting future years, only list completed CH years
+    // (the year that has ended — not the one still in progress).
+    if (yearsAhead === 0 && poaEnd >= today) break;
+
+    const aps = corporationTaxAccountingPeriods({
+      start: poaStart,
+      end: poaEnd,
+      firstYear,
+    });
+    out.push(...aps);
+
+    if (yearsAhead > 0 && poaEnd >= horizonEnd) break;
+
+    const nextStart = addDaysIso(poaEnd, 1);
+    const nextEnd = advanceAccountingReferenceDate(poaEnd, 1);
+    if (!nextStart || !nextEnd) break;
+    poaStart = nextStart;
+    poaEnd = nextEnd;
+    firstYear = false;
+  }
+
+  return out;
 }
 
 function buildCtAp(
@@ -197,6 +307,11 @@ function buildCtAp(
   start: IsoDate,
   end: IsoDate,
   periodOfAccountEnd: IsoDate,
+  meta?: {
+    periodOfAccountStart?: IsoDate;
+    periodOfAccountEnd?: IsoDate;
+    firstYear?: boolean;
+  },
 ): CtAccountingPeriod {
   const days = daysInclusive(start, end);
 
@@ -212,6 +327,9 @@ function buildCtAp(
       of === 1
         ? `CT600 ${formatShort(start)} – ${formatShort(end)}`
         : `CT600 ${index} of ${of} · ${formatShort(start)} – ${formatShort(end)}`,
+    periodOfAccountStart: meta?.periodOfAccountStart,
+    periodOfAccountEnd: meta?.periodOfAccountEnd ?? periodOfAccountEnd,
+    firstYear: meta?.firstYear,
   };
 }
 
@@ -319,4 +437,3 @@ export function parseComparatives(raw: unknown): PriorYearComparatives {
     profitAndLossReservePence: n("profitAndLossReservePence"),
   };
 }
-

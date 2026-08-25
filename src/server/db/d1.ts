@@ -50,6 +50,7 @@ export async function d1Query<T extends Record<string, unknown> = Record<string,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ sql, params }),
+    signal: AbortSignal.timeout(12_000),
   });
   const body = (await res.json()) as D1QueryResult;
   if (!res.ok || !body.success) {

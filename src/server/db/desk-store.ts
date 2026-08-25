@@ -449,6 +449,218 @@ export async function deskUpdateVatReturn(
   if (error) throw new Error(`Could not update VAT return: ${error.message}`);
 }
 
+// ── CT600 ──────────────────────────────────────────────────────────────────
+
+export async function deskListCt600Returns(clientId: string) {
+  // CT600 lives in Supabase (migration applied there). Prefer it so a
+  // misconfigured / incomplete D1 schema cannot hang the Corporation Tax tab.
+  const supabase = await getSupabaseDataClient();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("ct600_returns")
+      .select("*")
+      .eq("client_id", clientId)
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(`Could not load CT600 returns: ${error.message}`);
+    return data ?? [];
+  }
+  if (isD1Configured()) {
+    try {
+      const rows = await d1Query(
+        "SELECT * FROM ct600_returns WHERE client_id = ? ORDER BY created_at DESC",
+        [clientId],
+      );
+      return rows.map((row) => ({
+        ...row,
+        figures: d1ParseJson(row.figures, {}),
+        questionnaire: d1ParseJson(row.questionnaire, {}),
+        validation_issues: d1ParseJson(row.validation_issues, null),
+      }));
+    } catch {
+      return [];
+    }
+  }
+  return null;
+}
+
+export async function deskFindCt600ByPeriod(
+  clientId: string,
+  periodStart: string,
+  periodEnd: string,
+) {
+  const supabase = await getSupabaseDataClient();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("ct600_returns")
+      .select("*")
+      .eq("client_id", clientId)
+      .eq("period_start", periodStart)
+      .eq("period_end", periodEnd)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`Could not load CT600 return: ${error.message}`);
+    return data;
+  }
+  if (isD1Configured()) {
+    try {
+      const rows = await d1Query(
+        `SELECT * FROM ct600_returns
+         WHERE client_id = ? AND period_start = ? AND period_end = ?
+         ORDER BY created_at DESC LIMIT 1`,
+        [clientId, periodStart, periodEnd],
+      );
+      const row = rows[0];
+      if (!row) return null;
+      return {
+        ...row,
+        figures: d1ParseJson(row.figures, {}),
+        questionnaire: d1ParseJson(row.questionnaire, {}),
+        validation_issues: d1ParseJson(row.validation_issues, null),
+      };
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export async function deskSaveCt600Return(row: {
+  id: string;
+  clientId: string;
+  periodStart: string;
+  periodEnd: string;
+  status: string;
+  figures: unknown;
+  questionnaire?: unknown;
+  taxableProfitPence?: number | null;
+  xmlPayloadHash?: string | null;
+  validationIssues?: unknown;
+}) {
+  const id = row.id;
+  const supabase = await getSupabaseDataClient();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("ct600_returns")
+      .upsert(
+        {
+          id,
+          client_id: row.clientId,
+          period_start: row.periodStart,
+          period_end: row.periodEnd,
+          status: row.status,
+          figures: row.figures,
+          questionnaire: row.questionnaire ?? {},
+          taxable_profit_pence: row.taxableProfitPence ?? null,
+          xml_payload_hash: row.xmlPayloadHash ?? null,
+          validation_issues: row.validationIssues ?? null,
+        },
+        { onConflict: "id" },
+      )
+      .select("*")
+      .single();
+    if (error) throw new Error(`Could not save CT600 return: ${error.message}`);
+    return data;
+  }
+  if (isD1Configured()) {
+    await d1Execute(
+      `INSERT INTO ct600_returns (
+        id, client_id, period_start, period_end, status, figures, questionnaire,
+        taxable_profit_pence, xml_payload_hash, validation_issues
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        status = excluded.status,
+        figures = excluded.figures,
+        questionnaire = excluded.questionnaire,
+        taxable_profit_pence = excluded.taxable_profit_pence,
+        xml_payload_hash = excluded.xml_payload_hash,
+        validation_issues = excluded.validation_issues`,
+      [
+        id,
+        row.clientId,
+        row.periodStart,
+        row.periodEnd,
+        row.status,
+        d1Json(row.figures),
+        d1Json(row.questionnaire ?? {}),
+        row.taxableProfitPence ?? null,
+        row.xmlPayloadHash ?? null,
+        row.validationIssues ? d1Json(row.validationIssues) : null,
+      ],
+    );
+    const rows = await d1Query("SELECT * FROM ct600_returns WHERE id = ?", [id]);
+    return rows[0] ?? null;
+  }
+  return null;
+}
+
+export async function deskGetCt600Return(id: string, clientId: string) {
+  const supabase = await getSupabaseDataClient();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from("ct600_returns")
+      .select("*")
+      .eq("id", id)
+      .eq("client_id", clientId)
+      .maybeSingle();
+    if (error) throw new Error(`Could not load CT600 return: ${error.message}`);
+    return data;
+  }
+  if (isD1Configured()) {
+    try {
+      const rows = await d1Query(
+        "SELECT * FROM ct600_returns WHERE id = ? AND client_id = ? LIMIT 1",
+        [id, clientId],
+      );
+      const row = rows[0];
+      if (!row) return null;
+      return {
+        ...row,
+        figures: d1ParseJson(row.figures, {}),
+        questionnaire: d1ParseJson(row.questionnaire, {}),
+        validation_issues: d1ParseJson(row.validation_issues, null),
+      };
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export async function deskUpdateCt600Return(
+  id: string,
+  clientId: string,
+  patch: Record<string, unknown>,
+) {
+  const supabase = await getSupabaseDataClient();
+  if (supabase) {
+    const { error } = await supabase
+      .from("ct600_returns")
+      .update(patch)
+      .eq("id", id)
+      .eq("client_id", clientId);
+    if (error) throw new Error(`Could not update CT600 return: ${error.message}`);
+    return;
+  }
+  if (isD1Configured()) {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    for (const [key, value] of Object.entries(patch)) {
+      sets.push(`${key} = ?`);
+      params.push(
+        key === "figures" || key === "questionnaire" || key === "validation_issues"
+          ? d1Json(value)
+          : value,
+      );
+    }
+    params.push(id, clientId);
+    await d1Execute(
+      `UPDATE ct600_returns SET ${sets.join(", ")} WHERE id = ? AND client_id = ?`,
+      params,
+    );
+  }
+}
+
 // ── Bank ───────────────────────────────────────────────────────────────────
 
 export async function deskListBankTransactions(clientId: string) {

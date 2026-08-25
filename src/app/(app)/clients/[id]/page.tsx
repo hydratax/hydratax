@@ -2,9 +2,6 @@ import Link from "next/link";
 import { getConnectionStatus } from "@/server/actions/hmrc-connect";
 import { listClientInvoices } from "@/server/actions/invoices";
 import { requireSession } from "@/server/auth/session";
-import { ClientTabs } from "@/components/client-tabs";
-import { HmrcConnectButton } from "@/components/forms/hmrc-connect-button";
-import { InvoiceSummaryCards } from "@/components/forms/invoice-workspace";
 import { listAuditEvents } from "@/server/audit/log";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import { canAccessModule } from "@/lib/access";
@@ -14,6 +11,7 @@ import {
   type FilingUrgency,
 } from "@/lib/filing-due";
 import { FileAccountsMenu } from "@/components/file-accounts-menu";
+import { InvoiceSummaryCards } from "@/components/forms/invoice-workspace";
 import { refreshClientCompaniesHouse } from "@/server/actions/clients";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 import { DeleteClientButton } from "@/components/forms/delete-client-button";
@@ -166,43 +164,6 @@ export default async function ClientOverviewPage({
 
   return (
     <div>
-      <div className="mb-2 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
-            Client workspace
-          </p>
-          <h1 className="display mt-1 text-4xl text-ink md:text-5xl">
-            {client.name}
-          </h1>
-          <p className="mt-1 capitalize text-ink-soft">
-            {client.type.replace("_", " ")}
-            {connection.connected ? " · HMRC linked" : " · HMRC not linked"}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {session.role !== "readonly" && (
-            <Link
-              href={`/clients/${slug}/edit`}
-              className="btn btn-secondary text-sm"
-            >
-              Edit details
-            </Link>
-          )}
-          {session.moduleAccess === "full" && (
-            <HmrcConnectButton
-              clientId={clientId}
-              connected={connection.connected}
-            />
-          )}
-        </div>
-      </div>
-
-      <ClientTabs
-        clientSlug={slug}
-        active="overview"
-        moduleAccess={session.moduleAccess}
-      />
-
       <div className="space-y-6">
         <div className="panel p-5">
           <div className="flex flex-wrap items-start justify-between gap-2">
@@ -242,7 +203,13 @@ export default async function ClientOverviewPage({
         </div>
 
         {/* Top: Identifiers + people */}
-        <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+        <div
+          className={
+            activeDirectors.length + activePscs.length <= 2
+              ? "space-y-6"
+              : "grid gap-6 lg:grid-cols-[0.95fr_1.05fr]"
+          }
+        >
           <div className="panel p-5">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <h2 className="display text-2xl">Identifiers</h2>
@@ -345,7 +312,7 @@ export default async function ClientOverviewPage({
                   <p className="text-xs font-bold uppercase tracking-[0.12em] text-ink-soft">
                     Directors ({activeDirectors.length})
                   </p>
-                  <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <ul className="mt-2 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(min(100%,16rem),1fr))]">
                     {activeDirectors.map((d) => (
                       <li
                         key={`${d.name}-${d.appointedOn}`}
@@ -366,7 +333,7 @@ export default async function ClientOverviewPage({
                       </li>
                     ))}
                     {!activeDirectors.length && (
-                      <li className="rounded-xl border border-danger/30 bg-danger/5 px-3 py-3 text-sm text-danger sm:col-span-2">
+                      <li className="rounded-xl border border-danger/30 bg-danger/5 px-3 py-3 text-sm text-danger">
                         No active directors on the register snapshot.
                       </li>
                     )}
@@ -377,7 +344,7 @@ export default async function ClientOverviewPage({
                   <p className="text-xs font-bold uppercase tracking-[0.12em] text-ink-soft">
                     Shareholders / PSCs ({activePscs.length})
                   </p>
-                  <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <ul className="mt-2 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(min(100%,16rem),1fr))]">
                     {activePscs.map((p, i) => (
                       <li
                         key={`${p.name ?? "psc"}-${i}`}
@@ -403,7 +370,7 @@ export default async function ClientOverviewPage({
                       </li>
                     ))}
                     {!activePscs.length && (
-                      <li className="text-sm text-ink-soft sm:col-span-2">
+                      <li className="text-sm text-ink-soft">
                         No current PSCs on the register (full share allotments
                         are not always in the public API).
                       </li>

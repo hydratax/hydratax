@@ -482,6 +482,20 @@ const payRunSchema = z.object({
   periodEnd: z.string(),
   frequency: z.enum(["M1", "W1"]).optional().default("M1"),
   submit: z.boolean().optional().default(false),
+  senderId: z.string().optional(),
+  senderPassword: z.string().optional(),
+  useSavedPassword: z.boolean().optional(),
+  rememberPassword: z.boolean().optional(),
+});
+
+const epsSchema = z.object({
+  clientId: z.string(),
+  periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  periodEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  senderId: z.string().optional(),
+  senderPassword: z.string().optional(),
+  useSavedPassword: z.boolean().optional(),
+  rememberPassword: z.boolean().optional(),
 });
 
 export type PayRunPreview = {
@@ -638,6 +652,17 @@ export async function createAndSubmitPayRun(input: z.input<typeof payRunSchema>)
     throw new Error("Client must be an employer with PAYE and Accounts Office refs");
   }
 
+  const { resolveGatewayCredentialsForSubmit } = await import(
+    "@/server/hmrc/gateway-credentials"
+  );
+  const { senderId, senderPassword } = await resolveGatewayCredentialsForSubmit({
+    clientId: data.clientId,
+    senderId: data.senderId,
+    senderPassword: data.senderPassword,
+    useSavedPassword: data.useSavedPassword,
+    rememberPassword: data.rememberPassword,
+  });
+
   const fps = buildFpsXml({
     employerPayeRef: client.payeRef,
     accountsOfficeRef: client.accountsOfficeRef,
@@ -645,15 +670,20 @@ export async function createAndSubmitPayRun(input: z.input<typeof payRunSchema>)
     taxYear: pack.taxYear,
     frequency: data.frequency,
     lines: pack.lines,
+    senderId,
+    senderPassword,
   });
 
   const submit = await submitRtiXml({
     xml: fps.xml,
     kind: "FPS",
+    payeRef: client.payeRef,
+    senderId,
+    senderPassword,
     actorId: session.userId,
     clientId: data.clientId,
     practiceId: session.practiceId,
-    demo: isDemoMode() || !process.env.HMRC_CLIENT_ID,
+    demo: isDemoMode(),
   });
 
   const payRun = {
@@ -729,38 +759,65 @@ export async function createAndSubmitPayRun(input: z.input<typeof payRunSchema>)
   }
 
   revalidatePath(`/clients/${data.clientId}/payroll`);
-  return payRun;
+  return {
+    ...payRun,
+    ok: Boolean(submit.ok),
+    kind: "FPS" as const,
+    correlationId: submit.correlationId,
+  };
 }
 
-export async function submitEpsNoPayment(clientId: string, taxYear: string) {
+export async function submitEpsNoPayment(input: z.input<typeof epsSchema>) {
   const session = await requireSession();
-  const client = await getClient(clientId);
+  const data = epsSchema.parse(input);
+  const client = await getClient(data.clientId);
   if (!client.payeRef || !client.accountsOfficeRef) {
     throw new Error("Missing PAYE refs");
   }
 
+  const { resolveGatewayCredentialsForSubmit } = await import(
+    "@/server/hmrc/gateway-credentials"
+  );
+  const { senderId, senderPassword } = await resolveGatewayCredentialsForSubmit({
+    clientId: data.clientId,
+    senderId: data.senderId,
+    senderPassword: data.senderPassword,
+    useSavedPassword: data.useSavedPassword,
+    rememberPassword: data.rememberPassword,
+  });
+
+  const { getHmrcConfig } = await import("@/server/hmrc/config");
+  const cfg = getHmrcConfig();
+  const taxYear = taxYearFromDate(data.periodEnd);
   const eps = buildEpsXml({
     employerPayeRef: client.payeRef,
     accountsOfficeRef: client.accountsOfficeRef,
     taxYear,
+    periodStart: data.periodStart,
+    periodEnd: data.periodEnd,
     noPaymentForPeriod: true,
+    senderId,
+    senderPassword,
   });
 
   const res = await submitRtiXml({
     xml: eps.xml,
     kind: "EPS",
+    payeRef: client.payeRef,
+    senderId,
+    senderPassword,
     actorId: session.userId,
-    clientId,
+    clientId: data.clientId,
     practiceId: session.practiceId,
-    demo: isDemoMode() || !process.env.HMRC_CLIENT_ID,
+    demo: isDemoMode(),
   });
 
   const payRun = {
     id: crypto.randomUUID(),
-    clientId,
-    payDate: new Date().toISOString().slice(0, 10),
-    periodStart: new Date().toISOString().slice(0, 10),
-    periodEnd: new Date().toISOString().slice(0, 10),
+    clientId: data.clientId,
+    payDate: data.periodEnd,
+    periodStart: data.periodStart,
+    periodEnd: data.periodEnd,
     payFrequency: "M1",
     kind: "EPS",
     status: res.ok ? "accepted" : "rejected",
@@ -815,8 +872,16 @@ export async function submitEpsNoPayment(clientId: string, taxYear: string) {
     });
   }
 
-  revalidatePath(`/clients/${clientId}/payroll`);
-  return res;
+  revalidatePath(`/clients/${data.clientId}/payroll`);
+  return {
+    ok: res.ok,
+    correlationId: res.correlationId,
+    kind: "EPS" as const,
+    periodStart: data.periodStart,
+    periodEnd: data.periodEnd,
+    taxYear,
+    env: cfg.env,
+  };
 }
 
 export async function listPayRuns(clientId: string) {

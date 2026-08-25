@@ -1,11 +1,9 @@
 import { requireSession } from "@/server/auth/session";
 import { isPlatformAdmin } from "@/server/auth/admin";
-import { getHmrcEnvInfo } from "@/server/actions/hmrc-connect";
 import { AppShellHeader } from "@/components/app-shell-header";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const session = await requireSession();
-  const hmrc = await getHmrcEnvInfo();
   const full = session.moduleAccess === "full";
   const admin = isPlatformAdmin(session.email);
 
@@ -40,7 +38,6 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       <AppShellHeader
         serviceItems={serviceItems}
         links={links}
-        hmrcLabel={`HMRC ${hmrc.env === "production" ? "Live" : "Test"}`}
         accessBadge={
           session.moduleAccess !== "full"
             ? session.moduleAccess.replace("_", " ")

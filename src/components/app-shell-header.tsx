@@ -14,14 +14,12 @@ type NavItem = { href: string; label: string };
 export function AppShellHeader({
   serviceItems,
   links,
-  hmrcLabel,
   accessBadge,
   userEmail,
   canManageTeam,
 }: {
   serviceItems: NavItem[];
   links: NavItem[];
-  hmrcLabel: string;
   accessBadge?: string | null;
   userEmail?: string | null;
   canManageTeam?: boolean;
@@ -131,7 +129,6 @@ export function AppShellHeader({
             </Link>
           ))}
 
-          <span className="badge badge-sea mono">{hmrcLabel}</span>
           {accessBadge ? (
             <span className="badge badge-muted">{accessBadge}</span>
           ) : null}

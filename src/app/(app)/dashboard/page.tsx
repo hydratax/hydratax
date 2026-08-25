@@ -10,6 +10,7 @@ import { ClaimFreeTrialButton } from "@/components/claim-free-trial-button";
 import { moduleLabel, type ServiceModule } from "@/lib/entitlements";
 import { displayPracticeName } from "@/lib/practice-name";
 import { PRACTICE_TRIAL_DAYS } from "@/lib/trial";
+import { clientSlugFor } from "@/lib/client-slug";
 
 const RAIL_LINKS: {
   module: ServiceModule;
@@ -58,6 +59,7 @@ const RAIL_LINKS: {
 export default async function DashboardPage() {
   const session = await requireSession();
   const clients = await listClients();
+  const peers = clients.map((c) => ({ id: c.id, name: c.name }));
   const hmrc = await getHmrcEnvInfo();
   const entitlements = await getPracticeEntitlements();
   const trial = await getPracticeTrialStatus(session.practiceId);
@@ -254,6 +256,7 @@ export default async function DashboardPage() {
             <DashboardClientList
               clients={clients.map((c) => ({
                 id: c.id,
+                slug: clientSlugFor({ id: c.id, name: c.name }, peers),
                 name: c.name,
                 type: c.type,
                 isVatRegistered: c.isVatRegistered,

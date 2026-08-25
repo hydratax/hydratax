@@ -1,15 +1,24 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { prepareCt600, submitCt600 } from "@/server/actions/ct600";
+import { prepareCt600, submitCt600, getCt600SubmitInfo } from "@/server/actions/ct600";
 import { draftCt600FromTrialBalance } from "@/server/actions/trial-balance";
 import { money } from "@/lib/format";
 import { TrialBalanceUpload } from "@/components/forms/trial-balance-upload";
 import { Ct600Questionnaire } from "@/components/forms/ct600-questionnaire";
-import { CT600_FILING_STEPS, CT600_PHASES } from "@/lib/hmrc/filing-guides";
+import {
+  CT600_FILING_STEPS,
+  CT600_PHASES,
+  type Ct600QuestionnaireAnswers,
+} from "@/lib/hmrc/filing-guides";
 import type { TrialBalance } from "@/server/trial-balance/map";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { FilingConfirmation } from "@/components/filing-confirmation";
+import {
+  GatewayCredentialsFields,
+  gatewayCredentialsReady,
+} from "@/components/forms/gateway-credentials-fields";
 
 function penceToInput(n: number) {
   return (n / 100).toFixed(2);
@@ -40,13 +49,60 @@ export function Ct600Form({
   const [tb, setTb] = useState<TrialBalance | null>(null);
   const [figures, setFigures] = useState<Record<string, string> | null>(null);
   const [questionnaireOk, setQuestionnaireOk] = useState(false);
+  const [questionnaire, setQuestionnaire] = useState<Ct600QuestionnaireAnswers>(
+    { associated_companies: 0 },
+  );
+  const [validationIssues, setValidationIssues] = useState<
+    Array<{ code: string; message: string; blocking?: boolean }>
+  >([]);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [taxable, setTaxable] = useState<number | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ggUserId, setGgUserId] = useState("");
+  const [ggPassword, setGgPassword] = useState("");
+  const [ctLive, setCtLive] = useState(false);
+  const [rememberPassword, setRememberPassword] = useState(false);
+  const [hasSavedPassword, setHasSavedPassword] = useState(false);
+  const [confirmation, setConfirmation] = useState<{
+    ok: boolean;
+    kind: string;
+    title: string;
+    subtitle?: string;
+    correlationId?: string | null;
+    details?: Array<{ label: string; value: string }>;
+  } | null>(null);
+
+  useEffect(() => {
+    void getCt600SubmitInfo()
+      .then((info) => setCtLive(info.live))
+      .catch(() => setCtLive(false));
+  }, []);
 
   const phase = CT600_FILING_STEPS[step]?.phase ?? 0;
+
+  if (confirmation) {
+    return (
+      <FilingConfirmation
+        ok={confirmation.ok}
+        kind={confirmation.kind}
+        title={confirmation.title}
+        subtitle={confirmation.subtitle}
+        correlationId={confirmation.correlationId}
+        details={confirmation.details}
+        onDone={() => {
+          setConfirmation(null);
+          setGgPassword("");
+          router.refresh();
+        }}
+        onRetry={() => {
+          setConfirmation(null);
+          setError(null);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -273,7 +329,10 @@ export function Ct600Form({
       {step === 3 && (
         <div className="space-y-3">
           <Ct600Questionnaire
-            onComplete={(_a, ok) => setQuestionnaireOk(ok)}
+            onComplete={(answers, ok) => {
+              setQuestionnaire(answers);
+              setQuestionnaireOk(ok);
+            }}
           />
           <div className="flex flex-wrap gap-2">
             <button
@@ -309,10 +368,12 @@ export function Ct600Form({
                         figures.calledUpShareCapitalPounds,
                       profitAndLossAccountPounds:
                         figures.profitAndLossAccountPounds,
+                      questionnaire,
                     });
                     setDraftId(res.draft.id);
-                    setTaxable(res.draft.taxableProfitPence);
+                    setTaxable(res.draft.taxableProfitPence ?? null);
                     setPreview(res.xmlPreview);
+                    setValidationIssues(res.validation.issues ?? []);
                     setStep(4);
                     router.refresh();
                   } catch (err) {
@@ -372,10 +433,19 @@ export function Ct600Form({
               </article>
             ))}
           </div>
-          {preview && (
-            <pre className="max-h-48 overflow-auto rounded-md bg-ink p-3 text-xs text-sand">
-              {preview}
-            </pre>
+          {validationIssues.length > 0 && (
+            <div className="rounded-xl border border-warn/40 bg-warn/5 px-4 py-3 text-sm">
+              <p className="font-semibold text-ink">
+                {validationIssues.some((i) => i.blocking !== false)
+                  ? "Resolve before live submit"
+                  : "Review notes"}
+              </p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-ink-soft">
+                {validationIssues.map((i) => (
+                  <li key={i.code}>{i.message}</li>
+                ))}
+              </ul>
+            </div>
           )}
           <div className="flex flex-wrap gap-2">
             <button
@@ -401,18 +471,65 @@ export function Ct600Form({
         <div className="space-y-4">
           <h3 className="display text-2xl text-ink">Submit return</h3>
           <p className="text-sm text-ink-soft">
-            Submit Corporation Tax to HMRC. Ensure UTR and Government Gateway /
-            HMRC credentials are connected in Settings.
+            {ctLive
+              ? "Live submit — enter the client's Government Gateway User ID and password."
+              : "Sandbox / test submit — optional if test credentials are in env."}
           </p>
+          <GatewayCredentialsFields
+            clientId={clientId}
+            ggUserId={ggUserId}
+            ggPassword={ggPassword}
+            onUserIdChange={setGgUserId}
+            onPasswordChange={setGgPassword}
+            rememberPassword={rememberPassword}
+            onRememberPasswordChange={setRememberPassword}
+            hasSavedPassword={hasSavedPassword}
+            onHasSavedPasswordChange={setHasSavedPassword}
+            live={ctLive}
+          />
+          <FormErrorBanner error={error} />
           <button
             type="button"
             className="btn btn-primary"
-            disabled={pending}
+            disabled={
+              pending ||
+              (ctLive &&
+                !gatewayCredentialsReady(ggUserId, ggPassword, hasSavedPassword))
+            }
             onClick={() =>
               start(async () => {
-                const res = await submitCt600(draftId, clientId);
-                setMessage(`Submitted · ${res.res.correlationId}`);
-                router.refresh();
+                setError(null);
+                try {
+                  const res = await submitCt600(draftId, clientId, {
+                    senderId: ggUserId.trim() || undefined,
+                    senderPassword: ggPassword.trim() || undefined,
+                    useSavedPassword: hasSavedPassword && !ggPassword.trim(),
+                    rememberPassword,
+                  });
+                  if (rememberPassword && ggPassword.trim()) {
+                    setHasSavedPassword(true);
+                    setRememberPassword(false);
+                  }
+                  setConfirmation({
+                    ok: Boolean(res.res.ok),
+                    kind: "Corporation Tax · CT600",
+                    title: res.res.ok ? "CT600 accepted" : "CT600 rejected",
+                    subtitle: res.res.ok
+                      ? "Return lodged with HMRC Transaction Engine."
+                      : "HMRC did not accept this return.",
+                    correlationId: res.res.correlationId,
+                    details: [
+                      {
+                        label: "Period",
+                        value: `${periodStart} → ${periodEnd}`,
+                      },
+                    ],
+                  });
+                  setGgPassword("");
+                  router.refresh();
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Submit failed");
+                }
               })
             }
           >

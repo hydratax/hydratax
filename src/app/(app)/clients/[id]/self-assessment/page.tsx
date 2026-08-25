@@ -5,7 +5,6 @@ import {
   getSa100Draft,
   listSa100Returns,
 } from "@/server/actions/sa100";
-import { ClientTabs } from "@/components/client-tabs";
 import { SaFilingForm } from "@/components/forms/sa-filing-form";
 import { Sa100Wizard } from "@/components/forms/sa100-wizard";
 import { money } from "@/lib/format";
@@ -26,12 +25,10 @@ export default async function SelfAssessmentPage({
 
   return (
     <div>
-      <h1 className="display text-4xl text-ink">{client.name}</h1>
-      <p className="mt-1 text-ink-soft">
+      <p className="mb-4 text-sm text-ink-soft">
         Self Assessment · tax year 2025–26 (SA100) · NINO{" "}
         {client.nino ?? "not set"} · UTR {client.utr ?? "not set"}
       </p>
-      <ClientTabs clientSlug={slug} active="self-assessment" />
 
       {client.type === "limited_company" ? (
         <div className="panel p-5 text-ink-soft">
