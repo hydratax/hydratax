@@ -678,6 +678,10 @@ body {
   box-shadow: inset 3px 0 0 var(--violet);
 }
 
+.client-card {
+  min-height: 11.5rem;
+}
+
 .client-card--overdue {
   border-color: rgba(185, 28, 28, 0.45);
   box-shadow: inset 3px 0 0 var(--danger);

@@ -66,6 +66,7 @@ export async function recordCheckoutEvent(event: Stripe.Event) {
 
   const session = event.data.object as Stripe.Checkout.Session;
   const practiceId = session.metadata?.practiceId || undefined;
+  const chRequestId = session.metadata?.chRequestId?.trim() || undefined;
   const record = toRecord(session);
 
   if (isMemoryStore()) {
@@ -81,35 +82,72 @@ export async function recordCheckoutEvent(event: Stripe.Event) {
       },
       createdAt: record.createdAt,
     });
-    await activatePlanFromCheckout(record, practiceId);
+    await activatePlanFromCheckout(record, practiceId, chRequestId);
     return;
   }
 
-  const { getDb } = await import("@/server/db");
-  const { checkoutOrders } = await import("@/server/db/schema");
-  await getDb()
-    .insert(checkoutOrders)
-    .values({
-      stripeSessionId: record.stripeSessionId,
-      stripeCustomerId: record.stripeCustomerId,
-      stripeSubscriptionId: record.stripeSubscriptionId,
-      planKey: record.planKey,
-      amountTotal: record.amountTotal,
-      currency: record.currency,
-      customerEmail: record.customerEmail,
-      status: record.status,
-      mode: record.mode,
-      metadata: session.metadata ?? {},
-      practiceId: practiceId ?? null,
-    })
-    .onConflictDoNothing();
+  if (isSupabaseConfigured()) {
+    try {
+      let supabase;
+      if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        const { getSupabaseAdmin } = await import("@/lib/supabase");
+        supabase = getSupabaseAdmin();
+      } else {
+        const { createClient } = await import("@/lib/supabase/server");
+        supabase = await createClient();
+      }
+      await supabase.from("checkout_orders").upsert(
+        {
+          stripe_session_id: record.stripeSessionId,
+          stripe_customer_id: record.stripeCustomerId,
+          stripe_subscription_id: record.stripeSubscriptionId,
+          plan_key: record.planKey,
+          amount_total: record.amountTotal,
+          currency: record.currency,
+          customer_email: record.customerEmail,
+          status: record.status,
+          mode: record.mode,
+          metadata: session.metadata ?? {},
+          practice_id: practiceId ?? null,
+        },
+        { onConflict: "stripe_session_id" },
+      );
+    } catch (err) {
+      console.warn("[stripe] checkout_orders upsert failed", err);
+    }
+  }
 
-  await activatePlanFromCheckout(record, practiceId);
+  if (!isMemoryStore()) {
+    const { hasDatabase } = await import("@/server/db");
+    if (hasDatabase()) {
+      const { getDb } = await import("@/server/db");
+      const { checkoutOrders } = await import("@/server/db/schema");
+      await getDb()
+        .insert(checkoutOrders)
+        .values({
+          stripeSessionId: record.stripeSessionId,
+          stripeCustomerId: record.stripeCustomerId,
+          stripeSubscriptionId: record.stripeSubscriptionId,
+          planKey: record.planKey,
+          amountTotal: record.amountTotal,
+          currency: record.currency,
+          customerEmail: record.customerEmail,
+          status: record.status,
+          mode: record.mode,
+          metadata: session.metadata ?? {},
+          practiceId: practiceId ?? null,
+        })
+        .onConflictDoNothing();
+    }
+  }
+
+  await activatePlanFromCheckout(record, practiceId, chRequestId);
 }
 
 async function activatePlanFromCheckout(
   record: CheckoutRecord,
   practiceId?: string,
+  chRequestId?: string,
 ) {
   const targetPracticeId = practiceId?.trim() || undefined;
 
@@ -137,12 +175,22 @@ async function activatePlanFromCheckout(
   }
 
   if (record.planKey.startsWith("companies-house:")) {
-    const serviceId = record.planKey.replace("companies-house:", "");
-    for (const req of memoryStore.chRequests) {
-      if (req.serviceId === serviceId && req.paymentStatus === "unpaid") {
-        req.paymentStatus = "paid";
-        req.subscriptionActive = true;
-        req.updatedAt = new Date().toISOString();
+    const serviceId = record.planKey.replace("companies-house:", "").replace(/:desk$/, "");
+    if (chRequestId) {
+      for (const req of memoryStore.chRequests) {
+        if (req.id === chRequestId) {
+          req.paymentStatus = "paid";
+          req.subscriptionActive = true;
+          req.updatedAt = new Date().toISOString();
+        }
+      }
+    } else {
+      for (const req of memoryStore.chRequests) {
+        if (req.serviceId === serviceId && req.paymentStatus === "unpaid") {
+          req.paymentStatus = "paid";
+          req.subscriptionActive = true;
+          req.updatedAt = new Date().toISOString();
+        }
       }
     }
   }
@@ -181,37 +229,65 @@ async function activatePlanFromCheckout(
 
   if (!isMemoryStore() && targetPracticeId) {
     const { getDb, hasDatabase } = await import("@/server/db");
-    if (!hasDatabase()) return;
+    if (hasDatabase()) {
+      const { practiceSubscriptions, companiesHouseRequests } = await import(
+        "@/server/db/schema"
+      );
 
-    const { practiceSubscriptions, companiesHouseRequests } = await import(
-      "@/server/db/schema"
-    );
+      await getDb().insert(practiceSubscriptions).values({
+        practiceId: targetPracticeId,
+        planKey: record.planKey,
+        status: record.trialEndsAt ? "trialing" : "active",
+        stripeSessionId: record.stripeSessionId,
+        stripeSubscriptionId: record.stripeSubscriptionId,
+        trialEndsAt: record.trialEndsAt ? new Date(record.trialEndsAt) : null,
+      });
 
-    await getDb().insert(practiceSubscriptions).values({
-      practiceId: targetPracticeId,
-      planKey: record.planKey,
-      status: record.trialEndsAt ? "trialing" : "active",
-      stripeSessionId: record.stripeSessionId,
-      stripeSubscriptionId: record.stripeSubscriptionId,
-      trialEndsAt: record.trialEndsAt ? new Date(record.trialEndsAt) : null,
-    });
+      if (record.planKey.startsWith("companies-house:")) {
+        const serviceId = record.planKey
+          .replace("companies-house:", "")
+          .replace(/:desk$/, "");
+        const { eq, and } = await import("drizzle-orm");
+        if (chRequestId) {
+          await getDb()
+            .update(companiesHouseRequests)
+            .set({
+              paymentStatus: "paid",
+              subscriptionActive: true,
+              updatedAt: new Date(),
+            })
+            .where(eq(companiesHouseRequests.id, chRequestId));
+        } else {
+          await getDb()
+            .update(companiesHouseRequests)
+            .set({
+              paymentStatus: "paid",
+              subscriptionActive: true,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(companiesHouseRequests.serviceId, serviceId),
+                eq(companiesHouseRequests.paymentStatus, "unpaid"),
+              ),
+            );
+        }
+      }
+    }
+  }
 
-    if (record.planKey.startsWith("companies-house:")) {
-      const serviceId = record.planKey.replace("companies-house:", "");
-      const { eq, and } = await import("drizzle-orm");
-      await getDb()
-        .update(companiesHouseRequests)
-        .set({
-          paymentStatus: "paid",
-          subscriptionActive: true,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(companiesHouseRequests.serviceId, serviceId),
-            eq(companiesHouseRequests.paymentStatus, "unpaid"),
-          ),
-        );
+  if (chRequestId && record.planKey.startsWith("companies-house:")) {
+    try {
+      const { fulfillPaidChRequest } = await import(
+        "@/server/companies-house/fulfill-ch-request"
+      );
+      await fulfillPaidChRequest({
+        requestId: chRequestId,
+        customerEmail: record.customerEmail,
+        stripeSessionId: record.stripeSessionId,
+      });
+    } catch (err) {
+      console.error("[stripe] ch request fulfillment failed", err);
     }
   }
 }
@@ -300,6 +376,44 @@ export async function getCheckoutBySessionId(sessionId: string) {
 
   if (isMemoryStore()) return null;
 
+  if (isSupabaseConfigured()) {
+    try {
+      let supabase;
+      if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        const { getSupabaseAdmin } = await import("@/lib/supabase");
+        supabase = getSupabaseAdmin();
+      } else {
+        const { createClient } = await import("@/lib/supabase/server");
+        supabase = await createClient();
+      }
+      const { data } = await supabase
+        .from("checkout_orders")
+        .select("*")
+        .eq("stripe_session_id", sessionId)
+        .maybeSingle();
+      if (data) {
+        return {
+          id: data.id,
+          stripeSessionId: data.stripe_session_id,
+          stripeCustomerId: data.stripe_customer_id,
+          stripeSubscriptionId: data.stripe_subscription_id,
+          planKey: data.plan_key,
+          amountTotal: data.amount_total,
+          currency: data.currency,
+          customerEmail: data.customer_email,
+          status: data.status,
+          mode: data.mode,
+          createdAt: data.created_at,
+        };
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  const { hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) return null;
+
   const { getDb } = await import("@/server/db");
   const { checkoutOrders } = await import("@/server/db/schema");
   const { eq } = await import("drizzle-orm");
@@ -317,9 +431,11 @@ export async function getCheckoutBySessionId(sessionId: string) {
  */
 export async function fulfillCheckoutSession(sessionId: string) {
   const existing = await getCheckoutBySessionId(sessionId);
+  const { getStripe } = await import("@/server/stripe/client");
+  const session = await getStripe().checkout.sessions.retrieve(sessionId);
+  const chRequestId = session.metadata?.chRequestId?.trim() || undefined;
+
   if (existing) {
-    const practiceId = undefined;
-    // Still ensure memory activation exists
     await activatePlanFromCheckout(
       {
         id: existing.id ?? crypto.randomUUID(),
@@ -337,13 +453,11 @@ export async function fulfillCheckoutSession(sessionId: string) {
             ? existing.createdAt
             : new Date().toISOString(),
       },
-      practiceId,
+      session.metadata?.practiceId || undefined,
+      chRequestId,
     );
     return existing;
   }
-
-  const { getStripe } = await import("@/server/stripe/client");
-  const session = await getStripe().checkout.sessions.retrieve(sessionId);
 
   if (session.payment_status !== "paid" && session.status !== "complete") {
     throw new Error("Checkout is not complete yet");

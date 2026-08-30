@@ -27,6 +27,27 @@ import {
 
 export type YearEndFilingMode = "ct600" | "accounts" | "both";
 
+type DraftDownloadFile = {
+  filename: string;
+  mimeType: string;
+  base64: string;
+};
+
+function saveDownloadFiles(files: DraftDownloadFile[]) {
+  for (const file of files) {
+    const bin = atob(file.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], { type: file.mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+}
+
 type CompanySummary = {
   name: string;
   companyNumber: string | null;
@@ -611,6 +632,16 @@ export function YearEndFilingForm({
     setPreview(res.xmlPreview);
     saveProgress({ draftId: res.draft.id });
     return res.draft.id;
+  }
+
+  async function downloadDraft(kind: "ct600" | "accounts") {
+    if (!clientId) throw new Error("Client is required for downloads");
+    const id = await ensureCtDraft();
+    const pack = await downloadCt600Draft(id, clientId, kind, {
+      declarantName: declarant,
+      declarantStatus: positionStatus,
+    });
+    saveDownloadFiles(pack.files);
   }
 
   function viewDraft() {
@@ -1429,11 +1460,38 @@ export function YearEndFilingForm({
           directorName={directorName}
           approvalDate={approvalDate}
           avgEmployees={avgEmployees}
-          declarant={declarant}
-          positionStatus={positionStatus}
-          taxable={taxable}
-          netTaxable={afterDonations}
-          preview={preview}
+          error={error}
+          downloadPending={pending}
+          onDownloadCt600={
+            needsCt && clientId
+              ? () =>
+                  start(async () => {
+                    setError(null);
+                    try {
+                      await downloadDraft("ct600");
+                    } catch (err) {
+                      setError(
+                        err instanceof Error ? err.message : "Download failed",
+                      );
+                    }
+                  })
+              : undefined
+          }
+          onDownloadAccounts={
+            needsAccounts && clientId
+              ? () =>
+                  start(async () => {
+                    setError(null);
+                    try {
+                      await downloadDraft("accounts");
+                    } catch (err) {
+                      setError(
+                        err instanceof Error ? err.message : "Download failed",
+                      );
+                    }
+                  })
+              : undefined
+          }
           onBack={() => setPhase(0)}
           onNext={() => {
             saveProgress({ phase: 2 });
@@ -1458,10 +1516,13 @@ export function YearEndFilingForm({
                 <>
                   <p className="mt-1 text-sm text-ink-soft">
                     Enter the client&apos;s Government Gateway User ID and
-                    password to submit. Download PDFs for review first — no
-                    Gateway needed for downloads.
+                    password to submit. You can download the filled CT600 PDF
+                    again from the cards below.
                   </p>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div
+                    className={`mt-4 grid gap-3 ${needsAccounts ? "sm:grid-cols-2" : "max-w-md"}`}
+                  >
+                    {needsAccounts && (
                     <button
                       type="button"
                       disabled={!clientId || pending}
@@ -1471,28 +1532,7 @@ export function YearEndFilingForm({
                           setError(null);
                           setMessage(null);
                           try {
-                            const id = await ensureCtDraft();
-                            const pack = await downloadCt600Draft(
-                              id,
-                              clientId,
-                              "accounts",
-                            );
-                            for (const file of pack.files) {
-                              const bin = atob(file.base64);
-                              const bytes = new Uint8Array(bin.length);
-                              for (let i = 0; i < bin.length; i++) {
-                                bytes[i] = bin.charCodeAt(i);
-                              }
-                              const blob = new Blob([bytes], {
-                                type: file.mimeType,
-                              });
-                              const url = URL.createObjectURL(blob);
-                              const a = document.createElement("a");
-                              a.href = url;
-                              a.download = file.filename;
-                              a.click();
-                              URL.revokeObjectURL(url);
-                            }
+                            await downloadDraft("accounts");
                           } catch (err) {
                             setError(
                               err instanceof Error
@@ -1530,6 +1570,7 @@ export function YearEndFilingForm({
                         </span>
                       </span>
                     </button>
+                    )}
                     <button
                       type="button"
                       disabled={!clientId || pending}
@@ -1539,28 +1580,7 @@ export function YearEndFilingForm({
                           setError(null);
                           setMessage(null);
                           try {
-                            const id = await ensureCtDraft();
-                            const pack = await downloadCt600Draft(
-                              id,
-                              clientId,
-                              "ct600",
-                            );
-                            for (const file of pack.files) {
-                              const bin = atob(file.base64);
-                              const bytes = new Uint8Array(bin.length);
-                              for (let i = 0; i < bin.length; i++) {
-                                bytes[i] = bin.charCodeAt(i);
-                              }
-                              const blob = new Blob([bytes], {
-                                type: file.mimeType,
-                              });
-                              const url = URL.createObjectURL(blob);
-                              const a = document.createElement("a");
-                              a.href = url;
-                              a.download = file.filename;
-                              a.click();
-                              URL.revokeObjectURL(url);
-                            }
+                            await downloadDraft("ct600");
                           } catch (err) {
                             setError(
                               err instanceof Error
@@ -1594,7 +1614,7 @@ export function YearEndFilingForm({
                           CT600 download
                         </span>
                         <span className="mt-0.5 block text-sm text-ink-soft">
-                          Download filled CT600 PDF for review
+                          Filled CT600 form with your return figures
                         </span>
                       </span>
                     </button>
@@ -1644,6 +1664,8 @@ export function YearEndFilingForm({
                             useSavedPassword:
                               hasSavedPassword && !ggPassword.trim(),
                             rememberPassword,
+                            declarantName: declarant,
+                            declarantStatus: positionStatus,
                           });
                           if (rememberPassword && ggPassword.trim()) {
                             setHasSavedPassword(true);
@@ -1657,7 +1679,8 @@ export function YearEndFilingForm({
                               : "CT600 rejected",
                             subtitle: res.res.ok
                               ? "Return lodged with HMRC Transaction Engine."
-                              : "HMRC did not accept this return. Check credentials and package.",
+                              : res.res.errorMessage ??
+                                "HMRC did not accept this return. Check the error below and try again.",
                             correlationId: res.res.correlationId,
                             details: [
                               {
@@ -1862,6 +1885,88 @@ export function YearEndFilingForm({
   );
 }
 
+function PdfDownloadCard({
+  title,
+  description,
+  actionLabel,
+  pending,
+  onClick,
+  variant = "document",
+}: {
+  title: string;
+  description: string;
+  actionLabel: string;
+  pending: boolean;
+  onClick: () => void;
+  variant?: "document" | "form";
+}) {
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={onClick}
+      className="group flex w-full items-start gap-3 rounded-2xl border border-line bg-white p-4 text-left transition hover:border-sea/40 hover:bg-sea/[0.03] disabled:opacity-50"
+    >
+      <span
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sea/10 text-sea"
+        aria-hidden
+      >
+        {variant === "form" ? (
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          >
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <path d="M14 2v6h6" />
+            <path d="M9 15h6" />
+          </svg>
+        ) : (
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          >
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <path d="M14 2v6h6" />
+            <path d="M8 13h8M8 17h5" />
+          </svg>
+        )}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-semibold text-ink">{title}</span>
+        <span className="mt-0.5 block text-sm text-ink-soft">
+          {pending ? "Preparing your PDF…" : description}
+        </span>
+        {!pending && (
+          <span className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-sea group-hover:underline">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            {actionLabel}
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
 function ReviewPhase({
   companyName,
   periodStart,
@@ -1878,11 +1983,10 @@ function ReviewPhase({
   directorName,
   approvalDate,
   avgEmployees,
-  declarant,
-  positionStatus,
-  taxable,
-  netTaxable,
-  preview,
+  error,
+  downloadPending,
+  onDownloadCt600,
+  onDownloadAccounts,
   onBack,
   onNext,
 }: {
@@ -1901,11 +2005,10 @@ function ReviewPhase({
   directorName: string;
   approvalDate: string;
   avgEmployees: string;
-  declarant: string;
-  positionStatus: string;
-  taxable: number | null;
-  netTaxable: number;
-  preview: string | null;
+  error: string | null;
+  downloadPending: boolean;
+  onDownloadCt600?: () => void;
+  onDownloadAccounts?: () => void;
   onBack: () => void;
   onNext: () => void;
 }) {
@@ -2030,25 +2133,53 @@ function ReviewPhase({
         </table>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <article className="rounded-xl border border-line bg-white p-4">
+      {needsAccounts && (
+        <article className="max-w-lg rounded-xl border border-line bg-white p-4">
           <h3 className="font-semibold text-ink">Accounts</h3>
           <p className="mt-1 text-sm text-ink-soft">
             Signed by {directorName} · approved{" "}
             {formatPeriodLabel(approvalDate)} · avg employees {avgEmployees}
           </p>
         </article>
-        {needsCt && (
-          <article className="rounded-xl border border-line bg-white p-4">
-            <h3 className="font-semibold text-ink">CT600 declaration</h3>
+      )}
+
+      {(onDownloadCt600 || onDownloadAccounts) && (
+        <div className="space-y-3">
+          <div>
+            <h3 className="font-semibold text-ink">Download before you submit</h3>
             <p className="mt-1 text-sm text-ink-soft">
-              {declarant} ({positionStatus}) · net taxable{" "}
-              {fmtDisplay(netTaxable)}
-              {taxable != null ? ` · draft ${money(taxable)}` : ""}
+              Save and review the PDF{needsAccounts && needsCt ? "s" : ""} before
+              proceeding to submit.
             </p>
-          </article>
-        )}
-      </div>
+          </div>
+          <div
+            className={`grid gap-3 ${needsCt && needsAccounts ? "sm:grid-cols-2" : "max-w-md"}`}
+          >
+            {onDownloadCt600 && (
+              <PdfDownloadCard
+                title="CT600 form"
+                description="Filled CT600 with your company details and return figures."
+                actionLabel="Download CT600 PDF"
+                pending={downloadPending}
+                onClick={onDownloadCt600}
+                variant="form"
+              />
+            )}
+            {onDownloadAccounts && (
+              <PdfDownloadCard
+                title="Year end accounts"
+                description="Accounts PDF prepared from your figures."
+                actionLabel="Download accounts PDF"
+                pending={downloadPending}
+                onClick={onDownloadAccounts}
+                variant="document"
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      <FormErrorBanner error={error} />
 
       <div className="flex flex-wrap gap-2">
         <button type="button" className="btn btn-secondary" onClick={onBack}>

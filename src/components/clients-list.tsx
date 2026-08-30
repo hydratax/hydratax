@@ -227,30 +227,27 @@ export function ClientsList({ clients }: { clients: ClientListItem[] }) {
             <Link
               key={c.id}
               href={`/clients/${c.slug}`}
-              className={`panel panel-interactive block p-5 ${highlight}`}
+              className={`panel panel-interactive client-card flex h-full flex-col p-5 ${highlight}`}
             >
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {c.type === "limited_company" && (
-                      <ConfirmationStatusButton
-                        urgency={status.confirmation}
-                        due={status.confirmationDue}
-                      />
-                    )}
-                    <h2 className="display text-2xl text-ink">{c.name}</h2>
-                  </div>
-                  <p className="mt-1 capitalize text-sm text-ink-soft">
-                    {c.type.replace("_", " ")}
-                  </p>
-                </div>
-                <span className="shrink-0 text-sm font-semibold text-sea">
+                <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
+                  {c.name}
+                </h2>
+                <span className="shrink-0 pt-1 text-sm font-semibold text-sea">
                   Open →
                 </span>
               </div>
 
+              <p className="mt-1 text-sm capitalize text-ink-soft">
+                {c.type.replace("_", " ")}
+              </p>
+
               {c.type === "limited_company" && (
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <ConfirmationStatusButton
+                    urgency={status.confirmation}
+                    due={status.confirmationDue}
+                  />
                   <AccountsStatusButton
                     urgency={status.accounts}
                     due={status.accountsDue}
@@ -258,7 +255,7 @@ export function ClientsList({ clients }: { clients: ClientListItem[] }) {
                 </div>
               )}
 
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 {c.isVatRegistered && (
                   <span className="badge badge-sea">VAT</span>
                 )}
@@ -272,7 +269,8 @@ export function ClientsList({ clients }: { clients: ClientListItem[] }) {
                   <span className="badge badge-muted">Self Assessment</span>
                 )}
               </div>
-              <p className="mono mt-3 text-xs text-ink-soft">
+
+              <p className="mono mt-auto pt-4 text-xs text-ink-soft">
                 {[
                   c.vrn && `VRN ${c.vrn}`,
                   c.utr && `UTR ${c.utr}`,

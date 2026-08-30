@@ -46,6 +46,11 @@ async function chFetch<T>(path: string): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    if (res.status === 404) {
+      throw new Error(
+        `Company not found on Companies House (${path}). Check the company number, or search by company name instead.`,
+      );
+    }
     throw new Error(
       `Companies House API ${res.status}: ${text.slice(0, 200) || res.statusText}`,
     );

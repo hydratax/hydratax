@@ -1,8 +1,10 @@
 import { appendAuditEvent } from "@/server/audit/log";
 import { getHmrcConfig } from "@/server/hmrc/config";
+import { extractGovTalkErrorMessage } from "@/server/hmrc/ct600/xml-utils";
 import { sha256Hex } from "@/server/hmrc/crypto";
 import { buildCt600Package } from "@/server/hmrc/ct600/build-envelope";
 import { assertCt600PackageValid } from "@/server/hmrc/ct600/validate-package";
+import { assertCt600XmlStructure } from "@/server/hmrc/ct600/validate-xml-structure";
 import { submitAndPollCt600Xml } from "@/server/hmrc/ct600/poll";
 import type { Ct600PackageInput } from "@/server/hmrc/ct600/types";
 
@@ -69,6 +71,8 @@ export async function submitCt600Xml(opts: {
     );
   }
 
+  assertCt600XmlStructure(opts.xml);
+
   const polled = await submitAndPollCt600Xml({
     xml: opts.xml,
     utr,
@@ -77,6 +81,9 @@ export async function submitCt600Xml(opts: {
   });
 
   const receipt = polled.pollResponse ?? polled.submitResponse;
+  const errorMessage = polled.ok
+    ? null
+    : extractGovTalkErrorMessage(receipt);
 
   await appendAuditEvent({
     practiceId: opts.practiceId,
@@ -101,6 +108,7 @@ export async function submitCt600Xml(opts: {
     status: polled.status,
     correlationId: polled.correlationId,
     receipt: receipt.slice(0, 4000),
+    errorMessage,
     hash,
   };
 }
@@ -119,6 +127,7 @@ export async function submitCt600Package(
     const first = built.validation.issues.find((i) => i.blocking);
     throw new Error(first?.message ?? "CT600 package is not valid.");
   }
+  assertCt600XmlStructure(built.xml);
   return submitCt600Xml({
     xml: built.xml,
     actorId: input.actorId,

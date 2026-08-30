@@ -18,6 +18,11 @@ import {
   deskFindCt600ByPeriod,
 } from "@/server/db/desk-store";
 import type { Ct600QuestionnaireAnswers } from "@/lib/hmrc/filing-guides";
+import {
+  buildCt600Package,
+  buildCt600FormReviewPdf,
+  buildAccountsReviewPdf,
+} from "@/server/hmrc/ct600/index";
 
 async function loadCt600Builder() {
   return import("@/server/hmrc/ct600/index");
@@ -347,6 +352,8 @@ export async function submitCt600(
     senderPassword?: string;
     useSavedPassword?: boolean;
     rememberPassword?: boolean;
+    declarantName?: string;
+    declarantStatus?: string;
   },
 ) {
   const session = await requireSession();
@@ -371,6 +378,17 @@ export async function submitCt600(
   });
 
   const figures = ct600FiguresSchema.parse(draft.figures);
+  const ch =
+    "companiesHouse" in client
+      ? (client.companiesHouse as {
+          directors?: Array<{ name: string; resignedOn?: string | null }>;
+        } | null)
+      : null;
+  const directors =
+    ch?.directors
+      ?.filter((d) => !d.resignedOn)
+      .map((d) => d.name)
+      .filter(Boolean) ?? [];
   const { submitCt600Package } = await loadCt600Builder();
   const res = await submitCt600Package({
     companyName: client.name,
@@ -378,6 +396,12 @@ export async function submitCt600(
     utr: client.utr,
     figures,
     questionnaire: draft.questionnaire ?? {},
+    declarantName: credentials?.declarantName?.trim() || directors[0] || null,
+    declarantStatus: credentials?.declarantStatus?.trim() || "Director",
+    contact: {
+      email: session.email ?? undefined,
+    },
+    sender: "Company",
     senderId: resolved.senderId,
     senderPassword: resolved.senderPassword,
     actorId: session.userId,
@@ -440,7 +464,13 @@ export async function submitCt600(
   }
 
   revalidatePath(`/clients/${clientId}/corporation-tax`);
-  return { draft: await loadDraft(returnId, clientId), res };
+  return {
+    draft: await loadDraft(returnId, clientId),
+    res: {
+      ...res,
+      errorMessage: res.errorMessage ?? null,
+    },
+  };
 }
 
 export async function validateCt600Draft(returnId: string, clientId: string) {
@@ -476,11 +506,12 @@ export async function getCt600SubmitInfo() {
   };
 }
 
-/** Review PDFs before HMRC submit — no Gateway credentials required. */
+/** Review PDFs before submit — no credentials required. */
 export async function downloadCt600Draft(
   returnId: string,
   clientId: string,
   kind: "ct600" | "accounts" | "both" = "both",
+  opts?: { declarantName?: string; declarantStatus?: string },
 ) {
   await requireSession();
   const client = await getClient(clientId);
@@ -488,8 +519,6 @@ export async function downloadCt600Draft(
   if (!draft) throw new Error("CT600 draft not found");
 
   const figures = ct600FiguresSchema.parse(draft.figures);
-  const { buildCt600Package, buildCt600FormReviewPdf, buildAccountsReviewPdf } =
-    await loadCt600Builder();
   const built = buildCt600Package(
     {
       companyName: client.name,
@@ -527,8 +556,9 @@ export async function downloadCt600Draft(
     utr: client.utr ?? "",
     registeredOffice: ch?.registeredOffice ?? null,
     directors,
-    declarantName: directors[0] ?? null,
-    declarantStatus: "Director" as const,
+    declarantName:
+      opts?.declarantName?.trim() || directors[0] || null,
+    declarantStatus: opts?.declarantStatus?.trim() || "Director",
   };
 
   const fileSlug = (client.companyNumber || client.name || "ct600")

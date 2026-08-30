@@ -6,6 +6,7 @@ import { createStripeCheckoutSession } from "@/server/stripe/checkout-session";
 const bodySchema = z.object({
   planKey: z.string().min(1),
   email: z.string().email().optional(),
+  chRequestId: z.string().uuid().optional(),
 });
 
 export async function POST(req: Request) {
@@ -48,6 +49,7 @@ export async function POST(req: Request) {
       email: sessionEmail,
       practiceId,
       userId,
+      chRequestId: parsed.data.chRequestId,
     });
     return NextResponse.json(result);
   } catch (err) {

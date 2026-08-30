@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 type ClientRow = {
   id: string;
@@ -35,16 +35,16 @@ function clientHref(client: ClientRow, path?: string) {
 
 export function DashboardClientList({ clients }: { clients: ClientRow[] }) {
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<ViewMode>("cards");
-
-  useEffect(() => {
+  const [view, setView] = useState<ViewMode>(() => {
+    if (typeof window === "undefined") return "cards";
     try {
       const saved = localStorage.getItem("hydratax_dashboard_client_view");
-      if (saved === "cards" || saved === "list") setView(saved);
+      if (saved === "cards" || saved === "list") return saved;
     } catch {
       /* ignore */
     }
-  }, []);
+    return "cards";
+  });
 
   function setViewMode(next: ViewMode) {
     setView(next);

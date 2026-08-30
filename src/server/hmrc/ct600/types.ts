@@ -8,6 +8,24 @@ import type { YearEndAccountsDraft } from "@/server/accounts/year-end-from-bank"
 
 export type Ct600Figures = z.infer<typeof ct600FiguresSchema>;
 
+export type Ct600ReviewCompany = {
+  name: string;
+  companyNumber: string;
+  utr: string;
+  registeredOffice?: string | null;
+  directors?: string[];
+  declarantName?: string | null;
+  declarantStatus?: string | null;
+};
+
+export type Ct600PrincipalContact = {
+  title?: string;
+  forename?: string;
+  surname?: string;
+  email?: string;
+  telephone?: string;
+};
+
 export type Ct600AttachmentKind = "accounts" | "computations";
 
 export type Ct600Attachment = {
@@ -25,6 +43,10 @@ export type Ct600PackageInput = {
   figures: Ct600Figures;
   questionnaire: Ct600QuestionnaireAnswers;
   accountsDraft?: YearEndAccountsDraft | null;
+  declarantName?: string | null;
+  declarantStatus?: string | null;
+  contact?: Ct600PrincipalContact | null;
+  sender?: string;
   senderId?: string;
   senderPassword?: string;
   gatewayTest?: boolean;

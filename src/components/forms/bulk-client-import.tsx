@@ -13,6 +13,7 @@ const TEMPLATE_HEADERS = [
   "name",
   "type",
   "company_number",
+  "company_auth_code",
   "utr",
   "vrn",
   "nino",
@@ -29,6 +30,7 @@ function downloadTemplate() {
       name: "Example Trading Ltd",
       type: "limited_company",
       company_number: "12345678",
+      company_auth_code: "ABC123",
       utr: "",
       vrn: "",
       nino: "",
@@ -85,6 +87,7 @@ export function BulkClientImport() {
   const [summary, setSummary] = useState<{
     created: number;
     skipped: number;
+    updated: number;
     failed: number;
     results: BulkImportRowResult[];
   } | null>(null);
@@ -177,6 +180,7 @@ export function BulkClientImport() {
               const params = new URLSearchParams();
               if (res.created) params.set("imported", String(res.created));
               if (res.skipped) params.set("skipped", String(res.skipped));
+              if (res.updated) params.set("updated", String(res.updated));
               const qs = params.toString();
               router.push(qs ? `/clients?${qs}` : "/clients");
               router.refresh();
@@ -198,12 +202,13 @@ export function BulkClientImport() {
           <div className="border-b border-line px-4 py-3">
             <p className="font-semibold text-ink">
               Imported {summary.created}
+              {summary.updated ? ` · updated ${summary.updated}` : ""}
               {summary.skipped ? ` · skipped ${summary.skipped}` : ""}
               {summary.failed ? ` · failed ${summary.failed}` : ""}
             </p>
             <p className="mt-1 text-sm text-ink-soft">
-              Fix the failed rows below, then upload again. Existing clients are
-              skipped automatically.
+              Existing clients with auth codes or other identifiers in the file
+              are updated automatically. Rows with no new data are skipped.
             </p>
           </div>
           <div className="max-h-80 overflow-auto">
@@ -221,7 +226,11 @@ export function BulkClientImport() {
                     <td className="mono px-4 py-2">{r.row}</td>
                     <td className="px-4 py-2">{r.name}</td>
                     <td className="px-4 py-2">
-                      {r.ok && r.skipped ? (
+                      {r.ok && r.updated ? (
+                        <span className="text-sea">
+                          Updated · {r.error ?? "Identifiers saved"}
+                        </span>
+                      ) : r.ok && r.skipped ? (
                         <span className="text-ink-soft">
                           Skipped · {r.error ?? "Already exists"}
                         </span>

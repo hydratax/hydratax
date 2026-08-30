@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/server/actions/clients";
 import { OrgChTypeahead } from "@/components/forms/org-ch-typeahead";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { looksLikeCompanyNumber } from "@/lib/company-number";
 
 export function CreateClientForm() {
   const router = useRouter();
@@ -28,7 +29,7 @@ export function CreateClientForm() {
             const orgSearch = String(fd.get("orgSearch") ?? "").trim();
             const picked = String(fd.get("companyNumber") ?? "").trim();
             const fromParen = orgSearch.match(/\(([A-Z0-9]{2,8})\)\s*$/i)?.[1];
-            const bareNumber = /^[A-Z0-9]{6,8}$/i.test(orgSearch)
+            const bareNumber = looksLikeCompanyNumber(orgSearch)
               ? orgSearch
               : "";
             const companyNumber = isLtd

@@ -33,6 +33,7 @@ export default async function EditClientPage({
             name: client.name,
             type: client.type,
             companyNumber: client.companyNumber,
+            companyAuthCode: client.companyAuthCode,
             utr: client.utr,
             vrn: client.vrn,
             nino: client.nino,

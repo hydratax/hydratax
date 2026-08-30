@@ -7,6 +7,7 @@ import {
 } from "@/server/actions/confirmation-statement";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { looksLikeCompanyNumber } from "@/lib/company-number";
 
 type DirectorRow = {
   fullName: string;
@@ -105,7 +106,9 @@ export function ConfirmationStatementWizard({
     registerFromSnapshot(snapshot),
   );
   const [lookupPending, setLookupPending] = useState(false);
-  const [companyAuthCode, setCompanyAuthCode] = useState("");
+  const [companyAuthCode, setCompanyAuthCode] = useState(
+    defaults?.companyAuthCode ?? "",
+  );
   const [lawful, setLawful] = useState(false);
   const [registerConfirmed, setRegisterConfirmed] = useState(false);
   const [sicCodes, setSicCodes] = useState(
@@ -131,65 +134,9 @@ export function ConfirmationStatementWizard({
     [],
   );
 
-  useEffect(() => {
-    const q = searchQuery.trim();
-    if (q.length < 2) {
-      setSearchHits([]);
-      return;
-    }
-    // Don't re-search once a company is selected and the field shows its name
-    if (register && q === register.companyName) return;
-
-    const t = setTimeout(() => {
-      void searchByName();
-    }, 400);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce on query only
-  }, [searchQuery]);
-
-  async function searchByName() {
-    const q = searchQuery.trim();
-    if (q.length < 2) {
-      setError("Enter at least 2 characters of the company name.");
-      return;
-    }
-    setLookupPending(true);
-    setError(null);
-    setSearchHits([]);
-    setRegister(null);
-    try {
-      // Pure digits → treat as company number shortcut
-      if (/^[A-Z0-9]{6,8}$/i.test(q) && !/\s/.test(q)) {
-        setCompanyNumber(q.toUpperCase());
-        await lookupCompany(q.toUpperCase());
-        return;
-      }
-      const res = await fetch(
-        `/api/companies-house/search?q=${encodeURIComponent(q)}`,
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Search failed");
-      const items = (data.items ?? []) as Array<{
-        company_number: string;
-        title: string;
-        company_status?: string;
-        address_snippet?: string;
-      }>;
-      setSearchHits(items);
-      if (items.length === 0) {
-        setError(data.message ?? "No companies matched that name.");
-      } else if (items.length === 1) {
-        setCompanyNumber(items[0].company_number);
-        setSearchQuery(items[0].title);
-        await lookupCompany(items[0].company_number);
-        setSearchHits([]);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Search failed");
-    } finally {
-      setLookupPending(false);
-    }
-  }
+  const trimmedSearchQuery = searchQuery.trim();
+  const visibleSearchHits =
+    trimmedSearchQuery.length < 2 ? [] : searchHits;
 
   async function lookupCompany(num: string) {
     setLookupPending(true);
@@ -278,6 +225,60 @@ export function ConfirmationStatementWizard({
     }
   }
 
+  async function searchByName() {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setError("Enter at least 2 characters of the company name.");
+      return;
+    }
+    setLookupPending(true);
+    setError(null);
+    setSearchHits([]);
+    setRegister(null);
+    try {
+      if (looksLikeCompanyNumber(q)) {
+        setCompanyNumber(q.toUpperCase());
+        await lookupCompany(q.toUpperCase());
+        return;
+      }
+      const res = await fetch(
+        `/api/companies-house/search?q=${encodeURIComponent(q)}`,
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Search failed");
+      const items = (data.items ?? []) as Array<{
+        company_number: string;
+        title: string;
+        company_status?: string;
+        address_snippet?: string;
+      }>;
+      setSearchHits(items);
+      if (items.length === 0) {
+        setError(data.message ?? "No companies matched that name.");
+      } else if (items.length === 1) {
+        setCompanyNumber(items[0].company_number);
+        setSearchQuery(items[0].title);
+        await lookupCompany(items[0].company_number);
+        setSearchHits([]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Search failed");
+    } finally {
+      setLookupPending(false);
+    }
+  }
+
+  useEffect(() => {
+    if (trimmedSearchQuery.length < 2) return;
+    if (register && trimmedSearchQuery === register.companyName) return;
+
+    const t = setTimeout(() => {
+      void searchByName();
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce on query only
+  }, [trimmedSearchQuery]);
+
   function updateDirector(i: number, patch: Partial<DirectorRow>) {
     setDirectors((rows) =>
       rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)),
@@ -342,9 +343,9 @@ export function ConfirmationStatementWizard({
             />
           </div>
 
-          {searchHits.length > 0 && (
+          {visibleSearchHits.length > 0 && (
             <ul className="divide-y divide-line overflow-hidden rounded-lg border border-line">
-              {searchHits.map((item) => (
+              {visibleSearchHits.map((item) => (
                 <li key={item.company_number}>
                   <button
                     type="button"

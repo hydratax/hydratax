@@ -64,6 +64,7 @@ export async function submitAndPollCt600Xml(opts: {
   senderPassword: string;
   maxPolls?: number;
   pollDelayMs?: number;
+  initialDelayMs?: number;
 }): Promise<{
   ok: boolean;
   status: number;
@@ -81,8 +82,12 @@ export async function submitAndPollCt600Xml(opts: {
     pollUrlFromSubmit(cfg.ctSubmissionUrl);
 
   if (!correlationId || qualifier !== "acknowledgement") {
+    const immediateOk =
+      qualifier === "response" &&
+      submit.text.includes("SuccessResponse") &&
+      !submit.text.includes("ErrorResponse");
     return {
-      ok: submit.ok && qualifier === "response",
+      ok: submit.ok && immediateOk,
       status: submit.status,
       correlationId,
       qualifier,
@@ -99,9 +104,10 @@ export async function submitAndPollCt600Xml(opts: {
     gatewayTest,
   });
 
-  const delay = opts.pollDelayMs ?? 10_000;
-  const max = opts.maxPolls ?? 6;
-  await new Promise((r) => setTimeout(r, delay));
+  const delay = opts.pollDelayMs ?? 3_000;
+  const max = opts.maxPolls ?? 8;
+  const initialDelay = opts.initialDelayMs ?? 2_000;
+  await new Promise((r) => setTimeout(r, initialDelay));
 
   let poll = await postXml(pollEndpoint, pollXml);
   for (let i = 0; i < max; i++) {
@@ -112,9 +118,16 @@ export async function submitAndPollCt600Xml(opts: {
   }
 
   const finalQualifier = extractXmlTag("Qualifier", poll.text);
+  const hasSuccess =
+    poll.text.includes("SuccessResponse") ||
+    poll.text.includes("successfully");
+  const hasBusinessError =
+    poll.text.includes("ErrorResponse") ||
+    poll.text.includes("GovTalkErrors") ||
+    /ChRIS/i.test(poll.text);
+
   const ok =
-    finalQualifier === "response" &&
-    !/error/i.test(poll.text.slice(0, 500));
+    finalQualifier === "response" && hasSuccess && !hasBusinessError;
 
   return {
     ok,

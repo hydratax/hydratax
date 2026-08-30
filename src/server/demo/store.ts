@@ -13,6 +13,7 @@ export type MemoryClient = {
   utr: string | null;
   vrn: string | null;
   nino: string | null;
+  companyAuthCode: string | null;
   payeRef: string | null;
   accountsOfficeRef: string | null;
   isEmployer: boolean;

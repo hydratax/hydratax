@@ -14,6 +14,8 @@ export type CreateCheckoutOpts = {
   practiceId?: string;
   userId?: string;
   cancelPath?: string;
+  /** Links Stripe payment to a companies_house_requests row */
+  chRequestId?: string;
 };
 
 /**
@@ -38,6 +40,11 @@ export async function createStripeCheckoutSession(opts: CreateCheckoutOpts) {
 
   const withTrial =
     plan.interval === "month" && planKeyHasPracticeTrial(plan.key);
+
+  const isChOneOff = opts.planKey.startsWith("companies-house:");
+  const successUrl = isChOneOff
+    ? `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}&filing=1`
+    : `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
 
   const checkoutSession = await stripe.checkout.sessions.create({
     mode: plan.interval === "month" ? "subscription" : "payment",
@@ -77,10 +84,14 @@ export async function createStripeCheckoutSession(opts: CreateCheckoutOpts) {
           },
         }
       : {}),
-    success_url: `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+    success_url: successUrl,
     cancel_url: `${appUrl}${
       opts.cancelPath ??
-      (withTrial ? "/pricing#practice" : "/pricing?cancelled=1")
+      (isChOneOff
+        ? "/companies-house/confirmation-statement?cancelled=1"
+        : withTrial
+          ? "/pricing#practice"
+          : "/pricing?cancelled=1")
     }`,
     metadata: {
       planKey: plan.key,
@@ -89,6 +100,7 @@ export async function createStripeCheckoutSession(opts: CreateCheckoutOpts) {
       practiceId: opts.practiceId ?? "",
       userId: opts.userId ?? "",
       email: opts.email ?? "",
+      chRequestId: opts.chRequestId ?? "",
       trialDays: withTrial ? String(PRACTICE_TRIAL_DAYS) : "0",
     },
     allow_promotion_codes: true,

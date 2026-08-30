@@ -11,6 +11,7 @@ import {
   isChXmlGatewayConfigured,
   getChFilingEnv,
 } from "./config";
+import { describeChCredentialsForFiling } from "./gateway-auth";
 import { buildCompanyIncorporationXml } from "./incorporation-xml";
 import { submitCompanyIncorporationXml } from "./xml-gateway";
 import type {
@@ -148,19 +149,25 @@ export async function submitIncorporationFiling(
       filingId,
       status: "validated",
       mode: "dry_run",
-      message: `XML package built (${built.xml.length} bytes)${
-        cfg.packageReference ? "" : ". Set COMPANIES_HOUSE_PACKAGE_REFERENCE for live."
-      }.`,
+      message: `XML package built (${built.xml.length} bytes).`,
       submissionNumber: built.submissionNumber,
       xmlBytes: built.xml.length,
     };
   }
 
-  if (!cfg.packageReference) {
+  const creds = describeChCredentialsForFiling();
+  if (!creds.presenterConfigured) {
     return {
       ok: false,
       error:
-        "Set COMPANIES_HOUSE_PACKAGE_REFERENCE (issued with your presenter account) before live IN01 submit.",
+        "Set COMPANIES_HOUSE_PRESENTER_ID and COMPANIES_HOUSE_PRESENTER_AUTH_CODE before live IN01 submit.",
+    };
+  }
+  if (cfg.live && !creds.creditAccountConfigured) {
+    return {
+      ok: false,
+      error:
+        "Set COMPANIES_HOUSE_CREDIT_ACCOUNT for live fee-bearing IN01 submissions.",
     };
   }
 

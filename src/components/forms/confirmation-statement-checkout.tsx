@@ -6,12 +6,12 @@ import { submitCompaniesHouseRequest } from "@/server/actions/ch-requests";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { authEntryHref } from "@/lib/auth-return";
 import {
-  clearCs01Draft,
   cs01ResumePath,
   loadCs01Draft,
   saveCs01Draft,
 } from "@/lib/cs01-checkout-draft";
 import { hasSignedInSession } from "@/server/actions/session-check";
+import { looksLikeCompanyNumber } from "@/lib/company-number";
 
 type RegisterView = {
   companyNumber: string;
@@ -29,6 +29,37 @@ type DirectorCodes = {
   dateOfBirth: string;
   personalCode: string;
 };
+
+function codesFromDirectors(
+  directors: RegisterView["directors"],
+): DirectorCodes[] {
+  if (directors.length === 0) {
+    return [{ fullName: "", dateOfBirth: "", personalCode: "" }];
+  }
+  return directors.map((d) => ({
+    fullName: d.name,
+    dateOfBirth: "",
+    personalCode: "",
+  }));
+}
+
+/** Rows the user started filling — ignore blank “add another director” slots. */
+function activeDirectorRows(rows: DirectorCodes[]) {
+  return rows.filter(
+    (d) =>
+      d.fullName.trim() ||
+      d.dateOfBirth ||
+      d.personalCode.trim(),
+  );
+}
+
+function directorRowComplete(d: DirectorCodes) {
+  return (
+    d.fullName.trim().length > 1 &&
+    /^\d{4}-\d{2}-\d{2}$/.test(d.dateOfBirth) &&
+    d.personalCode.trim().length === 11
+  );
+}
 
 function formatAddress(addr?: Record<string, string | undefined> | null) {
   if (!addr) return "";
@@ -85,16 +116,24 @@ export function ConfirmationStatementCheckout({
   const authCodeFormatOk =
     !authCodeMissing &&
     /^[A-Za-z0-9]{6,12}$/.test(companyAuthCode.trim());
+  const activeDirectors = activeDirectorRows(directorCodes);
   const directorsReady =
-    directorCodes.length > 0 &&
-    directorCodes.every(
-      (d) =>
-        /^\d{4}-\d{2}-\d{2}$/.test(d.dateOfBirth) &&
-        d.personalCode.trim().length === 11,
+    activeDirectors.length > 0 && activeDirectors.every(directorRowComplete);
+
+  function payButtonLabel() {
+    if (pending) return "Opening checkout…";
+    if (!authCodeFormatOk) return "Enter authentication code to pay";
+    if (activeDirectors.length === 0) {
+      return "Enter director details to pay";
+    }
+    const needsDob = activeDirectors.some(
+      (d) => d.personalCode.trim().length === 11 && !/^\d{4}-\d{2}-\d{2}$/.test(d.dateOfBirth),
     );
-  /** Auth + directors filled — confirmation checkbox still required before checkout */
-  const fieldsReady = authCodeFormatOk && directorsReady;
-  const canPay = fieldsReady && confirmed;
+    if (needsDob) return "Enter director date of birth to pay";
+    if (!directorsReady) return "Complete director personal codes to pay";
+    if (!confirmed) return "Confirm details to pay";
+    return `Pay ${fees.total}`;
+  }
 
   function persistDraft(partial?: Partial<ReturnType<typeof buildDraft>>) {
     const base = buildDraft();
@@ -138,7 +177,11 @@ export function ConfirmationStatementCheckout({
       directors: draft.directors,
       pscs: draft.pscs,
     });
-    setDirectorCodes(draft.directorCodes);
+    setDirectorCodes(
+      draft.directorCodes.length > 0
+        ? draft.directorCodes
+        : codesFromDirectors(draft.directors),
+    );
     setCompanyAuthCode(draft.companyAuthCode);
     setConfirmed(Boolean(draft.confirmed));
     setSearchQuery(draft.companyName);
@@ -160,6 +203,15 @@ export function ConfirmationStatementCheckout({
     companyAuthCode,
     confirmed,
   ]);
+
+  // Always keep at least one personal-code row on the confirm step.
+  useEffect(() => {
+    if (phase !== "confirm") return;
+    if (directorCodes.length > 0) return;
+    setDirectorCodes(
+      codesFromDirectors(register?.directors ?? []),
+    );
+  }, [phase, directorCodes.length, register]);
 
   useEffect(() => {
     if (!presetCompany) return;
@@ -187,7 +239,7 @@ export function ConfirmationStatementCheckout({
     setLookupPending(true);
     setError(null);
     try {
-      if (/^[A-Z0-9]{6,8}$/i.test(q) && !/\s/.test(q)) {
+      if (looksLikeCompanyNumber(q)) {
         await loadCompany(q.toUpperCase());
         return;
       }
@@ -280,15 +332,12 @@ export function ConfirmationStatementCheckout({
       setRegister(next);
       if (skipNextChWipe.current) {
         skipNextChWipe.current = false;
-        // Keep draft auth code / director codes / confirmation after CH refresh
-      } else {
-        setDirectorCodes(
-          next.directors.map((d) => ({
-            fullName: d.name,
-            dateOfBirth: "",
-            personalCode: "",
-          })),
+        // Keep draft auth / codes after CH refresh, but never leave zero code rows.
+        setDirectorCodes((prev) =>
+          prev.length > 0 ? prev : codesFromDirectors(next.directors),
         );
+      } else {
+        setDirectorCodes(codesFromDirectors(next.directors));
         setConfirmed(false);
       }
       setSearchQuery(next.companyName);
@@ -319,15 +368,11 @@ export function ConfirmationStatementCheckout({
       );
       return;
     }
-    const badDirector = directorCodes.find(
-      (d) =>
-        !d.dateOfBirth ||
-        !/^\d{4}-\d{2}-\d{2}$/.test(d.dateOfBirth) ||
-        d.personalCode.trim().length !== 11,
-    );
-    if (badDirector || directorCodes.length === 0) {
+    const rows = activeDirectorRows(directorCodes);
+    const badDirector = rows.find((d) => !directorRowComplete(d));
+    if (badDirector || rows.length === 0) {
       setError(
-        "Each director needs date of birth and an 11-character personal code.",
+        "Each director needs full name, date of birth, and an 11-character personal code.",
       );
       return;
     }
@@ -364,7 +409,7 @@ export function ConfirmationStatementCheckout({
             registeredOffice: register.registeredOffice,
             sicCodes: register.sicCodes,
             directorsJson: JSON.stringify(
-              directorCodes.map((d) => ({
+              activeDirectorRows(directorCodes).map((d) => ({
                 fullName: d.fullName,
                 dateOfBirth: d.dateOfBirth,
                 personalCode: d.personalCode.trim().toUpperCase(),
@@ -386,14 +431,16 @@ export function ConfirmationStatementCheckout({
         const checkout = await fetch("/api/checkout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ planKey: res.checkoutPlanKey }),
+          body: JSON.stringify({
+            planKey: res.checkoutPlanKey,
+            chRequestId: res.requestId,
+          }),
         });
         const data = (await checkout.json()) as {
           url?: string;
           error?: string;
         };
         if (checkout.ok && data.url) {
-          clearCs01Draft();
           window.location.href = data.url;
           return;
         }
@@ -501,7 +548,9 @@ export function ConfirmationStatementCheckout({
                 setConfirmed(false);
                 setAttemptedPay(false);
                 setRegister(null);
-                setDirectorCodes([]);
+                setDirectorCodes([
+                  { fullName: "", dateOfBirth: "", personalCode: "" },
+                ]);
                 setSearchHits([]);
               }}
             >
@@ -682,34 +731,65 @@ export function ConfirmationStatementCheckout({
             </div>
           </section>
 
-          <div className="space-y-3">
+          <div className="space-y-3 rounded-2xl border border-sea/30 bg-sea/[0.04] p-4">
             <div>
               <h3 className="text-sm font-semibold text-ink">
                 Director personal codes
               </h3>
               <p className="mt-1 text-xs text-ink-soft">
-                Required for CS01. Each director gets an 11-character code after
-                verifying identity via GOV.UK One Login or an ACSP. There is no
-                live check that a code belongs to that director until Companies
-                House processes the filing.
+                Enter each director’s date of birth and 11-character personal
+                code in the boxes below. Codes come from GOV.UK One Login or an
+                ACSP after identity verification.
               </p>
+              {register.directors.length === 0 ? (
+                <p className="mt-2 text-sm font-semibold text-ink">
+                  No active directors were returned from Companies House —
+                  type the director name, date of birth, and personal code
+                  below.
+                </p>
+              ) : null}
             </div>
             {directorCodes.map((d, i) => {
               const dobOk = /^\d{4}-\d{2}-\d{2}$/.test(d.dateOfBirth);
               const codeOk = d.personalCode.trim().length === 11;
-              const incomplete = attemptedPay && (!dobOk || !codeOk);
+              const nameOk = d.fullName.trim().length > 1;
+              const incomplete =
+                attemptedPay && (!dobOk || !codeOk || !nameOk);
               return (
                 <fieldset
-                  key={`${d.fullName}-${i}`}
-                  className={`space-y-3 rounded-xl border p-4 ${
+                  key={`director-code-${i}`}
+                  className={`space-y-3 rounded-xl border bg-white p-4 ${
                     incomplete
                       ? "border-danger/40 bg-danger/5"
-                      : "border-line bg-white"
+                      : "border-line"
                   }`}
                 >
                   <legend className="px-1 text-sm font-semibold text-ink">
-                    {d.fullName}
+                    Director {i + 1}
+                    {d.fullName.trim() ? ` · ${d.fullName}` : ""}
                   </legend>
+                  <label className="label">
+                    Full name
+                    <input
+                      className={`input mt-1.5 ${
+                        attemptedPay && !nameOk
+                          ? "border-danger focus:border-danger"
+                          : ""
+                      }`}
+                      value={d.fullName}
+                      placeholder="Director full name"
+                      aria-invalid={attemptedPay && !nameOk}
+                      onChange={(e) =>
+                        setDirectorCodes((rows) =>
+                          rows.map((row, idx) =>
+                            idx === i
+                              ? { ...row, fullName: e.target.value }
+                              : row,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
                   <label className="label">
                     Date of birth
                     <input
@@ -734,15 +814,16 @@ export function ConfirmationStatementCheckout({
                   </label>
                   <label className="label">
                     Personal code
+                    <span className="font-normal text-danger"> *</span>
                     <input
-                      className={`input mt-1.5 mono ${
+                      className={`input mt-1.5 mono tracking-wider ${
                         attemptedPay && !codeOk
                           ? "border-danger focus:border-danger"
                           : ""
                       }`}
                       value={d.personalCode}
                       maxLength={11}
-                      placeholder="11 characters"
+                      placeholder="11-character personal code"
                       autoComplete="off"
                       aria-invalid={attemptedPay && !codeOk}
                       onChange={(e) =>
@@ -763,9 +844,11 @@ export function ConfirmationStatementCheckout({
                   </label>
                   {incomplete && (
                     <p className="text-sm text-danger" role="alert">
-                      {!dobOk
-                        ? "Enter date of birth."
-                        : "Enter the 11-character personal code."}
+                      {!nameOk
+                        ? "Enter the director’s full name."
+                        : !dobOk
+                          ? "Enter date of birth."
+                          : "Enter the 11-character personal code."}
                     </p>
                   )}
                   <a
@@ -779,6 +862,18 @@ export function ConfirmationStatementCheckout({
                 </fieldset>
               );
             })}
+            <button
+              type="button"
+              className="btn btn-secondary text-sm"
+              onClick={() =>
+                setDirectorCodes((rows) => [
+                  ...rows,
+                  { fullName: "", dateOfBirth: "", personalCode: "" },
+                ])
+              }
+            >
+              + Add another director
+            </button>
           </div>
 
           <label
@@ -815,25 +910,11 @@ export function ConfirmationStatementCheckout({
           <button
             type="button"
             className="btn btn-primary w-full"
-            disabled={pending || !fieldsReady}
+            disabled={pending}
             onClick={pay}
           >
-            {pending
-              ? "Opening checkout…"
-              : !authCodeFormatOk
-                ? "Enter authentication code to pay"
-                : !directorsReady
-                  ? "Complete director personal codes to pay"
-                  : !confirmed
-                    ? "Confirm details to pay"
-                    : `Pay ${fees.total}`}
+            {payButtonLabel()}
           </button>
-          {!canPay && (
-            <p className="text-center text-xs text-ink-soft">
-              Checkout stays locked until the company authentication code,
-              director personal codes, and confirmation are complete.
-            </p>
-          )}
         </div>
       )}
 

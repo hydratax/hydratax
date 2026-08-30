@@ -20,6 +20,12 @@ import type {
   CsFilingStatus,
   CsSubmitResult,
 } from "./types";
+import {
+  canUseSupabaseCsStore,
+  insertCsFilingRecord,
+  loadCsFilingRecord,
+  patchCsFilingRecord,
+} from "./cs-filing-store";
 
 type SecretPayload = {
   companyAuthCode: string;
@@ -112,6 +118,16 @@ export async function createCsFilingDraft(
   if (isMemoryStore()) {
     ensureMemoryFilings();
     memoryStore.csFilings.unshift(record);
+  } else if (canUseSupabaseCsStore()) {
+    try {
+      await insertCsFilingRecord(record);
+    } catch (err) {
+      console.error("[cs.filing] supabase insert", err);
+      return {
+        ok: false,
+        error: "Could not save filing to Supabase.",
+      };
+    }
   } else {
     try {
       const { getDb } = await import("@/server/db");
@@ -160,6 +176,8 @@ export async function submitCsFiling(
   if (isMemoryStore()) {
     ensureMemoryFilings();
     record = memoryStore.csFilings.find((f) => f.id === filingId) ?? null;
+  } else if (canUseSupabaseCsStore()) {
+    record = await loadCsFilingRecord(filingId);
   } else {
     const { getDb } = await import("@/server/db");
     const { confirmationStatementFilings } = await import(
@@ -270,6 +288,14 @@ async function updateFilingStatus(
     Object.assign(row, patch, { updatedAt: now });
     return;
   }
+  if (canUseSupabaseCsStore()) {
+    try {
+      await patchCsFilingRecord(id, patch);
+    } catch (err) {
+      console.error("[cs.filing] supabase patch", err);
+    }
+    return;
+  }
   const { getDb } = await import("@/server/db");
   const { confirmationStatementFilings } = await import("@/server/db/schema");
   const { eq } = await import("drizzle-orm");
@@ -288,6 +314,10 @@ export async function getCsFiling(
   if (isMemoryStore()) {
     ensureMemoryFilings();
     const row = memoryStore.csFilings.find((f) => f.id === filingId);
+    return row ? toPublic(row) : null;
+  }
+  if (canUseSupabaseCsStore()) {
+    const row = await loadCsFilingRecord(filingId);
     return row ? toPublic(row) : null;
   }
   const { getDb } = await import("@/server/db");

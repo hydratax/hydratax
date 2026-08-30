@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { FreeTrialBanner } from "@/components/free-trial-banner";
+import { PublicAuthLinks } from "@/components/public-auth-links";
 
 const SERVICES = [
   { label: "MTD VAT", href: "/pricing#vat" },
@@ -151,12 +152,7 @@ export function SiteHeader({
             </Link>
           ))}
 
-          <Link href="/sign-in" className={signIn}>
-            Sign in
-          </Link>
-          <Link href="/create-account" className={signUp}>
-            Sign up
-          </Link>
+          <PublicAuthLinks signInClass={signIn} signUpClass={signUp} dark={dark} />
         </nav>
 
         {/* Mobile: sign up + menu */}
@@ -230,16 +226,12 @@ export function SiteHeader({
               </Link>
             ))}
             <div className="mt-3 flex flex-col gap-2">
-              <Link href="/sign-in" className={`${signIn} w-full justify-center`} onClick={closeMobile}>
-                Sign in
-              </Link>
-              <Link
-                href="/create-account"
-                className={`${signUp} w-full justify-center`}
-                onClick={closeMobile}
-              >
-                Sign up
-              </Link>
+              <PublicAuthLinks
+                signInClass={`${signIn} w-full justify-center`}
+                signUpClass={`${signUp} w-full justify-center`}
+                deskClass={`${signUp} w-full justify-center`}
+                dark={dark}
+              />
             </div>
           </nav>
         </div>

@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, type MouseEvent, useTransition } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   YearEndFilingForm,
   type LastFiledAccounts,
 } from "@/components/forms/year-end-filing-form";
-import { downloadCt600Draft } from "@/server/actions/ct600";
 import {
   daysInclusive,
   formatGbDate,
@@ -21,76 +20,6 @@ type FiledReturn = {
   periodEnd: string;
   status: string;
 };
-
-function Ct600DraftDownloadButton({
-  returnId,
-  clientId,
-}: {
-  returnId: string;
-  clientId: string;
-}) {
-  const [pending, start] = useTransition();
-
-  function saveFiles(
-    files: Array<{ filename: string; mimeType: string; base64: string }>,
-  ) {
-    for (const file of files) {
-      const bin = atob(file.base64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      const blob = new Blob([bytes], { type: file.mimeType });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = file.filename;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-  }
-
-  return (
-    <div className="flex flex-wrap gap-2">
-      <button
-        type="button"
-        className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink hover:border-sea/40 disabled:opacity-50"
-        disabled={pending}
-        onClick={() =>
-          start(async () => {
-            const pack = await downloadCt600Draft(
-              returnId,
-              clientId,
-              "accounts",
-            );
-            saveFiles(pack.files);
-          })
-        }
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <path d="M14 2v6h6" />
-        </svg>
-        {pending ? "…" : "Accounts"}
-      </button>
-      <button
-        type="button"
-        className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink hover:border-sea/40 disabled:opacity-50"
-        disabled={pending}
-        onClick={() =>
-          start(async () => {
-            const pack = await downloadCt600Draft(returnId, clientId, "ct600");
-            saveFiles(pack.files);
-          })
-        }
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <path d="M14 2v6h6" />
-        </svg>
-        {pending ? "…" : "CT600"}
-      </button>
-    </div>
-  );
-}
 
 type PeriodCard = {
   start: string;
@@ -400,35 +329,6 @@ export function Ct600PeriodWorkspace({
           persistKey={`hydratax_ct600_${clientId}_${selected.start}_${selected.end}`}
           postSignInPath={`/clients/${clientSlug}/corporation-tax?start=${encodeURIComponent(selected.start)}&end=${encodeURIComponent(selected.end)}`}
         />
-
-        {returns.length > 0 && (
-          <div className="panel p-5">
-            <h3 className="display text-xl">Prepared CT600 returns</h3>
-            <p className="mt-1 text-sm text-ink-soft">
-              READY drafts can be downloaded for review before you submit to
-              HMRC.
-            </p>
-            <ul className="mt-3 divide-y divide-line text-sm">
-              {returns.map((r) => (
-                <li
-                  key={r.id}
-                  className="flex flex-wrap items-center justify-between gap-3 py-2"
-                >
-                  <span className="font-semibold">
-                    {formatGbDate(r.periodStart)} → {formatGbDate(r.periodEnd)}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span className="badge badge-ok">{r.status}</span>
-                    <Ct600DraftDownloadButton
-                      returnId={r.id}
-                      clientId={clientId}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </div>
     );
   }

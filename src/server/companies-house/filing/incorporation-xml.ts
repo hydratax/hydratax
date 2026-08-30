@@ -1,18 +1,14 @@
-import { randomBytes } from "crypto";
 import {
   ownershipNatures,
   type ParsedIncorporationInput,
   type UkAddress,
 } from "./incorporation-schema";
-import { getChFilingEnv } from "./config";
-
-function xmlEscape(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+import {
+  buildPresenterAuthenticationXml,
+  resolveChPackageReference,
+  sixCharSubmissionNumber,
+  xmlEscape,
+} from "./gateway-auth";
 
 function addressXml(addr: UkAddress, indent = "        ") {
   const thoroughfare = addr.thoroughfare?.trim()
@@ -37,25 +33,12 @@ ${indent}  </VerificationStatements>
 ${indent}</VerificationDetails>`;
 }
 
-function sixCharSubmissionNumber() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = randomBytes(6);
-  let out = "";
-  for (let i = 0; i < 6; i++) {
-    out += alphabet[bytes[i]! % alphabet.length];
-  }
-  return out;
-}
-
 /**
  * Builds IN01 (CompanyIncorporation v3-8) GovTalk XML for the software gateway.
  * Uses model articles + data memorandum (no MEMARTS PDF attachment).
  */
 export function buildCompanyIncorporationXml(input: ParsedIncorporationInput) {
-  const cfg = getChFilingEnv();
-  const presenterId = cfg.presenterId ?? "PRESENTER_ID";
-  const presenterAuth = cfg.presenterAuthCode ?? "PRESENTER_AUTH";
-  const packageRef = cfg.packageReference ?? "0012";
+  const packageRef = resolveChPackageReference();
   const submissionNumber = sixCharSubmissionNumber();
   const today = new Date().toISOString().slice(0, 10);
 
@@ -215,13 +198,7 @@ ${addressXml(s.address, "          ")}
       <Transformation>XML</Transformation>
     </MessageDetails>
     <SenderDetails>
-      <IDAuthentication>
-        <SenderID>${xmlEscape(presenterId)}</SenderID>
-        <Authentication>
-          <Method>clear</Method>
-          <Value>${xmlEscape(presenterAuth)}</Value>
-        </Authentication>
-      </IDAuthentication>
+      ${buildPresenterAuthenticationXml()}
     </SenderDetails>
   </Header>
   <GovTalkDetails>

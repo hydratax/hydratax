@@ -67,6 +67,7 @@ export default async function FileConfirmationStatementPage({
         defaults={{
           companyNumber,
           clientId,
+          companyAuthCode: client.companyAuthCode ?? "",
         }}
         readiness={readiness}
         snapshot={snapshot}

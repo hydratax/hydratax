@@ -45,35 +45,37 @@ export function ClientTabs({
   const pathname = usePathname();
   const active = activeTabFromPath(pathname, clientSlug);
   const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const [pendingFromPath, setPendingFromPath] = useState<string | null>(null);
+  const showPending =
+    pendingHref && pendingFromPath === pathname ? pendingHref : null;
   const visible = tabs.filter((tab) =>
     canAccessModule(moduleAccess, tabKeyToModule(tab.key)),
   );
 
-  useEffect(() => {
-    setPendingHref(null);
-  }, [pathname]);
-
   // Clear sticky pending if navigation stalls (e.g. slow RSC).
   useEffect(() => {
-    if (!pendingHref) return;
-    const t = window.setTimeout(() => setPendingHref(null), 8_000);
+    if (!showPending) return;
+    const t = window.setTimeout(() => {
+      setPendingHref(null);
+      setPendingFromPath(null);
+    }, 8_000);
     return () => window.clearTimeout(t);
-  }, [pendingHref]);
+  }, [showPending]);
 
   return (
     <div
       className={`mb-7 overflow-x-auto border-b border-line pb-0 transition-opacity ${
-        pendingHref ? "opacity-70" : ""
+        showPending ? "opacity-70" : ""
       }`}
       role="tablist"
       aria-label="Client workspace tabs"
-      aria-busy={pendingHref ? true : undefined}
+      aria-busy={showPending ? true : undefined}
     >
       <div className="flex min-w-max gap-1">
         {visible.map((tab) => {
           const href = `/clients/${clientSlug}${tab.href}`;
           const isActive = active === tab.key;
-          const isPending = pendingHref === href;
+          const isPending = showPending === href;
           return (
             <Link
               key={tab.label}
@@ -82,6 +84,7 @@ export function ClientTabs({
               onClick={() => {
                 if (href === pathname) return;
                 setPendingHref(href);
+                setPendingFromPath(pathname);
               }}
               className={`relative rounded-t-md px-3.5 py-2.5 text-sm font-semibold transition ${
                 isActive

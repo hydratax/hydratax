@@ -12,6 +12,7 @@ export type EditClientValues = {
   name: string;
   type: "sole_trader" | "limited_company" | "partnership";
   companyNumber: string | null;
+  companyAuthCode: string | null;
   utr: string | null;
   vrn: string | null;
   nino: string | null;
@@ -43,6 +44,8 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
               name: String(fd.get("name") || client.name),
               type: client.type,
               companyNumber: String(fd.get("companyNumber") || "") || undefined,
+              companyAuthCode:
+                String(fd.get("companyAuthCode") || "") || undefined,
               utr: String(fd.get("utr") || "") || undefined,
               vrn: String(fd.get("vrn") || "") || undefined,
               nino: String(fd.get("nino") || "") || undefined,
@@ -115,6 +118,34 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
             defaultValue={client.contactPhone ?? ""}
           />
         </div>
+        {isLtd ? (
+          <div>
+            <label className="label" htmlFor="companyAuthCode">
+              Company authentication code
+            </label>
+            <input
+              id="companyAuthCode"
+              name="companyAuthCode"
+              className="input font-mono uppercase"
+              autoComplete="off"
+              maxLength={12}
+              placeholder="From Companies House letter"
+              defaultValue={client.companyAuthCode ?? ""}
+            />
+          </div>
+        ) : (
+          <div>
+            <label className="label" htmlFor="nino">
+              NINO
+            </label>
+            <input
+              id="nino"
+              name="nino"
+              className="input"
+              defaultValue={client.nino ?? ""}
+            />
+          </div>
+        )}
         <div>
           <label className="label" htmlFor="utr">
             UTR
@@ -135,17 +166,6 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
             name="vrn"
             className="input"
             defaultValue={client.vrn ?? ""}
-          />
-        </div>
-        <div>
-          <label className="label" htmlFor="nino">
-            NINO
-          </label>
-          <input
-            id="nino"
-            name="nino"
-            className="input"
-            defaultValue={client.nino ?? ""}
           />
         </div>
         <div>

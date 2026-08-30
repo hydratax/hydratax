@@ -22,6 +22,7 @@ import {
 } from "@/lib/accounts-wizard-draft";
 import { authEntryHref, appendReturnParams } from "@/lib/auth-return";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { looksLikeCompanyNumber } from "@/lib/company-number";
 
 type CompanyView = {
   companyNumber: string;
@@ -264,7 +265,7 @@ export function AnnualAccountsWizard({
     setLookupPending(true);
     setError(null);
     try {
-      if (/^[A-Z0-9]{6,8}$/i.test(q) && !/\s/.test(q)) {
+      if (looksLikeCompanyNumber(q)) {
         await loadCompany(q.toUpperCase());
         return;
       }

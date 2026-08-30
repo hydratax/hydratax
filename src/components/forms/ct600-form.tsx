@@ -2,7 +2,7 @@
 
 import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { prepareCt600, submitCt600, getCt600SubmitInfo } from "@/server/actions/ct600";
+import { prepareCt600, submitCt600, getCt600SubmitInfo, downloadCt600Draft } from "@/server/actions/ct600";
 import { draftCt600FromTrialBalance } from "@/server/actions/trial-balance";
 import { money } from "@/lib/format";
 import { TrialBalanceUpload } from "@/components/forms/trial-balance-upload";
@@ -447,6 +447,95 @@ export function Ct600Form({
               </ul>
             </div>
           )}
+          {draftId && (
+            <div className="space-y-3">
+              <div>
+                <p className="font-semibold text-ink">Download before you submit</p>
+                <p className="mt-1 text-sm text-ink-soft">
+                  Save and review the filled CT600 PDF before proceeding.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() =>
+                  start(async () => {
+                    setError(null);
+                    try {
+                      const pack = await downloadCt600Draft(
+                        draftId,
+                        clientId,
+                        "ct600",
+                      );
+                      for (const file of pack.files) {
+                        const bin = atob(file.base64);
+                        const bytes = new Uint8Array(bin.length);
+                        for (let i = 0; i < bin.length; i++) {
+                          bytes[i] = bin.charCodeAt(i);
+                        }
+                        const blob = new Blob([bytes], { type: file.mimeType });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = file.filename;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }
+                    } catch (err) {
+                      setError(
+                        err instanceof Error ? err.message : "Download failed",
+                      );
+                    }
+                  })
+                }
+                className="group flex w-full max-w-md items-start gap-3 rounded-2xl border border-line bg-white p-4 text-left transition hover:border-sea/40 hover:bg-sea/[0.03] disabled:opacity-50"
+              >
+                <span
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sea/10 text-sea"
+                  aria-hidden
+                >
+                  <svg
+                    width="22"
+                    height="22"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  >
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <path d="M14 2v6h6" />
+                    <path d="M9 15h6" />
+                  </svg>
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-semibold text-ink">CT600 form</span>
+                  <span className="mt-0.5 block text-sm text-ink-soft">
+                    {pending
+                      ? "Preparing your PDF…"
+                      : "Filled CT600 with your company details and return figures."}
+                  </span>
+                  {!pending && (
+                    <span className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-sea group-hover:underline">
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        aria-hidden
+                      >
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="12" x2="12" y2="3" />
+                      </svg>
+                      Download CT600 PDF
+                    </span>
+                  )}
+                </span>
+              </button>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -516,7 +605,8 @@ export function Ct600Form({
                     title: res.res.ok ? "CT600 accepted" : "CT600 rejected",
                     subtitle: res.res.ok
                       ? "Return lodged with HMRC Transaction Engine."
-                      : "HMRC did not accept this return.",
+                      : res.res.errorMessage ??
+                        "HMRC did not accept this return.",
                     correlationId: res.res.correlationId,
                     details: [
                       {

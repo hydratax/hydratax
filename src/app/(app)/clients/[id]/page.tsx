@@ -2,7 +2,6 @@ import Link from "next/link";
 import { getConnectionStatus } from "@/server/actions/hmrc-connect";
 import { listClientInvoices } from "@/server/actions/invoices";
 import { requireSession } from "@/server/auth/session";
-import { listAuditEvents } from "@/server/audit/log";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import { canAccessModule } from "@/lib/access";
 import {
@@ -39,9 +38,6 @@ export default async function ClientOverviewPage({
     hmrcEnv: "sandbox" as const,
     scopes: "",
   }));
-  const audit = await listAuditEvents({ clientId, limit: 8 }).catch(
-    () => [],
-  );
   const invoices = canAccessModule(session.moduleAccess, "invoices")
     ? await listClientInvoices(clientId).catch(() => [])
     : [];
@@ -61,9 +57,17 @@ export default async function ClientOverviewPage({
       value: client.companyNumber,
       requiredFor: "Companies House",
     },
+    ...(isLtd
+      ? [
+          {
+            label: "Company authentication code",
+            value: client.companyAuthCode,
+            requiredFor: "CS01 / CH filings",
+          },
+        ]
+      : []),
     { label: "UTR", value: client.utr, requiredFor: "CT600" },
     { label: "VRN", value: client.vrn, requiredFor: "MTD VAT" },
-    { label: "NINO", value: client.nino, requiredFor: "Self Assessment" },
     { label: "PAYE", value: client.payeRef, requiredFor: "Payroll / RTI" },
     {
       label: "Accounts Office",
@@ -75,10 +79,9 @@ export default async function ClientOverviewPage({
   const missingIds = identifiers.filter((row) => !row.value);
   const requiredMissing = identifiers.filter((row) => {
     if (row.label === "Company number") return isLtd && !row.value;
+    if (row.label === "Company authentication code") return isLtd && !row.value;
     if (row.label === "UTR") return isLtd && !row.value;
     if (row.label === "VRN") return client.isVatRegistered && !row.value;
-    if (row.label === "NINO")
-      return client.type !== "limited_company" && !row.value;
     if (row.label === "PAYE" || row.label === "Accounts Office") {
       return client.isEmployer && !row.value;
     }
@@ -104,58 +107,6 @@ export default async function ClientOverviewPage({
 
   const csUrgency = urgencyForDueDate(ch?.confirmationStatementNextDue);
   const accountsUrgency = urgencyForDueDate(ch?.accountsNextDue);
-
-  const modules = [
-    {
-      label: "Books",
-      href: `/clients/${slug}/books`,
-      desc: "Income & expenses in pence",
-      module: "books" as const,
-      show: true,
-    },
-    {
-      label: "Bank",
-      href: `/clients/${slug}/bank`,
-      desc: "Statements → SA / CT drafts",
-      module: "bank" as const,
-      show: true,
-    },
-    {
-      label: "Documents",
-      href: `/clients/${slug}/documents`,
-      desc: "Upload working papers",
-      module: "documents" as const,
-      show: true,
-    },
-    {
-      label: "VAT",
-      href: `/clients/${slug}/vat`,
-      desc: "Prepare → review → submit",
-      module: "vat" as const,
-      show: client.isVatRegistered,
-    },
-    {
-      label: "Self Assessment",
-      href: `/clients/${slug}/self-assessment`,
-      desc: "MTD income tax updates",
-      module: "self_assessment" as const,
-      show: client.type !== "limited_company",
-    },
-    {
-      label: "Corporation Tax",
-      href: `/clients/${slug}/corporation-tax`,
-      desc: "CT600 XML filing",
-      module: "corporation_tax" as const,
-      show: isLtd,
-    },
-    {
-      label: "Payroll",
-      href: `/clients/${slug}/payroll`,
-      desc: "Pay runs, FPS & EPS",
-      module: "payroll" as const,
-      show: client.isEmployer,
-    },
-  ].filter((m) => m.show && canAccessModule(session.moduleAccess, m.module));
 
   async function refreshCh() {
     "use server";
@@ -477,61 +428,6 @@ export default async function ClientOverviewPage({
                 )}
               </div>
             </div>
-          </div>
-        )}
-
-        {/* Other filing rails */}
-        <div>
-          <h2 className="display text-2xl">File with HMRC</h2>
-          <p className="mt-1 text-sm text-ink-soft">
-            Pick a rail — prepare, review, then submit once the client is
-            connected.
-          </p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {modules.map((m) => (
-              <Link
-                key={m.label}
-                href={m.href}
-                className="panel panel-interactive block p-4"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-semibold text-ink">{m.label}</p>
-                  <span className="text-sea">→</span>
-                </div>
-                <p className="mt-1 text-sm text-ink-soft">{m.desc}</p>
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        {session.moduleAccess === "full" && (
-          <div className="panel p-5">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="display text-2xl">Audit trail</h2>
-              <span className="badge badge-muted">Immutable</span>
-            </div>
-            <ul className="mt-3 divide-y divide-line text-sm">
-              {audit.length === 0 && (
-                <li className="py-4 text-ink-soft">
-                  No events yet — add a book entry or run a filing to start the
-                  chain.
-                </li>
-              )}
-              {audit.map((e) => (
-                <li
-                  key={String(e.id)}
-                  className="flex flex-wrap items-center justify-between gap-2 py-2.5"
-                >
-                  <span className="font-semibold">{String(e.action)}</span>
-                  <span className="mono text-xs text-ink-soft">
-                    {String(e.createdAt)}
-                    {e.hmrcStatusCode != null
-                      ? ` · HTTP ${e.hmrcStatusCode}`
-                      : ""}
-                  </span>
-                </li>
-              ))}
-            </ul>
           </div>
         )}
 

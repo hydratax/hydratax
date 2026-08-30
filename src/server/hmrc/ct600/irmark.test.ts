@@ -1,36 +1,43 @@
 import { describe, expect, it } from "vitest";
+import { CT_NS } from "@/server/hmrc/ct600/ct-xml";
 import { computeIrmark, injectIrmark } from "@/server/hmrc/ct600/irmark";
+
+const sampleBody = `<ct:IRenvelope xmlns:ct="${CT_NS}">
+      <ct:IRheader>
+        <ct:DefaultCurrency>GBP</ct:DefaultCurrency>
+      </ct:IRheader>
+    </ct:IRenvelope>`;
 
 describe("computeIrmark", () => {
   it("is deterministic for the same body payload", () => {
-    const body = `<IRenvelope xmlns="http://www.govtalk.gov.uk/taxation/CT/5">
-      <IRheader>
-        <DefaultCurrency>GBP</DefaultCurrency>
-      </IRheader>
-    </IRenvelope>`;
-    const a = computeIrmark(body);
-    const b = computeIrmark(body);
+    const a = computeIrmark(sampleBody);
+    const b = computeIrmark(sampleBody);
     expect(a).toBe(b);
-    expect(a.length).toBeGreaterThan(10);
+  });
+
+  it("produces a 28-character base64 SHA-1 digest", () => {
+    const mark = computeIrmark(sampleBody);
+    expect(mark).toMatch(/^[A-Za-z0-9+/]+={0,2}$/);
+    expect(mark.length).toBe(28);
   });
 
   it("ignores an existing IRmark when hashing", () => {
-    const base = `<IRenvelope><IRheader><DefaultCurrency>GBP</DefaultCurrency></IRheader></IRenvelope>`;
+    const base = `<ct:IRenvelope><ct:IRheader><ct:DefaultCurrency>GBP</ct:DefaultCurrency></ct:IRheader></ct:IRenvelope>`;
     const withMark = injectIrmark(base, "abc123");
     expect(computeIrmark(withMark)).toBe(computeIrmark(base));
   });
 
-  it("injects IRmark after DefaultCurrency", () => {
-    const body = `<IRenvelope><IRheader><DefaultCurrency>GBP</DefaultCurrency></IRheader></IRenvelope>`;
+  it("injects IRmark before Sender when present", () => {
+    const body = `<ct:IRenvelope><ct:IRheader><ct:DefaultCurrency>GBP</ct:DefaultCurrency><ct:Sender>Company</ct:Sender></ct:IRheader></ct:IRenvelope>`;
     const mark = computeIrmark(body);
     const out = injectIrmark(body, mark);
-    expect(out).toContain(`<IRmark Type="generic">${mark}</IRmark>`);
+    expect(out).toContain(`<ct:IRmark Type="generic">${mark}</ct:IRmark><ct:Sender>Company</ct:Sender>`);
   });
 
-  it("injects IRmark before closing IRheader when DefaultCurrency is absent", () => {
-    const body = `<IRenvelope><IRheader><Keys/></IRheader><EmployerPaymentSummary/></IRenvelope>`;
+  it("injects IRmark after DefaultCurrency when Sender is absent", () => {
+    const body = `<ct:IRenvelope><ct:IRheader><ct:DefaultCurrency>GBP</ct:DefaultCurrency></ct:IRheader></ct:IRenvelope>`;
     const mark = computeIrmark(body);
     const out = injectIrmark(body, mark);
-    expect(out).toContain(`<IRmark Type="generic">${mark}</IRmark></IRheader>`);
+    expect(out).toContain(`<ct:IRmark Type="generic">${mark}</ct:IRmark>`);
   });
 });

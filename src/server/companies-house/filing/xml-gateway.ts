@@ -1,13 +1,11 @@
 import type { ParsedCsFilingInput } from "./personal-codes";
 import { getChFilingEnv } from "./config";
-
-function xmlEscape(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+import {
+  buildPresenterAuthenticationXml,
+  resolveChPackageReference,
+  sixCharSubmissionNumber,
+  xmlEscape,
+} from "./gateway-auth";
 
 function splitName(fullName: string) {
   const cleaned = fullName.replace(/,/g, " ").trim();
@@ -20,13 +18,20 @@ function splitName(fullName: string) {
 }
 
 /**
- * Builds a CS01 XML payload for the Companies House software gateway (TIS).
- * Schema evolves with CH releases — treat as the integration seam for live submit.
+ * Builds a CS01 XML payload for the Companies House software filing gateway.
+ *
+ * Required per GOV.UK software filing guidance:
+ * - Presenter ID + presenter authentication code (authorises fee to credit account)
+ * - Company authentication code (per company)
+ * - Director personal codes when identity verification is required
  */
 export function buildConfirmationStatementXml(input: ParsedCsFilingInput) {
-  const cfg = getChFilingEnv();
-  const presenterId = cfg.presenterId ?? "PRESENTER_ID";
-  const presenterAuth = cfg.presenterAuthCode ?? "PRESENTER_AUTH";
+  getChFilingEnv(); // validate env readable
+  const packageRef = resolveChPackageReference();
+  const submissionNumber = sixCharSubmissionNumber();
+  const dateSigned = new Date().toISOString().slice(0, 10);
+  const reviewDate = input.confirmationDate;
+  const needsVerification = input.directors.some((d) => d.personalCode?.trim());
 
   const directorsXml = input.directors
     .map((d) => {
@@ -38,21 +43,21 @@ export function buildConfirmationStatementXml(input: ParsedCsFilingInput) {
         ? `<NameMismatchReason>${xmlEscape(d.nameMismatchReason)}</NameMismatchReason>`
         : "";
       return `
-            <Director>
-              <Person>
-                ${title}
-                <Forename>${xmlEscape(forename)}</Forename>
-                <Surname>${xmlEscape(surname)}</Surname>
-                <DOB>${xmlEscape(d.dateOfBirth)}</DOB>
-                <VerificationDetails>
-                  <CompaniesHousePersonalCode>${xmlEscape(d.personalCode)}</CompaniesHousePersonalCode>
-                  <VerificationStatements>
-                    <VerificationStatementForIndividual>INDIVIDUAL_VERIFIED</VerificationStatementForIndividual>
-                  </VerificationStatements>
-                  ${mismatch}
-                </VerificationDetails>
-              </Person>
-            </Director>`;
+                <Director>
+                  <Person>
+                    ${title}
+                    <Forename>${xmlEscape(forename)}</Forename>
+                    <Surname>${xmlEscape(surname)}</Surname>
+                    <DOB>${xmlEscape(d.dateOfBirth)}</DOB>
+                    <VerificationDetails>
+                      <CompaniesHousePersonalCode>${xmlEscape(d.personalCode)}</CompaniesHousePersonalCode>
+                      <VerificationStatements>
+                        <VerificationStatementForIndividual>INDIVIDUAL_VERIFIED</VerificationStatementForIndividual>
+                      </VerificationStatements>
+                      ${mismatch}
+                    </VerificationDetails>
+                  </Person>
+                </Director>`;
     })
     .join("");
 
@@ -60,49 +65,60 @@ export function buildConfirmationStatementXml(input: ParsedCsFilingInput) {
     ? `<RegisteredEmailAddress>${xmlEscape(input.registeredEmail)}</RegisteredEmailAddress>`
     : "";
 
+  const formBody = needsVerification
+    ? `<ConfirmationAndVerificationStatement xmlns="http://xmlgw.companieshouse.gov.uk" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://xmlgw.companieshouse.gov.uk http://xmlgw.companieshouse.gov.uk/v1-0/schema/forms/ConfirmationAndVerificationStatement-v1-0.xsd">
+          <TradingOnMarket>false</TradingOnMarket>
+          <DTR5Applies>false</DTR5Applies>
+          <PSCExemptAsTradingOnRegulatedMarket>false</PSCExemptAsTradingOnRegulatedMarket>
+          <PSCExemptAsSharesAdmittedOnMarket>false</PSCExemptAsSharesAdmittedOnMarket>
+          <PSCExemptAsTradingOnUKRegulatedMarket>false</PSCExemptAsTradingOnUKRegulatedMarket>
+          <ReviewDate>${xmlEscape(reviewDate)}</ReviewDate>
+          ${emailXml}
+          <AcceptLawfulPurposeStatement>true</AcceptLawfulPurposeStatement>
+          <StateConfirmation>true</StateConfirmation>
+          <VerificationStatement>${directorsXml}
+          </VerificationStatement>
+        </ConfirmationAndVerificationStatement>`
+    : `<ConfirmationStatement xmlns="http://xmlgw.companieshouse.gov.uk" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://xmlgw.companieshouse.gov.uk http://xmlgw.companieshouse.gov.uk/v1-0/schema/forms/ConfirmationStatement-v1-3.xsd">
+          <ReviewDate>${xmlEscape(reviewDate)}</ReviewDate>
+          ${emailXml}
+          <AcceptLawfulPurposeStatement>true</AcceptLawfulPurposeStatement>
+          <StateConfirmation>true</StateConfirmation>
+        </ConfirmationStatement>`;
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope">
   <EnvelopeVersion>2.0</EnvelopeVersion>
   <Header>
     <MessageDetails>
-      <Class>CompanyAuthorisation</Class>
+      <Class>ConfirmationStatement</Class>
       <Qualifier>request</Qualifier>
       <Function>submit</Function>
       <Transformation>XML</Transformation>
     </MessageDetails>
     <SenderDetails>
-      <IDAuthentication>
-        <SenderID>${xmlEscape(presenterId)}</SenderID>
-        <Authentication>
-          <Method>clear</Method>
-          <Value>${xmlEscape(presenterAuth)}</Value>
-        </Authentication>
-      </IDAuthentication>
+      ${buildPresenterAuthenticationXml()}
     </SenderDetails>
   </Header>
   <GovTalkDetails>
     <Keys/>
   </GovTalkDetails>
   <Body>
-    <FormSubmission>
+    <FormSubmission xmlns="http://xmlgw.companieshouse.gov.uk/Header" xmlns:bs="http://xmlgw.companieshouse.gov.uk" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://xmlgw.companieshouse.gov.uk/Header http://xmlgw.companieshouse.gov.uk/v1-0/schema/forms/FormSubmission-v2-11.xsd">
       <FormHeader>
-        <CompanyNumber>${xmlEscape(input.companyNumber)}</CompanyNumber>
+        <CompanyNumber>${xmlEscape(input.companyNumber.replace(/\D/g, ""))}</CompanyNumber>
+        <CompanyType>EW</CompanyType>
         <CompanyName>${xmlEscape(input.companyName)}</CompanyName>
-        <CompanyAuthenticationCode>${xmlEscape(input.companyAuthCode)}</CompanyAuthenticationCode>
-        <PackageReference>HydraTax-CS01</PackageReference>
+        <CompanyAuthenticationCode>${xmlEscape(input.companyAuthCode.toUpperCase())}</CompanyAuthenticationCode>
+        <PackageReference>${xmlEscape(packageRef)}</PackageReference>
+        <Language>EN</Language>
         <FormIdentifier>ConfirmationStatement</FormIdentifier>
-        <SubmissionNumber>${xmlEscape(`${input.companyNumber}-${input.confirmationDate}`)}</SubmissionNumber>
+        <SubmissionNumber>${xmlEscape(submissionNumber)}</SubmissionNumber>
       </FormHeader>
-      <ConfirmationStatement>
-        <ConfirmationDate>${xmlEscape(input.confirmationDate)}</ConfirmationDate>
-        <StatementOfLawfulPurpose>true</StatementOfLawfulPurpose>
-        ${emailXml}
-        <ConfirmationAndVerificationStatement>
-          <VerificationStatement>
-            ${directorsXml}
-          </VerificationStatement>
-        </ConfirmationAndVerificationStatement>
-      </ConfirmationStatement>
+      <DateSigned>${dateSigned}</DateSigned>
+      <Form>
+        ${formBody}
+      </Form>
     </FormSubmission>
   </Body>
 </GovTalkMessage>`;
@@ -115,19 +131,12 @@ export type XmlGatewayResponse = {
   error?: string;
 };
 
-/**
- * Posts CS01 XML to the Companies House gateway.
- * Requires live presenter credentials — returns a clear error when missing.
- */
 export async function submitConfirmationStatementXml(
   xml: string,
 ): Promise<XmlGatewayResponse> {
   return postXmlToGateway(xml);
 }
 
-/**
- * Posts IN01 (CompanyIncorporation) XML to the Companies House gateway.
- */
 export async function submitCompanyIncorporationXml(
   xml: string,
 ): Promise<XmlGatewayResponse> {
@@ -140,7 +149,14 @@ async function postXmlToGateway(xml: string): Promise<XmlGatewayResponse> {
     return {
       ok: false,
       error:
-        "XML gateway not configured. Set COMPANIES_HOUSE_PRESENTER_ID and COMPANIES_HOUSE_PRESENTER_AUTH_CODE.",
+        "Companies House presenter credentials are not configured. Contact support.",
+    };
+  }
+  if (cfg.live && !cfg.creditAccountNumber) {
+    return {
+      ok: false,
+      error:
+        "Companies House credit account is required for fee-bearing filings (CS01). Contact support.",
     };
   }
 
@@ -157,7 +173,7 @@ async function postXmlToGateway(xml: string): Promise<XmlGatewayResponse> {
     if (!res.ok) {
       return {
         ok: false,
-        error: `Companies House gateway ${res.status}`,
+        error: "Companies House could not accept the filing. Contact support.",
         raw: raw.slice(0, 2000),
       };
     }
@@ -166,11 +182,10 @@ async function postXmlToGateway(xml: string): Promise<XmlGatewayResponse> {
     );
     const errorText = raw.match(/<Text>([^<]+)<\/Text>/i);
     if (fatal || /Authorisation Failure|fatal/i.test(raw)) {
+      const chMessage = errorText?.[1]?.trim();
       return {
         ok: false,
-        error:
-          errorText?.[1]?.trim() ||
-          `Companies House rejected the package${fatal ? ` (${fatal[1]})` : ""}`,
+        error: mapChError(chMessage),
         raw: raw.slice(0, 2000),
       };
     }
@@ -182,10 +197,20 @@ async function postXmlToGateway(xml: string): Promise<XmlGatewayResponse> {
       submissionNumber: submissionMatch?.[1],
       raw: raw.slice(0, 2000),
     };
-  } catch (err) {
+  } catch {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : "Gateway request failed",
+      error: "Could not reach Companies House. Try again or contact support.",
     };
   }
+}
+
+function mapChError(message?: string) {
+  if (!message) {
+    return "Companies House rejected the confirmation statement.";
+  }
+  if (/Authorisation Failure/i.test(message)) {
+    return "Companies House authorisation failed — check the company authentication code and that presenter credentials are active.";
+  }
+  return message;
 }

@@ -5,7 +5,7 @@ import { isPlatformAdmin } from "@/server/auth/admin";
 import { getHmrcEnvInfo } from "@/server/actions/hmrc-connect";
 import { getPracticeEntitlements } from "@/server/actions/account";
 import { getPracticeTrialStatus } from "@/server/billing/trial-status";
-import { DashboardClientList } from "@/components/dashboard-client-list";
+import { DashboardClientFilters } from "@/components/dashboard-client-filters";
 import { ClaimFreeTrialButton } from "@/components/claim-free-trial-button";
 import { moduleLabel, type ServiceModule } from "@/lib/entitlements";
 import { displayPracticeName } from "@/lib/practice-name";
@@ -74,23 +74,31 @@ export default async function DashboardPage() {
     : null;
 
   const stats = [
-    ["Clients", String(clients.length), "Across your practice"],
-    [
-      "VAT-ready",
-      String(clients.filter((c) => c.isVatRegistered).length),
-      "Registered VRNs",
-    ],
-    [
-      "Plan rails",
-      String(entitlements.modules.length),
-      entitlements.hasAnyPaid ? "Unlocked by payment" : "Choose a plan",
-    ],
-    [
-      "Ltd companies",
-      String(clients.filter((c) => c.type === "limited_company").length),
-      "CT600 eligible",
-    ],
-  ] as const;
+    {
+      id: "clients" as const,
+      label: "Clients",
+      value: String(clients.length),
+      hint: "Across your practice",
+    },
+    {
+      id: "vat" as const,
+      label: "VAT-ready",
+      value: String(clients.filter((c) => c.isVatRegistered).length),
+      hint: "Registered VRNs",
+    },
+    {
+      id: "rails" as const,
+      label: "Plan rails",
+      value: String(entitlements.modules.length),
+      hint: entitlements.hasAnyPaid ? "Unlocked by payment" : "Choose a plan",
+    },
+    {
+      id: "ltd" as const,
+      label: "Ltd companies",
+      value: String(clients.filter((c) => c.type === "limited_company").length),
+      hint: "CT600 eligible",
+    },
+  ];
 
   return (
     <div className="space-y-8">
@@ -215,59 +223,21 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
-        {stats.map(([label, value, hint]) => (
-          <div key={label} className="panel panel-interactive p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
-              {label}
-            </p>
-            <p className="display mt-2 text-3xl text-ink">{value}</p>
-            <p className="mt-1 text-xs text-ink-soft">{hint}</p>
-          </div>
-        ))}
-      </div>
-
-      <section className="panel overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
-          <div>
-            <h2 className="display text-2xl text-ink">Get started</h2>
-            <p className="text-sm text-ink-soft">
-              Add clients, upload documents, connect HMRC, then file
-            </p>
-          </div>
-        </div>
-        {clients.length === 0 ? (
-          <div className="px-5 py-10 text-center">
-            <p className="font-semibold text-ink">No clients yet</p>
-            <p className="mt-1 text-sm text-ink-soft">
-              {unlocked.has("clients")
-                ? "Add your first client to start books and filings."
-                : "Purchase a plan that includes clients, then add entities here."}
-            </p>
-            <Link
-              href={unlocked.has("clients") ? "/clients/new" : "/pricing"}
-              className="btn btn-primary mt-4 text-sm"
-            >
-              {unlocked.has("clients") ? "Add client" : "Choose a plan"}
-            </Link>
-          </div>
-        ) : (
-          <div className="p-5">
-            <DashboardClientList
-              clients={clients.map((c) => ({
-                id: c.id,
-                slug: clientSlugFor({ id: c.id, name: c.name }, peers),
-                name: c.name,
-                type: c.type,
-                isVatRegistered: c.isVatRegistered,
-                isEmployer: c.isEmployer,
-                vrn: c.vrn,
-                companyNumber: c.companyNumber,
-              }))}
-            />
-          </div>
-        )}
-      </section>
+      <DashboardClientFilters
+        clients={clients.map((c) => ({
+          id: c.id,
+          slug: clientSlugFor({ id: c.id, name: c.name }, peers),
+          name: c.name,
+          type: c.type,
+          isVatRegistered: c.isVatRegistered,
+          isEmployer: c.isEmployer,
+          vrn: c.vrn,
+          companyNumber: c.companyNumber,
+        }))}
+        unlockedModules={entitlements.modules}
+        stats={stats}
+        canAddClients={unlocked.has("clients")}
+      />
     </div>
   );
 }

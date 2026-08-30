@@ -75,7 +75,7 @@ function oauthCodeHandoff(request: NextRequest): NextResponse | null {
     pathname === "/create-account" ||
     pathname === "/quick-signup"
       ? "/dashboard"
-      : pathname;
+      : `${pathname}${request.nextUrl.search}`;
   url.searchParams.set("next", resume);
 
   return NextResponse.redirect(url);
@@ -90,6 +90,32 @@ export default async function proxy(request: NextRequest) {
   // OAuth code exchange runs in /auth/callback — avoid middleware cookie churn first.
   if (pathname === "/auth/callback") {
     return NextResponse.next();
+  }
+
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-pathname", pathname);
+
+  // Public pages: skip Supabase round-trip (saves 5–20s locally on every navigation).
+  if (isPublicPath(pathname)) {
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  // No auth cookies — redirect to sign-in without calling Supabase.
+  const hasAuthCookie = request.cookies
+    .getAll()
+    .some((c) => c.name.startsWith("sb-") && c.value.length > 10);
+  if (isSupabaseConfigured() && !hasAuthCookie && !pathname.startsWith("/api/")) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/sign-in";
+    url.search = "";
+    const cleanSearch = new URLSearchParams(request.nextUrl.search);
+    cleanSearch.delete("code");
+    cleanSearch.delete("error");
+    cleanSearch.delete("error_description");
+    const qs = cleanSearch.toString();
+    const returnTo = qs ? `${pathname}?${qs}` : pathname;
+    url.searchParams.set("next", returnTo);
+    return NextResponse.redirect(url);
   }
 
   // Refresh Supabase session cookies and validate JWT
@@ -119,7 +145,11 @@ export default async function proxy(request: NextRequest) {
 
   // Canonical client URLs: /clients/<uuid>/… → /clients/<name-slug>/…
   const clientMatch = pathname.match(/^\/clients\/([^/]+)(\/.*)?$/);
-  if (clientMatch && isClientUuid(clientMatch[1])) {
+  if (
+    clientMatch &&
+    isClientUuid(clientMatch[1]) &&
+    process.env.NODE_ENV === "production"
+  ) {
     try {
       const slugRes = await fetch(
         new URL(`/api/internal/client-slug/${clientMatch[1]}`, request.url),

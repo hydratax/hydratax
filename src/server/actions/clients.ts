@@ -19,6 +19,7 @@ const createClientSchema = z.object({
   utr: z.string().optional(),
   vrn: z.string().optional(),
   nino: z.string().optional(),
+  companyAuthCode: z.string().optional(),
   payeRef: z.string().optional(),
   accountsOfficeRef: z.string().optional(),
   contactEmail: z.string().email().optional().or(z.literal("")),
@@ -44,6 +45,7 @@ export type BulkImportRowResult = {
   name: string;
   ok: boolean;
   skipped?: boolean;
+  updated?: boolean;
   error?: string;
   clientId?: string;
   companiesHouse?: boolean;
@@ -58,6 +60,7 @@ export type ClientRecord = {
   utr: string | null;
   vrn: string | null;
   nino: string | null;
+  companyAuthCode: string | null;
   payeRef: string | null;
   accountsOfficeRef: string | null;
   contactEmail: string | null;
@@ -80,6 +83,7 @@ function mapSupabaseClient(row: Record<string, unknown>): ClientRecord {
     utr: (row.utr as string | null) ?? null,
     vrn: (row.vrn as string | null) ?? null,
     nino: (row.nino as string | null) ?? null,
+    companyAuthCode: (row.company_auth_code as string | null) ?? null,
     payeRef: (row.paye_ref as string | null) ?? null,
     accountsOfficeRef: (row.accounts_office_ref as string | null) ?? null,
     contactEmail: (row.contact_email as string | null) ?? null,
@@ -328,6 +332,7 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
       utr: data.utr ?? null,
       vrn: data.vrn ?? null,
       nino: data.nino ?? null,
+      companyAuthCode: normalizeCompanyAuthCode(data.companyAuthCode),
       payeRef: data.payeRef ?? null,
       accountsOfficeRef: data.accountsOfficeRef ?? null,
       contactEmail: data.contactEmail || null,
@@ -379,6 +384,7 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
         utr: data.utr ?? null,
         vrn: data.vrn ?? null,
         nino: data.nino ?? null,
+        company_auth_code: normalizeCompanyAuthCode(data.companyAuthCode),
         paye_ref: data.payeRef ?? null,
         accounts_office_ref: data.accountsOfficeRef ?? null,
         contact_email: data.contactEmail || null,
@@ -425,6 +431,7 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
       utr: data.utr ?? null,
       vrn: data.vrn ?? null,
       nino: data.nino ?? null,
+      companyAuthCode: normalizeCompanyAuthCode(data.companyAuthCode),
       payeRef: data.payeRef ?? null,
       accountsOfficeRef: data.accountsOfficeRef ?? null,
       contactEmail: data.contactEmail || null,
@@ -474,6 +481,10 @@ export async function updateClient(input: z.infer<typeof updateClientSchema>) {
     utr: data.utr !== undefined ? data.utr.trim() || null : existing.utr,
     vrn: data.vrn !== undefined ? data.vrn.trim() || null : existing.vrn,
     nino: data.nino !== undefined ? data.nino.trim() || null : existing.nino,
+    companyAuthCode:
+      data.companyAuthCode !== undefined
+        ? normalizeCompanyAuthCode(data.companyAuthCode)
+        : existing.companyAuthCode,
     payeRef:
       data.payeRef !== undefined
         ? data.payeRef.trim() || null
@@ -530,6 +541,7 @@ export async function updateClient(input: z.infer<typeof updateClientSchema>) {
         utr: patch.utr,
         vrn: patch.vrn,
         nino: patch.nino,
+        company_auth_code: patch.companyAuthCode,
         paye_ref: patch.payeRef,
         accounts_office_ref: patch.accountsOfficeRef,
         contact_email: patch.contactEmail,
@@ -568,6 +580,7 @@ export async function updateClient(input: z.infer<typeof updateClientSchema>) {
       utr: patch.utr,
       vrn: patch.vrn,
       nino: patch.nino,
+      companyAuthCode: patch.companyAuthCode,
       payeRef: patch.payeRef,
       accountsOfficeRef: patch.accountsOfficeRef,
       contactEmail: patch.contactEmail,
@@ -882,6 +895,123 @@ function normalizeClientName(name: string): string {
   return name.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function normalizeCompanyAuthCode(raw?: string): string | null {
+  const v = raw?.trim().toUpperCase();
+  return v || null;
+}
+
+function importIdentifierPatch(raw: Record<string, unknown>) {
+  const authCode = normalizeCompanyAuthCode(
+    cell(
+      raw,
+      "company_auth_code",
+      "authentication_code",
+      "auth_code",
+      "company authentication code",
+      "company auth code",
+      "authentication code",
+    ),
+  );
+  const utr = cell(raw, "utr");
+  const vrn = cell(raw, "vrn", "vat", "vat_number");
+  const payeRef = cell(raw, "paye_ref", "paye", "paye ref");
+  const accountsOfficeRef = cell(
+    raw,
+    "accounts_office_ref",
+    "accounts_office",
+    "ao_ref",
+  );
+  const contactEmail = cell(raw, "contact_email", "email", "client_email");
+
+  const patch: Record<string, string | null> = {};
+  if (authCode) patch.companyAuthCode = authCode;
+  if (utr) patch.utr = utr;
+  if (vrn) patch.vrn = vrn;
+  if (payeRef) patch.payeRef = payeRef;
+  if (accountsOfficeRef) patch.accountsOfficeRef = accountsOfficeRef;
+  if (contactEmail) patch.contactEmail = contactEmail;
+  return patch;
+}
+
+async function applyClientImportPatch(
+  clientId: string,
+  practiceId: string,
+  patch: Record<string, string | null>,
+) {
+  const updatedAt = new Date().toISOString();
+  if (isDemoMode()) {
+    const row = demoStore.clients.find((c) => c.id === clientId);
+    if (!row) throw new Error("Client not found");
+    if (patch.companyAuthCode !== undefined) {
+      row.companyAuthCode = patch.companyAuthCode;
+    }
+    if (patch.utr !== undefined) row.utr = patch.utr;
+    if (patch.vrn !== undefined) row.vrn = patch.vrn;
+    if (patch.payeRef !== undefined) row.payeRef = patch.payeRef;
+    if (patch.accountsOfficeRef !== undefined) {
+      row.accountsOfficeRef = patch.accountsOfficeRef;
+    }
+    if (patch.contactEmail !== undefined) row.contactEmail = patch.contactEmail;
+    row.updatedAt = updatedAt;
+    return row as ClientRecord;
+  }
+
+  if (isSupabaseConfigured()) {
+    const { createClient: createSupabase } = await import(
+      "@/lib/supabase/server"
+    );
+    const supabase = await createSupabase();
+    const { data: row, error } = await supabase
+      .from("clients")
+      .update({
+        ...(patch.companyAuthCode !== undefined
+          ? { company_auth_code: patch.companyAuthCode }
+          : {}),
+        ...(patch.utr !== undefined ? { utr: patch.utr } : {}),
+        ...(patch.vrn !== undefined ? { vrn: patch.vrn } : {}),
+        ...(patch.payeRef !== undefined ? { paye_ref: patch.payeRef } : {}),
+        ...(patch.accountsOfficeRef !== undefined
+          ? { accounts_office_ref: patch.accountsOfficeRef }
+          : {}),
+        ...(patch.contactEmail !== undefined
+          ? { contact_email: patch.contactEmail }
+          : {}),
+        updated_at: updatedAt,
+      })
+      .eq("id", clientId)
+      .eq("practice_id", practiceId)
+      .select("*")
+      .single();
+    if (error) throw new Error(error.message);
+    return mapSupabaseClient(row);
+  }
+
+  const { getDb } = await import("@/server/db");
+  const { clients } = await import("@/server/db/schema");
+  const { eq, and } = await import("drizzle-orm");
+  const [row] = await getDb()
+    .update(clients)
+    .set({
+      ...(patch.companyAuthCode !== undefined
+        ? { companyAuthCode: patch.companyAuthCode }
+        : {}),
+      ...(patch.utr !== undefined ? { utr: patch.utr } : {}),
+      ...(patch.vrn !== undefined ? { vrn: patch.vrn } : {}),
+      ...(patch.payeRef !== undefined ? { payeRef: patch.payeRef } : {}),
+      ...(patch.accountsOfficeRef !== undefined
+        ? { accountsOfficeRef: patch.accountsOfficeRef }
+        : {}),
+      ...(patch.contactEmail !== undefined
+        ? { contactEmail: patch.contactEmail }
+        : {}),
+      updatedAt: new Date(updatedAt),
+    })
+    .where(and(eq(clients.id, clientId), eq(clients.practiceId, practiceId)))
+    .returning();
+  if (!row) throw new Error("Client not found");
+  return row as ClientRecord;
+}
+
 function normalizeCompanyNumber(raw: string): string {
   const compact = raw.replace(/\s/g, "").toUpperCase();
   if (/^\d+$/.test(compact)) return compact.padStart(8, "0");
@@ -932,6 +1062,7 @@ export async function bulkImportClients(
 ): Promise<{
   created: number;
   skipped: number;
+  updated: number;
   failed: number;
   results: BulkImportRowResult[];
 }> {
@@ -1013,6 +1144,23 @@ export async function bulkImportClients(
             companyNumber,
           );
           if (existingClient) {
+            const idPatch = importIdentifierPatch(raw);
+            if (Object.keys(idPatch).length > 0) {
+              await applyClientImportPatch(
+                existingClient.id,
+                session.practiceId,
+                idPatch,
+              );
+              return {
+                row: rowNum,
+                name: displayName,
+                ok: true,
+                skipped: true,
+                updated: true,
+                clientId: existingClient.id,
+                error: "Updated identifiers on existing client",
+              };
+            }
             return {
               row: rowNum,
               name: displayName,
@@ -1030,6 +1178,15 @@ export async function bulkImportClients(
             utr: cell(raw, "utr"),
             vrn: cell(raw, "vrn", "vat", "vat_number"),
             nino: cell(raw, "nino", "ni"),
+            companyAuthCode: cell(
+              raw,
+              "company_auth_code",
+              "authentication_code",
+              "auth_code",
+              "company authentication code",
+              "company auth code",
+              "authentication code",
+            ),
             payeRef: cell(raw, "paye_ref", "paye", "paye ref"),
             accountsOfficeRef: cell(
               raw,
@@ -1088,7 +1245,8 @@ export async function bulkImportClients(
   revalidatePath("/dashboard");
   return {
     created: results.filter((r) => r.ok && !r.skipped).length,
-    skipped: results.filter((r) => r.ok && r.skipped).length,
+    skipped: results.filter((r) => r.ok && r.skipped && !r.updated).length,
+    updated: results.filter((r) => r.ok && r.updated).length,
     failed: results.filter((r) => !r.ok).length,
     results,
   };

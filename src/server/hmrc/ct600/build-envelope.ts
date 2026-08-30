@@ -4,6 +4,7 @@ import { buildCt600BodyInner } from "@/server/hmrc/ct600/build-body";
 import { computeIrmark, injectIrmark } from "@/server/hmrc/ct600/irmark";
 import type { Ct600BuiltPackage, Ct600PackageInput } from "@/server/hmrc/ct600/types";
 import { validateCt600Package } from "@/server/hmrc/ct600/validate-package";
+import { CT_NS } from "@/server/hmrc/ct600/ct-xml";
 import { escapeXml } from "@/server/hmrc/ct600/xml-utils";
 
 export function buildCt600Package(
@@ -26,29 +27,41 @@ export function buildCt600Package(
       figures: input.figures,
       accountsDraft: input.accountsDraft,
       includeAttachments: validation.ok || opts?.strict === false,
+      declarantName: input.declarantName,
+      declarantStatus: input.declarantStatus,
+      contact: input.contact,
+      sender: input.sender,
     });
 
   const irmark = computeIrmark(bodyInner);
   const bodyWithMark = injectIrmark(bodyInner, irmark);
 
   const vendorId = cfg.ctVendorId;
+  const timestamp = new Date().toISOString().slice(0, 19);
   const channel = vendorId
     ? `<GovTalkDetails>
     <Keys>
       <Key Type="UTR">${escapeXml(utr)}</Key>
     </Keys>
+    <TargetDetails>
+      <Organisation>HMRC</Organisation>
+    </TargetDetails>
     <ChannelRouting>
       <Channel>
         <URI>${escapeXml(vendorId)}</URI>
         <Product>${escapeXml(cfg.ctProductName)}</Product>
         <Version>${escapeXml(cfg.vendorVersion)}</Version>
       </Channel>
+      <Timestamp>${timestamp}</Timestamp>
     </ChannelRouting>
   </GovTalkDetails>`
     : `<GovTalkDetails>
     <Keys>
       <Key Type="UTR">${escapeXml(utr)}</Key>
     </Keys>
+    <TargetDetails>
+      <Organisation>HMRC</Organisation>
+    </TargetDetails>
   </GovTalkDetails>`;
 
   const authValue = senderPassword
@@ -60,7 +73,7 @@ export function buildCt600Package(
     : "";
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope">
+<GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope" xmlns:ct="${CT_NS}">
   <EnvelopeVersion>2.0</EnvelopeVersion>
   <Header>
     <MessageDetails>
