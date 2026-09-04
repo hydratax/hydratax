@@ -1,9 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useState, useTransition } from "react";
 import type { ChServiceDetail } from "@/lib/ch-services";
-import { formatChFeeBreakdown } from "@/lib/ch-services";
+import { formatChServicePrice } from "@/lib/ch-services";
+import { safeChFieldDefault } from "@/lib/ch-public-form-defaults";
+import { authEntryHref } from "@/lib/auth-return";
 import { submitCompaniesHouseRequest } from "@/server/actions/ch-requests";
+import { hasSignedInSession } from "@/server/actions/session-check";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 export function ChRequestForm({
@@ -13,14 +18,70 @@ export function ChRequestForm({
   service: ChServiceDetail;
   defaults?: Record<string, string>;
 }) {
-  const fees = formatChFeeBreakdown(service);
+  const price = formatChServicePrice(service);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const returnPath = searchParams.toString()
+    ? `${pathname}?${searchParams.toString()}`
+    : pathname;
+
+  useEffect(() => {
+    let cancelled = false;
+    void hasSignedInSession().then((ok) => {
+      if (!cancelled) setSignedIn(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (signedIn === null) {
+    return (
+      <div className="panel gloss-card p-5">
+        <p className="text-sm text-ink-soft">Loading…</p>
+      </div>
+    );
+  }
+
+  if (!signedIn) {
+    return (
+      <div className="panel gloss-card space-y-4 p-5">
+        <div>
+          <h2 className="display text-2xl text-ink">Sign in required</h2>
+          <p className="mt-2 text-sm text-ink-soft">
+            Company authentication codes and filing credentials are only
+            collected after you sign in. Hydra never shows HMRC Government
+            Gateway IDs or saved passwords on public pages.
+          </p>
+        </div>
+        <Link
+          href={authEntryHref("sign-in", returnPath)}
+          className="btn btn-primary inline-flex w-full justify-center"
+        >
+          Sign in to continue
+        </Link>
+        <p className="text-xs text-ink-soft">
+          No account?{" "}
+          <Link
+            href={authEntryHref("create-account", returnPath)}
+            className="text-sea"
+          >
+            Create one
+          </Link>
+        </p>
+      </div>
+    );
+  }
 
   return (
     <form
       className="panel gloss-card space-y-4 p-5"
+      autoComplete="off"
       onSubmit={(e) => {
         e.preventDefault();
         setError(null);
@@ -48,7 +109,6 @@ export function ChRequestForm({
               return;
             }
             setOk(`Request ${res.requestId.slice(0, 8)}… saved.`);
-            // Start Stripe checkout for this CH plan
             const checkout = await fetch("/api/checkout", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -76,8 +136,8 @@ export function ChRequestForm({
       <div>
         <h2 className="display text-2xl text-ink">Request this filing</h2>
         <p className="mt-1 text-sm text-ink-soft">
-          You pay {fees.total} ({fees.statutory} Companies House + {fees.hydra}{" "}
-          Hydra). Company authentication code is required before checkout opens.
+          You pay {price}. Company authentication code is required before checkout
+          opens.
         </p>
       </div>
 
@@ -117,6 +177,8 @@ export function ChRequestForm({
                 required={field.required}
                 placeholder={field.placeholder}
                 rows={3}
+                autoComplete="off"
+                defaultValue={safeChFieldDefault(field.name, defaults)}
                 className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 font-normal"
               />
               {field.help && (
@@ -156,6 +218,7 @@ export function ChRequestForm({
         }
 
         const isAuth = field.name === "companyAuthCode";
+        const isCompanyNumber = field.name === "companyNumber";
         return (
           <label
             key={field.name}
@@ -178,8 +241,29 @@ export function ChRequestForm({
               name={field.name}
               required={field.required}
               placeholder={field.placeholder}
-              defaultValue={defaults?.[field.name] ?? ""}
-              autoComplete={field.sensitive ? "off" : undefined}
+              defaultValue={safeChFieldDefault(field.name, defaults)}
+              autoComplete={
+                isAuth
+                  ? "one-time-code"
+                  : isCompanyNumber
+                    ? "off"
+                    : field.sensitive
+                      ? "off"
+                      : undefined
+              }
+              inputMode={isCompanyNumber ? "text" : undefined}
+              pattern={
+                isCompanyNumber
+                  ? "([A-Za-z]{2})?[0-9]{6,8}"
+                  : undefined
+              }
+              title={
+                isCompanyNumber
+                  ? "Enter a valid UK company number (6–8 digits, or 2 letters + 6 digits)"
+                  : undefined
+              }
+              data-1p-ignore={field.sensitive || isAuth ? "true" : undefined}
+              data-lpignore={field.sensitive || isAuth ? "true" : undefined}
               className={`mt-1.5 w-full rounded-lg border border-line px-3 py-2 font-normal ${
                 isAuth ? "mono" : ""
               }`}
@@ -197,7 +281,7 @@ export function ChRequestForm({
       {ok && <p className="text-sm text-ok">{ok}</p>}
 
       <button type="submit" disabled={pending} className="btn btn-primary w-full">
-        {pending ? "Saving & opening checkout…" : `Pay ${fees.total} & submit`}
+        {pending ? "Saving & opening checkout…" : `Pay ${price} & submit`}
       </button>
     </form>
   );

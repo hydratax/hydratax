@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
-  formatChFeeBreakdown,
+  formatChServicePrice,
   type ChServiceDetail,
 } from "@/lib/ch-services";
 import { formatDueLabel, filingUrgency } from "@/lib/ch-deadlines";
 import { submitCompaniesHouseRequest } from "@/server/actions/ch-requests";
+import { hasSignedInSession } from "@/server/actions/session-check";
 import {
   YearEndFilingForm,
   type YearEndFilingMode,
@@ -120,11 +121,14 @@ export function AnnualAccountsWizard({
   service: ChServiceDetail;
   defaults?: Record<string, string>;
 }) {
-  const fees = formatChFeeBreakdown(service);
-  const presetCompany =
+  const price = formatChServicePrice(service);
+  const presetCompanyRaw =
     defaults?.companyNumber?.trim().toUpperCase() ||
     defaults?.company_number?.trim().toUpperCase() ||
     "";
+  const presetCompany = looksLikeCompanyNumber(presetCompanyRaw)
+    ? presetCompanyRaw
+    : "";
   const startAtPay = defaults?.pay === "1";
 
   const [phase, setPhase] = useState<AccountsWizardPhase>(() =>
@@ -150,18 +154,36 @@ export function AnnualAccountsWizard({
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [hydrated, setHydrated] = useState(false);
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [formPhase, setFormPhase] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+    void hasSignedInSession().then((ok) => {
+      if (!cancelled) setSignedIn(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!company?.companyNumber) return;
-    try {
-      const saved = sessionStorage.getItem(
-        `hydratax_ch_auth_${company.companyNumber}`,
-      );
-      if (saved && !companyAuthCode) setCompanyAuthCode(saved);
-    } catch {
-      /* ignore */
-    }
+    let cancelled = false;
+    void hasSignedInSession().then((signedIn) => {
+      if (cancelled || !signedIn) return;
+      try {
+        const saved = sessionStorage.getItem(
+          `hydratax_ch_auth_${company.companyNumber}`,
+        );
+        if (saved) setCompanyAuthCode(saved);
+      } catch {
+        /* ignore */
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [company?.companyNumber]);
 
@@ -394,6 +416,10 @@ export function AnnualAccountsWizard({
     setError(null);
     if (!company.periodStart || !company.periodEnd) {
       setError("Enter the accounting period start and end dates.");
+      return;
+    }
+    if (!signedIn) {
+      window.location.assign(signInHref);
       return;
     }
     if (!companyAuthCode.trim()) {
@@ -789,38 +815,46 @@ export function AnnualAccountsWizard({
 
             <div className="rounded-xl border border-line bg-sand/40 px-4 py-3 text-sm">
               <div className="flex justify-between">
-                <span className="text-ink-soft">Companies House (statutory)</span>
-                <span className="font-semibold">{fees.statutory}</span>
-              </div>
-              <div className="mt-1 flex justify-between">
-                <span className="text-ink-soft">Hydra service</span>
-                <span className="font-semibold">{fees.hydra}</span>
-              </div>
-              <div className="mt-2 flex justify-between border-t border-line pt-2">
                 <span className="font-semibold text-ink">You pay</span>
-                <span className="price-amount text-2xl">{fees.total}</span>
+                <span className="price-amount text-2xl">{price}</span>
               </div>
             </div>
 
-            <div className="rounded-xl border border-sea/30 bg-sea/5 p-4">
-              <label className="label">
-                Company authentication code
-                <span className="font-normal text-danger"> *</span>
-                <input
-                  className={`input mt-1.5 mono ${
-                    !companyAuthCode.trim() ? "border-sea/40" : ""
-                  }`}
-                  value={companyAuthCode}
-                  onChange={(e) => setCompanyAuthCode(e.target.value)}
-                  placeholder="Authentication code"
-                  autoComplete="off"
-                  required
-                />
-              </label>
-              <p className="mt-2 text-xs text-ink-soft">
-                Required before payment — from Companies House online filing.
-              </p>
-            </div>
+            {signedIn === false ? (
+              <div className="rounded-xl border border-sea/30 bg-sea/5 p-4 space-y-3">
+                <p className="text-sm text-ink-soft">
+                  Sign in to enter the company authentication code and pay.
+                </p>
+                <Link
+                  href={signInHref}
+                  className="btn btn-primary inline-flex w-full justify-center"
+                >
+                  Sign in to continue
+                </Link>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-sea/30 bg-sea/5 p-4">
+                <label className="label">
+                  Company authentication code
+                  <span className="font-normal text-danger"> *</span>
+                  <input
+                    className={`input mt-1.5 mono ${
+                      !companyAuthCode.trim() ? "border-sea/40" : ""
+                    }`}
+                    value={companyAuthCode}
+                    onChange={(e) => setCompanyAuthCode(e.target.value)}
+                    placeholder="Authentication code"
+                    autoComplete="one-time-code"
+                    data-1p-ignore="true"
+                    data-lpignore="true"
+                    required
+                  />
+                </label>
+                <p className="mt-2 text-xs text-ink-soft">
+                  Required before payment — from Companies House online filing.
+                </p>
+              </div>
+            )}
 
             <label className="label">
               Accounts type
@@ -870,7 +904,7 @@ export function AnnualAccountsWizard({
                 ? "Starting checkout…"
                 : !companyAuthCode.trim()
                   ? "Enter authentication code to pay"
-                  : `Pay ${fees.total} & submit`}
+                  : `Pay ${price} & submit`}
             </button>
           </div>
         )}

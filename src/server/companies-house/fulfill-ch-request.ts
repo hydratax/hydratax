@@ -2,10 +2,7 @@ import { isMemoryStore, isSupabaseConfigured } from "@/lib/env";
 import { publicCheckoutError } from "@/lib/user-facing-errors";
 import { getChService } from "@/lib/ch-services";
 import { memoryStore, type MemoryChRequest } from "@/server/demo/store";
-import {
-  createCsFilingDraft,
-  submitCsFiling,
-} from "@/server/companies-house/filing/confirmation-statement";
+import { submitChFilingFromRequest } from "@/server/companies-house/filing/submit-ch-filing";
 import { sendTransactionalEmail } from "@/server/email/transactional";
 import { appendAuditEvent } from "@/server/audit/log";
 
@@ -163,135 +160,19 @@ async function persistRequestPatch(
   }
 }
 
-function parseDirectors(payload: Record<string, unknown>) {
-  const raw = payload.directorsJson;
-  if (typeof raw !== "string" || !raw.trim()) return [];
-  try {
-    const parsed = JSON.parse(raw) as Array<{
-      fullName?: string;
-      dateOfBirth?: string;
-      personalCode?: string;
-    }>;
-    return parsed
-      .filter((d) => d.fullName && d.dateOfBirth && d.personalCode)
-      .map((d) => ({
-        fullName: String(d.fullName).trim(),
-        dateOfBirth: String(d.dateOfBirth).trim(),
-        personalCode: String(d.personalCode).trim().toUpperCase(),
-      }));
-  } catch {
-    return [];
-  }
+function serviceTitle(serviceId: string) {
+  return getChService(serviceId)?.title ?? "Companies House filing";
 }
 
-async function resolveCompanyAuthCode(
-  payload: Record<string, unknown>,
-): Promise<string> {
-  const clientId =
-    typeof payload.clientId === "string" ? payload.clientId.trim() : "";
-
-  if (clientId) {
-    try {
-      const { getClient } = await import("@/server/actions/clients");
-      const client = await getClient(clientId);
-      const fromClient = client.companyAuthCode?.trim().toUpperCase() ?? "";
-      if (fromClient) return fromClient;
-    } catch {
-      // fall through to payload
-    }
-  }
-
-  const fromPayload =
-    typeof payload.companyAuthCode === "string"
-      ? payload.companyAuthCode.trim().toUpperCase()
-      : "";
-  return fromPayload;
-}
-
-async function submitConfirmationStatementFromPayload(
-  record: LoadedRequest,
-  customerEmail?: string | null,
-) {
-  const payload = record.payload ?? {};
-  const directors = parseDirectors(payload);
-  if (directors.length === 0) {
-    return { ok: false as const, error: "Director personal codes missing from request." };
-  }
-
-  const companyAuthCode = await resolveCompanyAuthCode(payload);
-  if (!companyAuthCode) {
-    return {
-      ok: false as const,
-      error:
-        "Company authentication code missing — add it on the client record or at checkout.",
-    };
-  }
-
-  const draft = await createCsFilingDraft({
-    companyNumber: String(payload.companyNumber ?? record.companyNumber ?? ""),
-    companyName: String(payload.companyName ?? ""),
-    confirmationDate: String(payload.confirmationDate ?? ""),
-    companyAuthCode,
-    registeredEmail:
-      (typeof payload.registeredEmail === "string" && payload.registeredEmail) ||
-      customerEmail ||
-      "",
-    lawfulPurposeConfirmed: true,
-    directors,
-    clientId:
-      typeof payload.clientId === "string" ? payload.clientId : "",
-    practiceId: record.practiceId,
-  });
-
-  if (!draft.ok) {
-    return {
-      ok: false as const,
-      error: draft.error ?? "Could not prepare confirmation statement filing.",
-    };
-  }
-  if (!draft.filingId) {
-    return {
-      ok: false as const,
-      error: "Could not prepare confirmation statement filing.",
-    };
-  }
-
-  const filingId = draft.filingId;
-  const filed = await submitCsFiling(filingId);
-  if (!filed.ok) {
-    return {
-      ok: false as const,
-      error: filed.error ?? "Companies House rejected the confirmation statement.",
-      filingId,
-    };
-  }
-
-  if (filed.mode !== "xml_gateway" || filed.status !== "submitted") {
-    return {
-      ok: false as const,
-      error:
-        filed.mode === "dry_run"
-          ? "Companies House presenter credentials are not configured on this environment — live submit is disabled."
-          : (filed.message ?? "Confirmation statement was not submitted to Companies House."),
-      filingId,
-    };
-  }
-
-  return {
-    ok: true as const,
-    filingId,
-    submissionNumber: filed.submissionNumber ?? null,
-  };
-}
-
-function cs01ConfirmationEmail(opts: {
+function filingConfirmationEmail(opts: {
+  serviceTitle: string;
   companyName: string;
   companyNumber: string;
   submissionNumber?: string | null;
   appUrl: string;
 }) {
-  const subject = `Confirmation statement submitted — ${opts.companyName}`;
-  const text = `Your confirmation statement for ${opts.companyName} (${opts.companyNumber}) has been submitted to Companies House.
+  const subject = `${opts.serviceTitle} submitted — ${opts.companyName}`;
+  const text = `Your ${opts.serviceTitle.toLowerCase()} for ${opts.companyName} (${opts.companyNumber}) has been submitted to Companies House.
 
 Please allow a few minutes for Companies House to update the public register. You can check status at:
 https://find-and-update.company-information.service.gov.uk/company/${opts.companyNumber}
@@ -305,8 +186,8 @@ ${opts.appUrl}`;
   const html = `<!DOCTYPE html>
 <html><body style="font-family:Georgia,serif;color:#0a0a0a;line-height:1.5;max-width:560px;margin:0 auto;padding:24px;">
   <p style="font-size:13px;letter-spacing:0.12em;text-transform:uppercase;color:#0f766e;font-weight:700;">HydraTax</p>
-  <h1 style="font-size:26px;margin:8px 0 16px;">Confirmation statement submitted</h1>
-  <p>Your confirmation statement for <strong>${opts.companyName}</strong> (<strong>${opts.companyNumber}</strong>) has been sent to Companies House.</p>
+  <h1 style="font-size:26px;margin:8px 0 16px;">${opts.serviceTitle} submitted</h1>
+  <p>Your filing for <strong>${opts.companyName}</strong> (<strong>${opts.companyNumber}</strong>) has been sent to Companies House.</p>
   <p>Please allow a few minutes for the register to update. You can check at the <a href="https://find-and-update.company-information.service.gov.uk/company/${opts.companyNumber}">Companies House record</a>.</p>
   ${opts.submissionNumber ? `<p style="font-size:14px;color:#3a4248;">Reference: <strong>${opts.submissionNumber}</strong></p>` : ""}
   <p style="font-size:14px;color:#3a4248;">If you paid by card, Stripe will email a separate payment receipt.</p>
@@ -315,13 +196,14 @@ ${opts.appUrl}`;
   return { subject, text, html };
 }
 
-function cs01PaymentReceivedEmail(opts: {
+function filingPaymentReceivedEmail(opts: {
+  serviceTitle: string;
   companyName: string;
   companyNumber: string;
   appUrl: string;
 }) {
-  const subject = `Payment received — confirmation statement for ${opts.companyName}`;
-  const text = `We received your payment for the confirmation statement filing for ${opts.companyName} (${opts.companyNumber}).
+  const subject = `Payment received — ${opts.serviceTitle} for ${opts.companyName}`;
+  const text = `We received your payment for ${opts.serviceTitle.toLowerCase()} for ${opts.companyName} (${opts.companyNumber}).
 
 We are submitting this to Companies House now. You will receive another email from HydraTax once Companies House accepts the filing.
 
@@ -334,7 +216,7 @@ ${opts.appUrl}`;
 <html><body style="font-family:Georgia,serif;color:#0a0a0a;line-height:1.5;max-width:560px;margin:0 auto;padding:24px;">
   <p style="font-size:13px;letter-spacing:0.12em;text-transform:uppercase;color:#0f766e;font-weight:700;">HydraTax</p>
   <h1 style="font-size:26px;margin:8px 0 16px;">Payment received</h1>
-  <p>We received your payment for the confirmation statement for <strong>${opts.companyName}</strong> (<strong>${opts.companyNumber}</strong>).</p>
+  <p>We received your payment for <strong>${opts.serviceTitle}</strong> for <strong>${opts.companyName}</strong> (<strong>${opts.companyNumber}</strong>).</p>
   <p>We are submitting this to Companies House now. You will receive another email once the filing is accepted.</p>
   <p style="font-size:14px;color:#3a4248;">If you paid by card, Stripe will email a separate payment receipt.</p>
 </body></html>`;
@@ -343,7 +225,7 @@ ${opts.appUrl}`;
 }
 
 /**
- * Mark a Companies House checkout request paid and, for CS01, submit to Companies House.
+ * Mark a Companies House checkout request paid and submit to Companies House.
  * Idempotent — safe to call from Stripe webhook and /checkout/success.
  */
 export async function fulfillPaidChRequest(opts: {
@@ -368,9 +250,14 @@ export async function fulfillPaidChRequest(opts: {
 
   const payload = record.payload ?? {};
   const companyName =
-    typeof payload.companyName === "string" ? payload.companyName : null;
+    typeof payload.companyName === "string"
+      ? payload.companyName
+      : typeof payload.proposedName === "string"
+        ? payload.proposedName
+        : null;
 
-  if (record.paymentStatus === "paid" &&
+  if (
+    record.paymentStatus === "paid" &&
     (record.status === "submitted" || record.status === "completed")
   ) {
     const fulfillment = payload._fulfillment as
@@ -395,49 +282,43 @@ export async function fulfillPaidChRequest(opts: {
     status: record.status === "received" ? "in_progress" : record.status,
   });
 
+  const result = await submitChFilingFromRequest(record, customerEmail);
+
   let submitted = false;
   let submissionNumber: string | null | undefined;
   let fulfillError: string | undefined;
   let filingId: string | undefined;
 
-  if (record.serviceId === "confirmation-statement") {
-    const result = await submitConfirmationStatementFromPayload(
-      record,
-      customerEmail,
-    );
-    if (result.ok) {
-      submitted = true;
-      submissionNumber = result.submissionNumber;
-      filingId = result.filingId;
-      await persistRequestPatch(requestId, {
-        status: "submitted",
-        payload: {
-          ...payload,
-          _fulfillment: {
-            filingId: result.filingId,
-            submissionNumber: result.submissionNumber,
-            stripeSessionId,
-            fulfilledAt: new Date().toISOString(),
-          },
+  if (result.ok) {
+    submitted = true;
+    submissionNumber = result.submissionNumber;
+    filingId = result.filingId;
+    await persistRequestPatch(requestId, {
+      status: "submitted",
+      payload: {
+        ...payload,
+        _fulfillment: {
+          filingId: result.filingId,
+          submissionNumber: result.submissionNumber,
+          stripeSessionId,
+          fulfilledAt: new Date().toISOString(),
         },
-      });
-    } else {
-      fulfillError = result.error;
-      await persistRequestPatch(requestId, {
-        status: "in_progress",
-        payload: {
-          ...payload,
-          _fulfillment: {
-            error: result.error,
-            filingId: "filingId" in result ? result.filingId : undefined,
-            stripeSessionId,
-            fulfilledAt: new Date().toISOString(),
-          },
-        },
-      });
-    }
+      },
+    });
   } else {
-    await persistRequestPatch(requestId, { status: "in_progress" });
+    fulfillError = result.error;
+    await persistRequestPatch(requestId, {
+      status: "in_progress",
+      payload: {
+        ...payload,
+        _fulfillment: {
+          error: result.error,
+          filingId: result.filingId,
+          stripeSessionId,
+          fulfilledAt: new Date().toISOString(),
+        },
+      },
+    });
   }
 
   let emailDelivery: ChFulfillmentResult["emailDelivery"] = "skipped";
@@ -446,24 +327,26 @@ export async function fulfillPaidChRequest(opts: {
     (typeof payload.registeredEmail === "string"
       ? payload.registeredEmail.trim()
       : "");
-  if (
-    record.serviceId === "confirmation-statement" &&
-    email &&
-    record.companyNumber
-  ) {
+  const companyNumber = record.companyNumber;
+  const title = serviceTitle(record.serviceId);
+
+  if (email && companyNumber) {
     const appUrl = (
       process.env.NEXT_PUBLIC_APP_URL ?? "https://hydratax.uk"
     ).replace(/\/$/, "");
+    const displayName = companyName ?? companyNumber;
     const content = submitted
-      ? cs01ConfirmationEmail({
-          companyName: companyName ?? record.companyNumber,
-          companyNumber: record.companyNumber,
+      ? filingConfirmationEmail({
+          serviceTitle: title,
+          companyName: displayName,
+          companyNumber,
           submissionNumber,
           appUrl,
         })
-      : cs01PaymentReceivedEmail({
-          companyName: companyName ?? record.companyNumber,
-          companyNumber: record.companyNumber,
+      : filingPaymentReceivedEmail({
+          serviceTitle: title,
+          companyName: displayName,
+          companyNumber,
           appUrl,
         });
     try {
@@ -500,7 +383,7 @@ export async function fulfillPaidChRequest(opts: {
   }
 
   return {
-    ok: submitted || record.serviceId !== "confirmation-statement",
+    ok: submitted,
     requestId,
     serviceId: record.serviceId,
     companyNumber: record.companyNumber,

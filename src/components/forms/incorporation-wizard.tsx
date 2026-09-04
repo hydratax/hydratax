@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import type { ChServiceDetail } from "@/lib/ch-services";
-import { formatChFeeBreakdown } from "@/lib/ch-services";
+import { formatChServicePrice } from "@/lib/ch-services";
 import { searchSicCodes, type SicCode } from "@/lib/sic-codes";
 import { submitCompaniesHouseRequest } from "@/server/actions/ch-requests";
 import {
@@ -173,7 +173,7 @@ export function IncorporationWizard({
     notes: string[];
   };
 }) {
-  const fees = formatChFeeBreakdown(service);
+  const price = formatChServicePrice(service);
   const [step, setStep] = useState(0);
   const [proposedName, setProposedName] = useState("");
   const [nameStatus, setNameStatus] = useState<
@@ -552,20 +552,7 @@ export function IncorporationWizard({
           Guided filing with live name check, model articles, and personal-code
           verification — then pay or submit straight to Companies House.
         </p>
-        <dl className="mt-6 flex flex-wrap gap-6 text-sm">
-          <div>
-            <dt className="text-ink-soft">Companies House</dt>
-            <dd className="price-amount text-2xl">{fees.statutory}</dd>
-          </div>
-          <div>
-            <dt className="text-ink-soft">Hydra</dt>
-            <dd className="font-semibold text-ink">{fees.hydra}</dd>
-          </div>
-          <div>
-            <dt className="text-ink-soft">You pay</dt>
-            <dd className="price-amount text-3xl text-sea-deep">{fees.total}</dd>
-          </div>
-        </dl>
+        <p className="price-amount mt-6 text-4xl text-sea-deep">{price}</p>
       </div>
 
       <ol className="flex flex-wrap gap-2">
@@ -1165,7 +1152,7 @@ export function IncorporationWizard({
                 onClick={() => runPrepare("pay")}
                 className="rounded-lg bg-sea px-4 py-3 text-sm font-semibold text-white hover:bg-sea-deep disabled:opacity-60"
               >
-                {pending ? "Working…" : `Pay ${fees.total} & continue`}
+                {pending ? "Working…" : `Pay ${price} & continue`}
               </button>
               <button
                 type="button"

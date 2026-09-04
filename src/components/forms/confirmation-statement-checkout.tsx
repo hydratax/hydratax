@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { CH_GUIDANCE, formatChFeeBreakdown, type ChServiceDetail } from "@/lib/ch-services";
 import { submitCompaniesHouseRequest } from "@/server/actions/ch-requests";
@@ -83,10 +84,13 @@ export function ConfirmationStatementCheckout({
   defaults?: Record<string, string>;
 }) {
   const fees = formatChFeeBreakdown(service);
-  const presetCompany =
+  const presetCompanyRaw =
     defaults?.companyNumber?.trim().toUpperCase() ||
     defaults?.company_number?.trim().toUpperCase() ||
     "";
+  const presetCompany = looksLikeCompanyNumber(presetCompanyRaw)
+    ? presetCompanyRaw
+    : "";
   const wantResume = defaults?.resume === "1" || defaults?.pay === "1";
   const [phase, setPhase] = useState<"search" | "confirm">(
     presetCompany || wantResume ? "confirm" : "search",
@@ -103,12 +107,14 @@ export function ConfirmationStatementCheckout({
   const [register, setRegister] = useState<RegisterView | null>(null);
   const [directorCodes, setDirectorCodes] = useState<DirectorCodes[]>([]);
   const [companyAuthCode, setCompanyAuthCode] = useState("");
+  const [registeredEmail, setRegisteredEmail] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [attemptedPay, setAttemptedPay] = useState(false);
   const [lookupPending, setLookupPending] = useState(Boolean(presetCompany));
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [hydrated, setHydrated] = useState(false);
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const confirmBoxRef = useRef<HTMLLabelElement>(null);
   const skipNextChWipe = useRef(false);
 
@@ -116,6 +122,9 @@ export function ConfirmationStatementCheckout({
   const authCodeFormatOk =
     !authCodeMissing &&
     /^[A-Za-z0-9]{6,12}$/.test(companyAuthCode.trim());
+  const registeredEmailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+    registeredEmail.trim(),
+  );
   const activeDirectors = activeDirectorRows(directorCodes);
   const directorsReady =
     activeDirectors.length > 0 && activeDirectors.every(directorRowComplete);
@@ -155,40 +164,56 @@ export function ConfirmationStatementCheckout({
       directors: register.directors,
       pscs: register.pscs,
       directorCodes,
-      companyAuthCode,
+      companyAuthCode: signedIn ? companyAuthCode : "",
+      registeredEmail: signedIn ? registeredEmail : "",
       confirmed,
       updatedAt: new Date().toISOString(),
     };
   }
 
   useEffect(() => {
+    let cancelled = false;
+    void hasSignedInSession().then((ok) => {
+      if (!cancelled) setSignedIn(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (hydrated) return;
     setHydrated(true);
-    const draft = loadCs01Draft(presetCompany || undefined);
-    if (!draft) return;
-    skipNextChWipe.current = true;
-    setRegister({
-      companyNumber: draft.companyNumber,
-      companyName: draft.companyName,
-      confirmationDate: draft.confirmationDate,
-      nextDue: draft.nextDue,
-      registeredOffice: draft.registeredOffice,
-      sicCodes: draft.sicCodes,
-      directors: draft.directors,
-      pscs: draft.pscs,
+    void hasSignedInSession().then((isSignedIn) => {
+      const draft = loadCs01Draft(presetCompany || undefined);
+      if (!draft) return;
+      skipNextChWipe.current = true;
+      setRegister({
+        companyNumber: draft.companyNumber,
+        companyName: draft.companyName,
+        confirmationDate: draft.confirmationDate,
+        nextDue: draft.nextDue,
+        registeredOffice: draft.registeredOffice,
+        sicCodes: draft.sicCodes,
+        directors: draft.directors,
+        pscs: draft.pscs,
+      });
+      setDirectorCodes(
+        draft.directorCodes.length > 0
+          ? draft.directorCodes
+          : codesFromDirectors(draft.directors),
+      );
+      if (isSignedIn) {
+        setCompanyAuthCode(draft.companyAuthCode);
+        setRegisteredEmail(draft.registeredEmail ?? "");
+      }
+      setConfirmed(Boolean(draft.confirmed));
+      setSearchQuery(draft.companyName);
+      setPhase(
+        wantResume || draft.phase === "confirm" ? "confirm" : draft.phase,
+      );
+      setLookupPending(false);
     });
-    setDirectorCodes(
-      draft.directorCodes.length > 0
-        ? draft.directorCodes
-        : codesFromDirectors(draft.directors),
-    );
-    setCompanyAuthCode(draft.companyAuthCode);
-    setConfirmed(Boolean(draft.confirmed));
-    setSearchQuery(draft.companyName);
-    setPhase(
-      wantResume || draft.phase === "confirm" ? "confirm" : draft.phase,
-    );
-    setLookupPending(false);
   }, [hydrated, presetCompany, wantResume]);
 
   useEffect(() => {
@@ -201,6 +226,7 @@ export function ConfirmationStatementCheckout({
     register,
     directorCodes,
     companyAuthCode,
+    registeredEmail,
     confirmed,
   ]);
 
@@ -368,6 +394,12 @@ export function ConfirmationStatementCheckout({
       );
       return;
     }
+    if (!registeredEmailOk) {
+      setError(
+        "Enter the company registered email address (required under ECCTA).",
+      );
+      return;
+    }
     const rows = activeDirectorRows(directorCodes);
     const badDirector = rows.find((d) => !directorRowComplete(d));
     if (badDirector || rows.length === 0) {
@@ -406,6 +438,7 @@ export function ConfirmationStatementCheckout({
             companyName: register.companyName,
             confirmationDate: register.confirmationDate,
             companyAuthCode: companyAuthCode.trim(),
+            registeredEmail: registeredEmail.trim(),
             registeredOffice: register.registeredOffice,
             sicCodes: register.sicCodes,
             directorsJson: JSON.stringify(
@@ -573,49 +606,112 @@ export function ConfirmationStatementCheckout({
             </p>
           </div>
 
-          <div
-            className={`rounded-xl border p-4 ${
-              attemptedPay && (!authCodeFormatOk || authCodeMissing)
-                ? "border-danger/40 bg-danger/5"
-                : "border-sea/30 bg-white"
-            }`}
-          >
-            <label className="label" htmlFor="cs-auth-pay">
-              Company authentication code
-              <span className="font-normal text-danger"> *</span>
-              <input
-                id="cs-auth-pay"
-                className={`input mt-1.5 mono ${
-                  attemptedPay && (!authCodeFormatOk || authCodeMissing)
-                    ? "border-danger focus:border-danger"
-                    : ""
-                }`}
-                value={companyAuthCode}
-                onChange={(e) => setCompanyAuthCode(e.target.value)}
-                placeholder="Authentication code"
-                autoComplete="off"
-                required
-                aria-required
-                aria-invalid={
-                  attemptedPay && (!authCodeFormatOk || authCodeMissing)
-                }
-              />
-            </label>
-            <p className="mt-2 text-xs text-ink-soft">
-              Required before payment. Company-level code from Companies House
-              online filing (not on the public register).
-            </p>
-            {attemptedPay && authCodeMissing && (
-              <p className="mt-2 text-sm text-danger" role="alert">
-                Enter the company authentication code.
+          {signedIn === false ? (
+            <div className="rounded-xl border border-sea/30 bg-sea/5 p-4 space-y-3">
+              <p className="text-sm text-ink-soft">
+                Sign in to enter the company authentication code and pay. Hydra
+                never collects HMRC Government Gateway credentials on public
+                pages.
               </p>
-            )}
-            {attemptedPay && !authCodeMissing && !authCodeFormatOk && (
-              <p className="mt-2 text-sm text-danger" role="alert">
-                Company authentication code must be 6–12 letters or digits.
+              <Link
+                href={authEntryHref(
+                  "sign-in",
+                  register
+                    ? cs01ResumePath(register.companyNumber)
+                    : "/companies-house/confirmation-statement",
+                )}
+                className="btn btn-primary inline-flex w-full justify-center"
+              >
+                Sign in to continue
+              </Link>
+            </div>
+          ) : (
+            <div
+              className={`rounded-xl border p-4 ${
+                attemptedPay && (!authCodeFormatOk || authCodeMissing)
+                  ? "border-danger/40 bg-danger/5"
+                  : "border-sea/30 bg-white"
+              }`}
+            >
+              <label className="label" htmlFor="cs-auth-pay">
+                Company authentication code
+                <span className="font-normal text-danger"> *</span>
+                <input
+                  id="cs-auth-pay"
+                  className={`input mt-1.5 mono ${
+                    attemptedPay && (!authCodeFormatOk || authCodeMissing)
+                      ? "border-danger focus:border-danger"
+                      : ""
+                  }`}
+                  value={companyAuthCode}
+                  onChange={(e) => setCompanyAuthCode(e.target.value)}
+                  placeholder="Authentication code"
+                  autoComplete="one-time-code"
+                  data-1p-ignore="true"
+                  data-lpignore="true"
+                  required
+                  aria-required
+                  aria-invalid={
+                    attemptedPay && (!authCodeFormatOk || authCodeMissing)
+                  }
+                />
+              </label>
+              <p className="mt-2 text-xs text-ink-soft">
+                Required before payment. Company-level code from Companies House
+                online filing (not on the public register).
               </p>
-            )}
-          </div>
+              {attemptedPay && authCodeMissing && (
+                <p className="mt-2 text-sm text-danger" role="alert">
+                  Enter the company authentication code.
+                </p>
+              )}
+              {attemptedPay && !authCodeMissing && !authCodeFormatOk && (
+                <p className="mt-2 text-sm text-danger" role="alert">
+                  Company authentication code must be 6–12 letters or digits.
+                </p>
+              )}
+            </div>
+          )}
+
+          {signedIn !== false && (
+            <div
+              className={`rounded-xl border p-4 ${
+                attemptedPay && !registeredEmailOk
+                  ? "border-danger/40 bg-danger/5"
+                  : "border-sea/30 bg-white"
+              }`}
+            >
+              <label className="label" htmlFor="cs-registered-email">
+                Registered email address
+                <span className="font-normal text-danger"> *</span>
+                <input
+                  id="cs-registered-email"
+                  type="email"
+                  className={`input mt-1.5 ${
+                    attemptedPay && !registeredEmailOk
+                      ? "border-danger focus:border-danger"
+                      : ""
+                  }`}
+                  value={registeredEmail}
+                  onChange={(e) => setRegisteredEmail(e.target.value)}
+                  placeholder="company@example.com"
+                  autoComplete="email"
+                  required
+                  aria-required
+                  aria-invalid={attemptedPay && !registeredEmailOk}
+                />
+              </label>
+              <p className="mt-2 text-xs text-ink-soft">
+                Required on confirmation statements under ECCTA — the email
+                Companies House holds for this company.
+              </p>
+              {attemptedPay && !registeredEmailOk && (
+                <p className="mt-2 text-sm text-danger" role="alert">
+                  Enter a valid registered email address.
+                </p>
+              )}
+            </div>
+          )}
 
           <section className="overflow-hidden rounded-2xl border border-line bg-white">
             <div className="grid gap-px bg-line sm:grid-cols-2">

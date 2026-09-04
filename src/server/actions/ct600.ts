@@ -23,6 +23,8 @@ import {
   buildCt600FormReviewPdf,
   buildAccountsReviewPdf,
 } from "@/server/hmrc/ct600/index";
+import { sendTransactionalEmail } from "@/server/email/transactional";
+import { ct600SubmitEmailContent } from "@/server/email/ct600-submit-template";
 
 async function loadCt600Builder() {
   return import("@/server/hmrc/ct600/index");
@@ -460,6 +462,36 @@ export async function submitCt600(
         })
         .eq("id", returnId)
         .eq("client_id", clientId);
+    }
+  }
+
+  const submitEmail = session.email?.trim();
+  if (submitEmail) {
+    try {
+      const appUrl = (
+        process.env.NEXT_PUBLIC_APP_URL ?? "https://hydratax.uk"
+      ).replace(/\/$/, "");
+      const content = ct600SubmitEmailContent({
+        companyName: client.name,
+        companyNumber: client.companyNumber,
+        utr: client.utr,
+        periodStart: figures.periodStart,
+        periodEnd: figures.periodEnd,
+        accepted: res.ok,
+        correlationId: res.correlationId,
+        errorMessage: res.errorMessage,
+        demo: isDemoMode(),
+        clientId,
+        appUrl,
+      });
+      await sendTransactionalEmail({
+        to: submitEmail,
+        subject: content.subject,
+        text: content.text,
+        html: content.html,
+      });
+    } catch (err) {
+      console.error("[ct600.submit] confirmation email failed", err);
     }
   }
 

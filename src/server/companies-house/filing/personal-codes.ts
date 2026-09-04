@@ -1,5 +1,25 @@
 import { z } from "zod";
 
+export const csStatementOfCapitalShareSchema = z.object({
+  shareClass: z.string().trim().min(1).max(160),
+  prescribedParticulars: z
+    .string()
+    .trim()
+    .min(1)
+    .max(4000)
+    .default("Voting rights"),
+  numShares: z.number().int().nonnegative(),
+  aggregateNominalValue: z.number().nonnegative(),
+});
+
+export const csStatementOfCapitalSchema = z.object({
+  shareCurrency: z.string().trim().length(3).default("GBP"),
+  totalAmountUnpaid: z.number().nonnegative().default(0),
+  totalNumberOfIssuedShares: z.number().int().nonnegative(),
+  totalAggregateNominalValue: z.number().nonnegative(),
+  shares: z.array(csStatementOfCapitalShareSchema).min(1),
+});
+
 /** Companies House personal codes are 11 characters (letters + digits). */
 export const personalCodeSchema = z
   .string()
@@ -25,7 +45,7 @@ export const directorVerificationSchema = z.object({
   dateOfBirth: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Date of birth must be YYYY-MM-DD"),
-  personalCode: personalCodeSchema,
+  personalCode: personalCodeSchema.optional(),
   nameMismatchReason: z.string().trim().max(120).optional(),
 });
 
@@ -40,13 +60,18 @@ export const csFilingInputSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Confirmation date must be YYYY-MM-DD"),
   companyAuthCode: companyAuthCodeSchema,
-  registeredEmail: z.string().trim().email().optional().or(z.literal("")),
+  registeredEmail: z
+    .string()
+    .trim()
+    .email("Registered email address is required (ECCTA)"),
   lawfulPurposeConfirmed: z.boolean().refine((v) => v === true, {
     message: "You must confirm intended future activities are lawful",
   }),
-  directors: z
-    .array(directorVerificationSchema)
-    .min(1, "Add a personal code for each director"),
+  sicCodes: z
+    .array(z.string().regex(/^\d{5}$/, "SIC codes must be 5 digits"))
+    .default([]),
+  statementOfCapital: csStatementOfCapitalSchema.optional(),
+  directors: z.array(directorVerificationSchema).min(1, "Add at least one director"),
   clientId: z.string().uuid().optional().or(z.literal("")),
   practiceId: z.string().uuid().optional().or(z.literal("")),
 });

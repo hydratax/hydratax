@@ -11,7 +11,14 @@ import { appendAuditEvent } from "@/server/audit/log";
 const addSchema = z.object({
   name: z.string().min(1).max(120),
   email: z.string().email(),
-  moduleAccess: z.enum(["full", "payroll", "vat", "corporation_tax"]),
+  moduleAccess: z.enum([
+    "full",
+    "payroll",
+    "vat",
+    "corporation_tax",
+    "invoices",
+    "self_assessment",
+  ]),
 });
 
 function assertOwner(session: Awaited<ReturnType<typeof requireSession>>) {

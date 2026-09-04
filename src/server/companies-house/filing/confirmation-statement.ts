@@ -30,6 +30,8 @@ import {
 type SecretPayload = {
   companyAuthCode: string;
   directors: ParsedCsFilingInput["directors"];
+  sicCodes?: string[];
+  statementOfCapital?: ParsedCsFilingInput["statementOfCapital"];
 };
 
 function ensureMemoryFilings() {
@@ -64,6 +66,8 @@ function encryptSecrets(input: ParsedCsFilingInput) {
   const payload: SecretPayload = {
     companyAuthCode: input.companyAuthCode,
     directors: input.directors,
+    sicCodes: input.sicCodes,
+    statementOfCapital: input.statementOfCapital,
   };
   return encryptSecret(JSON.stringify(payload));
 }
@@ -223,6 +227,8 @@ export async function submitCsFiling(
     companyAuthCode: secrets.companyAuthCode,
     registeredEmail: record.registeredEmail ?? "",
     lawfulPurposeConfirmed: true,
+    sicCodes: secrets.sicCodes ?? [],
+    statementOfCapital: secrets.statementOfCapital,
     directors: secrets.directors,
     clientId: record.clientId ?? "",
     practiceId: record.practiceId ?? "",

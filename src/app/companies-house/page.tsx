@@ -1,7 +1,7 @@
 import Link from "next/link";
 import {
   CH_SERVICE_DETAILS,
-  formatChFeeBreakdown,
+  formatChServicePrice,
 } from "@/lib/ch-services";
 import { SiteFooter } from "@/components/site-footer";
 import { LandingHeader } from "@/components/landing/landing-header";
@@ -13,7 +13,7 @@ export const metadata = {
   title:
     "Companies House filing — confirmation statement, accounts & incorporation",
   description:
-    "File a Companies House confirmation statement, iXBRL annual accounts or UK company incorporation with HydraTax. Statutory CH fees plus a flat Hydra service charge.",
+    "File a Companies House confirmation statement, iXBRL annual accounts or UK company incorporation with HydraTax.",
   keywords: [
     "file confirmation statement",
     "Companies House filing software",
@@ -47,7 +47,7 @@ export default function CompaniesHousePage() {
           <h2 className="display text-2xl text-ink sm:text-3xl">Most requested</h2>
           <div className="mt-6 grid gap-4 sm:grid-cols-2 md:grid-cols-3">
             {popular.map((s) => {
-              const fees = formatChFeeBreakdown(s);
+              const price = formatChServicePrice(s);
               return (
                 <Link
                   key={s.id}
@@ -58,10 +58,7 @@ export default function CompaniesHousePage() {
                   <h3 className="display mt-3 text-xl text-ink">{s.title}</h3>
                   <p className="mt-2 text-sm text-ink-soft">{s.summary}</p>
                   <p className="price-figure mt-4">
-                    <span className="price-amount text-3xl">{fees.total}</span>
-                  </p>
-                  <p className="mt-1 text-xs text-ink-soft">
-                    CH {fees.statutory} + Hydra {fees.hydra}
+                    <span className="price-amount text-3xl">{price}</span>
                   </p>
                   <span className="mt-4 inline-block text-sm font-semibold text-sea">
                     View details & request →
@@ -84,7 +81,7 @@ export default function CompaniesHousePage() {
 
             <div className="mt-8 grid gap-3 sm:grid-cols-2">
               {CH_SERVICE_DETAILS.map((s) => {
-                const fees = formatChFeeBreakdown(s);
+                const price = formatChServicePrice(s);
                 return (
                   <Link
                     key={s.id}
@@ -93,12 +90,10 @@ export default function CompaniesHousePage() {
                   >
                     <div className="min-w-0">
                       <p className="font-semibold text-ink">{s.title}</p>
-                      <p className="mt-1 text-xs text-ink-soft">
-                        {s.channel} · CH {fees.statutory} + Hydra {fees.hydra}
-                      </p>
+                      <p className="mt-1 text-xs text-ink-soft">{s.channel}</p>
                     </div>
                     <span className="price-amount shrink-0 text-xl sm:text-2xl">
-                      {fees.total}
+                      {price}
                     </span>
                   </Link>
                 );

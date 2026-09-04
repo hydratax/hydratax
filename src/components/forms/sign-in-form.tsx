@@ -6,6 +6,10 @@ import Link from "next/link";
 import { signInWithSupabase } from "@/server/actions/auth";
 import { safeReturnPath } from "@/lib/auth-return";
 import { messageFromUnknown } from "@/lib/action-error";
+import {
+  EXISTING_ACCOUNT_SIGN_IN_MESSAGE,
+  isExistingAccountAuthError,
+} from "@/lib/auth-errors";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import {
   AuthDivider,
@@ -21,7 +25,9 @@ export function SignInForm() {
   const [pending, start] = useTransition();
   const confirmHint = searchParams.get("confirm") === "1";
   const resetDone = searchParams.get("reset") === "1";
-  const oauthFailed = searchParams.get("error") === "auth";
+  const oauthError = searchParams.get("error");
+  const oauthFailed = oauthError === "auth";
+  const accountExists = oauthError === "account_exists";
   const next = safeReturnPath(searchParams.get("next"));
 
   useEffect(() => {
@@ -45,6 +51,14 @@ export function SignInForm() {
       cancelled = true;
     };
   }, [router, next]);
+
+  const bannerError =
+    error ??
+    (accountExists
+      ? EXISTING_ACCOUNT_SIGN_IN_MESSAGE
+      : oauthFailed
+        ? "Google sign-in did not finish. If you already have an account with this email, sign in with your password or use Forgot password."
+        : null);
 
   return (
     <form
@@ -90,17 +104,37 @@ export function SignInForm() {
         </p>
       )}
 
-      {(oauthFailed || error) && (
+      {bannerError && (
         <FormErrorBanner
-          error={
-            error ??
-            "Google sign-in did not finish. Please try again, or use email and password."
-          }
-          title="Sign in blocked"
+          error={bannerError}
+          title={accountExists ? "Account already exists" : "Sign in blocked"}
         />
       )}
 
-      <GoogleAuthButton next={next} label="Sign in with Google" />
+      {(accountExists || oauthFailed) && (
+        <p className="text-center text-sm text-ink-soft">
+          <Link
+            href="/forgot-password"
+            className="font-semibold text-sea hover:underline"
+          >
+            Forgot password?
+          </Link>
+          {" · "}
+          Use email and password below to sign in.
+        </p>
+      )}
+
+      <GoogleAuthButton
+        next={next}
+        label="Sign in with Google"
+        onError={(msg) => {
+          setError(
+            isExistingAccountAuthError(msg)
+              ? EXISTING_ACCOUNT_SIGN_IN_MESSAGE
+              : msg,
+          );
+        }}
+      />
       <AuthDivider />
 
       <label className="block text-sm font-semibold text-ink">

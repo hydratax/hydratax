@@ -4,10 +4,8 @@ import { useMemo, useState, useTransition } from "react";
 import {
   PRICING_SECTIONS,
   formatGBP,
-  HYDRA_SERVICE_FEE_POUNDS,
   COMPANIES_HOUSE_SERVICES,
   hydraTotal,
-  hydraFeeForChService,
   CUSTOM_PLAN_MODULES,
   customPlanAmountPounds,
   customModuleAmountPounds,
@@ -409,17 +407,14 @@ function CompaniesHouseCards() {
   return (
     <div className="mt-10 grid items-stretch gap-6 md:grid-cols-2 lg:grid-cols-3">
       <p className="md:col-span-2 lg:col-span-3 text-sm text-ink-soft">
-        Solo pays Hydra £{HYDRA_SERVICE_FEE_POUNDS} on each filing. Practice and
-        Custom desks: new company incorporation at £5 Hydra; confirmation
-        statements and annual accounts at £0 Hydra (unlimited). Statutory CH
-        fees still apply where charged by Companies House.
+        One price per filing — statutory Companies House fee included. Practice
+        and Custom desks include unlimited confirmation statements and annual
+        accounts.
       </p>
       {COMPANIES_HOUSE_SERVICES.map((service) => {
-        const hydraSolo = hydraFeeForChService(service.id, "solo");
-        const hydraDesk = hydraFeeForChService(service.id, "desk");
         const totalSolo = hydraTotal(service.chFeePounds, service.id, "solo");
         const totalDesk = hydraTotal(service.chFeePounds, service.id, "desk");
-        const hasDeskRate = hydraDesk !== hydraSolo;
+        const hasDeskRate = totalDesk !== totalSolo;
 
         return (
           <article
@@ -434,11 +429,6 @@ function CompaniesHouseCards() {
               {service.description}
             </p>
             <div className="mt-auto pt-6">
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-soft">
-                CH {formatGBP(service.chFeePounds)} + Hydra{" "}
-                {formatGBP(hydraSolo)}
-                {hasDeskRate ? ` · desk ${formatGBP(hydraDesk)}` : ""}
-              </p>
               <p className="price-figure mt-2">
                 <span className="price-amount text-3xl">
                   {formatGBP(hasDeskRate ? totalDesk : totalSolo)}
@@ -447,7 +437,7 @@ function CompaniesHouseCards() {
               </p>
               {hasDeskRate && (
                 <p className="mt-1 text-xs text-ink-soft">
-                  Desk rate shown · Solo {formatGBP(totalSolo)}
+                  Practice / Custom desk rate · Solo {formatGBP(totalSolo)}
                 </p>
               )}
               <Link

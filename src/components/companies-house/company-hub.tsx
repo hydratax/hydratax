@@ -31,6 +31,26 @@ const OTHER_SERVICES = [
     blurb: "File a director resignation (TM01).",
   },
   {
+    id: "notify-psc",
+    title: "Notify PSC",
+    blurb: "Register a new person with significant control.",
+  },
+  {
+    id: "change-psc",
+    title: "Change PSC",
+    blurb: "Update PSC nature of control.",
+  },
+  {
+    id: "cease-psc",
+    title: "Cease PSC",
+    blurb: "Remove someone from the PSC register.",
+  },
+  {
+    id: "return-of-allotment",
+    title: "Allot shares",
+    blurb: "File SH01 when issuing new shares.",
+  },
+  {
     id: "change-of-name",
     title: "Change company name",
     blurb: "Propose a new name on the register.",

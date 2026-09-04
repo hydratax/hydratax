@@ -44,21 +44,14 @@ export function PublicAuthLinks({
   }, []);
 
   if (signedIn === null) {
+    // Avoid flashing Sign up while we check the session (esp. mobile header).
     return (
-      <>
-        <span
-          className={`hidden text-sm opacity-60 lg:inline ${dark ? "text-white/60" : "text-ink-soft"}`}
-          aria-hidden
-        >
-          …
-        </span>
-        <Link href="/sign-in" className={signInClass}>
-          Sign in
-        </Link>
-        <Link href="/create-account" className={signUpClass}>
-          Sign up
-        </Link>
-      </>
+      <span
+        className={`inline-block h-9 w-20 animate-pulse rounded-lg ${
+          dark ? "bg-white/15" : "bg-sand"
+        }`}
+        aria-hidden
+      />
     );
   }
 

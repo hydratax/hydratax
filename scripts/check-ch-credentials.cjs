@@ -48,9 +48,30 @@ const live = chEnv === "live" || chEnv === "production";
 const apiBase = live
   ? "https://api.company-information.service.gov.uk"
   : "https://api-sandbox.company-information.service.gov.uk";
+const LIVE_XML =
+  "https://xmlgw.companieshouse.gov.uk/v1-0/xmlgw/Gateway";
+const TEST_XML =
+  "https://xmlgw-sandpit-staging.companieshouse.gov.uk/v1-0/xmlgw/Gateway";
 const gateway =
   env.COMPANIES_HOUSE_XML_GATEWAY_URL?.trim() ||
-  "https://xmlgw.companieshouse.gov.uk/v1-0/xmlgw/Gateway";
+  (live ? LIVE_XML : TEST_XML);
+const gatewayHost = (() => {
+  try {
+    return new URL(gateway).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+})();
+const gatewayKind = /sandpit|sandbox|staging/.test(gatewayHost)
+  ? "test"
+  : gatewayHost === "xmlgw.companieshouse.gov.uk"
+    ? "live"
+    : "unknown";
+if ((live && gatewayKind === "test") || (!live && gatewayKind === "live")) {
+  console.error(
+    `\nBLOCKER: COMPANIES_HOUSE_ENV=${live ? "live" : "test"} but XML gateway is ${gatewayKind}:\n  ${gateway}`,
+  );
+}
 
 async function testRest() {
   console.log("\n=== REST Public Data API ===");

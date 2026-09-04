@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import type { ChServiceDetail } from "@/lib/ch-services";
-import { formatChFeeBreakdown } from "@/lib/ch-services";
+import { formatChServicePrice } from "@/lib/ch-services";
 import { searchSicCodes, type SicCode } from "@/lib/sic-codes";
 import { submitCompaniesHouseRequest } from "@/server/actions/ch-requests";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
@@ -46,7 +46,7 @@ export function IncorporationForm({
   service: ChServiceDetail;
   sameDay?: boolean;
 }) {
-  const fees = formatChFeeBreakdown(service);
+  const price = formatChServicePrice(service);
   const [proposedName, setProposedName] = useState("");
   const [nameStatus, setNameStatus] = useState<
     "idle" | "checking" | "available" | "taken" | "similar" | "error"
@@ -260,8 +260,7 @@ export function IncorporationForm({
       <div>
         <h2 className="display text-2xl text-ink">Incorporate a company</h2>
         <p className="mt-1 text-sm text-ink-soft">
-          You pay {fees.total} ({fees.statutory} Companies House + {fees.hydra}{" "}
-          Hydra).
+          You pay {price}.
         </p>
       </div>
 
@@ -689,7 +688,7 @@ export function IncorporationForm({
       {ok && <p className="text-sm text-ok">{ok}</p>}
 
       <button type="submit" disabled={pending} className="btn btn-primary w-full">
-        {pending ? "Saving & opening checkout…" : `Pay ${fees.total} & submit`}
+        {pending ? "Saving & opening checkout…" : `Pay ${price} & submit`}
       </button>
     </form>
   );

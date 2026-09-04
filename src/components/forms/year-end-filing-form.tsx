@@ -192,6 +192,12 @@ const ZERO_BS: YearBs = {
   retainedEarnings: "0",
 };
 
+/** Dormant defaults — £1 share capital for HMRC iXBRL attachment when BS is hidden */
+const DORMANT_BS: YearBs = {
+  ...ZERO_BS,
+  shareCapital: "1",
+};
+
 function num(v: string) {
   if (!v.trim()) return 0;
   const n = Number.parseFloat(v.replace(/,/g, "").replace(/[()]/g, "").trim());
@@ -508,7 +514,10 @@ export function YearEndFilingForm({
   const needsCt = filingMode === "ct600" || filingMode === "both";
   const needsAccounts = filingMode === "accounts" || filingMode === "both";
   const isDormant = companyType === "dormant";
-  const showPl = !isDormant;
+  /** P&L only when Corporation Tax is in scope */
+  const showPl = needsCt && !isDormant;
+  /** Full balance sheet only when filing Companies House accounts */
+  const showBalanceSheet = needsAccounts;
   /** Blank computed totals for trading until the user enters figures */
   const blankTotals = !isDormant;
 
@@ -517,8 +526,8 @@ export function YearEndFilingForm({
     if (next === "dormant") {
       setPlCurrent({ ...ZERO_PL });
       setPlPrevious({ ...ZERO_PL });
-      setBsCurrent({ ...ZERO_BS });
-      setBsPrevious({ ...ZERO_BS });
+      setBsCurrent({ ...DORMANT_BS });
+      setBsPrevious({ ...DORMANT_BS });
     } else {
       setPlCurrent({ ...BLANK_PL });
       setPlPrevious({ ...BLANK_PL });
@@ -547,6 +556,7 @@ export function YearEndFilingForm({
   const afterDonations = Math.max(0, afterLosses - num(qualifyingDonations));
 
   const balanceMismatch =
+    showBalanceSheet &&
     Math.round(bsCur.netAssets) !== Math.round(bsCur.shareholdersFunds);
 
   function saveProgress(patch?: {
@@ -818,8 +828,11 @@ export function YearEndFilingForm({
             </div>
             {isDormant && (
               <InfoBanner>
-                Dormant filing focuses on the balance sheet. Profit &amp; loss
-                is hidden when there are no significant accounting transactions.
+                {needsAccounts
+                  ? "Dormant filing focuses on the balance sheet. Profit & loss is hidden when there are no significant accounting transactions."
+                  : needsCt
+                    ? "Dormant CT600 — profit & loss and balance sheet are not required. Hydra attaches simplified dormant accounts to HMRC using share capital only."
+                    : "Dormant company — no significant accounting transactions in the period."}
               </InfoBanner>
             )}
           </section>
@@ -925,7 +938,7 @@ export function YearEndFilingForm({
             )}
           </section>
 
-          {/* Profit & Loss — all modes except dormant */}
+          {/* Profit & Loss — CT600 / both, trading only */}
           {showPl && (
             <Collapsible
               title="Profit & Loss"
@@ -1050,7 +1063,36 @@ export function YearEndFilingForm({
             </Collapsible>
           )}
 
-          {/* Balance Sheet — all modes */}
+          {/* CT600-only: minimal share capital for HMRC iXBRL (no full balance sheet) */}
+          {needsCt && !needsAccounts && (
+            <section className="space-y-3 rounded-2xl border border-line p-5">
+              <h2 className="text-lg font-semibold text-ink">
+                Share capital for HMRC attachment
+              </h2>
+              <p className="text-sm text-ink-soft">
+                CT600 requires simplified iXBRL accounts. Enter called-up share
+                capital — other balance sheet lines are not needed for this
+                filing mode.
+              </p>
+              <div className="max-w-xs">
+                <label className="label" htmlFor="ye-ct-share-capital">
+                  Share capital (£)
+                </label>
+                <input
+                  id="ye-ct-share-capital"
+                  className="input mono"
+                  inputMode="decimal"
+                  value={bsCurrent.shareCapital}
+                  onChange={(e) =>
+                    setBsCurrent((p) => ({ ...p, shareCapital: e.target.value }))
+                  }
+                />
+              </div>
+            </section>
+          )}
+
+          {/* Balance Sheet — Companies House accounts / both */}
+          {showBalanceSheet && (
           <Collapsible
             title="Balance Sheet"
             open={bsOpen}
@@ -1225,6 +1267,7 @@ export function YearEndFilingForm({
               </p>
             )}
           </Collapsible>
+          )}
 
           {/* Tax Computation — CT600 only & both */}
           {needsCt && (
@@ -1455,6 +1498,7 @@ export function YearEndFilingForm({
           bsCur={bsCur}
           bsPrev={bsPrev}
           showPl={showPl}
+          showBalanceSheet={showBalanceSheet}
           needsCt={needsCt}
           needsAccounts={needsAccounts}
           directorName={directorName}
@@ -1978,6 +2022,7 @@ function ReviewPhase({
   bsCur,
   bsPrev,
   showPl,
+  showBalanceSheet,
   needsCt,
   needsAccounts,
   directorName,
@@ -2000,6 +2045,7 @@ function ReviewPhase({
   bsCur: ReturnType<typeof deriveBs>;
   bsPrev: ReturnType<typeof deriveBs>;
   showPl: boolean;
+  showBalanceSheet: boolean;
   needsCt: boolean;
   needsAccounts: boolean;
   directorName: string;
@@ -2084,54 +2130,61 @@ function ReviewPhase({
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-2xl border border-line">
-        <p className="border-b border-line bg-sand/40 px-4 py-2 text-sm font-semibold text-ink">
-          Balance Sheet
-        </p>
-        <table className="w-full min-w-[36rem] text-sm">
-          <thead>
-            <tr className="border-b border-line text-ink-soft">
-              <th className="px-4 py-2 text-left font-semibold">Category</th>
-              <th className="w-36 px-3 py-2 text-right font-semibold">
-                {yearToLabel(periodEnd)}
-              </th>
-              <th className="w-36 px-4 py-2 text-right font-semibold">
-                {yearToLabel(previousPeriodEnd)}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {(
-              [
-                ["Fixed Assets", bsCur.fixedAssets, bsPrev.fixedAssets, false],
-                [
-                  "Net Current Assets",
-                  bsCur.netCurrentAssets,
-                  bsPrev.netCurrentAssets,
-                  false,
-                ],
-                ["Net Assets", bsCur.netAssets, bsPrev.netAssets, false],
-                [
-                  "Shareholders' Funds",
-                  bsCur.shareholdersFunds,
-                  bsPrev.shareholdersFunds,
-                  false,
-                ],
-              ] as const
-            ).map(([label, c, p, brackets]) => (
-              <tr key={label} className="border-b border-line/70">
-                <td className="px-4 py-2 font-medium text-ink">{label}</td>
-                <td className="mono px-3 py-2 text-right">
-                  {fmtDisplay(c, brackets)}
-                </td>
-                <td className="mono px-4 py-2 text-right">
-                  {fmtDisplay(p, brackets)}
-                </td>
+      {showBalanceSheet ? (
+        <div className="overflow-x-auto rounded-2xl border border-line">
+          <p className="border-b border-line bg-sand/40 px-4 py-2 text-sm font-semibold text-ink">
+            Balance Sheet
+          </p>
+          <table className="w-full min-w-[36rem] text-sm">
+            <thead>
+              <tr className="border-b border-line text-ink-soft">
+                <th className="px-4 py-2 text-left font-semibold">Category</th>
+                <th className="w-36 px-3 py-2 text-right font-semibold">
+                  {yearToLabel(periodEnd)}
+                </th>
+                <th className="w-36 px-4 py-2 text-right font-semibold">
+                  {yearToLabel(previousPeriodEnd)}
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {(
+                [
+                  ["Fixed Assets", bsCur.fixedAssets, bsPrev.fixedAssets, false],
+                  [
+                    "Net Current Assets",
+                    bsCur.netCurrentAssets,
+                    bsPrev.netCurrentAssets,
+                    false,
+                  ],
+                  ["Net Assets", bsCur.netAssets, bsPrev.netAssets, false],
+                  [
+                    "Shareholders' Funds",
+                    bsCur.shareholdersFunds,
+                    bsPrev.shareholdersFunds,
+                    false,
+                  ],
+                ] as const
+              ).map(([label, c, p, brackets]) => (
+                <tr key={label} className="border-b border-line/70">
+                  <td className="px-4 py-2 font-medium text-ink">{label}</td>
+                  <td className="mono px-3 py-2 text-right">
+                    {fmtDisplay(c, brackets)}
+                  </td>
+                  <td className="mono px-4 py-2 text-right">
+                    {fmtDisplay(p, brackets)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : needsCt ? (
+        <p className="rounded-xl border border-line bg-sand/30 px-4 py-3 text-sm text-ink-soft">
+          Balance sheet omitted — CT600-only filing uses simplified HMRC
+          accounts (share capital: {fmtDisplay(bsCur.shareCapital)}).
+        </p>
+      ) : null}
 
       {needsAccounts && (
         <article className="max-w-lg rounded-xl border border-line bg-white p-4">

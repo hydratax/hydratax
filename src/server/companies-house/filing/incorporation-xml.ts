@@ -3,6 +3,7 @@ import {
   type ParsedIncorporationInput,
   type UkAddress,
 } from "./incorporation-schema";
+import { getChFilingEnv } from "./config";
 import {
   buildPresenterAuthenticationXml,
   resolveChPackageReference,
@@ -185,6 +186,12 @@ ${addressXml(s.address, "          ")}
     process.env.COMPANIES_HOUSE_AGENT_NAME?.trim() ||
     "HYDRA CONSULTANCY SERVICES LTD";
 
+  const cfg = getChFilingEnv();
+  const gatewayTestXml = cfg.gatewayTest
+    ? `
+      <GatewayTest>1</GatewayTest>`
+    : "";
+
   return {
     submissionNumber,
     xml: `<?xml version="1.0" encoding="UTF-8"?>
@@ -195,7 +202,7 @@ ${addressXml(s.address, "          ")}
       <Class>CompanyIncorporation</Class>
       <Qualifier>request</Qualifier>
       <Function>submit</Function>
-      <Transformation>XML</Transformation>
+      <Transformation>XML</Transformation>${gatewayTestXml}
     </MessageDetails>
     <SenderDetails>
       ${buildPresenterAuthenticationXml()}

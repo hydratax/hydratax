@@ -2,7 +2,9 @@ export type ModuleAccess =
   | "full"
   | "payroll"
   | "vat"
-  | "corporation_tax";
+  | "corporation_tax"
+  | "invoices"
+  | "self_assessment";
 
 export const MODULE_ACCESS_OPTIONS: {
   value: ModuleAccess;
@@ -28,6 +30,16 @@ export const MODULE_ACCESS_OPTIONS: {
     value: "corporation_tax",
     label: "Corporation Tax only",
     blurb: "CT600 for every client — no VAT or payroll.",
+  },
+  {
+    value: "invoices",
+    label: "Invoices only",
+    blurb: "Create and manage client invoices — no tax filings.",
+  },
+  {
+    value: "self_assessment",
+    label: "Self Assessment only",
+    blurb: "SA100 / personal tax for every client — no VAT, CT or payroll.",
   },
 ];
 
@@ -66,7 +78,21 @@ const BY_ACCESS: Record<ModuleAccess, AppModule[]> = {
   full: FULL,
   payroll: ["overview", "payroll", "documents", "communications", "clients"],
   vat: ["overview", "vat", "documents", "communications", "clients"],
-  corporation_tax: ["overview", "corporation_tax", "documents", "communications", "clients"],
+  corporation_tax: [
+    "overview",
+    "corporation_tax",
+    "documents",
+    "communications",
+    "clients",
+  ],
+  invoices: ["overview", "invoices", "documents", "communications", "clients"],
+  self_assessment: [
+    "overview",
+    "self_assessment",
+    "documents",
+    "communications",
+    "clients",
+  ],
 };
 
 export function modulesForAccess(access: ModuleAccess): Set<AppModule> {

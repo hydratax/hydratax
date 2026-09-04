@@ -117,28 +117,20 @@ function buildXml(env) {
         <Keys>
           <Key Type="UTR">${escapeXml(utr)}</Key>
         </Keys>
-        <Period>
-          <Start>2024-04-01</Start>
-          <End>2025-03-31</End>
-        </Period>
+        <PeriodEnd>2025-03-31</PeriodEnd>
         <DefaultCurrency>GBP</DefaultCurrency>
       </IRheader>
-      <CompanyTaxReturn>
+      <CompanyTaxReturn ReturnType="new">
         <CompanyInformation>
           <CompanyName>HydraTax CT Test Ltd</CompanyName>
           <RegistrationNumber>12345678</RegistrationNumber>
+          <Reference>${escapeXml(utr)}</Reference>
         </CompanyInformation>
-        <ReturnInfoBody>
-          <CompanyInformation>
-            <PeriodOfReturnFrom>2024-04-01</PeriodOfReturnFrom>
-            <PeriodOfReturnTo>2025-03-31</PeriodOfReturnTo>
-          </CompanyInformation>
-          <ReturnInfoSummary>
-            <Turnover>100000.00</Turnover>
-            <TradingProfits>70000.00</TradingProfits>
-            <CorporationTaxChargeable>13300.00</CorporationTaxChargeable>
-          </ReturnInfoSummary>
-        </ReturnInfoBody>
+        <ReturnInfoSummary>
+          <Turnover>100000.00</Turnover>
+          <TradingProfits>70000.00</TradingProfits>
+          <CorporationTaxChargeable>13300.00</CorporationTaxChargeable>
+        </ReturnInfoSummary>
       </CompanyTaxReturn>
     </IRenvelope>
   </Body>

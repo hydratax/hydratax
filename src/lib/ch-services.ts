@@ -1,7 +1,5 @@
 import {
-  HYDRA_SERVICE_FEE_POUNDS,
   formatGBP,
-  hydraFeeForChService,
   hydraTotal,
   type DeskPlanTier,
 } from "@/lib/pricing";
@@ -10,7 +8,7 @@ import {
 export const CH_FEE_SOURCE = {
   title: "Companies House fees (GOV.UK)",
   url: "https://www.gov.uk/government/publications/companies-house-fees/companies-house-fees",
-  note: "Statutory fees are set by Companies House. Hydra adds a separate service charge. Always verify the latest GOV.UK rate before filing.",
+  note: "Fees follow the current GOV.UK Companies House schedule. Always verify the latest rate before filing.",
 } as const;
 
 export const CH_GUIDANCE = {
@@ -52,7 +50,6 @@ export type ChServiceDetail = {
   summary: string;
   channel: "Digital" | "Software" | "Paper";
   chFeePounds: number;
-  hydraFeePounds: number;
   popular?: boolean;
   /** What Companies House requires / what this filing does */
   whatYouNeed: string[];
@@ -67,10 +64,9 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     id: "incorporation",
     title: "Company incorporation",
     summary:
-      "Register a new limited company with Companies House. Statutory digital / software fee is £100 (paper £124).",
+      "Register a new limited company with Companies House. Digital / software fee is £100.",
     channel: "Digital",
     chFeePounds: 100,
-    hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
     popular: true,
     whatYouNeed: [
       "Proposed company name (checked against the register as you type)",
@@ -155,7 +151,6 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
       "Software same-day company registration. Statutory software fee £156. Submit before the Companies House cut-off.",
     channel: "Software",
     chFeePounds: 156,
-    hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
     whatYouNeed: [
       "Same details as standard incorporation",
       "Submission before same-day cut-off",
@@ -233,10 +228,9 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     id: "confirmation-statement",
     title: "Confirmation statement (CS01)",
     summary:
-      "Confirm company information is up to date. £50 digital / software with the first statement in each 12-month payment period (£110 paper).",
+      "Confirm company information is up to date. £50 digital / software with the first statement in each 12-month payment period.",
     channel: "Digital",
     chFeePounds: 50,
-    hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
     popular: true,
     whatYouNeed: [
       "Company number",
@@ -306,10 +300,9 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     id: "accounts-ixbrl",
     title: "Annual accounts (iXBRL)",
     summary:
-      "File statutory accounts to Companies House via software. No statutory filing fee for standard accounts delivery; Hydra service fee applies.",
+      "File statutory accounts to Companies House via software. No statutory filing fee for standard accounts delivery.",
     channel: "Software",
     chFeePounds: 0,
-    hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
     popular: true,
     whatYouNeed: [
       "Company number",
@@ -376,10 +369,9 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
   {
     id: "change-of-name",
     title: "Change of company name",
-    summary: "File a company name change. Digital / software £20 (paper £30).",
+    summary: "File a company name change with Companies House.",
     channel: "Digital",
     chFeePounds: 20,
-    hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
     whatYouNeed: [
       "Company number",
       "Company authentication code",
@@ -419,15 +411,20 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
         type: "text",
         required: true,
       },
+      {
+        name: "resolutionAck",
+        label: "I confirm authority to change the company name",
+        type: "checkbox",
+        required: true,
+      },
     ],
   },
   {
     id: "change-of-name-same-day",
     title: "Same-day change of name",
-    summary: "Expedited name change. Digital / software £85.",
+    summary: "Expedited company name change with Companies House.",
     channel: "Digital",
     chFeePounds: 85,
-    hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
     whatYouNeed: [
       "Company number",
       "Company authentication code",
@@ -473,7 +470,6 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
       "Appoint a new director (AP01). The appointee needs a Companies House personal code.",
     channel: "Software",
     chFeePounds: 0,
-    hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
     whatYouNeed: [
       "Company number and authentication code",
       "Director full name, DOB, service / residential address",
@@ -482,7 +478,6 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     ],
     importantNotes: [
       "Identity verification must be complete before appointment can be accepted.",
-      "Hydra queues the appointment for software filing with your auth code.",
     ],
     govUkLinks: [
       { label: "Personal codes guidance", url: CH_GUIDANCE.personalCodes },
@@ -510,6 +505,18 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
         required: true,
       },
       {
+        name: "forename",
+        label: "Forename(s)",
+        type: "text",
+        required: true,
+      },
+      {
+        name: "surname",
+        label: "Surname",
+        type: "text",
+        required: true,
+      },
+      {
         name: "dateOfBirth",
         label: "Date of birth",
         type: "date",
@@ -530,15 +537,17 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
         help: "11-character code from GOV.UK One Login or your ACSP",
       },
       {
-        name: "serviceAddress",
-        label: "Service address",
+        name: "residentialAddress",
+        label: "Residential address",
         type: "textarea",
         required: true,
+        sensitive: true,
       },
       {
-        name: "notes",
-        label: "Notes",
-        type: "textarea",
+        name: "consentToAct",
+        label: "Director consents to act",
+        type: "checkbox",
+        required: true,
       },
     ],
     requiresPersonalCodes: true,
@@ -549,7 +558,6 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     summary: "File a director resignation / termination (TM01).",
     channel: "Software",
     chFeePounds: 0,
-    hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
     whatYouNeed: [
       "Company number and authentication code",
       "Director name as on the register",
@@ -595,13 +603,128 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     ],
   },
   {
+    id: "notify-psc",
+    title: "Notify PSC",
+    summary:
+      "Register a new person with significant control (PSC01). Required when someone gains significant control.",
+    channel: "Software",
+    chFeePounds: 0,
+    whatYouNeed: [
+      "Company number and authentication code",
+      "PSC full name, date of birth, nationality, and residential address",
+      "Nature of control (shareholding / voting bands)",
+      "Companies House personal code after identity verification",
+    ],
+    importantNotes: [
+      "PSC verification may also need a separate PSC verification statement depending on timing.",
+    ],
+    govUkLinks: [
+      { label: "PSC guidance", url: "https://www.gov.uk/guidance/people-with-significant-control-pscs" },
+      { label: "Personal codes guidance", url: CH_GUIDANCE.personalCodes },
+    ],
+    formFields: [
+      { name: "companyNumber", label: "Company number", type: "text", required: true },
+      { name: "companyAuthCode", label: "Company authentication code", type: "text", required: true, sensitive: true },
+      { name: "forename", label: "Forename(s)", type: "text", required: true },
+      { name: "surname", label: "Surname", type: "text", required: true },
+      { name: "dateOfBirth", label: "Date of birth", type: "date", required: true },
+      { name: "notificationDate", label: "Notification date", type: "date", required: true },
+      { name: "personalCode", label: "Personal code", type: "text", required: true, sensitive: true },
+      { name: "residentialAddress", label: "Residential address", type: "textarea", required: true, sensitive: true },
+      { name: "naturesOfControlJson", label: "Nature of control", type: "textarea", required: true },
+      { name: "consentAck", label: "PSC consent", type: "checkbox", required: true },
+    ],
+    requiresPersonalCodes: true,
+  },
+  {
+    id: "change-psc",
+    title: "Change PSC details",
+    summary: "Update nature of control or other PSC register details (PSC04).",
+    channel: "Software",
+    chFeePounds: 0,
+    whatYouNeed: [
+      "Company number and authentication code",
+      "PSC name as on the register",
+      "Updated nature of control",
+      "Change date",
+    ],
+    importantNotes: [],
+    govUkLinks: [
+      { label: "PSC guidance", url: "https://www.gov.uk/guidance/people-with-significant-control-pscs" },
+    ],
+    formFields: [
+      { name: "companyNumber", label: "Company number", type: "text", required: true },
+      { name: "companyAuthCode", label: "Company authentication code", type: "text", required: true, sensitive: true },
+      { name: "pscName", label: "PSC name", type: "text", required: true },
+      { name: "forename", label: "Forename(s)", type: "text", required: true },
+      { name: "surname", label: "Surname", type: "text", required: true },
+      { name: "changeDate", label: "Change date", type: "date", required: true },
+      { name: "naturesOfControlJson", label: "Nature of control", type: "textarea", required: true },
+    ],
+  },
+  {
+    id: "cease-psc",
+    title: "Cease PSC",
+    summary:
+      "Remove someone from the PSC register when they cease to have significant control (PSC07).",
+    channel: "Software",
+    chFeePounds: 0,
+    whatYouNeed: [
+      "Company number and authentication code",
+      "PSC name as on the register",
+      "Cessation date",
+    ],
+    importantNotes: [],
+    govUkLinks: [
+      { label: "PSC guidance", url: "https://www.gov.uk/guidance/people-with-significant-control-pscs" },
+    ],
+    formFields: [
+      { name: "companyNumber", label: "Company number", type: "text", required: true },
+      { name: "companyAuthCode", label: "Company authentication code", type: "text", required: true, sensitive: true },
+      { name: "pscName", label: "PSC name", type: "text", required: true },
+      { name: "forename", label: "Forename(s)", type: "text", required: true },
+      { name: "surname", label: "Surname", type: "text", required: true },
+      { name: "cessationDate", label: "Cessation date", type: "date", required: true },
+    ],
+  },
+  {
+    id: "return-of-allotment",
+    title: "Allot new shares",
+    summary:
+      "File a return of allotment of shares (SH01) when the company issues new shares.",
+    channel: "Software",
+    chFeePounds: 0,
+    whatYouNeed: [
+      "Company number and authentication code",
+      "Allotment date, share class, number of shares, and nominal value",
+      "Allottee name and address",
+      "Updated statement of capital figures",
+    ],
+    importantNotes: [
+      "Share transfers between existing shareholders are usually handled separately from allotments of new shares.",
+    ],
+    govUkLinks: [
+      { label: "Issue shares", url: "https://www.gov.uk/guidance/issue-shares" },
+    ],
+    formFields: [
+      { name: "companyNumber", label: "Company number", type: "text", required: true },
+      { name: "companyAuthCode", label: "Company authentication code", type: "text", required: true, sensitive: true },
+      { name: "allotmentDate", label: "Allotment date", type: "date", required: true },
+      { name: "shareClass", label: "Share class", type: "text", required: true },
+      { name: "numShares", label: "Number of shares", type: "text", required: true },
+      { name: "nominalValue", label: "Nominal value", type: "text", required: true },
+      { name: "allotteeForename", label: "Allottee forename", type: "text", required: true },
+      { name: "allotteeSurname", label: "Allottee surname", type: "text", required: true },
+      { name: "allotteeAddress", label: "Allottee address", type: "textarea", required: true },
+    ],
+  },
+  {
     id: "dissolve-company",
     title: "Dissolve company",
     summary:
       "Apply to strike off a company (DS01) when it is eligible for voluntary dissolution.",
     channel: "Digital",
     chFeePounds: 33,
-    hydraFeePounds: HYDRA_SERVICE_FEE_POUNDS,
     whatYouNeed: [
       "Company number and authentication code",
       "Confirmation the company is eligible to strike off",
@@ -683,20 +806,23 @@ export const COMPANY_AUTH_CODE_FIELD: ChFormField = {
 };
 
 export function chServiceTotal(
-  service: ChServiceDetail,
+  service: Pick<ChServiceDetail, "id" | "chFeePounds">,
   tier: DeskPlanTier = "solo",
 ) {
   return hydraTotal(service.chFeePounds, service.id, tier);
 }
 
+export function formatChServicePrice(
+  service: Pick<ChServiceDetail, "id" | "chFeePounds">,
+  tier: DeskPlanTier = "solo",
+) {
+  return formatGBP(chServiceTotal(service, tier));
+}
+
+/** @deprecated Use formatChServicePrice — returns single total only. */
 export function formatChFeeBreakdown(
   service: ChServiceDetail,
   tier: DeskPlanTier = "solo",
 ) {
-  const hydra = hydraFeeForChService(service.id, tier);
-  return {
-    statutory: formatGBP(service.chFeePounds),
-    hydra: formatGBP(hydra),
-    total: formatGBP(chServiceTotal(service, tier)),
-  };
+  return { total: formatChServicePrice(service, tier) };
 }

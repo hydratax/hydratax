@@ -226,11 +226,17 @@ function friendlyAuthMessage(raw: string): string {
   if (m.includes("email not confirmed") || m.includes("not confirmed")) {
     return "Confirm your email from the link we sent, then sign in again.";
   }
-  if (m.includes("already registered") || m.includes("already been registered")) {
-    return "An account with this email already exists. Sign in instead.";
+  if (
+    m.includes("already registered") ||
+    m.includes("already been registered") ||
+    m.includes("already exists") ||
+    m.includes("identity_already_exists") ||
+    m.includes("email address is already associated")
+  ) {
+    return "An account with this email already exists. Sign in with your password, or use Forgot password.";
   }
   if (m.includes("pkce") || m.includes("code verifier") || m.includes("not found in storage")) {
-    return "Google sign-in did not finish. Please try again, or use email and password.";
+    return "Google sign-in did not finish. If you already have an account with this email, sign in with your password or use Forgot password.";
   }
   if (m.includes("rate limit") || m.includes("too many")) {
     return "Too many attempts. Wait a minute and try again.";

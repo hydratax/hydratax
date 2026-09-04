@@ -1,127 +1,28 @@
 import type { ParsedCsFilingInput } from "./personal-codes";
 import { getChFilingEnv } from "./config";
-import {
-  buildPresenterAuthenticationXml,
-  resolveChPackageReference,
-  sixCharSubmissionNumber,
-  xmlEscape,
-} from "./gateway-auth";
-
-function splitName(fullName: string) {
-  const cleaned = fullName.replace(/,/g, " ").trim();
-  const parts = cleaned.split(/\s+/).filter(Boolean);
-  if (parts.length === 1) return { forename: parts[0], surname: parts[0] };
-  return {
-    forename: parts.slice(0, -1).join(" "),
-    surname: parts[parts.length - 1]!,
-  };
-}
+import { buildFormSubmissionEnvelope } from "./form-envelope";
+import { buildCs01FormBody, resolveCs01MessageClass } from "./cs01-xml";
+import { logChGatewayXmlPayload } from "./ch-xml-log";
+import { validatePresenterCredentials } from "./gateway-auth";
 
 /**
  * Builds a CS01 XML payload for the Companies House software filing gateway.
  *
- * Required per GOV.UK software filing guidance:
- * - Presenter ID + presenter authentication code (authorises fee to credit account)
- * - Company authentication code (per company)
- * - Director personal codes when identity verification is required
+ * Class + FormIdentifier always match the root form element
+ * (ConfirmationAndVerificationStatement when personal codes are present).
  */
 export function buildConfirmationStatementXml(input: ParsedCsFilingInput) {
-  getChFilingEnv(); // validate env readable
-  const packageRef = resolveChPackageReference();
-  const submissionNumber = sixCharSubmissionNumber();
-  const dateSigned = new Date().toISOString().slice(0, 10);
-  const reviewDate = input.confirmationDate;
-  const needsVerification = input.directors.some((d) => d.personalCode?.trim());
-
-  const directorsXml = input.directors
-    .map((d) => {
-      const names = splitName(d.fullName);
-      const forename = d.forename || names.forename;
-      const surname = d.surname || names.surname;
-      const title = d.title ? `<Title>${xmlEscape(d.title)}</Title>` : "";
-      const mismatch = d.nameMismatchReason
-        ? `<NameMismatchReason>${xmlEscape(d.nameMismatchReason)}</NameMismatchReason>`
-        : "";
-      return `
-                <Director>
-                  <Person>
-                    ${title}
-                    <Forename>${xmlEscape(forename)}</Forename>
-                    <Surname>${xmlEscape(surname)}</Surname>
-                    <DOB>${xmlEscape(d.dateOfBirth)}</DOB>
-                    <VerificationDetails>
-                      <CompaniesHousePersonalCode>${xmlEscape(d.personalCode)}</CompaniesHousePersonalCode>
-                      <VerificationStatements>
-                        <VerificationStatementForIndividual>INDIVIDUAL_VERIFIED</VerificationStatementForIndividual>
-                      </VerificationStatements>
-                      ${mismatch}
-                    </VerificationDetails>
-                  </Person>
-                </Director>`;
-    })
-    .join("");
-
-  const emailXml = input.registeredEmail
-    ? `<RegisteredEmailAddress>${xmlEscape(input.registeredEmail)}</RegisteredEmailAddress>`
-    : "";
-
-  const formBody = needsVerification
-    ? `<ConfirmationAndVerificationStatement xmlns="http://xmlgw.companieshouse.gov.uk" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://xmlgw.companieshouse.gov.uk http://xmlgw.companieshouse.gov.uk/v1-0/schema/forms/ConfirmationAndVerificationStatement-v1-0.xsd">
-          <TradingOnMarket>false</TradingOnMarket>
-          <DTR5Applies>false</DTR5Applies>
-          <PSCExemptAsTradingOnRegulatedMarket>false</PSCExemptAsTradingOnRegulatedMarket>
-          <PSCExemptAsSharesAdmittedOnMarket>false</PSCExemptAsSharesAdmittedOnMarket>
-          <PSCExemptAsTradingOnUKRegulatedMarket>false</PSCExemptAsTradingOnUKRegulatedMarket>
-          <ReviewDate>${xmlEscape(reviewDate)}</ReviewDate>
-          ${emailXml}
-          <AcceptLawfulPurposeStatement>true</AcceptLawfulPurposeStatement>
-          <StateConfirmation>true</StateConfirmation>
-          <VerificationStatement>${directorsXml}
-          </VerificationStatement>
-        </ConfirmationAndVerificationStatement>`
-    : `<ConfirmationStatement xmlns="http://xmlgw.companieshouse.gov.uk" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://xmlgw.companieshouse.gov.uk http://xmlgw.companieshouse.gov.uk/v1-0/schema/forms/ConfirmationStatement-v1-3.xsd">
-          <ReviewDate>${xmlEscape(reviewDate)}</ReviewDate>
-          ${emailXml}
-          <AcceptLawfulPurposeStatement>true</AcceptLawfulPurposeStatement>
-          <StateConfirmation>true</StateConfirmation>
-        </ConfirmationStatement>`;
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope">
-  <EnvelopeVersion>2.0</EnvelopeVersion>
-  <Header>
-    <MessageDetails>
-      <Class>ConfirmationStatement</Class>
-      <Qualifier>request</Qualifier>
-      <Function>submit</Function>
-      <Transformation>XML</Transformation>
-    </MessageDetails>
-    <SenderDetails>
-      ${buildPresenterAuthenticationXml()}
-    </SenderDetails>
-  </Header>
-  <GovTalkDetails>
-    <Keys/>
-  </GovTalkDetails>
-  <Body>
-    <FormSubmission xmlns="http://xmlgw.companieshouse.gov.uk/Header" xmlns:bs="http://xmlgw.companieshouse.gov.uk" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://xmlgw.companieshouse.gov.uk/Header http://xmlgw.companieshouse.gov.uk/v1-0/schema/forms/FormSubmission-v2-11.xsd">
-      <FormHeader>
-        <CompanyNumber>${xmlEscape(input.companyNumber.replace(/\D/g, ""))}</CompanyNumber>
-        <CompanyType>EW</CompanyType>
-        <CompanyName>${xmlEscape(input.companyName)}</CompanyName>
-        <CompanyAuthenticationCode>${xmlEscape(input.companyAuthCode.toUpperCase())}</CompanyAuthenticationCode>
-        <PackageReference>${xmlEscape(packageRef)}</PackageReference>
-        <Language>EN</Language>
-        <FormIdentifier>ConfirmationStatement</FormIdentifier>
-        <SubmissionNumber>${xmlEscape(submissionNumber)}</SubmissionNumber>
-      </FormHeader>
-      <DateSigned>${dateSigned}</DateSigned>
-      <Form>
-        ${formBody}
-      </Form>
-    </FormSubmission>
-  </Body>
-</GovTalkMessage>`;
+  getChFilingEnv();
+  const formClass = resolveCs01MessageClass(input);
+  const formBody = buildCs01FormBody(input);
+  return buildFormSubmissionEnvelope({
+    messageClass: formClass,
+    formIdentifier: formClass,
+    companyNumber: input.companyNumber,
+    companyName: input.companyName,
+    companyAuthCode: input.companyAuthCode,
+    formBody,
+  });
 }
 
 export type XmlGatewayResponse = {
@@ -134,23 +35,23 @@ export type XmlGatewayResponse = {
 export async function submitConfirmationStatementXml(
   xml: string,
 ): Promise<XmlGatewayResponse> {
-  return postXmlToGateway(xml);
+  return postXmlToGateway(xml, "CS01");
 }
 
 export async function submitCompanyIncorporationXml(
   xml: string,
 ): Promise<XmlGatewayResponse> {
-  return postXmlToGateway(xml);
+  return postXmlToGateway(xml, "IN01");
 }
 
-async function postXmlToGateway(xml: string): Promise<XmlGatewayResponse> {
+export async function postXmlToGateway(
+  xml: string,
+  label = "CH",
+): Promise<XmlGatewayResponse> {
   const cfg = getChFilingEnv();
-  if (!cfg.presenterId || !cfg.presenterAuthCode) {
-    return {
-      ok: false,
-      error:
-        "Companies House presenter credentials are not configured. Contact support.",
-    };
+  const presenterCheck = validatePresenterCredentials();
+  if (!presenterCheck.ok) {
+    return { ok: false, error: presenterCheck.error };
   }
   if (cfg.live && !cfg.creditAccountNumber) {
     return {
@@ -160,12 +61,38 @@ async function postXmlToGateway(xml: string): Promise<XmlGatewayResponse> {
     };
   }
 
+  const bodyMatch = xml.match(/<Body>([\s\S]*?)<\/Body>/i);
+  if (
+    !bodyMatch ||
+    !/<FormSubmission/i.test(bodyMatch[1] ?? "") ||
+    bodyMatch[1]!.replace(/\s+/g, "").length === 0
+  ) {
+    return {
+      ok: false,
+      error:
+        "CS01 XML envelope is incomplete — FormSubmission body is missing. Contact support.",
+    };
+  }
+
+  if (cfg.gatewayMismatch) {
+    return {
+      ok: false,
+      error: cfg.gatewayMismatch,
+    };
+  }
+
+  logChGatewayXmlPayload(label, xml);
+  console.info(
+    `[ch.gateway] ${label} env=${cfg.label} host=${cfg.xmlGatewayHostKind} url=${cfg.xmlGatewayUrl} gatewayTest=${cfg.gatewayTest ? 1 : 0}`,
+  );
+
   try {
     const res = await fetch(cfg.xmlGatewayUrl, {
       method: "POST",
       headers: {
-        "Content-Type": "application/xml",
-        Accept: "application/xml",
+        // CH interface spec: Content-Type text/xml
+        "Content-Type": "text/xml",
+        Accept: "application/xml, text/xml",
       },
       body: xml,
     });

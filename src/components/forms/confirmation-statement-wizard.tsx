@@ -109,6 +109,7 @@ export function ConfirmationStatementWizard({
   const [companyAuthCode, setCompanyAuthCode] = useState(
     defaults?.companyAuthCode ?? "",
   );
+  const [registeredEmail, setRegisteredEmail] = useState("");
   const [lawful, setLawful] = useState(false);
   const [registerConfirmed, setRegisterConfirmed] = useState(false);
   const [sicCodes, setSicCodes] = useState(
@@ -128,6 +129,35 @@ export function ConfirmationStatementWizard({
 
   const companyName = register?.companyName ?? "";
   const confirmationDate = register?.confirmationDate ?? "";
+
+  function parsedSicCodes() {
+    return [
+      ...new Set(
+        sicCodes
+          .split(/[,;\s]+/)
+          .map((c) => c.trim())
+          .filter((c) => /^\d{5}$/.test(c)),
+      ),
+    ];
+  }
+
+  function filingPayload() {
+    return {
+      companyNumber,
+      companyName,
+      confirmationDate,
+      companyAuthCode,
+      registeredEmail: registeredEmail.trim(),
+      lawfulPurposeConfirmed: true as const,
+      sicCodes: parsedSicCodes(),
+      directors: directors.map(({ fullName, dateOfBirth, personalCode }) => ({
+        fullName,
+        dateOfBirth,
+        personalCode,
+      })),
+      clientId: defaults?.clientId || undefined,
+    };
+  }
 
   const steps = useMemo(
     () => ["Company", "Confirm register", "Identity codes", "File"],
@@ -419,6 +449,27 @@ export function ConfirmationStatementWizard({
             without this code.
           </p>
 
+          <label className="label" htmlFor="cs-registered-email">
+            Registered email address
+            <span className="font-normal text-danger"> *</span>
+            <input
+              id="cs-registered-email"
+              type="email"
+              className={`input mt-1.5 ${
+                !registeredEmail.trim() ? "border-sea/40" : ""
+              }`}
+              value={registeredEmail}
+              onChange={(e) => setRegisteredEmail(e.target.value)}
+              placeholder="company@example.com"
+              autoComplete="email"
+              required
+            />
+          </label>
+          <p className="text-xs text-ink-soft">
+            ECCTA requires the company registered email on confirmation
+            statements.
+          </p>
+
           <label className="flex items-start gap-2 text-sm text-ink">
             <input
               type="checkbox"
@@ -650,6 +701,10 @@ export function ConfirmationStatementWizard({
                   );
                   return;
                 }
+                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(registeredEmail.trim())) {
+                  setError("Enter the company registered email address.");
+                  return;
+                }
               }
               if (step === 1 && !registerConfirmed) {
                 setError("Confirm the register details before continuing.");
@@ -686,21 +741,9 @@ export function ConfirmationStatementWizard({
                 setError(null);
                 setMessage(null);
                 start(async () => {
-                  const prepared = await prepareConfirmationStatementFiling({
-                    companyNumber,
-                    companyName,
-                    confirmationDate,
-                    companyAuthCode,
-                    lawfulPurposeConfirmed: true as const,
-                    directors: directors.map(
-                      ({ fullName, dateOfBirth, personalCode }) => ({
-                        fullName,
-                        dateOfBirth,
-                        personalCode,
-                      }),
-                    ),
-                    clientId: defaults?.clientId || undefined,
-                  });
+                  const prepared = await prepareConfirmationStatementFiling(
+                    filingPayload(),
+                  );
                   if (!prepared.ok) {
                     setError(prepared.error);
                     return;
@@ -735,21 +778,9 @@ export function ConfirmationStatementWizard({
                 start(async () => {
                   let id = filingId;
                   if (!id) {
-                    const prepared = await prepareConfirmationStatementFiling({
-                      companyNumber,
-                      companyName,
-                      confirmationDate,
-                      companyAuthCode,
-                      lawfulPurposeConfirmed: true as const,
-                      directors: directors.map(
-                        ({ fullName, dateOfBirth, personalCode }) => ({
-                          fullName,
-                          dateOfBirth,
-                          personalCode,
-                        }),
-                      ),
-                      clientId: defaults?.clientId || undefined,
-                    });
+                    const prepared = await prepareConfirmationStatementFiling(
+                      filingPayload(),
+                    );
                     if (!prepared.ok) {
                       setError(prepared.error);
                       return;

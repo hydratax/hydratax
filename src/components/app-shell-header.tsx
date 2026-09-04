@@ -8,8 +8,8 @@ import { signOutSupabase } from "@/server/actions/auth";
 type NavItem = { href: string; label: string };
 
 /**
- * Practice desk header — Services dropdown, top links, and account menu
- * (person icon) for profile, team, and sign-out.
+ * Practice desk header — desktop links + account menu;
+ * mobile uses a hamburger for Services / nav / account actions.
  */
 export function AppShellHeader({
   serviceItems,
@@ -26,6 +26,7 @@ export function AppShellHeader({
 }) {
   const [servicesOpen, setServicesOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const servicesRef = useRef<HTMLDivElement>(null);
   const accountRef = useRef<HTMLDivElement>(null);
   const [pending, start] = useTransition();
@@ -51,6 +52,7 @@ export function AppShellHeader({
       if (e.key === "Escape") {
         setServicesOpen(false);
         setAccountOpen(false);
+        setMobileOpen(false);
       }
     }
     document.addEventListener("mousedown", onDocClick);
@@ -61,10 +63,36 @@ export function AppShellHeader({
     };
   }, []);
 
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [mobileOpen]);
+
+  function closeMobile() {
+    setMobileOpen(false);
+    setServicesOpen(false);
+    setAccountOpen(false);
+  }
+
+  function signOut() {
+    closeMobile();
+    start(async () => {
+      await signOutSupabase();
+    });
+  }
+
   return (
     <header className="sticky top-0 z-30 border-b border-line/80 bg-white/90 backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-6">
-        <Link href="/dashboard" className="inline-flex shrink-0 items-center gap-2.5">
+        <Link
+          href="/dashboard"
+          className="inline-flex min-w-0 shrink-0 items-center gap-2.5"
+          onClick={closeMobile}
+        >
           <Image
             src="/brand/logo.png"
             alt="HydraTax"
@@ -73,12 +101,13 @@ export function AppShellHeader({
             className="object-contain"
             priority
           />
-          <span className="display text-lg font-semibold text-ink sm:text-xl">
+          <span className="display truncate text-lg font-semibold text-ink sm:text-xl">
             HydraTax
           </span>
         </Link>
 
-        <nav className="flex flex-1 flex-wrap items-center justify-end gap-x-3 gap-y-2 text-sm font-semibold text-ink-soft sm:gap-x-5">
+        {/* Desktop nav */}
+        <nav className="hidden flex-1 flex-wrap items-center justify-end gap-x-3 gap-y-2 text-sm font-semibold text-ink-soft md:flex sm:gap-x-5">
           {serviceItems.length > 0 && (
             <div className="relative" ref={servicesRef}>
               <button
@@ -181,12 +210,7 @@ export function AppShellHeader({
                     role="menuitem"
                     disabled={pending}
                     className="block w-full px-4 py-2 text-left text-ink-soft hover:bg-sand hover:text-ink disabled:opacity-60"
-                    onClick={() => {
-                      setAccountOpen(false);
-                      start(async () => {
-                        await signOutSupabase();
-                      });
-                    }}
+                    onClick={signOut}
                   >
                     {pending ? "Signing out…" : "Sign out"}
                   </button>
@@ -195,7 +219,108 @@ export function AppShellHeader({
             )}
           </div>
         </nav>
+
+        {/* Mobile: avatar + hamburger */}
+        <div className="flex items-center gap-2 md:hidden">
+          {accessBadge ? (
+            <span className="badge badge-muted max-w-[7rem] truncate">
+              {accessBadge}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-line text-ink"
+            aria-expanded={mobileOpen}
+            aria-controls="app-mobile-nav"
+            aria-label={mobileOpen ? "Close menu" : "Open menu"}
+            onClick={() => setMobileOpen((v) => !v)}
+          >
+            {mobileOpen ? (
+              <span className="text-lg leading-none" aria-hidden>
+                ×
+              </span>
+            ) : (
+              <span className="flex flex-col gap-1.5" aria-hidden>
+                <span className="block h-0.5 w-4 bg-current" />
+                <span className="block h-0.5 w-4 bg-current" />
+                <span className="block h-0.5 w-4 bg-current" />
+              </span>
+            )}
+          </button>
+        </div>
       </div>
+
+      {mobileOpen && (
+        <div
+          id="app-mobile-nav"
+          className="border-t border-line bg-white px-4 py-4 shadow-lg md:hidden"
+        >
+          <nav className="flex flex-col gap-1 text-sm font-semibold">
+            {userEmail ? (
+              <p className="truncate px-3 pb-2 text-xs text-ink-soft">
+                {userEmail}
+              </p>
+            ) : null}
+
+            {serviceItems.length > 0 && (
+              <>
+                <p className="px-2 pb-1 text-xs font-bold uppercase tracking-[0.14em] text-ink-soft">
+                  Services
+                </p>
+                {serviceItems.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="rounded-lg px-3 py-2.5 text-ink hover:bg-sand"
+                    onClick={closeMobile}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+                <div className="my-2 border-t border-line" />
+              </>
+            )}
+
+            {links.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="rounded-lg px-3 py-2.5 text-ink hover:bg-sand"
+                onClick={closeMobile}
+              >
+                {item.label}
+              </Link>
+            ))}
+
+            <div className="my-2 border-t border-line" />
+
+            <Link
+              href="/settings/account"
+              className="rounded-lg px-3 py-2.5 text-ink hover:bg-sand"
+              onClick={closeMobile}
+            >
+              Account
+            </Link>
+            {canManageTeam ? (
+              <Link
+                href="/settings/team"
+                className="rounded-lg px-3 py-2.5 text-ink hover:bg-sand"
+                onClick={closeMobile}
+              >
+                Team & roles
+              </Link>
+            ) : null}
+            <button
+              type="button"
+              disabled={pending}
+              className="rounded-lg px-3 py-2.5 text-left text-ink hover:bg-sand disabled:opacity-60"
+              onClick={signOut}
+            >
+              {pending ? "Signing out…" : "Sign out"}
+            </button>
+          </nav>
+        </div>
+      )}
     </header>
   );
 }

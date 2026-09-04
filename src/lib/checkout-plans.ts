@@ -9,7 +9,13 @@ import {
   customPlanKey,
   parseCustomPlanSelection,
   type CustomPlanSelection,
+  type DeskPlanTier,
 } from "@/lib/pricing";
+import {
+  getChService,
+  chServiceTotal,
+  formatChServicePrice,
+} from "@/lib/ch-services";
 
 export type CheckoutPlan = {
   key: string;
@@ -47,7 +53,7 @@ export function listCheckoutPlans(): CheckoutPlan[] {
       name: `Companies House — ${service.title}`,
       amountPence: hydraTotal(service.chFeePounds, service.id, "solo") * 100,
       interval: "one_time",
-      description: `CH ${formatGBP(service.chFeePounds)} + Hydra ${formatGBP(hydraSolo)}`,
+      description: `${service.title} — ${formatGBP(hydraTotal(service.chFeePounds, service.id, "solo"))}`,
     });
     const hydraDesk = hydraFeeForChService(service.id, "desk");
     if (hydraDesk !== hydraSolo) {
@@ -57,7 +63,7 @@ export function listCheckoutPlans(): CheckoutPlan[] {
         name: `Companies House — ${service.title} (desk rate)`,
         amountPence: hydraTotal(service.chFeePounds, service.id, "desk") * 100,
         interval: "one_time",
-        description: `CH ${formatGBP(service.chFeePounds)} + Hydra ${formatGBP(hydraDesk)} (Practice / Custom)`,
+        description: `${service.title} (desk) — ${formatGBP(hydraTotal(service.chFeePounds, service.id, "desk"))}`,
       });
     }
   }
@@ -68,6 +74,23 @@ export function listCheckoutPlans(): CheckoutPlan[] {
 export function getCheckoutPlan(key: string): CheckoutPlan | undefined {
   const listed = listCheckoutPlans().find((p) => p.key === key);
   if (listed) return listed;
+
+  if (key.startsWith("companies-house:")) {
+    const tier: DeskPlanTier = key.endsWith(":desk") ? "desk" : "solo";
+    const serviceId = key
+      .replace("companies-house:", "")
+      .replace(/:desk$/, "");
+    const service = getChService(serviceId);
+    if (!service) return undefined;
+    return {
+      key,
+      sectionId: "companies-house",
+      name: `Companies House — ${service.title}${tier === "desk" ? " (desk rate)" : ""}`,
+      amountPence: chServiceTotal(service, tier) * 100,
+      interval: "one_time",
+      description: `${service.title} — ${formatChServicePrice(service, tier)}`,
+    };
+  }
 
   if (key.startsWith("practice:Custom")) {
     const selection = parseCustomPlanSelection(key);

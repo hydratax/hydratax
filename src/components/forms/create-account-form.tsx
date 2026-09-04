@@ -11,6 +11,11 @@ import {
   AuthDivider,
   GoogleAuthButton,
 } from "@/components/forms/google-auth-button";
+import {
+  EXISTING_ACCOUNT_SIGN_IN_MESSAGE,
+  isExistingAccountAuthError,
+} from "@/lib/auth-errors";
+import Link from "next/link";
 
 const ORG_TYPES = [
   {
@@ -158,7 +163,11 @@ export function CreateAccountForm() {
                 startTrial: false,
               });
               if (!result.ok) {
-                setError(result.error);
+                setError(
+                  isExistingAccountAuthError(result.error)
+                    ? EXISTING_ACCOUNT_SIGN_IN_MESSAGE
+                    : result.error,
+                );
                 return;
               }
               router.push(
@@ -223,6 +232,13 @@ export function CreateAccountForm() {
             next={returnPath}
             orgType={orgType}
             label="Sign up with Google"
+            onError={(msg) => {
+              setError(
+                isExistingAccountAuthError(msg)
+                  ? EXISTING_ACCOUNT_SIGN_IN_MESSAGE
+                  : msg,
+              );
+            }}
           />
           <AuthDivider label="or use email" />
         </div>
@@ -294,7 +310,28 @@ export function CreateAccountForm() {
           </div>
         </section>
 
-        <FormErrorBanner error={error} title="Account creation blocked" />
+        <FormErrorBanner
+          error={error}
+          title={
+            error && isExistingAccountAuthError(error)
+              ? "Account already exists"
+              : "Account creation blocked"
+          }
+        />
+        {error && isExistingAccountAuthError(error) ? (
+          <p className="text-center text-sm text-ink-soft">
+            <Link href="/sign-in" className="font-semibold text-sea hover:underline">
+              Sign in
+            </Link>
+            {" · "}
+            <Link
+              href="/forgot-password"
+              className="font-semibold text-sea hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </p>
+        ) : null}
 
         <button
           type="submit"

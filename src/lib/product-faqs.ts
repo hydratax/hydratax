@@ -16,7 +16,7 @@ export const CH_SERVICE_FAQS: Record<string, FaqItem[]> = {
     },
     {
       q: "How much does incorporation cost?",
-      a: "Companies House charges £100 for digital/software incorporation (paper £124). Hydra adds its service fee on top.",
+      a: "Digital / software incorporation is £100 on the current Companies House fee schedule.",
     },
   ],
   "incorporation-same-day": [
@@ -46,7 +46,7 @@ export const CH_SERVICE_FAQS: Record<string, FaqItem[]> = {
   "accounts-ixbrl": [
     {
       q: "Is there a Companies House fee for accounts?",
-      a: "Standard software accounts delivery currently has a £0 statutory filing fee on the GOV.UK schedule. Hydra’s service fee still applies for preparation and submission support.",
+      a: "Standard software accounts delivery currently has a £0 statutory filing fee on the GOV.UK schedule.",
     },
     {
       q: "What accounts types can I file?",
@@ -62,7 +62,7 @@ export const CH_SERVICE_FAQS: Record<string, FaqItem[]> = {
   "change-of-name-same-day": [
     {
       q: "What is the same-day name change fee?",
-      a: "£85 digital/software per the Companies House fee schedule, plus Hydra’s service charge.",
+      a: "£85 digital/software per the Companies House fee schedule.",
     },
   ],
 };
@@ -129,7 +129,7 @@ export const PRODUCT_FAQS: Record<string, FaqItem[]> = {
   "companies-house": [
     {
       q: "Are fees official Companies House rates?",
-      a: "Statutory amounts follow the GOV.UK Companies House fees publication. Hydra adds a clear service fee. Links to GOV.UK appear on every service page.",
+      a: "Fees follow the current GOV.UK Companies House schedule. Each service page shows one total price.",
     },
     {
       q: "Can I look up directors from a company name?",
@@ -142,7 +142,7 @@ export function faqsForChService(serviceId: string): FaqItem[] {
   return CH_SERVICE_FAQS[serviceId] ?? [
     {
       q: "Where do fees come from?",
-      a: "Statutory fees are published by Companies House on GOV.UK. Hydra shows the breakdown on each service page.",
+      a: "Fees are published by Companies House on GOV.UK. Each service page shows one total price.",
     },
   ];
 }

@@ -30,7 +30,14 @@ export function humanizeActionError(
     return fallback;
   }
   if (/pkce|code verifier|not found in storage|auth flow was initiated/i.test(raw)) {
-    return "Google sign-in did not finish. Please try again in this browser, or use email and password.";
+    return "Google sign-in did not finish. If you already have an account with this email, sign in with your password or use Forgot password.";
+  }
+  if (
+    /already registered|already been registered|already exists|identity_already_exists|email address is already associated/i.test(
+      raw,
+    )
+  ) {
+    return "An account with this email already exists. Sign in with your password, or use Forgot password.";
   }
   if (/cannot read propert(y|ies) of null/i.test(raw) && /reset/i.test(raw)) {
     return "Saved successfully, but the form could not clear afterwards. Refresh the page if you still see this message.";

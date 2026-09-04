@@ -30,15 +30,22 @@ export function GoogleAuthButton({
   next = "/dashboard",
   orgType,
   label = "Continue with Google",
+  onError,
 }: {
   next?: string;
   orgType?: OrgType;
   label?: string;
+  onError?: (message: string) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   if (!isSupabaseConfigured()) return null;
+
+  function reportError(message: string) {
+    setError(message);
+    onError?.(message);
+  }
 
   async function startGoogle() {
     setError(null);
@@ -64,13 +71,13 @@ export function GoogleAuthButton({
       });
 
       if (oauthError) {
-        setError(oauthError.message);
+        reportError(oauthError.message);
         setPending(false);
         return;
       }
 
       if (!data?.url) {
-        setError(
+        reportError(
           "Could not start Google sign-in. Check Supabase Google provider settings.",
         );
         setPending(false);
@@ -79,7 +86,7 @@ export function GoogleAuthButton({
 
       // Verifier must be in a cookie before we leave this origin.
       if (!hasPkceVerifierCookie()) {
-        setError(
+        reportError(
           "Could not start Google sign-in securely. Allow cookies for this site and try again.",
         );
         setPending(false);
@@ -88,7 +95,7 @@ export function GoogleAuthButton({
 
       window.location.assign(data.url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Google sign-in failed");
+      reportError(err instanceof Error ? err.message : "Google sign-in failed");
       setPending(false);
     }
   }

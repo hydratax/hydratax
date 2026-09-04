@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { safeReturnPath } from "@/lib/auth-return";
+import { isExistingAccountAuthError } from "@/lib/auth-errors";
 
 const ORG_TYPES = new Set([
   "company",
@@ -33,18 +34,27 @@ export async function GET(request: NextRequest) {
   const orgType =
     orgTypeRaw && ORG_TYPES.has(orgTypeRaw) ? orgTypeRaw : null;
 
-  const fail = (reason?: string) => {
+  const fail = (reason?: string, code: "auth" | "account_exists" = "auth") => {
     // Prefer warn — console.error triggers the Next.js bottom-left error overlay in dev.
     if (reason) console.warn("[auth/callback]", reason);
+    const classified =
+      code === "account_exists" || isExistingAccountAuthError(reason)
+        ? "account_exists"
+        : "auth";
     const res = NextResponse.redirect(
-      `${origin}/sign-in?error=auth&next=${encodeURIComponent(next)}`,
+      `${origin}/sign-in?error=${classified}&next=${encodeURIComponent(next)}`,
     );
     res.cookies.set("ht_auth_next", "", { path: "/", maxAge: 0 });
     res.cookies.set("ht_auth_org", "", { path: "/", maxAge: 0 });
     return res;
   };
 
-  if (oauthError) return fail(`oauth error: ${oauthError}`);
+  if (oauthError) {
+    return fail(
+      `oauth error: ${oauthError}`,
+      isExistingAccountAuthError(oauthError) ? "account_exists" : "auth",
+    );
+  }
   if (!code) return fail("missing code");
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -69,7 +79,10 @@ export async function GET(request: NextRequest) {
 
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
-    return fail(error.message);
+    return fail(
+      error.message,
+      isExistingAccountAuthError(error.message) ? "account_exists" : "auth",
+    );
   }
 
   const {

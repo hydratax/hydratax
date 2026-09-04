@@ -18,6 +18,7 @@ export type Cs01CheckoutDraft = {
     dateOfBirth: string;
     personalCode: string;
   }[];
+  registeredEmail: string;
   companyAuthCode: string;
   confirmed: boolean;
   updatedAt: string;

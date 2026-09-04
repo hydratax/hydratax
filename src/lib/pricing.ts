@@ -1,14 +1,18 @@
-/** Hydra service fee added on top of statutory Companies House charges. */
-export const HYDRA_SERVICE_FEE_POUNDS = 25;
+/** Service fee included in the single Companies House price (incorporation is £0). */
+export const HYDRA_SERVICE_FEE_POUNDS = 5;
+
+const INCORPORATION_SERVICE_IDS = new Set([
+  "incorporation",
+  "incorporation-same-day",
+]);
 
 /**
- * Discounted Hydra fees for Practice and Custom desk plans (not Solo).
- * Confirmation statements and iXBRL accounts are £0 Hydra on desk plans
- * (unlimited filings included). Incorporation stays at £5 Hydra.
+ * Practice and Custom desk plans — CH filings included on the desk.
+ * Incorporation has no added fee; CS and accounts are unlimited at £0 add-on.
  */
 export const HYDRA_CH_DESK_FEES = {
-  incorporation: 5,
-  "incorporation-same-day": 5,
+  incorporation: 0,
+  "incorporation-same-day": 0,
   "confirmation-statement": 0,
   "accounts-ixbrl": 0,
 } as const;
@@ -28,6 +32,7 @@ export function hydraFeeForChService(
   serviceId: string,
   tier: DeskPlanTier = "solo",
 ) {
+  if (INCORPORATION_SERVICE_IDS.has(serviceId)) return 0;
   if (tier === "desk") {
     const discounted =
       HYDRA_CH_DESK_FEES[serviceId as keyof typeof HYDRA_CH_DESK_FEES];
@@ -252,7 +257,7 @@ export const COMPANIES_HOUSE_SERVICES: ChService[] = [
     id: "accounts-ixbrl",
     title: "Annual accounts (iXBRL)",
     description:
-      "File statutory accounts to Companies House. Statutory filing fee is £0; Hydra prepares and submits.",
+      "File statutory accounts to Companies House. Statutory filing fee is £0.",
     channel: "Software",
     chFeePounds: 0,
     popular: true,
@@ -283,9 +288,9 @@ export function formatGBP(n: number) {
 }
 
 const DESK_CH_FEATURES = [
-  "New company incorporation — £5 Hydra fee",
-  "Confirmation statement — unlimited · £0 Hydra",
-  "CH annual accounts — unlimited · £0 Hydra",
+  "New company incorporation",
+  "Confirmation statement — unlimited on desk",
+  "CH annual accounts — unlimited on desk",
 ] as const;
 
 /** Software / practice pricing — separate sections on /pricing */
@@ -483,13 +488,13 @@ export const PRICING_SECTIONS = [
   {
     id: "companies-house",
     title: "Companies House filings",
-    subtitle: `Statutory fee + Hydra service (Solo £${HYDRA_SERVICE_FEE_POUNDS}; Practice/Custom: incorporation £5 Hydra, CS & accounts £0 Hydra)`,
+    subtitle: "Statutory Companies House fees — one price per filing",
     plans: [
       {
         name: "Confirmation statement",
         price: hydraTotal(50, "confirmation-statement", "desk"),
         period: "/filing",
-        blurb: "CH £50 + Hydra £0 on Practice/Custom desk",
+        blurb: "Digital CS01 with director personal codes",
         features: [
           "Digital CS01",
           "Unlimited on desk plans",
@@ -503,7 +508,7 @@ export const PRICING_SECTIONS = [
         name: "Incorporation",
         price: hydraTotal(100, "incorporation", "desk"),
         period: "/filing",
-        blurb: "CH £100 + Hydra £5 on Practice/Custom desk",
+        blurb: "Guided IN01 with live name check",
         features: [
           "New company incorporation",
           "Guided company details",
@@ -517,7 +522,7 @@ export const PRICING_SECTIONS = [
         name: "iXBRL accounts",
         price: hydraTotal(0, "accounts-ixbrl", "desk"),
         period: "/filing",
-        blurb: "CH £0 + Hydra £0 on Practice/Custom desk",
+        blurb: "Software accounts filing with iXBRL",
         features: [
           "Software accounts filing",
           "Unlimited on desk plans",

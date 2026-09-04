@@ -62,7 +62,7 @@ begin
   ) then
     alter table public.practice_members
       add column module_access text not null default 'full'
-      check (module_access in ('full', 'payroll', 'vat', 'corporation_tax'));
+      check (module_access in ('full', 'payroll', 'vat', 'corporation_tax', 'invoices', 'self_assessment'));
   end if;
   if not exists (
     select 1 from information_schema.columns

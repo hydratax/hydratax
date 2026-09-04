@@ -55,8 +55,8 @@ export function TeamAdmin({
       >
         <h2 className="display text-2xl text-ink">Add team member</h2>
         <p className="text-sm text-ink-soft">
-          Choose payroll (PAYE), VAT, or corporation tax. The teammate must
-          already have a HydraTax login with this email.
+          Choose payroll, VAT, corporation tax, invoices, or Self Assessment.
+          The teammate must already have a HydraTax login with this email.
         </p>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block text-sm font-semibold text-ink">

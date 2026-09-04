@@ -1,6 +1,50 @@
 import { createHash, randomBytes } from "crypto";
 import { getChFilingEnv } from "./config";
 
+/** Software presenter ID and authentication code are always 11 characters. */
+export const CH_PRESENTER_CREDENTIAL_PATTERN = /^[A-Z0-9]{11}$/i;
+
+export type PresenterCredentialCheck =
+  | { ok: true }
+  | { ok: false; error: string };
+
+/** Reject WebFiling-style email credentials and malformed presenter values. */
+export function validatePresenterCredentials(): PresenterCredentialCheck {
+  const cfg = getChFilingEnv();
+  if (!cfg.presenterId || !cfg.presenterAuthCode) {
+    return {
+      ok: false,
+      error:
+        "Companies House presenter credentials are not configured. Contact support.",
+    };
+  }
+  if (
+    cfg.presenterId.includes("@") ||
+    cfg.presenterAuthCode.includes("@")
+  ) {
+    return {
+      ok: false,
+      error:
+        "WebFiling email credentials cannot be used for XML gateway submissions — use the 11-character software presenter ID and authentication code.",
+    };
+  }
+  if (!CH_PRESENTER_CREDENTIAL_PATTERN.test(cfg.presenterId)) {
+    return {
+      ok: false,
+      error:
+        "Companies House presenter ID must be exactly 11 letters or digits (software filing account).",
+    };
+  }
+  if (!CH_PRESENTER_CREDENTIAL_PATTERN.test(cfg.presenterAuthCode)) {
+    return {
+      ok: false,
+      error:
+        "Companies House presenter authentication code must be exactly 11 letters or digits.",
+    };
+  }
+  return { ok: true };
+}
+
 /** Incrementing numeric transaction id for CHMD5 (output gateway). */
 let softwareFilingTxn = Date.now();
 

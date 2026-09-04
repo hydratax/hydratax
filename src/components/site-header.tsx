@@ -23,6 +23,7 @@ const NAV_LINKS = [
 
 /**
  * Shared public header: Services dropdown · Pricing · Companies House · Sign in · Sign up.
+ * Mobile: hamburger only (auth links live inside the menu).
  */
 export function SiteHeader({
   dark = false,
@@ -155,11 +156,8 @@ export function SiteHeader({
           <PublicAuthLinks signInClass={signIn} signUpClass={signUp} dark={dark} />
         </nav>
 
-        {/* Mobile: sign up + menu */}
+        {/* Mobile: hamburger only — auth + nav live inside the drawer */}
         <div className="flex items-center gap-2 lg:hidden">
-          <Link href="/create-account" className={`${signUp} !min-h-0 px-3 py-2 text-xs`}>
-            Sign up
-          </Link>
           <button
             type="button"
             className={menuBtn}
@@ -225,7 +223,7 @@ export function SiteHeader({
                 {l.label}
               </Link>
             ))}
-            <div className="mt-3 flex flex-col gap-2">
+            <div className="mt-3 flex flex-col gap-2" onClick={closeMobile}>
               <PublicAuthLinks
                 signInClass={`${signIn} w-full justify-center`}
                 signUpClass={`${signUp} w-full justify-center`}
