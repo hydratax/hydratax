@@ -16,3 +16,16 @@
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+
+# Keep auth cookies + OAuth PKCE on one host (apex).
+[[redirects]]
+  from = "https://www.hydratax.uk/*"
+  to = "https://hydratax.uk/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "http://www.hydratax.uk/*"
+  to = "https://hydratax.uk/:splat"
+  status = 301
+  force = true

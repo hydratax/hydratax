@@ -27,6 +27,7 @@ export function SignInForm() {
   const resetDone = searchParams.get("reset") === "1";
   const oauthError = searchParams.get("error");
   const oauthFailed = oauthError === "auth";
+  const pkceFailed = oauthError === "pkce";
   const accountExists = oauthError === "account_exists";
   const next = safeReturnPath(searchParams.get("next"));
 
@@ -40,6 +41,7 @@ export function SignInForm() {
           data: { user },
         } = await supabase.auth.getUser();
         if (user && !cancelled) {
+          // Session already established (e.g. code was exchanged then replayed).
           router.replace(next);
           router.refresh();
         }
@@ -56,9 +58,18 @@ export function SignInForm() {
     error ??
     (accountExists
       ? EXISTING_ACCOUNT_SIGN_IN_MESSAGE
-      : oauthFailed
-        ? "Google sign-in did not finish. If you already have an account with this email, sign in with your password or use Forgot password."
-        : null);
+      : pkceFailed
+        ? "Google sign-in was interrupted (browser cookie missing). Try Google again in the same browser, or sign in with email and password."
+        : oauthFailed
+          ? "Google sign-in did not finish. Try again, or sign in with your email and password."
+          : null);
+
+  const bannerTitle = accountExists
+    ? "Account already exists"
+    : pkceFailed || oauthFailed
+      ? "Google sign-in incomplete"
+      : "Sign in blocked";
+
 
   return (
     <form
@@ -107,11 +118,11 @@ export function SignInForm() {
       {bannerError && (
         <FormErrorBanner
           error={bannerError}
-          title={accountExists ? "Account already exists" : "Sign in blocked"}
+          title={bannerTitle}
         />
       )}
 
-      {(accountExists || oauthFailed) && (
+      {(accountExists || oauthFailed || pkceFailed) && (
         <p className="text-center text-sm text-ink-soft">
           <Link
             href="/forgot-password"

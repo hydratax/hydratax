@@ -20,6 +20,10 @@ export function createClient() {
     cookieOptions: {
       path: "/",
       sameSite: "lax",
+      secure:
+        typeof window !== "undefined"
+          ? window.location.protocol === "https:"
+          : process.env.NODE_ENV === "production",
     },
     auth: {
       detectSessionInUrl: false,

@@ -69,13 +69,23 @@ function oauthCodeHandoff(request: NextRequest): NextResponse | null {
   url.search = "";
   url.searchParams.set("code", code);
 
+  // Never put oauth params into `next` or the used code will be replayed after success.
+  const cleanSearch = new URLSearchParams(searchParams);
+  cleanSearch.delete("code");
+  cleanSearch.delete("state");
+  cleanSearch.delete("error");
+  cleanSearch.delete("error_description");
+  const qs = cleanSearch.toString();
+
   const resume =
     pathname === "/" ||
     pathname === "/sign-in" ||
     pathname === "/create-account" ||
     pathname === "/quick-signup"
       ? "/dashboard"
-      : `${pathname}${request.nextUrl.search}`;
+      : qs
+        ? `${pathname}?${qs}`
+        : pathname;
   url.searchParams.set("next", resume);
 
   return NextResponse.redirect(url);

@@ -51,11 +51,17 @@ export function GoogleAuthButton({
     setError(null);
     setPending(true);
     try {
+      // Canonical host first — PKCE verifier cookies are host-bound.
+      if (window.location.hostname === "www.hydratax.uk") {
+        const returnPath = `${window.location.pathname}${window.location.search}`;
+        window.location.assign(`https://hydratax.uk${returnPath || "/sign-in"}`);
+        return;
+      }
+
       const destination = next.startsWith("/") ? next : "/dashboard";
       setAuthIntentCookies(destination, orgType);
 
       const supabase = createClient();
-      // Same origin as this page — PKCE verifier cookies are per-origin.
       const redirectTo = `${window.location.origin}/auth/callback`;
 
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({

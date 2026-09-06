@@ -1,7 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { safeReturnPath } from "@/lib/auth-return";
-import { isExistingAccountAuthError } from "@/lib/auth-errors";
+import {
+  classifyOAuthCallbackFailure,
+  resolveAuthOrigin,
+} from "@/lib/auth-origin";
 
 const ORG_TYPES = new Set([
   "company",
@@ -19,12 +22,9 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const oauthError = url.searchParams.get("error");
+  const oauthErrorDescription = url.searchParams.get("error_description");
 
-  const forwardedHost = request.headers.get("x-forwarded-host");
-  const origin =
-    forwardedHost && process.env.NODE_ENV !== "development"
-      ? `https://${forwardedHost}`
-      : url.origin;
+  const origin = resolveAuthOrigin(request);
 
   const next = safeReturnPath(
     url.searchParams.get("next") || readIntentCookie(request, "ht_auth_next"),
@@ -34,13 +34,9 @@ export async function GET(request: NextRequest) {
   const orgType =
     orgTypeRaw && ORG_TYPES.has(orgTypeRaw) ? orgTypeRaw : null;
 
-  const fail = (reason?: string, code: "auth" | "account_exists" = "auth") => {
-    // Prefer warn — console.error triggers the Next.js bottom-left error overlay in dev.
+  const fail = (reason?: string) => {
     if (reason) console.warn("[auth/callback]", reason);
-    const classified =
-      code === "account_exists" || isExistingAccountAuthError(reason)
-        ? "account_exists"
-        : "auth";
+    const classified = classifyOAuthCallbackFailure(reason);
     const res = NextResponse.redirect(
       `${origin}/sign-in?error=${classified}&next=${encodeURIComponent(next)}`,
     );
@@ -51,8 +47,9 @@ export async function GET(request: NextRequest) {
 
   if (oauthError) {
     return fail(
-      `oauth error: ${oauthError}`,
-      isExistingAccountAuthError(oauthError) ? "account_exists" : "auth",
+      oauthErrorDescription
+        ? `oauth error: ${oauthError} (${oauthErrorDescription})`
+        : `oauth error: ${oauthError}`,
     );
   }
   if (!code) return fail("missing code");
@@ -77,11 +74,24 @@ export async function GET(request: NextRequest) {
     },
   });
 
+  const hasVerifier = request.cookies
+    .getAll()
+    .some((c) => c.name.includes("code-verifier"));
+  if (!hasVerifier) {
+    console.warn("[auth/callback] no PKCE code-verifier cookie on request", {
+      cookieNames: request.cookies.getAll().map((c) => c.name),
+      origin,
+      host: request.headers.get("host"),
+      forwardedHost: request.headers.get("x-forwarded-host"),
+    });
+  }
+
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
     return fail(
-      error.message,
-      isExistingAccountAuthError(error.message) ? "account_exists" : "auth",
+      hasVerifier
+        ? error.message
+        : `${error.message} (PKCE code verifier cookie missing)`,
     );
   }
 
