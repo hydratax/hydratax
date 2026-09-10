@@ -88,10 +88,21 @@ export async function GET(request: NextRequest) {
 
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
-    return fail(
-      hasVerifier
-        ? error.message
-        : `${error.message} (PKCE code verifier cookie missing)`,
+    // Code may already have been exchanged (double redirect / Site URL handoff).
+    // If a session exists, treat as success so the user never sees a false error flash.
+    const {
+      data: { user: existingUser },
+    } = await supabase.auth.getUser();
+    if (!existingUser) {
+      return fail(
+        hasVerifier
+          ? error.message
+          : `${error.message} (PKCE code verifier cookie missing)`,
+      );
+    }
+    console.warn(
+      "[auth/callback] code exchange failed but session present — continuing",
+      error.message,
     );
   }
 

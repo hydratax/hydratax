@@ -64,6 +64,19 @@ function oauthCodeHandoff(request: NextRequest): NextResponse | null {
     return null;
   }
 
+  // Already signed in — strip leftover oauth params instead of re-exchanging.
+  const hasSessionCookie = request.cookies
+    .getAll()
+    .some((c) => c.name.startsWith("sb-") && !c.name.includes("code-verifier") && c.value.length > 10);
+  if (hasSessionCookie) {
+    const url = request.nextUrl.clone();
+    url.searchParams.delete("code");
+    url.searchParams.delete("state");
+    url.searchParams.delete("error");
+    url.searchParams.delete("error_description");
+    return NextResponse.redirect(url);
+  }
+
   const url = request.nextUrl.clone();
   url.pathname = "/auth/callback";
   url.search = "";

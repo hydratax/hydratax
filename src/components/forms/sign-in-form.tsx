@@ -29,10 +29,18 @@ export function SignInForm() {
   const oauthFailed = oauthError === "auth";
   const pkceFailed = oauthError === "pkce";
   const accountExists = oauthError === "account_exists";
+  const hasOauthQueryError = accountExists || oauthFailed || pkceFailed;
   const next = safeReturnPath(searchParams.get("next"));
+  // Hold OAuth error UI until we know there isn't already a live session
+  // (successful Google sign-in can briefly land here after a code replay).
+  const [sessionChecked, setSessionChecked] = useState(!hasOauthQueryError);
+  const [signedIn, setSignedIn] = useState(false);
 
   useEffect(() => {
-    if (!isSupabaseConfigured()) return;
+    if (!isSupabaseConfigured()) {
+      setSessionChecked(true);
+      return;
+    }
     let cancelled = false;
     void (async () => {
       try {
@@ -40,13 +48,17 @@ export function SignInForm() {
         const {
           data: { user },
         } = await supabase.auth.getUser();
-        if (user && !cancelled) {
-          // Session already established (e.g. code was exchanged then replayed).
+        if (cancelled) return;
+        if (user) {
+          setSignedIn(true);
           router.replace(next);
           router.refresh();
+          return;
         }
       } catch {
         /* ignore */
+      } finally {
+        if (!cancelled) setSessionChecked(true);
       }
     })();
     return () => {
@@ -54,15 +66,17 @@ export function SignInForm() {
     };
   }, [router, next]);
 
+  const showOauthError = hasOauthQueryError && sessionChecked && !signedIn;
+
   const bannerError =
     error ??
-    (accountExists
-      ? EXISTING_ACCOUNT_SIGN_IN_MESSAGE
-      : pkceFailed
-        ? "Google sign-in was interrupted (browser cookie missing). Try Google again in the same browser, or sign in with email and password."
-        : oauthFailed
-          ? "Google sign-in did not finish. Try again, or sign in with your email and password."
-          : null);
+    (showOauthError
+      ? accountExists
+        ? EXISTING_ACCOUNT_SIGN_IN_MESSAGE
+        : pkceFailed
+          ? "Google sign-in was interrupted (browser cookie missing). Try Google again in the same browser, or sign in with email and password."
+          : "Google sign-in did not finish. Try again, or sign in with your email and password."
+      : null);
 
   const bannerTitle = accountExists
     ? "Account already exists"
@@ -70,6 +84,14 @@ export function SignInForm() {
       ? "Google sign-in incomplete"
       : "Sign in blocked";
 
+  if (signedIn || (hasOauthQueryError && !sessionChecked)) {
+    return (
+      <div className="w-full max-w-md space-y-3 rounded-2xl border border-line bg-white p-6 shadow-sm">
+        <h1 className="display text-3xl text-ink">Sign in</h1>
+        <p className="text-sm text-ink-soft">Finishing sign-in…</p>
+      </div>
+    );
+  }
 
   return (
     <form
@@ -116,13 +138,10 @@ export function SignInForm() {
       )}
 
       {bannerError && (
-        <FormErrorBanner
-          error={bannerError}
-          title={bannerTitle}
-        />
+        <FormErrorBanner error={bannerError} title={bannerTitle} />
       )}
 
-      {(accountExists || oauthFailed || pkceFailed) && (
+      {showOauthError && (
         <p className="text-center text-sm text-ink-soft">
           <Link
             href="/forgot-password"
