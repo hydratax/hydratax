@@ -1,14 +1,20 @@
 import Link from "next/link";
 import { requireSession } from "@/server/auth/session";
 import { getAccountProfile } from "@/server/actions/account";
+import { getAccountBillingSummary } from "@/server/actions/billing";
 import { AccountProfileForm } from "@/components/forms/account-profile-form";
+import { AccountSubscriptionPanel } from "@/components/settings/account-subscription-panel";
 
 export const metadata = { title: "Account — HydraTax" };
 
 export default async function AccountSettingsPage() {
   const session = await requireSession();
-  const profile = await getAccountProfile();
+  const [profile, billing] = await Promise.all([
+    getAccountProfile(),
+    getAccountBillingSummary(),
+  ]);
   const canManageTeam = session.moduleAccess === "full";
+  const isOwner = session.role === "owner";
 
   return (
     <div className="space-y-6">
@@ -18,12 +24,16 @@ export default async function AccountSettingsPage() {
         </p>
         <h1 className="display mt-1 text-4xl text-ink">Account</h1>
         <p className="mt-2 max-w-2xl text-ink-soft">
-          Amend your name and practice details. Create a team and assign PAYE,
-          VAT, or Corporation Tax access from Team & roles.
+          Amend your name and practice details
+          {isOwner
+            ? ", review your subscription, and manage team access."
+            : ". Create a team and assign PAYE, VAT, or Corporation Tax access from Team & roles."}
         </p>
       </div>
 
       <AccountProfileForm profile={profile} />
+
+      {isOwner ? <AccountSubscriptionPanel billing={billing} /> : null}
 
       {canManageTeam ? (
         <div className="panel p-5">
