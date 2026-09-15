@@ -16,6 +16,7 @@ import { CompanySearchPanel } from "@/components/companies-house/company-search-
 import { getIncorporationFilingReadiness } from "@/server/companies-house/filing/incorporation";
 import { getOptionalSession } from "@/server/auth/session";
 import { sanitizePublicChFormDefaults } from "@/lib/ch-public-form-defaults";
+import { getPracticeCompanyAuthCode } from "@/server/actions/clients";
 
 const WIZARD_SERVICE_IDS = [
   "incorporation",
@@ -208,6 +209,16 @@ export default async function ChServicePage({
   const formDefaults = sanitizePublicChFormDefaults(query, {
     signedIn: Boolean(session),
   });
+
+  if (session && (formDefaults.clientId || formDefaults.companyNumber)) {
+    const savedAuth = await getPracticeCompanyAuthCode({
+      clientId: formDefaults.clientId,
+      companyNumber: formDefaults.companyNumber,
+    });
+    if (savedAuth) {
+      formDefaults.companyAuthCode = savedAuth;
+    }
+  }
 
   const isCs01 = serviceId === "confirmation-statement";
   const hubCheckout = isCs01 && Boolean(formDefaults.companyNumber);

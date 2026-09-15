@@ -12,6 +12,7 @@ import {
   saveCs01Draft,
 } from "@/lib/cs01-checkout-draft";
 import { hasSignedInSession } from "@/server/actions/session-check";
+import { getPracticeCompanyAuthCode } from "@/server/actions/clients";
 import { looksLikeCompanyNumber } from "@/lib/company-number";
 
 type RegisterView = {
@@ -91,6 +92,7 @@ export function ConfirmationStatementCheckout({
   const presetCompany = looksLikeCompanyNumber(presetCompanyRaw)
     ? presetCompanyRaw
     : "";
+  const savedAuthFromClient = defaults?.companyAuthCode?.trim() || "";
   const wantResume = defaults?.resume === "1" || defaults?.pay === "1";
   const [phase, setPhase] = useState<"search" | "confirm">(
     presetCompany || wantResume ? "confirm" : "search",
@@ -106,7 +108,10 @@ export function ConfirmationStatementCheckout({
   >([]);
   const [register, setRegister] = useState<RegisterView | null>(null);
   const [directorCodes, setDirectorCodes] = useState<DirectorCodes[]>([]);
-  const [companyAuthCode, setCompanyAuthCode] = useState("");
+  const [companyAuthCode, setCompanyAuthCode] = useState(savedAuthFromClient);
+  const [authFromClient, setAuthFromClient] = useState(
+    Boolean(savedAuthFromClient),
+  );
   const [registeredEmail, setRegisteredEmail] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [attemptedPay, setAttemptedPay] = useState(false);
@@ -204,7 +209,12 @@ export function ConfirmationStatementCheckout({
           : codesFromDirectors(draft.directors),
       );
       if (isSignedIn) {
-        setCompanyAuthCode(draft.companyAuthCode);
+        setCompanyAuthCode(
+          draft.companyAuthCode?.trim() || savedAuthFromClient || "",
+        );
+        if (draft.companyAuthCode?.trim() || savedAuthFromClient) {
+          setAuthFromClient(true);
+        }
         setRegisteredEmail(draft.registeredEmail ?? "");
       }
       setConfirmed(Boolean(draft.confirmed));
@@ -245,6 +255,28 @@ export function ConfirmationStatementCheckout({
     void loadCompany(presetCompany);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presetCompany]);
+
+  // Prefer auth code already saved on the practice client record.
+  useEffect(() => {
+    if (!register?.companyNumber || signedIn === false) return;
+    if (companyAuthCode.trim()) {
+      setAuthFromClient(true);
+      return;
+    }
+    let cancelled = false;
+    void getPracticeCompanyAuthCode({
+      clientId: defaults?.clientId,
+      companyNumber: register.companyNumber,
+    }).then((code) => {
+      if (cancelled || !code) return;
+      setCompanyAuthCode(code);
+      setAuthFromClient(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [register?.companyNumber, signedIn, defaults?.clientId]);
 
   useEffect(() => {
     const q = searchQuery.trim();
@@ -591,12 +623,6 @@ export function ConfirmationStatementCheckout({
             </button>
           )}
 
-          <p className="rounded-xl border border-line bg-sand/40 px-4 py-3 text-sm text-ink-soft">
-            CS01 confirms the register is already correct. To change directors,
-            PSC, or registered office, update those with Companies House first,
-            then search again here.
-          </p>
-
           <div className="rounded-2xl border border-line bg-sea/[0.06] px-5 py-4">
             <p className="display text-2xl leading-tight text-ink md:text-3xl">
               {register.companyName}
@@ -609,9 +635,7 @@ export function ConfirmationStatementCheckout({
           {signedIn === false ? (
             <div className="rounded-xl border border-sea/30 bg-sea/5 p-4 space-y-3">
               <p className="text-sm text-ink-soft">
-                Sign in to enter the company authentication code and pay. Hydra
-                never collects HMRC Government Gateway credentials on public
-                pages.
+                Sign in to continue and pay.
               </p>
               <Link
                 href={authEntryHref(
@@ -625,6 +649,8 @@ export function ConfirmationStatementCheckout({
                 Sign in to continue
               </Link>
             </div>
+          ) : authFromClient && authCodeFormatOk ? (
+            <input type="hidden" name="companyAuthCode" value={companyAuthCode} />
           ) : (
             <div
               className={`rounded-xl border p-4 ${
@@ -644,7 +670,10 @@ export function ConfirmationStatementCheckout({
                       : ""
                   }`}
                   value={companyAuthCode}
-                  onChange={(e) => setCompanyAuthCode(e.target.value)}
+                  onChange={(e) => {
+                    setAuthFromClient(false);
+                    setCompanyAuthCode(e.target.value);
+                  }}
                   placeholder="Authentication code"
                   autoComplete="one-time-code"
                   data-1p-ignore="true"
@@ -656,10 +685,6 @@ export function ConfirmationStatementCheckout({
                   }
                 />
               </label>
-              <p className="mt-2 text-xs text-ink-soft">
-                Required before payment. Company-level code from Companies House
-                online filing (not on the public register).
-              </p>
               {attemptedPay && authCodeMissing && (
                 <p className="mt-2 text-sm text-danger" role="alert">
                   Enter the company authentication code.
@@ -701,10 +726,6 @@ export function ConfirmationStatementCheckout({
                   aria-invalid={attemptedPay && !registeredEmailOk}
                 />
               </label>
-              <p className="mt-2 text-xs text-ink-soft">
-                Required on confirmation statements under ECCTA — the email
-                Companies House holds for this company.
-              </p>
               {attemptedPay && !registeredEmailOk && (
                 <p className="mt-2 text-sm text-danger" role="alert">
                   Enter a valid registered email address.

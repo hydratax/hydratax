@@ -289,6 +289,45 @@ export async function getClient(ref: string) {
   return client;
 }
 
+/** Auth code already saved on a practice client — for CS01 / CH checkout prefill. */
+export async function getPracticeCompanyAuthCode(opts: {
+  clientId?: string | null;
+  companyNumber?: string | null;
+}): Promise<string | null> {
+  try {
+    await requireSession();
+  } catch {
+    return null;
+  }
+
+  const clientId = opts.clientId?.trim() || null;
+  const companyNumber = opts.companyNumber?.trim().toUpperCase() || null;
+
+  try {
+    if (clientId) {
+      const client = await getClient(clientId);
+      const code = client.companyAuthCode?.trim();
+      if (code) return code;
+    }
+  } catch {
+    /* fall through to company-number match */
+  }
+
+  if (!companyNumber) return null;
+
+  try {
+    const clients = await listClients();
+    const match = clients.find(
+      (c) =>
+        c.companyNumber?.toUpperCase() === companyNumber &&
+        Boolean(c.companyAuthCode?.trim()),
+    );
+    return match?.companyAuthCode?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function createClient(input: z.infer<typeof createClientSchema>) {
   const session = await requireSession();
   if (session.role === "readonly") throw new Error("Forbidden");
