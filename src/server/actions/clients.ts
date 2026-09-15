@@ -687,6 +687,62 @@ export async function refreshClientCompaniesHouse(clientId: string) {
   return updated;
 }
 
+const STALE_CH_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+function isChSnapshotStale(
+  snap: ClientCompaniesHouseSnapshot | null | undefined,
+): boolean {
+  if (!snap?.fetchedAt) return true;
+  const t = Date.parse(snap.fetchedAt);
+  if (Number.isNaN(t)) return true;
+  return Date.now() - t > STALE_CH_MS;
+}
+
+/**
+ * Refresh Companies House snapshots for limited companies with missing/stale
+ * data so the clients dashboard matches the public register.
+ */
+export async function refreshStaleClientsCompaniesHouse(opts?: {
+  /** Refresh every limited company, not only stale ones */
+  force?: boolean;
+  /** Cap CH API calls per request (Netlify time limits) */
+  limit?: number;
+}): Promise<{ refreshed: number; skipped: number }> {
+  const session = await requireSession();
+  if (session.role === "readonly") throw new Error("Forbidden");
+
+  const force = opts?.force ?? false;
+  const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 40);
+  const clients = await listClients();
+  const targets = clients.filter(
+    (c) =>
+      c.type === "limited_company" &&
+      Boolean(c.companyNumber) &&
+      (force ||
+        isChSnapshotStale(
+          ("companiesHouse" in c
+            ? (c.companiesHouse as ClientCompaniesHouseSnapshot | null)
+            : null) ?? null,
+        )),
+  );
+
+  let refreshed = 0;
+  let skipped = targets.length;
+  const batch = targets.slice(0, limit);
+
+  for (const client of batch) {
+    try {
+      await refreshClientCompaniesHouse(client.id);
+      refreshed += 1;
+    } catch (err) {
+      console.warn("[ch.refresh] client refresh failed", client.id, err);
+    }
+  }
+  skipped = Math.max(0, targets.length - refreshed);
+  revalidatePath("/clients");
+  return { refreshed, skipped };
+}
+
 function purgeDemoClientData(clientId: string) {
   const notClient = <T extends { clientId: string }>(row: T) =>
     row.clientId !== clientId;

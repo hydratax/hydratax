@@ -12,10 +12,12 @@ export type ClientCompaniesHouseSnapshot = {
   companyStatus: string | null;
   incorporatedOn: string | null;
   accountsNextDue: string | null;
+  /** Next accounts period end (not last filed year-end). */
   accountsPeriodEnd: string | null;
   lastAccountsMadeUpTo?: string | null;
   confirmationStatementNextDue: string | null;
   confirmationStatementLastMadeUpTo: string | null;
+  confirmationStatementNextMadeUpTo?: string | null;
   registeredOffice: string | null;
   sicCodes: string[];
   directors: Array<{
@@ -36,6 +38,18 @@ export type ClientCompaniesHouseSnapshot = {
   }>;
   fetchedAt: string;
 };
+
+/** Advance YYYY-MM-DD by whole calendar years (CH anniversary dates). */
+export function addIsoCalendarYears(
+  iso: string,
+  years: number,
+): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim());
+  if (!m) return null;
+  const y = Number(m[1]) + years;
+  if (!Number.isFinite(y) || y < 1) return null;
+  return `${String(y).padStart(4, "0")}-${m[2]}-${m[3]}`;
+}
 
 function addressSnippet(
   addr?: Record<string, string | undefined>,
@@ -101,6 +115,20 @@ export async function enrichLimitedCompanyFromCh(
     .map(mapPsc)
     .slice(0, 50);
 
+  const lastAccountsMadeUpTo =
+    accounts?.last_accounts?.made_up_to ??
+    accounts?.last_accounts?.period_end_on ??
+    null;
+
+  // Never use last_accounts as the "period end" — that shows the wrong year
+  // on year-end / CT / dashboard workflows. Prefer next period; else +1 year.
+  const accountsPeriodEnd =
+    accounts?.next_accounts?.period_end_on ??
+    accounts?.next_made_up_to ??
+    (lastAccountsMadeUpTo
+      ? addIsoCalendarYears(lastAccountsMadeUpTo, 1)
+      : null);
+
   return {
     companyNumber: profile.company_number,
     companyName: profile.company_name,
@@ -108,17 +136,11 @@ export async function enrichLimitedCompanyFromCh(
     incorporatedOn: profile.date_of_creation ?? null,
     accountsNextDue:
       accounts?.next_due ?? accounts?.next_accounts?.due_on ?? null,
-    accountsPeriodEnd:
-      accounts?.next_accounts?.period_end_on ??
-      accounts?.next_made_up_to ??
-      accounts?.last_accounts?.made_up_to ??
-      null,
-    lastAccountsMadeUpTo:
-      accounts?.last_accounts?.made_up_to ??
-      accounts?.last_accounts?.period_end_on ??
-      null,
+    accountsPeriodEnd,
+    lastAccountsMadeUpTo,
     confirmationStatementNextDue: conf?.next_due ?? null,
     confirmationStatementLastMadeUpTo: conf?.last_made_up_to ?? null,
+    confirmationStatementNextMadeUpTo: conf?.next_made_up_to ?? null,
     registeredOffice: addressSnippet(profile.registered_office_address),
     sicCodes: profile.sic_codes ?? [],
     directors,

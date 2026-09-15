@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { listClients } from "@/server/actions/clients";
 import { ClientsList, type ClientListItem } from "@/components/clients-list";
+import { RefreshCompaniesHouseButton } from "@/components/refresh-companies-house-button";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import { clientSlugFor } from "@/lib/client-slug";
 type Props = {
@@ -43,6 +44,7 @@ export default async function ClientsPage({ searchParams }: Props) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <RefreshCompaniesHouseButton />
           <Link href="/clients/bulk-email" className="btn btn-secondary">
             Bulk email
           </Link>

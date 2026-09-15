@@ -267,6 +267,24 @@ export async function submitCsFiling(
     lastError: null,
   });
 
+  if (record.practiceId && record.companyNumber) {
+    const { syncPracticeClientsFromCompaniesHouse } = await import(
+      "@/server/companies-house/sync-client-snapshot"
+    );
+    await syncPracticeClientsFromCompaniesHouse({
+      companyNumber: record.companyNumber,
+      practiceId: record.practiceId,
+      confirmationDate: record.confirmationDate,
+    });
+    try {
+      const { revalidatePath } = await import("next/cache");
+      revalidatePath("/clients");
+      if (record.clientId) revalidatePath(`/clients/${record.clientId}`);
+    } catch {
+      /* non-request contexts */
+    }
+  }
+
   return {
     ok: true,
     filingId,

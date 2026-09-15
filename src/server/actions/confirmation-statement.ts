@@ -30,6 +30,7 @@ export async function fileConfirmationStatement(
   const result = await submitCsFiling(filingId, opts);
   if (result.ok) {
     revalidatePath("/companies-house/confirmation-statement");
+    revalidatePath("/clients");
     if (result.status === "submitted") {
       revalidatePath("/admin/companies-house");
     }

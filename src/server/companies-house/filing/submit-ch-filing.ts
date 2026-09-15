@@ -585,6 +585,25 @@ async function submitAccounts(
     return { ok: false, error: result.error, mode: result.mode };
   }
 
+  if (record.practiceId && companyNumber) {
+    const { syncPracticeClientsFromCompaniesHouse } = await import(
+      "@/server/companies-house/sync-client-snapshot"
+    );
+    await syncPracticeClientsFromCompaniesHouse({
+      companyNumber,
+      practiceId: record.practiceId,
+      accountsPeriodEnd: periodEnd,
+    });
+    try {
+      const { revalidatePath } = await import("next/cache");
+      revalidatePath("/clients");
+      const clientId = str(payload, "clientId");
+      if (clientId) revalidatePath(`/clients/${clientId}`);
+    } catch {
+      /* non-request contexts */
+    }
+  }
+
   return {
     ok: true,
     submissionNumber: result.submissionNumber ?? null,

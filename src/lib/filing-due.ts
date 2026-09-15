@@ -6,6 +6,27 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** “Due in a month” window */
 export const DUE_SOON_DAYS = 30;
 
+/**
+ * Parse CH ISO dates safely. `new Date("YYYY-MM-DD")` is UTC midnight and
+ * shifts the calendar day in UK timezones — pills then show the wrong day/year.
+ */
+export function parseFilingIsoDate(
+  iso: string | null | undefined,
+): Date | null {
+  if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim());
+  if (!m) {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const day = Number(m[3]);
+  if (mo < 1 || mo > 12 || day < 1 || day > 31) return null;
+  // Noon local avoids DST edge cases when comparing calendar days.
+  return new Date(y, mo - 1, day, 12, 0, 0, 0);
+}
+
 function startOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }
@@ -15,8 +36,8 @@ export function urgencyForDueDate(
   now = new Date(),
 ): FilingUrgency {
   if (!dueIso) return "unknown";
-  const due = new Date(dueIso);
-  if (Number.isNaN(due.getTime())) return "unknown";
+  const due = parseFilingIsoDate(dueIso);
+  if (!due) return "unknown";
 
   const today = startOfDay(now);
   const dueDay = startOfDay(due);
@@ -29,8 +50,8 @@ export function urgencyForDueDate(
 
 export function formatDueShort(dueIso: string | null | undefined) {
   if (!dueIso) return null;
-  const d = new Date(dueIso);
-  if (Number.isNaN(d.getTime())) return null;
+  const d = parseFilingIsoDate(dueIso);
+  if (!d) return null;
   return d.toLocaleDateString("en-GB", {
     day: "numeric",
     month: "short",
@@ -119,8 +140,8 @@ function isDateInMonthOffset(
   now: Date,
   monthOffset: 1 | 2,
 ): boolean {
-  const due = new Date(iso);
-  if (Number.isNaN(due.getTime())) return false;
+  const due = parseFilingIsoDate(iso);
+  if (!due) return false;
   const target = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
   return (
     due.getFullYear() === target.getFullYear() &&
