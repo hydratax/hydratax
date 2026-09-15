@@ -6,7 +6,6 @@ import {
 import { getChFilingEnv } from "./config";
 import {
   buildPresenterAuthenticationXml,
-  resolveChPackageReference,
   sixCharSubmissionNumber,
   xmlEscape,
 } from "./gateway-auth";
@@ -39,7 +38,8 @@ ${indent}</VerificationDetails>`;
  * Uses model articles + data memorandum (no MEMARTS PDF attachment).
  */
 export function buildCompanyIncorporationXml(input: ParsedIncorporationInput) {
-  const packageRef = resolveChPackageReference();
+  const cfg = getChFilingEnv();
+  const schemaSoftwareId = xmlEscape(cfg.presenterId ?? "HydraTax");
   const submissionNumber = sixCharSubmissionNumber();
   const today = new Date().toISOString().slice(0, 10);
 
@@ -215,7 +215,7 @@ ${addressXml(s.address, "          ")}
     <FormSubmission xmlns="http://xmlgw.companieshouse.gov.uk/Header" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://xmlgw.companieshouse.gov.uk/Header http://xmlgw.companieshouse.gov.uk/v1-0/schema/forms/FormSubmission-v2-11.xsd">
       <FormHeader>
         <CompanyName>${xmlEscape(input.companyName.toUpperCase())}</CompanyName>
-        <PackageReference>${xmlEscape(packageRef)}</PackageReference>
+        <PackageReference>${schemaSoftwareId}</PackageReference>
         <FormIdentifier>CompanyIncorporation</FormIdentifier>
         <SubmissionNumber>${xmlEscape(submissionNumber)}</SubmissionNumber>
       </FormHeader>

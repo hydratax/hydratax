@@ -14,7 +14,6 @@ const KEYS = [
   "COMPANIES_HOUSE_PRESENTER_ID",
   "COMPANIES_HOUSE_PRESENTER_AUTH_CODE",
   "COMPANIES_HOUSE_CREDIT_ACCOUNT",
-  "COMPANIES_HOUSE_PACKAGE_REFERENCE",
 ] as const;
 
 const saved: Record<string, string | undefined> = {};

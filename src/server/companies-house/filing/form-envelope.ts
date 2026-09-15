@@ -1,7 +1,6 @@
 import { getChFilingEnv } from "./config";
 import {
   buildPresenterAuthenticationXml,
-  resolveChPackageReference,
   sixCharSubmissionNumber,
   xmlEscape,
 } from "./gateway-auth";
@@ -31,7 +30,7 @@ export type FormEnvelopeInput = {
 /** Wraps a Companies House form body in the standard GovTalk / FormSubmission envelope. */
 export function buildFormSubmissionEnvelope(input: FormEnvelopeInput): string {
   const presenter = getHydraPresenterConfig();
-  const packageRef = resolveChPackageReference();
+  const cfg = getChFilingEnv();
   const submissionNumber = sixCharSubmissionNumber();
   const dateSigned = new Date().toISOString().slice(0, 10);
   const rawNumber = input.companyNumber.replace(/[^A-Z0-9]/gi, "").toUpperCase();
@@ -63,11 +62,13 @@ export function buildFormSubmissionEnvelope(input: FormEnvelopeInput): string {
     )
     .join("");
 
-  const cfg = getChFilingEnv();
   const gatewayTestXml = cfg.gatewayTest
     ? `
       <GatewayTest>1</GatewayTest>`
     : "";
+
+  // FormSubmission XSD requires this element; use presenter ID (no separate env).
+  const schemaSoftwareId = xmlEscape(cfg.presenterId ?? "HydraTax");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope">
@@ -93,7 +94,7 @@ export function buildFormSubmissionEnvelope(input: FormEnvelopeInput): string {
         <CompanyType>${xmlEscape(companyType)}</CompanyType>
         <CompanyName>${xmlEscape(input.companyName)}</CompanyName>
         <CompanyAuthenticationCode>${xmlEscape(input.companyAuthCode.toUpperCase())}</CompanyAuthenticationCode>
-        <PackageReference>${xmlEscape(packageRef)}</PackageReference>
+        <PackageReference>${schemaSoftwareId}</PackageReference>
         <Language>EN</Language>
         <FormIdentifier>${xmlEscape(input.formIdentifier)}</FormIdentifier>
         <SubmissionNumber>${xmlEscape(submissionNumber)}</SubmissionNumber>${contactXml}

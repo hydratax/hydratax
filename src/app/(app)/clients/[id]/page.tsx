@@ -50,43 +50,27 @@ export default async function ClientOverviewPage({
   const identifiers: Array<{
     label: string;
     value: string | null | undefined;
-    requiredFor: string;
   }> = [
     {
       label: "Company number",
       value: client.companyNumber,
-      requiredFor: "Companies House",
     },
     ...(isLtd
       ? [
           {
             label: "Company authentication code",
             value: client.companyAuthCode,
-            requiredFor: "CS01 / CH filings",
           },
         ]
       : []),
-    { label: "UTR", value: client.utr, requiredFor: "CT600" },
-    { label: "VRN", value: client.vrn, requiredFor: "MTD VAT" },
-    { label: "PAYE", value: client.payeRef, requiredFor: "Payroll / RTI" },
+    { label: "UTR", value: client.utr },
+    { label: "VRN", value: client.vrn },
+    { label: "PAYE", value: client.payeRef },
     {
       label: "Accounts Office",
       value: client.accountsOfficeRef,
-      requiredFor: "Payroll / EPS",
     },
   ];
-
-  const missingIds = identifiers.filter((row) => !row.value);
-  const requiredMissing = identifiers.filter((row) => {
-    if (row.label === "Company number") return isLtd && !row.value;
-    if (row.label === "Company authentication code") return isLtd && !row.value;
-    if (row.label === "UTR") return isLtd && !row.value;
-    if (row.label === "VRN") return client.isVatRegistered && !row.value;
-    if (row.label === "PAYE" || row.label === "Accounts Office") {
-      return client.isEmployer && !row.value;
-    }
-    return false;
-  });
 
   const activeDirectors = Array.isArray(ch?.directors)
     ? ch.directors.filter((d) => d && !d.resignedOn)
@@ -173,47 +157,15 @@ export default async function ClientOverviewPage({
                 </Link>
               )}
             </div>
-            {missingIds.length > 0 && (
-              <span className="mt-2 inline-block rounded-md border border-line bg-sand px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-ink-soft">
-                {missingIds.length} missing
-              </span>
-            )}
-            {requiredMissing.length > 0 && (
-              <p className="mt-2 text-sm text-ink-soft">
-                Add before filing:{" "}
-                <span className="font-medium text-ink">
-                  {requiredMissing.map((m) => m.label).join(", ")}
-                </span>{" "}
-                (
-                {[...new Set(requiredMissing.map((m) => m.requiredFor))].join(
-                  ", ",
-                )}
-                ).
-              </p>
-            )}
             <dl className="mt-4 divide-y divide-line text-sm">
               {identifiers.map((row) => {
                 const empty = !row.value;
-                const required = requiredMissing.some(
-                  (m) => m.label === row.label,
-                );
                 return (
                   <div
                     key={row.label}
                     className="flex items-baseline justify-between gap-4 py-2.5"
                   >
-                    <dt className="text-ink-soft">
-                      {row.label}
-                      {required ? (
-                        <span className="ml-1.5 text-xs font-medium text-ink">
-                          Required
-                        </span>
-                      ) : empty ? (
-                        <span className="ml-1.5 text-xs text-ink-soft/80">
-                          Optional
-                        </span>
-                      ) : null}
-                    </dt>
+                    <dt className="text-ink-soft">{row.label}</dt>
                     <dd
                       className={`mono text-right font-medium ${
                         empty ? "text-ink-soft" : "text-ink"

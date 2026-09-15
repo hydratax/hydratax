@@ -52,8 +52,8 @@ function companyAuthXml(opts: {
   companyNumber: string;
   companyName: string;
   companyAuth: string;
-  packageRef: string;
 }) {
+  const softwareId = cfg.presenterId ?? "HydraTax";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope">
   <EnvelopeVersion>2.0</EnvelopeVersion>
@@ -82,7 +82,7 @@ function companyAuthXml(opts: {
         <CompanyType>EW</CompanyType>
         <CompanyName>${opts.companyName}</CompanyName>
         <CompanyAuthenticationCode>${opts.companyAuth}</CompanyAuthenticationCode>
-        <PackageReference>${opts.packageRef}</PackageReference>
+        <PackageReference>${softwareId}</PackageReference>
         <Language>EN</Language>
         <FormIdentifier>CompanyAuthorisation</FormIdentifier>
         <SubmissionNumber>AUTH01</SubmissionNumber>
@@ -98,7 +98,7 @@ async function main() {
     `env=${cfg.label} host=${cfg.xmlGatewayHostKind} url=${cfg.xmlGatewayUrl}`,
   );
   console.log(
-    `presenter=${cfg.presenterId} credit=${cfg.creditAccountNumber ? "set" : "missing"} packageDefault=${cfg.packageReference ?? "(presenter id)"}`,
+    `presenter=${cfg.presenterId} credit=${cfg.creditAccountNumber ? "set" : "missing"}`,
   );
   console.log(`companyAuth under test=${companyAuth}`);
   if (cfg.gatewayMismatch) {
@@ -106,27 +106,18 @@ async function main() {
     process.exit(1);
   }
 
-  const packageCandidates = [
-    cfg.presenterId!,
-    cfg.creditAccountNumber ?? "",
-    "0012",
-  ].filter(Boolean);
+  console.log("\n=== CompanyAuthorisation ===");
+  await post(
+    "CompanyAuthorisation",
+    companyAuthXml({
+      companyNumber: "15855034",
+      companyName: "GLAM BY YUMNA LTD",
+      companyAuth,
+    }),
+    "text/xml",
+  );
 
-  console.log("\n=== CompanyAuthorisation (isolates company auth vs package) ===");
-  for (const pkg of packageCandidates) {
-    await post(
-      `CompanyAuth pkg=${pkg}`,
-      companyAuthXml({
-        companyNumber: "15855034",
-        companyName: "GLAM BY YUMNA LTD",
-        companyAuth,
-        packageRef: pkg,
-      }),
-      "text/xml",
-    );
-  }
-
-  console.log("\n=== CS01 PackageReference variants (moosa5) ===");
+  console.log("\n=== CS01 (with personal codes) ===");
   const base = buildConfirmationStatementXml({
     companyNumber: "15855034",
     companyName: "GLAM BY YUMNA LTD",
@@ -144,16 +135,8 @@ async function main() {
     clientId: "",
     practiceId: "",
   });
-
-  for (const pkg of packageCandidates) {
-    const xml = base.replace(
-      /<PackageReference>[^<]+<\/PackageReference>/,
-      `<PackageReference>${pkg}</PackageReference>`,
-    );
-    await post(`CS01 pkg=${pkg} (text/xml)`, xml, "text/xml");
-  }
-
-  await post("CS01 default (application/xml)", base, "application/xml");
+  await post("CS01 text/xml", base, "text/xml");
+  await post("CS01 application/xml", base, "application/xml");
 
   console.log("\n=== Plain ConfirmationStatement (no personal codes) ===");
   const plain = buildConfirmationStatementXml({
@@ -199,7 +182,7 @@ async function main() {
     "If CompanyAuthorisation returns schema 100 (not 502), presenter credentials are accepted.",
   );
   console.log(
-    "If CS01 stays 502 for both good and bad company auth with the same text, CH is rejecting before company-auth check — usually package / form enablement / credit linkage.",
+    "If CS01 stays 502 for both good and bad company auth, CH is rejecting before company-auth check — ask Software Support to enable CS01 on the presenter / credit account.",
   );
 }
 

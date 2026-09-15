@@ -42,7 +42,6 @@ export function logChGatewayXmlPayload(label: string, xml: string) {
     hasSicCodes: /<SICCodes>/i.test(xml),
     hasStatementOfCapital: /<StatementOfCapital>/i.test(xml),
     presenterMethodClear: /<Method>clear<\/Method>/i.test(xml),
-    packageReference: xml.match(/<PackageReference>([^<]+)<\/PackageReference>/i)?.[1],
     gatewayTest: /<GatewayTest>1<\/GatewayTest>/i.test(xml),
   },
   );

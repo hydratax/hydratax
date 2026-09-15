@@ -5,7 +5,7 @@ export const CH_XML_GATEWAY_LIVE_URL =
   "https://xmlgw.companieshouse.gov.uk/v1-0/xmlgw/Gateway";
 
 /**
- * Schema / sandpit test gateway (PackageReference 0012 + GatewayTest=1).
+ * Schema / sandpit test gateway (GatewayTest=1).
  * Do not send live fee filings here.
  */
 export const CH_XML_GATEWAY_TEST_URL =
@@ -89,9 +89,6 @@ export function getChFilingEnv() {
     null;
   const creditAccountNumber =
     process.env.COMPANIES_HOUSE_CREDIT_ACCOUNT?.trim().toUpperCase() || null;
-  const packageReference =
-    process.env.COMPANIES_HOUSE_PACKAGE_REFERENCE?.trim().toUpperCase() ||
-    null;
   const resolved = resolveChXmlGatewayUrl({ live });
   const gatewayMismatch = getChXmlGatewayEnvMismatch({
     live,
@@ -111,12 +108,6 @@ export function getChFilingEnv() {
     presenterAuthCode,
     /** Required for fee-bearing filings (CS01, IN01) — billed monthly by CH */
     creditAccountNumber,
-    /**
-     * Optional override for FormHeader PackageReference.
-     * Live filings default to presenter ID when unset (not HMRC vendor IDs).
-     * Test filings default to 0012.
-     */
-    packageReference,
     oauthClientId: process.env.COMPANIES_HOUSE_OAUTH_CLIENT_ID?.trim() || null,
     oauthClientSecret:
       process.env.COMPANIES_HOUSE_OAUTH_CLIENT_SECRET?.trim() || null,

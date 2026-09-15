@@ -1,9 +1,13 @@
 import Link from "next/link";
-import { listClients } from "@/server/actions/clients";
+import {
+  listClients,
+  refreshStaleClientsCompaniesHouse,
+} from "@/server/actions/clients";
 import { ClientsList, type ClientListItem } from "@/components/clients-list";
 import { RefreshCompaniesHouseButton } from "@/components/refresh-companies-house-button";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import { clientSlugFor } from "@/lib/client-slug";
+
 type Props = {
   searchParams: Promise<{ imported?: string; skipped?: string }>;
 };
@@ -12,6 +16,14 @@ export default async function ClientsPage({ searchParams }: Props) {
   const params = await searchParams;
   const imported = params.imported ? Number(params.imported) : 0;
   const skipped = params.skipped ? Number(params.skipped) : 0;
+
+  // Force a live CH pull so CS / accounts pills match the register (cached snapshots go stale).
+  try {
+    await refreshStaleClientsCompaniesHouse({ force: true, limit: 25 });
+  } catch (err) {
+    console.warn("[clients] CH refresh skipped", err);
+  }
+
   const clients = await listClients();
   const peers = clients.map((c) => ({ id: c.id, name: c.name }));
 

@@ -54,18 +54,6 @@ export function nextSoftwareFilingTransactionId() {
 }
 
 /**
- * PackageReference in FormHeader identifies the software package to CH.
- * Test submissions use 0012; live credit-account presenters typically use
- * their presenter ID (issued with the presenter account).
- */
-export function resolveChPackageReference() {
-  const cfg = getChFilingEnv();
-  if (cfg.packageReference) return cfg.packageReference;
-  if (cfg.live && cfg.presenterId) return cfg.presenterId;
-  return "0012";
-}
-
-/**
  * Software filing (CS01, IN01, etc.) uses Method clear with plain presenter
  * credentials — not CHMD5 (that is for the output/search gateway).
  */
@@ -125,6 +113,5 @@ export function describeChCredentialsForFiling() {
     canFileFeeBearing:
       Boolean(cfg.presenterId && cfg.presenterAuthCode) &&
       Boolean(cfg.creditAccountNumber),
-    packageReference: resolveChPackageReference(),
   };
 }

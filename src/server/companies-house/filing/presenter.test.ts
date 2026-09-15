@@ -39,11 +39,10 @@ describe("buildFormSubmissionEnvelope presenter model", () => {
     expect(xml).toContain("<FormSubmission");
   });
 
-  it("sets GatewayTest=1 and package 0012 in test env", () => {
+  it("sets GatewayTest=1 in test env", () => {
     process.env.COMPANIES_HOUSE_PRESENTER_ID = "00072271000";
     process.env.COMPANIES_HOUSE_PRESENTER_AUTH_CODE = "ABCDEFGH123";
     process.env.COMPANIES_HOUSE_ENV = "test";
-    delete process.env.COMPANIES_HOUSE_PACKAGE_REFERENCE;
 
     const xml = buildFormSubmissionEnvelope({
       messageClass: "ConfirmationStatement",
@@ -55,7 +54,6 @@ describe("buildFormSubmissionEnvelope presenter model", () => {
     });
 
     expect(xml).toContain("<GatewayTest>1</GatewayTest>");
-    expect(xml).toContain("<PackageReference>0012</PackageReference>");
   });
 
   it("zero-pads numeric company numbers and sets SC type", () => {

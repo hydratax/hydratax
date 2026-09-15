@@ -11,7 +11,6 @@ import path from "node:path";
 import { buildConfirmationStatementXml } from "../src/server/companies-house/filing/xml-gateway";
 import { describePresenterReadiness } from "../src/server/companies-house/filing/presenter";
 import { getChFilingEnv } from "../src/server/companies-house/filing/config";
-import { resolveChPackageReference } from "../src/server/companies-house/filing/gateway-auth";
 
 const ROOT = path.join(import.meta.dirname, "..");
 const ENV_PATH = path.join(ROOT, ".env.local");
@@ -88,7 +87,6 @@ async function main() {
   console.log("Model: fixed website presenter → variable per-company filing");
   console.log(`Environment: ${cfg.label}`);
   console.log(`Gateway:     ${cfg.xmlGatewayUrl}`);
-  console.log(`Package ref in FormHeader: ${resolveChPackageReference()} (defaults to presenter ID)`);
   console.log("");
 
   console.log("--- Fixed presenter (website) ---");

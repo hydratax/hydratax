@@ -9,8 +9,6 @@ import { buildConfirmationStatementXml } from "../src/server/companies-house/fil
 import { buildCompanyIncorporationXml } from "../src/server/companies-house/filing/incorporation-xml";
 import {
   describeChCredentialsForFiling,
-  resolveChPackageReference,
-  xmlEscape,
 } from "../src/server/companies-house/filing/gateway-auth";
 import { getChFilingEnv } from "../src/server/companies-house/filing/config";
 import type { ParsedIncorporationInput } from "../src/server/companies-house/filing/incorporation-schema";
@@ -228,7 +226,6 @@ async function main() {
   console.log("=== Companies House filing preflight ===\n");
   console.log(`Environment: ${cfg.label}`);
   console.log(`Gateway:     ${cfg.xmlGatewayUrl}`);
-  console.log(`Package ref: ${resolveChPackageReference()}`);
   console.log(`Presenter:   ${creds.presenterConfigured ? "configured" : "MISSING"}`);
   console.log(`Credit acct: ${creds.creditAccountConfigured ? "configured" : "MISSING"}`);
   console.log(`Can file fee:  ${creds.canFileFeeBearing ? "yes" : "no"}\n`);
@@ -277,42 +274,18 @@ async function main() {
     );
   }
 
-  const cs01WithTestPackage = cs01Xml.replace(
-    /<PackageReference>[^<]+<\/PackageReference>/,
-    "<PackageReference>0012</PackageReference>",
-  );
-  const cs01Test = await postGateway("CS01 (PackageReference 0012)", cs01WithTestPackage);
-  console.log(
-    `${cs01Test.label}: HTTP ${cs01Test.http}, ${cs01Test.errorNumber ?? ""} ${cs01Test.errorText ?? cs01Test.qualifier}`,
-  );
-
-  const cs01LivePackage = cs01Xml.replace(
-    /<PackageReference>[^<]+<\/PackageReference>/,
-    `<PackageReference>${xmlEscape(resolveChPackageReference())}</PackageReference>`,
-  );
-  const cs01Live = await postGateway(
-    `CS01 (PackageReference ${resolveChPackageReference()})`,
-    cs01LivePackage,
-  );
+  const cs01Live = await postGateway("CS01", cs01Xml);
   console.log(
     `${cs01Live.label}: HTTP ${cs01Live.http}, ${cs01Live.errorNumber ?? ""} ${cs01Live.errorText ?? cs01Live.qualifier}`,
   );
 
-  const in01Test = in01Built.xml.replace(
-    /<PackageReference>[^<]+<\/PackageReference>/,
-    "<PackageReference>0012</PackageReference>",
-  );
-  const in01Probe = await postGateway("IN01 (PackageReference 0012)", in01Test);
+  const in01Probe = await postGateway("IN01", in01Built.xml);
   console.log(
     `${in01Probe.label}: HTTP ${in01Probe.http}, ${in01Probe.errorNumber ?? ""} ${in01Probe.errorText ?? in01Probe.qualifier}`,
   );
 
   console.log("\n--- Summary ---");
   const xmlOk = cs01Missing.length === 0 && in01Missing.length === 0;
-  const gatewayOk =
-    schema.skipped === false &&
-    schema.result.accepted &&
-    (cs01Test.accepted || cs01Live.accepted || in01Probe.accepted);
 
   if (xmlOk) console.log("XML packages: OK");
   else console.log("XML packages: FAIL");
@@ -321,18 +294,18 @@ async function main() {
     console.log("Presenter auth: FAIL (502 on SchemaStatus)");
   } else if (schema.skipped === false && schema.result.accepted) {
     console.log("Presenter auth: OK (SchemaStatus accepted)");
-  } else if (cs01Test.errorNumber === "502" && cs01Live.errorNumber === "502") {
+  } else if (cs01Live.errorNumber === "502") {
     console.log(
       "Presenter auth: FAIL for fee filings (502 Authorisation Failure on CS01/IN01)",
     );
     console.log(
-      "  → Check presenter is registered for software filing and PackageReference matches CH registration.",
+      "  → Ask Companies House Software Support to confirm CS01 is enabled on this presenter / credit account.",
     );
-  } else if (cs01Test.accepted || cs01Live.accepted) {
+  } else if (cs01Live.accepted) {
     console.log("CS01 gateway: OK (accepted)");
-  } else if (cs01Test.errorNumber !== "502") {
+  } else if (cs01Live.errorNumber !== "502") {
     console.log(
-      `CS01 gateway: business/schema response (${cs01Test.errorText ?? "see above"}) — auth likely OK`,
+      `CS01 gateway: business/schema response (${cs01Live.errorText ?? "see above"}) — auth likely OK`,
     );
   }
 
@@ -343,9 +316,7 @@ async function main() {
   const ready =
     xmlOk &&
     creds.canFileFeeBearing &&
-    (cs01Test.accepted ||
-      cs01Live.accepted ||
-      (cs01Test.errorNumber !== "502" && cs01Live.errorNumber !== "502"));
+    (cs01Live.accepted || cs01Live.errorNumber !== "502");
 
   console.log(`\nReady for live submit: ${ready ? "LIKELY YES" : "NO — fix blockers above"}`);
   process.exit(ready ? 0 : 1);

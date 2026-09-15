@@ -35,7 +35,7 @@ function sixChar() {
   return o;
 }
 
-function buildBody(formInner: string, packageRef: string) {
+function buildBody(formInner: string, softwareId: string) {
   const sub = sixChar();
   const today = new Date().toISOString().slice(0, 10);
   return `<FormSubmission xmlns="http://xmlgw.companieshouse.gov.uk/Header" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://xmlgw.companieshouse.gov.uk/Header http://xmlgw.companieshouse.gov.uk/v1-0/schema/forms/FormSubmission-v2-11.xsd">
@@ -44,7 +44,7 @@ function buildBody(formInner: string, packageRef: string) {
         <CompanyType>EW</CompanyType>
         <CompanyName>GLAM BY YUMNA LTD</CompanyName>
         <CompanyAuthenticationCode>FRUGC2</CompanyAuthenticationCode>
-        <PackageReference>${packageRef}</PackageReference>
+        <PackageReference>${softwareId}</PackageReference>
         <Language>EN</Language>
         <FormIdentifier>ConfirmationStatement</FormIdentifier>
         <SubmissionNumber>${sub}</SubmissionNumber>
@@ -82,7 +82,7 @@ async function tryAuth(label: string, senderId: string, method: string, value: s
     </SenderDetails>
   </Header>
   <GovTalkDetails><Keys/></GovTalkDetails>
-  <Body>${buildBody(plainForm, "0012")}</Body>
+  <Body>${buildBody(plainForm, process.env.COMPANIES_HOUSE_PRESENTER_ID || "HydraTax")}</Body>
 </GovTalkMessage>`;
 
   const gateway =

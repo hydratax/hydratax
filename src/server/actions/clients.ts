@@ -727,18 +727,27 @@ export async function refreshStaleClientsCompaniesHouse(opts?: {
   );
 
   let refreshed = 0;
-  let skipped = targets.length;
   const batch = targets.slice(0, limit);
-
-  for (const client of batch) {
-    try {
-      await refreshClientCompaniesHouse(client.id);
-      refreshed += 1;
-    } catch (err) {
-      console.warn("[ch.refresh] client refresh failed", client.id, err);
+  const concurrency = 5;
+  for (let i = 0; i < batch.length; i += concurrency) {
+    const chunk = batch.slice(i, i + concurrency);
+    const results = await Promise.allSettled(
+      chunk.map((client) => refreshClientCompaniesHouse(client.id)),
+    );
+    for (let j = 0; j < results.length; j++) {
+      const result = results[j]!;
+      if (result.status === "fulfilled") {
+        refreshed += 1;
+      } else {
+        console.warn(
+          "[ch.refresh] client refresh failed",
+          chunk[j]?.id,
+          result.reason,
+        );
+      }
     }
   }
-  skipped = Math.max(0, targets.length - refreshed);
+  const skipped = Math.max(0, targets.length - refreshed);
   revalidatePath("/clients");
   return { refreshed, skipped };
 }
