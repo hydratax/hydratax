@@ -1,11 +1,33 @@
-import { buildAccountsIxbrl } from "@/server/hmrc/ct600/ixbrl-accounts";
-import type { Ct600Figures } from "@/server/hmrc/ct600/types";
-import { pence } from "@/server/money/pence";
+/**
+ * Companies House statutory accounts (non-fee-bearing).
+ *
+ * CH does NOT charge a filing fee for year-end accounts. Hydra's checkout fee
+ * is a service charge only. Live submit needs presenter ID + auth + company
+ * authentication code — not a credit account.
+ *
+ * Payload shape (XML Gateway FormSubmission + iXBRL Document):
+ * - Class / FormIdentifier: Accounts
+ * - Empty <Form/> (structured Accounts XML unused when attaching iXBRL)
+ * - Document Category=ACCOUNTS, ContentType=application/xml, .html filename
+ * - Presenter authentication (clear) + company authentication code
+ */
+import { getChFilingEnv, isChXmlGatewayConfigured } from "./config";
 import {
-  buildAccountsSubmissionXml,
-  submitChFormXml,
-} from "./company-forms-xml";
-import { isChXmlGatewayConfigured } from "./config";
+  buildAccountsPresenterAuthenticationXml,
+  CH_ACCOUNTS_PACKAGE_REFERENCE,
+  sixCharSubmissionNumber,
+  validatePresenterCredentials,
+  xmlEscape,
+} from "./gateway-auth";
+import {
+  getHydraPresenterConfig,
+  resolveChCompanyType,
+} from "./presenter";
+import {
+  buildChMicroAccountsIxbrl,
+  type ChMicroBalanceSheet,
+} from "./ch-micro-ixbrl";
+import { postXmlToGateway } from "./xml-gateway";
 
 export type AccountsSubmitResult = {
   ok: boolean;
@@ -19,96 +41,166 @@ function poundsToPence(raw: unknown): number {
     return Math.round(raw * 100);
   }
   if (typeof raw === "string") {
-    const n = Number.parseFloat(raw.replace(/,/g, "").replace(/[()]/g, "").trim());
+    const n = Number.parseFloat(
+      raw.replace(/,/g, "").replace(/[()]/g, "").trim(),
+    );
     if (Number.isFinite(n)) return Math.round(n * 100);
   }
   return 0;
 }
 
-function p(raw: unknown) {
-  return pence(poundsToPence(raw) / 100);
+function normaliseCompanyNumber(raw: string) {
+  const cleaned = raw.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  if (/^\d+$/.test(cleaned)) return cleaned.padStart(8, "0");
+  return cleaned;
 }
 
-function dormantFigures(
-  periodStart: string,
-  periodEnd: string,
-  shareCapitalPence = 100,
-): Ct600Figures {
-  return {
-    clientId: "00000000-0000-0000-0000-000000000001",
-    periodStart,
-    periodEnd,
-    turnoverPence: pence(0),
-    otherIncomePence: pence(0),
-    costOfSalesPence: pence(0),
-    administrativeExpensesPence: pence(0),
-    tangibleAssetsPence: pence(0),
-    cashAtBankPence: pence(0),
-    debtorsPence: pence(0),
-    creditorsPence: pence(0),
-    calledUpShareCapitalPence: pence(shareCapitalPence),
-    profitAndLossAccountPence: pence(0),
-  };
-}
+type YearEndPayload = {
+  pl?: Record<string, string>;
+  bs?: Record<string, string>;
+  periodStart?: string;
+  periodEnd?: string;
+  companyType?: string;
+  directorName?: string;
+};
 
-/** Build CT figures from year-end form session payload when present. */
-export function figuresFromYearEndPayload(
-  raw: unknown,
-  periodStart: string,
-  periodEnd: string,
-): Ct600Figures | null {
-  if (!raw || typeof raw !== "object") return null;
-  const data = raw as {
-    pl?: Record<string, string>;
-    bs?: Record<string, string>;
-    periodStart?: string;
-    periodEnd?: string;
-  };
-  if (!data.pl && !data.bs) return null;
-
-  const pl = data.pl ?? {};
-  const bs = data.bs ?? {};
-  const fixed = poundsToPence(bs.fixedAssets);
-  const currentAssets = poundsToPence(bs.totalCurrentAssets);
-  // Approximate current assets split for iXBRL (cash vs debtors).
-  const cash = Math.max(0, Math.round(currentAssets * 0.5));
-  const debtors = Math.max(0, currentAssets - cash);
-  const share = poundsToPence(bs.shareCapital);
-
-  return {
-    clientId: "00000000-0000-0000-0000-000000000001",
-    periodStart: data.periodStart || periodStart,
-    periodEnd: data.periodEnd || periodEnd,
-    turnoverPence: p(pl.turnover),
-    otherIncomePence: p(pl.interestIncome),
-    costOfSalesPence: p(pl.costOfMaterials),
-    administrativeExpensesPence: pence(
-      (poundsToPence(pl.staffCosts) +
-        poundsToPence(pl.depreciation) +
-        poundsToPence(pl.otherCharges)) /
-        100,
-    ),
-    tangibleAssetsPence: pence(fixed / 100),
-    cashAtBankPence: pence(cash / 100),
-    debtorsPence: pence(debtors / 100),
-    creditorsPence: pence(
-      (poundsToPence(bs.creditorsWithinOneYear) +
-        poundsToPence(bs.corporationTaxPayable) +
-        poundsToPence(bs.creditorsAfterOneYear)) /
-        100,
-    ),
-    calledUpShareCapitalPence: share > 0 ? pence(share / 100) : pence(1),
-    profitAndLossAccountPence: p(bs.retainedEarnings),
-  };
-}
-
-function parseYearEndFiguresField(raw: unknown): unknown {
+function parseYearEndFiguresField(raw: unknown): YearEndPayload | null {
+  if (!raw) return null;
+  if (typeof raw === "object") return raw as YearEndPayload;
   if (typeof raw !== "string" || !raw.trim()) return null;
   try {
-    return JSON.parse(raw) as unknown;
+    return JSON.parse(raw) as YearEndPayload;
   } catch {
     return null;
   }
+}
+
+/** Map year-end wizard BS fields into micro-entity pence lines. */
+export function balanceSheetFromYearEndPayload(
+  raw: unknown,
+  accountsType: string,
+): ChMicroBalanceSheet {
+  const data = parseYearEndFiguresField(raw);
+  const bs = data?.bs ?? {};
+  const dormant = accountsType === "dormant";
+  if (!data?.bs && dormant) {
+    return {
+      fixedAssetsPence: 0,
+      currentAssetsPence: 100,
+      creditorsWithinPence: 0,
+      creditorsAfterPence: 0,
+      shareCapitalPence: 100,
+      retainedEarningsPence: 0,
+    };
+  }
+  return {
+    fixedAssetsPence: poundsToPence(bs.fixedAssets),
+    currentAssetsPence: poundsToPence(bs.totalCurrentAssets),
+    creditorsWithinPence:
+      poundsToPence(bs.creditorsWithinOneYear) +
+      poundsToPence(bs.corporationTaxPayable),
+    creditorsAfterPence: poundsToPence(bs.creditorsAfterOneYear),
+    shareCapitalPence: poundsToPence(bs.shareCapital) || 100,
+    retainedEarningsPence: poundsToPence(bs.retainedEarnings),
+  };
+}
+
+function isDormantFromPayload(raw: unknown, accountsType: string): boolean {
+  if (accountsType === "dormant") return true;
+  const data = parseYearEndFiguresField(raw);
+  if (!data?.pl) return accountsType === "dormant";
+  const pl = data.pl;
+  const activity =
+    poundsToPence(pl.turnover) +
+    poundsToPence(pl.interestIncome) +
+    poundsToPence(pl.costOfMaterials) +
+    poundsToPence(pl.staffCosts) +
+    poundsToPence(pl.depreciation) +
+    poundsToPence(pl.otherCharges);
+  return activity === 0;
+}
+
+/**
+ * GovTalk envelope for non-fee Accounts + iXBRL attachment.
+ * Matches the working CH XML Gateway Accounts pattern (empty Form + Document).
+ */
+export function buildAccountsGatewayXml(input: {
+  companyNumber: string;
+  companyName: string;
+  companyAuthCode: string;
+  periodStart: string;
+  periodEnd: string;
+  ixbrlHtml: string;
+}): string {
+  const cfg = getChFilingEnv();
+  const presenter = getHydraPresenterConfig();
+  const submissionNumber = sixCharSubmissionNumber();
+  const dateSigned = new Date().toISOString().slice(0, 10);
+  const companyNumber = normaliseCompanyNumber(input.companyNumber);
+  const companyType = resolveChCompanyType(companyNumber);
+  const packageReference = xmlEscape(CH_ACCOUNTS_PACKAGE_REFERENCE);
+  const email = presenter.presenterEmail
+    ? `\n      <EmailAddress>${xmlEscape(presenter.presenterEmail)}</EmailAddress>`
+    : "";
+  const contactName = xmlEscape(
+    (presenter.contactName || "HydraTax").slice(0, 50),
+  );
+  const contactNumber = presenter.contactNumber
+    ? `\n        <ContactNumber>${xmlEscape(presenter.contactNumber.slice(0, 25))}</ContactNumber>`
+    : `\n        <ContactNumber>00000000000</ContactNumber>`;
+  const gatewayTestXml = cfg.gatewayTest
+    ? `\n      <GatewayTest>1</GatewayTest>`
+    : "";
+  const ixbrlB64 = Buffer.from(input.ixbrlHtml, "utf8").toString("base64");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.govtalk.gov.uk/CM/envelope http://xmlgw.companieshouse.gov.uk/v1-0/schema/Egov_ch-v2-0.xsd">
+  <EnvelopeVersion>2.0</EnvelopeVersion>
+  <Header>
+    <MessageDetails>
+      <Class>Accounts</Class>
+      <Qualifier>request</Qualifier>
+      <Function>submit</Function>
+      <Transformation>XML</Transformation>${gatewayTestXml}
+    </MessageDetails>
+    <SenderDetails>
+      ${buildAccountsPresenterAuthenticationXml()}${email}
+    </SenderDetails>
+  </Header>
+  <GovTalkDetails>
+    <Keys>
+      <Key Type="FormType">Accounts</Key>
+    </Keys>
+    <TargetDetails>
+      <Organisation>Companies House</Organisation>
+    </TargetDetails>
+  </GovTalkDetails>
+  <Body>
+    <FormSubmission xmlns="http://xmlgw.companieshouse.gov.uk/Header" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://xmlgw.companieshouse.gov.uk/Header http://xmlgw.companieshouse.gov.uk/v1-0/schema/forms/FormSubmission-v2-11.xsd">
+      <FormHeader>
+        <CompanyNumber>${xmlEscape(companyNumber)}</CompanyNumber>
+        <CompanyType>${xmlEscape(companyType)}</CompanyType>
+        <CompanyName>${xmlEscape(input.companyName.toUpperCase())}</CompanyName>
+        <CompanyAuthenticationCode>${xmlEscape(input.companyAuthCode.toUpperCase())}</CompanyAuthenticationCode>
+        <PackageReference>${packageReference}</PackageReference>
+        <Language>EN</Language>
+        <FormIdentifier>Accounts</FormIdentifier>
+        <SubmissionNumber>${xmlEscape(submissionNumber)}</SubmissionNumber>
+        <ContactName>${contactName}</ContactName>${contactNumber}
+      </FormHeader>
+      <DateSigned>${dateSigned}</DateSigned>
+      <Form>
+      </Form>
+      <Document>
+        <Data>${ixbrlB64}</Data>
+        <Date>${dateSigned}</Date>
+        <Filename>accounts.html</Filename>
+        <ContentType>application/xml</ContentType>
+        <Category>ACCOUNTS</Category>
+      </Document>
+    </FormSubmission>
+  </Body>
+</GovTalkMessage>`;
 }
 
 export async function submitAccountsFromPayload(opts: {
@@ -121,6 +213,11 @@ export async function submitAccountsFromPayload(opts: {
   yearEndFigures?: unknown;
   declarantName?: string | null;
 }): Promise<AccountsSubmitResult> {
+  const presenterCheck = validatePresenterCredentials();
+  if (!presenterCheck.ok) {
+    return { ok: false, error: presenterCheck.error };
+  }
+
   if (!isChXmlGatewayConfigured()) {
     return {
       ok: false,
@@ -130,27 +227,38 @@ export async function submitAccountsFromPayload(opts: {
     };
   }
 
-  const fromWizard = figuresFromYearEndPayload(
-    parseYearEndFiguresField(opts.yearEndFigures) ?? opts.yearEndFigures,
-    opts.periodStart,
-    opts.periodEnd,
-  );
-  const figures =
-    fromWizard ??
-    (opts.accountsType === "dormant"
-      ? dormantFigures(opts.periodStart, opts.periodEnd)
-      : dormantFigures(opts.periodStart, opts.periodEnd));
+  if (!opts.companyAuthCode.trim()) {
+    return {
+      ok: false,
+      error:
+        "Company authentication code missing — add it on the client record or at checkout.",
+    };
+  }
 
-  const ixbrl = buildAccountsIxbrl({
+  const parsed = parseYearEndFiguresField(opts.yearEndFigures);
+  const balanceSheet = balanceSheetFromYearEndPayload(
+    opts.yearEndFigures,
+    opts.accountsType,
+  );
+  const dormant = isDormantFromPayload(opts.yearEndFigures, opts.accountsType);
+  const directorName =
+    opts.declarantName?.trim() ||
+    parsed?.directorName?.trim() ||
+    "Director";
+
+  const ixbrl = buildChMicroAccountsIxbrl({
     companyName: opts.companyName,
-    companyNumber: opts.companyNumber.replace(/\D/g, ""),
-    utr: "0000000000",
-    figures,
-    declarantName: opts.declarantName || "Director",
-    declarantStatus: "Director",
+    companyNumber: normaliseCompanyNumber(opts.companyNumber),
+    periodStart: parsed?.periodStart || opts.periodStart,
+    periodEnd: parsed?.periodEnd || opts.periodEnd,
+    dormant,
+    balanceSheet,
+    directorName,
+    averageEmployees: dormant ? 0 : 1,
+    approvalDate: new Date().toISOString().slice(0, 10),
   });
 
-  const xml = buildAccountsSubmissionXml({
+  const xml = buildAccountsGatewayXml({
     companyNumber: opts.companyNumber,
     companyName: opts.companyName,
     companyAuthCode: opts.companyAuthCode,
@@ -159,14 +267,21 @@ export async function submitAccountsFromPayload(opts: {
     ixbrlHtml: ixbrl,
   });
 
-  const result = await submitChFormXml(xml);
+  // Accounts are non-fee-bearing — do not require a credit account.
+  const result = await postXmlToGateway(xml, "Accounts", {
+    feeBearing: false,
+  });
   if (!result.ok) {
     return { ok: false, mode: "xml_gateway", error: result.error };
   }
 
+  // Prefer CH echo; otherwise keep the SubmissionNumber we generated in the envelope.
+  const sentMatch = xml.match(
+    /<SubmissionNumber>([^<]+)<\/SubmissionNumber>/i,
+  );
   return {
     ok: true,
     mode: "xml_gateway",
-    submissionNumber: result.submissionNumber ?? null,
+    submissionNumber: result.submissionNumber ?? sentMatch?.[1] ?? null,
   };
 }

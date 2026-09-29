@@ -47,13 +47,17 @@ export async function submitCompanyIncorporationXml(
 export async function postXmlToGateway(
   xml: string,
   label = "CH",
+  opts?: { feeBearing?: boolean },
 ): Promise<XmlGatewayResponse> {
   const cfg = getChFilingEnv();
   const presenterCheck = validatePresenterCredentials();
   if (!presenterCheck.ok) {
     return { ok: false, error: presenterCheck.error };
   }
-  if (cfg.live && !cfg.creditAccountNumber) {
+  // Credit account is only required for fee-bearing filings (CS01, IN01, etc.).
+  // Statutory accounts are non-fee-bearing.
+  const feeBearing = opts?.feeBearing ?? true;
+  if (feeBearing && cfg.live && !cfg.creditAccountNumber) {
     return {
       ok: false,
       error:
@@ -70,7 +74,7 @@ export async function postXmlToGateway(
     return {
       ok: false,
       error:
-        "CS01 XML envelope is incomplete — FormSubmission body is missing. Contact support.",
+        "Companies House XML envelope is incomplete — FormSubmission body is missing. Contact support.",
     };
   }
 
@@ -83,7 +87,7 @@ export async function postXmlToGateway(
 
   logChGatewayXmlPayload(label, xml);
   console.info(
-    `[ch.gateway] ${label} env=${cfg.label} host=${cfg.xmlGatewayHostKind} url=${cfg.xmlGatewayUrl} gatewayTest=${cfg.gatewayTest ? 1 : 0}`,
+    `[ch.gateway] ${label} env=${cfg.label} host=${cfg.xmlGatewayHostKind} feeBearing=${feeBearing ? 1 : 0} url=${cfg.xmlGatewayUrl} gatewayTest=${cfg.gatewayTest ? 1 : 0}`,
   );
 
   try {
@@ -112,7 +116,7 @@ export async function postXmlToGateway(
       const chMessage = errorText?.[1]?.trim();
       return {
         ok: false,
-        error: mapChError(chMessage),
+        error: mapChError(chMessage, label),
         raw: raw.slice(0, 2000),
       };
     }
@@ -132,12 +136,12 @@ export async function postXmlToGateway(
   }
 }
 
-function mapChError(message?: string) {
+function mapChError(message?: string, label = "filing") {
   if (!message) {
-    return "Companies House rejected the confirmation statement.";
+    return `Companies House rejected the ${label === "Accounts" ? "accounts" : "filing"}.`;
   }
   if (/Authorisation Failure/i.test(message)) {
-    return "Companies House authorisation failed — check the company authentication code and that presenter credentials are active.";
+    return "Companies House authorisation failed — check the company authentication code and that presenter credentials are active for software filing.";
   }
   return message;
 }

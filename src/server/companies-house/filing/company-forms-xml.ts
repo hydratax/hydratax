@@ -7,6 +7,7 @@ import {
   type StructuredAddressInput,
 } from "./form-envelope";
 import { xmlEscape } from "./gateway-auth";
+import { buildAccountsGatewayXml } from "./accounts-filing";
 
 const CH_NS = "http://xmlgw.companieshouse.gov.uk";
 
@@ -330,6 +331,7 @@ ${addrBlock}
   });
 }
 
+/** @deprecated Use buildAccountsGatewayXml from accounts-filing (empty Form + iXBRL). */
 export function buildAccountsSubmissionXml(input: {
   companyNumber: string;
   companyName: string;
@@ -338,26 +340,7 @@ export function buildAccountsSubmissionXml(input: {
   periodEnd: string;
   ixbrlHtml: string;
 }) {
-  const formBody = `<Accounts xmlns="${CH_NS}" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="${CH_NS} ${CH_NS}/v1-0/schema/forms/Accounts-v1-0.xsd">
-          <PeriodStart>${xmlEscape(input.periodStart)}</PeriodStart>
-          <PeriodEnd>${xmlEscape(input.periodEnd)}</PeriodEnd>
-        </Accounts>`;
-
-  return buildFormSubmissionEnvelope({
-    messageClass: "Accounts",
-    formIdentifier: "Accounts",
-    companyNumber: input.companyNumber,
-    companyName: input.companyName,
-    companyAuthCode: input.companyAuthCode,
-    formBody,
-    documents: [
-      {
-        filename: "accounts.xhtml",
-        dataBase64: Buffer.from(input.ixbrlHtml, "utf8").toString("base64"),
-        category: "ACCOUNTS",
-      },
-    ],
-  });
+  return buildAccountsGatewayXml(input);
 }
 
 import { postXmlToGateway } from "./xml-gateway";

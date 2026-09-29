@@ -4,6 +4,9 @@ import { getChFilingEnv } from "./config";
 /** Software presenter ID and authentication code are always 11 characters. */
 export const CH_PRESENTER_CREDENTIAL_PATTERN = /^[A-Z0-9]{11}$/i;
 
+/** CH software package reference used for Accounts / schema validation (GOV.UK TIS). */
+export const CH_ACCOUNTS_PACKAGE_REFERENCE = "0012";
+
 export type PresenterCredentialCheck =
   | { ok: true }
   | { ok: false; error: string };
@@ -66,6 +69,26 @@ export function buildPresenterAuthenticationXml() {
         <Authentication>
           <Method>clear</Method>
           <Value>${xmlEscape(presenterAuth)}</Value>
+        </Authentication>
+      </IDAuthentication>`;
+}
+
+/**
+ * Accounts gateway auth: Method clear with lowercase MD5 digests of the
+ * presenter ID and authentication code (no md5# prefix). Live probes show
+ * plaintext credentials return 502 Authorisation Failure for Accounts.
+ */
+export function buildAccountsPresenterAuthenticationXml() {
+  const cfg = getChFilingEnv();
+  const presenterId = cfg.presenterId ?? "";
+  const presenterAuth = cfg.presenterAuthCode ?? "";
+  const senderDigest = createHash("md5").update(presenterId).digest("hex");
+  const authDigest = createHash("md5").update(presenterAuth).digest("hex");
+  return `<IDAuthentication>
+        <SenderID>${xmlEscape(senderDigest)}</SenderID>
+        <Authentication>
+          <Method>clear</Method>
+          <Value>${xmlEscape(authDigest)}</Value>
         </Authentication>
       </IDAuthentication>`;
 }
