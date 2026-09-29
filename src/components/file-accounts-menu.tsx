@@ -61,7 +61,11 @@ export function FileAccountsMenu({
     <>
       <button
         type="button"
-        className={className ?? "btn btn-primary w-full text-sm"}
+        className={
+          className
+            ? `btn btn-primary text-sm shadow-md ${className}`
+            : "btn btn-primary w-full text-sm shadow-md"
+        }
         onClick={() => setOpen(true)}
       >
         {label}

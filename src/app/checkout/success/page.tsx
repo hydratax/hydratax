@@ -3,6 +3,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { ClearCs01DraftOnSuccess } from "@/components/checkout/clear-cs01-draft";
 import { isStripeConfigured } from "@/lib/env";
+import { getChService } from "@/lib/ch-services";
 import { getStripe } from "@/server/stripe/client";
 import {
   attachCheckoutToPractice,
@@ -13,6 +14,16 @@ import type { ChFulfillmentResult } from "@/server/companies-house/fulfill-ch-re
 export const metadata = {
   title: "Payment successful — HydraTax",
 };
+
+function filingLabel(serviceId: string | null | undefined, planKey: string) {
+  const fromService = serviceId ? getChService(serviceId)?.title : null;
+  if (fromService) return fromService;
+  if (planKey.startsWith("companies-house:")) {
+    const id = planKey.slice("companies-house:".length);
+    return getChService(id)?.title ?? "Companies House filing";
+  }
+  return "Companies House filing";
+}
 
 export default async function CheckoutSuccessPage({
   searchParams,
@@ -70,14 +81,24 @@ export default async function CheckoutSuccessPage({
     }
   }
 
-  const isCs01 =
-    planKey === "companies-house:confirmation-statement" ||
-    chFulfillment?.serviceId === "confirmation-statement";
+  const serviceId =
+    chFulfillment?.serviceId ||
+    (planKey.startsWith("companies-house:")
+      ? planKey.slice("companies-house:".length)
+      : "");
+  const isCs01 = serviceId === "confirmation-statement";
+  const isAccounts = serviceId === "accounts-ixbrl";
+  const serviceTitle = filingLabel(serviceId, planKey);
   const submitted = chFulfillment?.submitted ?? false;
   const submitFailed =
     Boolean(fulfillError) ||
-    (chFulfillment != null && !chFulfillment.submitted && isCs01);
+    (chFulfillment != null && !chFulfillment.submitted);
   const emailSent = chFulfillment?.emailDelivery === "resend";
+  const fileAnotherHref = isAccounts
+    ? "/companies-house/accounts-ixbrl"
+    : isCs01
+      ? "/companies-house/confirmation-statement"
+      : "/companies-house";
 
   return (
     <div className="min-h-screen">
@@ -85,14 +106,14 @@ export default async function CheckoutSuccessPage({
       {isCs01 && submitted && <ClearCs01DraftOnSuccess />}
 
       <main className="mx-auto flex max-w-lg flex-col items-center px-4 py-12 text-center md:py-20">
-        {isCs01 || isFilingCheckout ? (
+        {planKey.startsWith("companies-house:") || isFilingCheckout ? (
           <>
             <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
               {submitted ? "Submitted to Companies House" : "Payment received"}
             </p>
             <h1 className="display mt-3 text-3xl text-ink sm:text-4xl md:text-5xl">
               {submitted
-                ? "Confirmation statement submitted"
+                ? `${serviceTitle} submitted`
                 : submitFailed
                   ? "Payment received"
                   : "Processing your filing"}
@@ -100,7 +121,7 @@ export default async function CheckoutSuccessPage({
             <p className="mt-4 text-ink-soft">
               {submitted ? (
                 <>
-                  Your confirmation statement
+                  Your {serviceTitle.toLowerCase()}
                   {chFulfillment?.companyName ? (
                     <>
                       {" "}
@@ -116,14 +137,22 @@ export default async function CheckoutSuccessPage({
               ) : submitFailed ? (
                 <>
                   We received your payment for{" "}
+                  <span className="font-semibold text-ink">
+                    {serviceTitle.toLowerCase()}
+                  </span>
                   {chFulfillment?.companyName ? (
-                    <span className="font-semibold text-ink">
-                      {chFulfillment.companyName}
-                    </span>
-                  ) : (
-                    "your confirmation statement"
-                  )}
-                  . Your filing is being submitted to Companies House
+                    <>
+                      {" "}
+                      for{" "}
+                      <span className="font-semibold text-ink">
+                        {chFulfillment.companyName}
+                      </span>
+                    </>
+                  ) : null}
+                  . Your filing could not be completed automatically
+                  {fulfillError && fulfillError !== "fulfillment_failed"
+                    ? ` (${fulfillError})`
+                    : ""}
                   {email && emailSent ? (
                     <>
                       {" "}
@@ -145,7 +174,7 @@ export default async function CheckoutSuccessPage({
                 <>
                   Payment received for{" "}
                   <span className="font-semibold text-ink">
-                    confirmation statement
+                    {serviceTitle.toLowerCase()}
                   </span>
                   . We are submitting to Companies House now.
                 </>
@@ -173,10 +202,7 @@ export default async function CheckoutSuccessPage({
               </Link>
             )}
             <div className="mt-8 flex flex-wrap justify-center gap-3">
-              <Link
-                href="/companies-house/confirmation-statement"
-                className="btn btn-secondary"
-              >
+              <Link href={fileAnotherHref} className="btn btn-secondary">
                 File another
               </Link>
               <Link href="/dashboard" className="btn btn-primary">
@@ -197,24 +223,16 @@ export default async function CheckoutSuccessPage({
               <span className="font-semibold text-ink">{planLabel}</span>
               {email ? (
                 <>
-                  . We&apos;ll send a receipt to{" "}
-                  <span className="font-semibold text-ink">{email}</span>.
+                  {" "}
+                  — confirmation sent to{" "}
+                  <span className="font-semibold text-ink">{email}</span>
                 </>
-              ) : (
-                "."
-              )}
+              ) : null}
+              {activated ? "." : "."}
             </p>
-            {activated && (
-              <p className="mt-2 text-sm text-sea">
-                Your plan is active on this practice desk.
-              </p>
-            )}
             <div className="mt-8 flex flex-wrap justify-center gap-3">
               <Link href="/dashboard" className="btn btn-primary">
                 Open desk
-              </Link>
-              <Link href="/clients" className="btn btn-secondary">
-                Go to clients
               </Link>
             </div>
           </>

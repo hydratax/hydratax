@@ -579,6 +579,8 @@ async function submitAccounts(
     periodStart,
     periodEnd,
     accountsType,
+    yearEndFigures: payload.yearEndFigures,
+    declarantName: str(payload, "directorName") || null,
   });
 
   if (!result.ok) {

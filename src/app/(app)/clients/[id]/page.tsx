@@ -368,7 +368,7 @@ export default async function ClientOverviewPage({
                   <FileAccountsMenu
                     clientId={clientId}
                     companyNumber={client.companyNumber}
-                    className="w-full"
+                    className="w-full bg-sea text-white hover:bg-sea/90"
                   />
                 ) : (
                   <Link

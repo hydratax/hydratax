@@ -186,7 +186,6 @@ ${addressXml(s.address, "          ")}
     process.env.COMPANIES_HOUSE_AGENT_NAME?.trim() ||
     "HYDRA CONSULTANCY SERVICES LTD";
 
-  const cfg = getChFilingEnv();
   const gatewayTestXml = cfg.gatewayTest
     ? `
       <GatewayTest>1</GatewayTest>`

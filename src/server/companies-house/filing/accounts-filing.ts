@@ -14,6 +14,21 @@ export type AccountsSubmitResult = {
   mode?: "xml_gateway" | "dry_run";
 };
 
+function poundsToPence(raw: unknown): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.round(raw * 100);
+  }
+  if (typeof raw === "string") {
+    const n = Number.parseFloat(raw.replace(/,/g, "").replace(/[()]/g, "").trim());
+    if (Number.isFinite(n)) return Math.round(n * 100);
+  }
+  return 0;
+}
+
+function p(raw: unknown) {
+  return pence(poundsToPence(raw) / 100);
+}
+
 function dormantFigures(
   periodStart: string,
   periodEnd: string,
@@ -36,6 +51,66 @@ function dormantFigures(
   };
 }
 
+/** Build CT figures from year-end form session payload when present. */
+export function figuresFromYearEndPayload(
+  raw: unknown,
+  periodStart: string,
+  periodEnd: string,
+): Ct600Figures | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as {
+    pl?: Record<string, string>;
+    bs?: Record<string, string>;
+    periodStart?: string;
+    periodEnd?: string;
+  };
+  if (!data.pl && !data.bs) return null;
+
+  const pl = data.pl ?? {};
+  const bs = data.bs ?? {};
+  const fixed = poundsToPence(bs.fixedAssets);
+  const currentAssets = poundsToPence(bs.totalCurrentAssets);
+  // Approximate current assets split for iXBRL (cash vs debtors).
+  const cash = Math.max(0, Math.round(currentAssets * 0.5));
+  const debtors = Math.max(0, currentAssets - cash);
+  const share = poundsToPence(bs.shareCapital);
+
+  return {
+    clientId: "00000000-0000-0000-0000-000000000001",
+    periodStart: data.periodStart || periodStart,
+    periodEnd: data.periodEnd || periodEnd,
+    turnoverPence: p(pl.turnover),
+    otherIncomePence: p(pl.interestIncome),
+    costOfSalesPence: p(pl.costOfMaterials),
+    administrativeExpensesPence: pence(
+      (poundsToPence(pl.staffCosts) +
+        poundsToPence(pl.depreciation) +
+        poundsToPence(pl.otherCharges)) /
+        100,
+    ),
+    tangibleAssetsPence: pence(fixed / 100),
+    cashAtBankPence: pence(cash / 100),
+    debtorsPence: pence(debtors / 100),
+    creditorsPence: pence(
+      (poundsToPence(bs.creditorsWithinOneYear) +
+        poundsToPence(bs.corporationTaxPayable) +
+        poundsToPence(bs.creditorsAfterOneYear)) /
+        100,
+    ),
+    calledUpShareCapitalPence: share > 0 ? pence(share / 100) : pence(1),
+    profitAndLossAccountPence: p(bs.retainedEarnings),
+  };
+}
+
+function parseYearEndFiguresField(raw: unknown): unknown {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
+}
+
 export async function submitAccountsFromPayload(opts: {
   companyNumber: string;
   companyName: string;
@@ -43,6 +118,8 @@ export async function submitAccountsFromPayload(opts: {
   periodStart: string;
   periodEnd: string;
   accountsType: string;
+  yearEndFigures?: unknown;
+  declarantName?: string | null;
 }): Promise<AccountsSubmitResult> {
   if (!isChXmlGatewayConfigured()) {
     return {
@@ -53,14 +130,23 @@ export async function submitAccountsFromPayload(opts: {
     };
   }
 
-  const figures = dormantFigures(opts.periodStart, opts.periodEnd);
+  const fromWizard = figuresFromYearEndPayload(
+    parseYearEndFiguresField(opts.yearEndFigures) ?? opts.yearEndFigures,
+    opts.periodStart,
+    opts.periodEnd,
+  );
+  const figures =
+    fromWizard ??
+    (opts.accountsType === "dormant"
+      ? dormantFigures(opts.periodStart, opts.periodEnd)
+      : dormantFigures(opts.periodStart, opts.periodEnd));
 
   const ixbrl = buildAccountsIxbrl({
     companyName: opts.companyName,
     companyNumber: opts.companyNumber.replace(/\D/g, ""),
     utr: "0000000000",
     figures,
-    declarantName: "Director",
+    declarantName: opts.declarantName || "Director",
     declarantStatus: "Director",
   });
 

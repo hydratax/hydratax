@@ -24,6 +24,7 @@ import {
   GatewayCredentialsFields,
   gatewayCredentialsReady,
 } from "@/components/forms/gateway-credentials-fields";
+import { getPracticeCompanyAuthCode } from "@/server/actions/clients";
 
 export type YearEndFilingMode = "ct600" | "accounts" | "both";
 
@@ -482,6 +483,7 @@ export function YearEndFilingForm({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [companyAuthCode, setCompanyAuthCode] = useState("");
+  const [authFromClient, setAuthFromClient] = useState(false);
   const [authAttempted, setAuthAttempted] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [ggUserId, setGgUserId] = useState("");
@@ -511,6 +513,21 @@ export function YearEndFilingForm({
       .catch(() => setCtSubmitInfo(null));
   }, [clientId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void getPracticeCompanyAuthCode({
+      clientId,
+      companyNumber: company.companyNumber,
+    }).then((code) => {
+      if (cancelled || !code) return;
+      setCompanyAuthCode(code);
+      setAuthFromClient(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId, company.companyNumber]);
+
   const needsCt = filingMode === "ct600" || filingMode === "both";
   const needsAccounts = filingMode === "accounts" || filingMode === "both";
   const isDormant = companyType === "dormant";
@@ -538,6 +555,7 @@ export function YearEndFilingForm({
   const periodDays = daysBetween(periodStart, periodEnd);
   const extendedPeriod = periodDays > 365;
   const previousPeriodEnd = shiftYear(periodEnd, -1);
+  const showPriorYear = Boolean(lastFiledAccounts);
 
   const plCur = useMemo(() => derivePl(plCurrent), [plCurrent]);
   const plPrev = useMemo(() => derivePl(plPrevious), [plPrevious]);
@@ -558,6 +576,21 @@ export function YearEndFilingForm({
   const balanceMismatch =
     showBalanceSheet &&
     Math.round(bsCur.netAssets) !== Math.round(bsCur.shareholdersFunds);
+
+  // Keep the balance sheet equation true without blocking the user.
+  useEffect(() => {
+    if (!showBalanceSheet || !balanceMismatch) return;
+    const retained = Math.round(bsCur.netAssets) - Math.round(bsCur.shareCapital);
+    const next = retained.toFixed(2);
+    if (bsCurrent.retainedEarnings === next) return;
+    setBsCurrent((p) => ({ ...p, retainedEarnings: next }));
+  }, [
+    showBalanceSheet,
+    balanceMismatch,
+    bsCur.netAssets,
+    bsCur.shareCapital,
+    bsCurrent.retainedEarnings,
+  ]);
 
   function saveProgress(patch?: {
     phase?: number;
@@ -662,12 +695,6 @@ export function YearEndFilingForm({
     }
     if (needsCt && (!declarant.trim() || !positionStatus.trim())) {
       setError("Please complete the tax return declaration fields.");
-      return;
-    }
-    if (balanceMismatch) {
-      setError(
-        "Net assets must equal shareholders' funds. Check share capital and retained earnings.",
-      );
       return;
     }
     if (!needsCt) {
@@ -948,6 +975,7 @@ export function YearEndFilingForm({
               <TwoYearTable
                 currentLabel={yearToLabel(periodEnd)}
                 previousLabel={yearToLabel(previousPeriodEnd)}
+                showPrevious={showPriorYear}
               >
                 <InputRow
                   label="Turnover"
@@ -1123,6 +1151,7 @@ export function YearEndFilingForm({
             <TwoYearTable
               currentLabel={yearToLabel(periodEnd)}
               previousLabel={yearToLabel(previousPeriodEnd)}
+              showPrevious={showPriorYear}
             >
               <InputRow
                 label="Fixed Assets"
@@ -1259,13 +1288,6 @@ export function YearEndFilingForm({
                 emphasis
               />
             </TwoYearTable>
-            {balanceMismatch && (
-              <p className="mt-3 text-sm text-danger">
-                Net assets ({fmtDisplay(bsCur.netAssets)}) must equal
-                shareholders&apos; funds ({fmtDisplay(bsCur.shareholdersFunds)}
-                ).
-              </p>
-            )}
           </Collapsible>
           )}
 
@@ -1779,30 +1801,40 @@ export function YearEndFilingForm({
               <h2 className="font-semibold text-ink">
                 Companies House accounts
               </h2>
-              <p className="mt-1 text-sm text-ink-soft">
-                Enter the company authentication code before continuing to
-                payment. Checkout will not open without it.
-              </p>
-              <label className="label mt-4">
-                Company authentication code
-                <span className="font-normal text-danger"> *</span>
-                <input
-                  className={`input mt-1.5 mono ${
-                    authAttempted && !companyAuthCode.trim()
-                      ? "border-danger"
-                      : ""
-                  }`}
-                  value={companyAuthCode}
-                  onChange={(e) => setCompanyAuthCode(e.target.value)}
-                  placeholder="Authentication code"
-                  autoComplete="off"
-                  required
-                />
-              </label>
-              {authAttempted && !companyAuthCode.trim() && (
-                <p className="mt-2 text-sm text-danger" role="alert">
-                  Enter the company authentication code to continue.
+              {authFromClient && companyAuthCode.trim() ? (
+                <p className="mt-1 text-sm text-ink-soft">
+                  Ready to continue — company authentication code is on file.
                 </p>
+              ) : (
+                <>
+                  <p className="mt-1 text-sm text-ink-soft">
+                    Enter the company authentication code to continue.
+                  </p>
+                  <label className="label mt-4">
+                    Company authentication code
+                    <span className="font-normal text-danger"> *</span>
+                    <input
+                      className={`input mt-1.5 mono ${
+                        authAttempted && !companyAuthCode.trim()
+                          ? "border-danger"
+                          : ""
+                      }`}
+                      value={companyAuthCode}
+                      onChange={(e) => {
+                        setAuthFromClient(false);
+                        setCompanyAuthCode(e.target.value);
+                      }}
+                      placeholder="Authentication code"
+                      autoComplete="off"
+                      required
+                    />
+                  </label>
+                  {authAttempted && !companyAuthCode.trim() && (
+                    <p className="mt-2 text-sm text-danger" role="alert">
+                      Enter the company authentication code to continue.
+                    </p>
+                  )}
+                </>
               )}
               {onContinueToPayment ? (
                 <button
@@ -1811,8 +1843,19 @@ export function YearEndFilingForm({
                   onClick={() => {
                     setAuthAttempted(true);
                     if (!companyAuthCode.trim()) return;
-                    saveProgress();
+                    // Persist figures for the CH accounts XML builder after payment.
                     try {
+                      sessionStorage.setItem(
+                        `hydratax_year_end_figures_${company.companyNumber}`,
+                        JSON.stringify({
+                          periodStart,
+                          periodEnd,
+                          companyType,
+                          pl: plCurrent,
+                          bs: bsCurrent,
+                          directorName,
+                        }),
+                      );
                       sessionStorage.setItem(
                         `hydratax_ch_auth_${company.companyNumber}`,
                         companyAuthCode.trim(),
@@ -1820,6 +1863,7 @@ export function YearEndFilingForm({
                     } catch {
                       /* ignore */
                     }
+                    saveProgress();
                     onContinueToPayment({
                       periodStart,
                       periodEnd,
@@ -1836,8 +1880,18 @@ export function YearEndFilingForm({
                   onClick={() => {
                     setAuthAttempted(true);
                     if (!companyAuthCode.trim()) return;
-                    saveProgress();
                     try {
+                      sessionStorage.setItem(
+                        `hydratax_year_end_figures_${company.companyNumber}`,
+                        JSON.stringify({
+                          periodStart,
+                          periodEnd,
+                          companyType,
+                          pl: plCurrent,
+                          bs: bsCurrent,
+                          directorName,
+                        }),
+                      );
                       sessionStorage.setItem(
                         `hydratax_ch_auth_${company.companyNumber}`,
                         companyAuthCode.trim(),
@@ -1845,6 +1899,7 @@ export function YearEndFilingForm({
                     } catch {
                       /* ignore */
                     }
+                    saveProgress();
                     window.location.href = accountsCheckoutHref;
                   }}
                 >
@@ -2591,15 +2646,23 @@ function AccountsDocThumb({
 function TwoYearTable({
   currentLabel,
   previousLabel,
+  showPrevious = true,
   children,
 }: {
   currentLabel: string;
   previousLabel: string;
+  showPrevious?: boolean;
   children: ReactNode;
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[36rem] border-collapse text-sm">
+      <table
+        className={`w-full border-collapse text-sm ${
+          showPrevious
+            ? "min-w-[36rem]"
+            : "min-w-[20rem] [&_td:nth-child(3)]:hidden [&_th:nth-child(3)]:hidden"
+        }`}
+      >
         <thead>
           <tr className="border-b border-line text-left text-ink-soft">
             <th className="py-2 pr-3 font-semibold">Category</th>

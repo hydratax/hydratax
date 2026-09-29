@@ -9,6 +9,7 @@ import {
 import { formatDueLabel, filingUrgency } from "@/lib/ch-deadlines";
 import { submitCompaniesHouseRequest } from "@/server/actions/ch-requests";
 import { hasSignedInSession } from "@/server/actions/session-check";
+import { getPracticeCompanyAuthCode } from "@/server/actions/clients";
 import {
   YearEndFilingForm,
   type YearEndFilingMode,
@@ -147,8 +148,8 @@ export function AnnualAccountsWizard({
   const [filingMode, setFilingMode] = useState<YearEndFilingMode>("accounts");
   const [lastFiled, setLastFiled] = useState<LastFiledAccounts | null>(null);
   const [companyAuthCode, setCompanyAuthCode] = useState("");
+  const [authFromClient, setAuthFromClient] = useState(false);
   const [accountsType, setAccountsType] = useState("micro");
-  const [notes, setNotes] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [lookupPending, setLookupPending] = useState(Boolean(presetCompany));
   const [error, setError] = useState<string | null>(null);
@@ -170,22 +171,32 @@ export function AnnualAccountsWizard({
   useEffect(() => {
     if (!company?.companyNumber) return;
     let cancelled = false;
-    void hasSignedInSession().then((signedIn) => {
-      if (cancelled || !signedIn) return;
+    void hasSignedInSession().then(async (isSignedIn) => {
+      if (cancelled || !isSignedIn) return;
       try {
         const saved = sessionStorage.getItem(
           `hydratax_ch_auth_${company.companyNumber}`,
         );
-        if (saved) setCompanyAuthCode(saved);
+        if (saved) {
+          setCompanyAuthCode(saved);
+          setAuthFromClient(true);
+        }
       } catch {
         /* ignore */
       }
+      const fromClient = await getPracticeCompanyAuthCode({
+        clientId: defaults?.clientId,
+        companyNumber: company.companyNumber,
+      });
+      if (cancelled || !fromClient) return;
+      setCompanyAuthCode(fromClient);
+      setAuthFromClient(true);
     });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company?.companyNumber]);
+  }, [company?.companyNumber, defaults?.clientId]);
 
   const stepIndex = STEPS.findIndex((s) => s.id === phase);
 
@@ -433,6 +444,15 @@ export function AnnualAccountsWizard({
 
     start(async () => {
       try {
+        let figuresJson = "";
+        try {
+          figuresJson =
+            sessionStorage.getItem(
+              `hydratax_year_end_figures_${company.companyNumber}`,
+            ) ?? "";
+        } catch {
+          /* ignore */
+        }
         const res = await submitCompaniesHouseRequest({
           serviceId: service.id,
           fields: {
@@ -442,8 +462,8 @@ export function AnnualAccountsWizard({
             periodStart: company.periodStart,
             periodEnd: company.periodEnd,
             accountsType,
-            notes,
             filingMode,
+            ...(figuresJson ? { yearEndFigures: figuresJson } : {}),
             ...(defaults?.clientId ? { clientId: defaults.clientId } : {}),
           },
         });
@@ -823,7 +843,7 @@ export function AnnualAccountsWizard({
             {signedIn === false ? (
               <div className="rounded-xl border border-sea/30 bg-sea/5 p-4 space-y-3">
                 <p className="text-sm text-ink-soft">
-                  Sign in to enter the company authentication code and pay.
+                  Sign in to continue and pay.
                 </p>
                 <Link
                   href={signInHref}
@@ -832,7 +852,7 @@ export function AnnualAccountsWizard({
                   Sign in to continue
                 </Link>
               </div>
-            ) : (
+            ) : authFromClient && companyAuthCode.trim() ? null : (
               <div className="rounded-xl border border-sea/30 bg-sea/5 p-4">
                 <label className="label">
                   Company authentication code
@@ -842,7 +862,10 @@ export function AnnualAccountsWizard({
                       !companyAuthCode.trim() ? "border-sea/40" : ""
                     }`}
                     value={companyAuthCode}
-                    onChange={(e) => setCompanyAuthCode(e.target.value)}
+                    onChange={(e) => {
+                      setAuthFromClient(false);
+                      setCompanyAuthCode(e.target.value);
+                    }}
                     placeholder="Authentication code"
                     autoComplete="one-time-code"
                     data-1p-ignore="true"
@@ -850,34 +873,8 @@ export function AnnualAccountsWizard({
                     required
                   />
                 </label>
-                <p className="mt-2 text-xs text-ink-soft">
-                  Required before payment — from Companies House online filing.
-                </p>
               </div>
             )}
-
-            <label className="label">
-              Accounts type
-              <select
-                className="input mt-1.5"
-                value={accountsType}
-                onChange={(e) => setAccountsType(e.target.value)}
-              >
-                <option value="micro">Micro-entity</option>
-                <option value="small">Small</option>
-                <option value="dormant">Dormant</option>
-                <option value="full">Full</option>
-              </select>
-            </label>
-
-            <label className="label">
-              Notes (optional)
-              <textarea
-                className="input mt-1.5 min-h-[80px]"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
-            </label>
 
             <label className="flex items-start gap-3 text-sm text-ink">
               <input
