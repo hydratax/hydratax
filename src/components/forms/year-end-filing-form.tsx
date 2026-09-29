@@ -1848,6 +1848,7 @@ export function YearEndFilingForm({
                       sessionStorage.setItem(
                         `hydratax_year_end_figures_${company.companyNumber}`,
                         JSON.stringify({
+                          companyNumber: company.companyNumber,
                           periodStart,
                           periodEnd,
                           companyType,
@@ -1884,6 +1885,7 @@ export function YearEndFilingForm({
                       sessionStorage.setItem(
                         `hydratax_year_end_figures_${company.companyNumber}`,
                         JSON.stringify({
+                          companyNumber: company.companyNumber,
                           periodStart,
                           periodEnd,
                           companyType,

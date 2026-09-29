@@ -5,12 +5,22 @@
  * is a service charge only. Live submit needs presenter ID + auth + company
  * authentication code — not a credit account.
  *
+ * Hard rules before gateway POST:
+ * - Company number/name must match the live CH profile
+ * - Signing director must match an active CH officer for THAT company
+ * - Never invent a generic "Director" name
+ * - Period must match CH next accounts period (and not already filed)
+ *
  * Payload shape (XML Gateway FormSubmission + iXBRL Document):
  * - Class / FormIdentifier: Accounts
  * - Empty <Form/> (structured Accounts XML unused when attaching iXBRL)
  * - Document Category=ACCOUNTS, ContentType=application/xml, .html filename
- * - Presenter authentication (clear) + company authentication code
+ * - Presenter authentication (MD5 digests, Method clear) + company auth code
  */
+import {
+  getCompanyOfficers,
+  getCompanyProfile,
+} from "@/server/companies-house/api";
 import { getChFilingEnv, isChXmlGatewayConfigured } from "./config";
 import {
   buildAccountsPresenterAuthenticationXml,
@@ -23,6 +33,11 @@ import {
   getHydraPresenterConfig,
   resolveChCompanyType,
 } from "./presenter";
+import {
+  assertAccountsCompanyIdentity,
+  assertAccountsPeriodNotAlreadyFiled,
+  resolveAccountsSigningDirector,
+} from "./accounts-preflight";
 import {
   buildChMicroAccountsIxbrl,
   type ChMicroBalanceSheet,
@@ -62,6 +77,7 @@ type YearEndPayload = {
   periodEnd?: string;
   companyType?: string;
   directorName?: string;
+  companyNumber?: string;
 };
 
 function parseYearEndFiguresField(raw: unknown): YearEndPayload | null {
@@ -235,32 +251,95 @@ export async function submitAccountsFromPayload(opts: {
     };
   }
 
+  const companyNumber = normaliseCompanyNumber(opts.companyNumber);
+  if (!companyNumber) {
+    return { ok: false, error: "Company number is required." };
+  }
+
   const parsed = parseYearEndFiguresField(opts.yearEndFigures);
+  if (parsed?.companyNumber) {
+    const figuresCompany = normaliseCompanyNumber(parsed.companyNumber);
+    if (figuresCompany && figuresCompany !== companyNumber) {
+      return {
+        ok: false,
+        error: `Year-end figures belong to company ${figuresCompany}, but this filing is for ${companyNumber}.`,
+      };
+    }
+  }
+  if (parsed?.periodEnd && parsed.periodEnd !== opts.periodEnd) {
+    return {
+      ok: false,
+      error: `Year-end figures period end ${parsed.periodEnd} does not match filing period end ${opts.periodEnd}.`,
+    };
+  }
+
+  let profile;
+  let officers;
+  try {
+    [profile, officers] = await Promise.all([
+      getCompanyProfile(companyNumber),
+      getCompanyOfficers(companyNumber),
+    ]);
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Could not verify company details with Companies House before filing.",
+    };
+  }
+
+  const identity = assertAccountsCompanyIdentity({
+    companyNumber,
+    companyName: opts.companyName,
+    profile,
+  });
+  if (!identity.ok) {
+    return { ok: false, error: identity.error };
+  }
+
+  const periodCheck = assertAccountsPeriodNotAlreadyFiled({
+    companyNumber,
+    periodEnd: opts.periodEnd,
+    profile,
+  });
+  if (!periodCheck.ok) {
+    return { ok: false, error: periodCheck.error };
+  }
+
+  const claimedDirector =
+    opts.declarantName?.trim() || parsed?.directorName?.trim() || null;
+  const director = resolveAccountsSigningDirector({
+    companyNumber,
+    claimedName: claimedDirector,
+    officers,
+  });
+  if (!director.ok) {
+    return { ok: false, error: director.error };
+  }
+
   const balanceSheet = balanceSheetFromYearEndPayload(
     opts.yearEndFigures,
     opts.accountsType,
   );
   const dormant = isDormantFromPayload(opts.yearEndFigures, opts.accountsType);
-  const directorName =
-    opts.declarantName?.trim() ||
-    parsed?.directorName?.trim() ||
-    "Director";
 
   const ixbrl = buildChMicroAccountsIxbrl({
-    companyName: opts.companyName,
-    companyNumber: normaliseCompanyNumber(opts.companyNumber),
+    companyName: identity.registerName,
+    companyNumber,
     periodStart: parsed?.periodStart || opts.periodStart,
     periodEnd: parsed?.periodEnd || opts.periodEnd,
     dormant,
     balanceSheet,
-    directorName,
+    directorName: director.directorName,
     averageEmployees: dormant ? 0 : 1,
     approvalDate: new Date().toISOString().slice(0, 10),
   });
 
   const xml = buildAccountsGatewayXml({
-    companyNumber: opts.companyNumber,
-    companyName: opts.companyName,
+    companyNumber,
+    companyName: identity.registerName,
     companyAuthCode: opts.companyAuthCode,
     periodStart: opts.periodStart,
     periodEnd: opts.periodEnd,

@@ -77,7 +77,13 @@ export type ChCompanyProfile = {
   registered_office_address?: Record<string, string | undefined>;
   accounts?: {
     next_due?: string;
-    last_accounts?: { made_up_to?: string };
+    next_made_up_to?: string;
+    last_accounts?: {
+      made_up_to?: string;
+      period_end_on?: string;
+      period_start_on?: string;
+      type?: string;
+    };
     next_accounts?: {
       period_start_on?: string;
       period_end_on?: string;
