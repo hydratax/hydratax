@@ -17,6 +17,7 @@ const mainTabs = [
   { href: "/payroll", label: "Payroll", key: "payroll" },
   { href: "/invoices", label: "Invoices", key: "invoices" },
   { href: "/engagement", label: "Engagement", key: "engagement" },
+  { href: "/forms", label: "Forms and letters", key: "forms" },
   { href: "/communications", label: "Communications", key: "communications" },
 ] as const;
 

@@ -81,6 +81,10 @@ export const PRODUCT_FAQS: Record<string, FaqItem[]> = {
       q: "How do plan limits work?",
       a: "Practice is capped at 50 clients and includes CT600, MTD VAT and 50 Self Assessments. Solo is one client. Custom unlocks only the HMRC modules you pick, with volume discounts as client count grows.",
     },
+    {
+      q: "Do you offer yearly billing?",
+      a: "Yes on Solo, Practice and Custom. Pay yearly and get 15% off — almost 2 months free compared with paying month by month. Toggle Yearly on the Practice desk pricing tab before checkout.",
+    },
   ],
   vat: [
     {

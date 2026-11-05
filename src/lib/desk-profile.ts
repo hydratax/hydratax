@@ -1,4 +1,25 @@
+import type { OnboardingFormRecord } from "@/lib/onboarding-forms";
+import type { LetterTemplateKey } from "@/lib/letter-templates";
+
 export type AmlRisk = "low" | "medium" | "high";
+
+export type ClientLetterRecord = {
+  id: string;
+  templateKey: LetterTemplateKey | "custom";
+  title: string;
+  body: string;
+  status: "draft" | "sent";
+  sentAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  activity?: Array<{
+    id: string;
+    at: string;
+    kind: "created" | "amended" | "sent";
+    actorId?: string;
+    note?: string;
+  }>;
+};
 
 export type AmlRecord = {
   risk: AmlRisk;
@@ -27,6 +48,17 @@ export type PortalUpload = {
   filename: string;
   documentId: string;
   uploadedAt: string;
+  /** Which checklist item this upload relates to, e.g. bank */
+  requestId?: string;
+};
+
+export type PortalApprovalPack = {
+  title: string;
+  message?: string;
+  documentId?: string;
+  documentUrl?: string;
+  filename?: string;
+  sentAt: string;
 };
 
 export type PortalRecord = {
@@ -35,7 +67,16 @@ export type PortalRecord = {
   approveAccounts: boolean;
   approveCt600: boolean;
   approveVat: boolean;
+  approveAccountsAt?: string;
+  approveCt600At?: string;
+  approveVatAt?: string;
   uploads?: PortalUpload[];
+  /** Drafts the accountant pushed to the client for review/approval */
+  approvalPacks?: {
+    accounts?: PortalApprovalPack;
+    ct600?: PortalApprovalPack;
+    vat?: PortalApprovalPack;
+  };
 };
 
 export function portalApprovalMissing(
@@ -55,6 +96,27 @@ export type DeskProfile = {
   engagement?: EngagementRecord;
   portal?: PortalRecord;
   jobs?: Record<string, JobStatus>;
+  /** Per-client onboarding / intake forms with share tokens */
+  onboardingForms?: OnboardingFormRecord[];
+  /** Formal letters generated for this client */
+  clientLetters?: ClientLetterRecord[];
+  /**
+   * Stable mailbox local-part for inbound documents, e.g. hydratax.uk.hydraretail.
+   * Full address: `{documentInboxKey}@{DOCUMENT_INBOUND_DOMAIN}`.
+   */
+  documentInboxKey?: string;
+};
+
+export type PracticeLetterhead = {
+  practiceName: string;
+  addressLines: string[];
+  phone?: string;
+  email?: string;
+  website?: string;
+  footerLines: string[];
+  /** Optional public logo URL */
+  logoUrl?: string;
+  updatedAt?: string;
 };
 
 export const DEFAULT_PORTAL_REQUESTS: PortalRequest[] = [

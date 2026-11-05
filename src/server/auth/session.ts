@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import {
@@ -19,8 +20,49 @@ export type SessionContext = {
   local: boolean;
 };
 
+function localMemorySession(): SessionContext {
+  const acting = memoryStore.actingMemberId
+    ? memoryStore.teamMembers.find(
+        (m) =>
+          m.id === memoryStore.actingMemberId &&
+          m.practiceId === memoryStore.practice.id &&
+          m.active,
+      )
+    : null;
+
+  if (acting) {
+    return {
+      userId: acting.id,
+      orgId: memoryStore.practice.clerkOrgId,
+      practiceId: memoryStore.practice.id,
+      practiceName: memoryStore.practice.name,
+      role: acting.role,
+      moduleAccess: acting.moduleAccess,
+      email: acting.email,
+      local: true,
+    };
+  }
+
+  return {
+    userId: "user_local_owner",
+    orgId: memoryStore.practice.clerkOrgId,
+    practiceId: memoryStore.practice.id,
+    practiceName: memoryStore.practice.name,
+    role: "owner",
+    moduleAccess: "full",
+    email: (process.env.ADMIN_EMAIL ?? "").split(",")[0]?.trim() || null,
+    local: true,
+  };
+}
+
 /** Soft session lookup — returns null when signed out (no throw / no redirect). */
-export async function getOptionalSession(): Promise<SessionContext | null> {
+export const getOptionalSession = cache(
+  async (): Promise<SessionContext | null> => {
+  // Explicit local desk: never wait on remote Supabase/Clerk (DEMO_MODE / MEMORY_STORE).
+  if (isMemoryStore()) {
+    return localMemorySession();
+  }
+
   if (isSupabaseConfigured()) {
     const { createClient } = await import("@/lib/supabase/server");
     const supabase = await createClient();
@@ -82,40 +124,8 @@ export async function getOptionalSession(): Promise<SessionContext | null> {
     }
   }
 
-  if (isMemoryStore() || !isClerkConfigured()) {
-    const acting = memoryStore.actingMemberId
-      ? memoryStore.teamMembers.find(
-          (m) =>
-            m.id === memoryStore.actingMemberId &&
-            m.practiceId === memoryStore.practice.id &&
-            m.active,
-        )
-      : null;
-
-    if (acting) {
-      return {
-        userId: acting.id,
-        orgId: memoryStore.practice.clerkOrgId,
-        practiceId: memoryStore.practice.id,
-        practiceName: memoryStore.practice.name,
-        role: acting.role,
-        moduleAccess: acting.moduleAccess,
-        email: acting.email,
-        local: true,
-      };
-    }
-
-    return {
-      userId: "user_local_owner",
-      orgId: memoryStore.practice.clerkOrgId,
-      practiceId: memoryStore.practice.id,
-      practiceName: memoryStore.practice.name,
-      role: "owner",
-      moduleAccess: "full",
-      email:
-        (process.env.ADMIN_EMAIL ?? "").split(",")[0]?.trim() || null,
-      local: true,
-    };
+  if (!isClerkConfigured()) {
+    return localMemorySession();
   }
 
   const { auth } = await import("@clerk/nextjs/server");
@@ -135,7 +145,8 @@ export async function getOptionalSession(): Promise<SessionContext | null> {
     email: null,
     local: false,
   };
-}
+  },
+);
 
 /** Requires a signed-in user; redirects to sign-in instead of throwing. */
 export async function requireSession(

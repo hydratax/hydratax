@@ -1101,7 +1101,7 @@ function SendPackButtons({
           });
         }}
       >
-        Email protected pack
+        Email pack to client
       </button>
     </>
   );

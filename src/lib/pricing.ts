@@ -57,19 +57,53 @@ export function hydraTotal(
 export const PRACTICE_PLAN_PRICE_POUNDS = 79;
 export const PRACTICE_PLAN_CLIENT_LIMIT = 50;
 
+/** Yearly desk plans (Solo / Practice / Custom): 15% off ≈ almost 2 months free. */
+export const YEARLY_DISCOUNT = 0.15;
+export const YEARLY_MARKETING_LINE =
+  "Get almost 2 months free when you choose a yearly subscription";
+
+export function isYearlyPlanKey(planKey: string): boolean {
+  return planKey.endsWith(":yearly");
+}
+
+/** Strip `:yearly` so entitlements and Custom module parsing stay monthly-keyed. */
+export function basePlanKey(planKey: string): string {
+  return isYearlyPlanKey(planKey) ? planKey.slice(0, -":yearly".length) : planKey;
+}
+
+export function withYearlyPlanKey(planKey: string): string {
+  return isYearlyPlanKey(planKey) ? planKey : `${planKey}:yearly`;
+}
+
+/** Annual charge in whole pounds after 15% off (12 × monthly × 0.85). */
+export function yearlyAmountPoundsFromMonthly(monthlyPounds: number): number {
+  return Math.max(1, Math.round(monthlyPounds * 12 * (1 - YEARLY_DISCOUNT)));
+}
+
+export function yearlySavingsPoundsFromMonthly(monthlyPounds: number): number {
+  return Math.max(0, monthlyPounds * 12 - yearlyAmountPoundsFromMonthly(monthlyPounds));
+}
+
 /**
  * Custom all-inclusive stays below Practice when scaled by client count.
- * Practice £79 / 50 clients → £790 at 500 clients; Custom targets 90% of that.
+ * Practice £79 / 50 clients → volume targets 90% of that scaled rate.
  */
 export const CUSTOM_VS_PRACTICE_RATIO = 0.9;
 
-/** Billable HMRC modules — priced per client when building a Custom plan */
+/** Max clients selectable on a Custom module (volume curve keeps falling past 500). */
+export const CUSTOM_PLAN_MAX_CLIENTS = 10_000;
+
+/**
+ * Billable HMRC modules on Custom — priced per client with volume discounts.
+ * Companies House stays included on every Custom desk.
+ */
 export const CUSTOM_PLAN_MODULES = [
   {
     id: "vat",
     label: "MTD VAT",
+    /** Flat fee if plan key has bare module id (legacy unlimited keys). */
+    unlimitedPricePounds: 29,
     pricePerClient: 12,
-    /** Share of Practice all-inclusive rate (weights sum to 1). */
     weight: 0.2,
     blurb: "Multi-VRN obligations and submit",
     entitlement: "vat" as const,
@@ -77,6 +111,7 @@ export const CUSTOM_PLAN_MODULES = [
   {
     id: "payroll",
     label: "PAYE / RTI",
+    unlimitedPricePounds: 39,
     pricePerClient: 18,
     weight: 0.25,
     blurb: "1 client up to 10 employees · FPS & EPS",
@@ -85,6 +120,7 @@ export const CUSTOM_PLAN_MODULES = [
   {
     id: "self_assessment",
     label: "Self Assessment",
+    unlimitedPricePounds: 29,
     pricePerClient: 15,
     weight: 0.2,
     blurb: "Quarterly updates for sole traders",
@@ -93,6 +129,7 @@ export const CUSTOM_PLAN_MODULES = [
   {
     id: "corporation_tax",
     label: "CT600",
+    unlimitedPricePounds: 49,
     pricePerClient: 35,
     weight: 0.35,
     blurb: "Corporation tax returns per company",
@@ -111,7 +148,11 @@ const LEGACY_CUSTOM_CH_TOKENS = new Set([
 
 export type CustomModuleSelection = {
   id: CustomModuleId;
-  clients: number;
+  /**
+   * Client count for volume pricing (1–CUSTOM_PLAN_MAX_CLIENTS).
+   * `null` = unlimited flat fee (legacy bare module keys only).
+   */
+  clients: number | null;
 };
 
 export type CustomPlanSelection = {
@@ -125,29 +166,46 @@ export const CUSTOM_PLAN_BASE_POUNDS = 0;
 
 export function customPlanKey(selection: CustomPlanSelection) {
   const modParts = [...selection.modules]
-    .filter((m) => m.clients > 0)
+    .filter((m) => m.clients === null || m.clients > 0)
     .sort((a, b) => a.id.localeCompare(b.id))
-    .map((m) => `${m.id}:${Math.max(1, Math.floor(m.clients))}`);
+    .map((m) =>
+      m.clients == null
+        ? m.id
+        : `${m.id}:${Math.max(1, Math.floor(m.clients))}`,
+    );
   return modParts.length
     ? `practice:Custom:${modParts.join("+")}`
     : "practice:Custom";
 }
 
 export function parseCustomPlanSelection(planKey: string): CustomPlanSelection {
-  if (!planKey.startsWith("practice:Custom")) {
+  const key = basePlanKey(planKey);
+  if (!key.startsWith("practice:Custom")) {
     return { modules: [] };
   }
-  const rest = planKey.slice("practice:Custom".length);
+  const rest = key.slice("practice:Custom".length);
   if (!rest.startsWith(":")) return { modules: [] };
 
   const allowedMods = new Set(CUSTOM_PLAN_MODULES.map((m) => m.id));
   const modules: CustomModuleSelection[] = [];
 
   for (const part of rest.slice(1).split("+").filter(Boolean)) {
-    if (LEGACY_CUSTOM_CH_TOKENS.has(part)) continue;
+    if (LEGACY_CUSTOM_CH_TOKENS.has(part) || part === "yearly") continue;
     const [id, clientsRaw] = part.split(":");
     if (!allowedMods.has(id as CustomModuleId)) continue;
-    const clients = Math.max(1, Math.floor(Number(clientsRaw) || 1));
+    // Bare module id (vat) or explicit "unlimited" → unlimited
+    if (
+      clientsRaw == null ||
+      clientsRaw === "" ||
+      clientsRaw.toLowerCase() === "unlimited"
+    ) {
+      modules.push({ id: id as CustomModuleId, clients: null });
+      continue;
+    }
+    const clients = Math.max(
+      1,
+      Math.min(CUSTOM_PLAN_MAX_CLIENTS, Math.floor(Number(clientsRaw) || 1)),
+    );
     modules.push({ id: id as CustomModuleId, clients });
   }
 
@@ -170,7 +228,10 @@ export function customModuleAmountExact(
 ): number {
   const mod = CUSTOM_PLAN_MODULES.find((m) => m.id === moduleId);
   if (!mod) return 0;
-  const n = Math.max(1, Math.floor(clients));
+  const n = Math.max(
+    1,
+    Math.min(CUSTOM_PLAN_MAX_CLIENTS, Math.floor(clients)),
+  );
   const listTotal = mod.pricePerClient * n;
   const volumeCap =
     (PRACTICE_PLAN_PRICE_POUNDS / PRACTICE_PLAN_CLIENT_LIMIT) *
@@ -184,14 +245,17 @@ export function customModuleAmountExact(
 
 export function customModuleAmountPounds(
   moduleId: CustomModuleId,
-  clients: number,
+  clients: number | null = null,
 ): number {
+  const mod = CUSTOM_PLAN_MODULES.find((m) => m.id === moduleId);
+  if (!mod) return 0;
+  if (clients == null) return mod.unlimitedPricePounds;
   const exact = customModuleAmountExact(moduleId, clients);
   if (exact <= 0) return 0;
   return Math.max(1, Math.round(exact));
 }
 
-/** Effective £ per client after volume discount (for UI). */
+/** Effective £ per client after volume discount (legacy UI / keys only). */
 export function customModuleEffectiveRatePounds(
   moduleId: CustomModuleId,
   clients: number,
@@ -202,8 +266,8 @@ export function customModuleEffectiveRatePounds(
 
 export function customPlanAmountPounds(selection: CustomPlanSelection) {
   const exact = selection.modules.reduce((sum, sel) => {
-    if (sel.clients <= 0) return sum;
-    return sum + customModuleAmountExact(sel.id, sel.clients);
+    if (sel.clients !== null && sel.clients <= 0) return sum;
+    return sum + customModuleAmountPounds(sel.id, sel.clients);
   }, 0);
   if (exact <= 0) return 0;
   return Math.max(1, Math.round(exact));

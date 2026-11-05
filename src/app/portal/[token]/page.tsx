@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
 import { ClientPortalForm } from "@/components/forms/client-portal-form";
-import { findClientByPortalToken } from "@/server/actions/desk";
+import {
+  findClientByPortalToken,
+  recordPortalOpened,
+} from "@/server/actions/desk";
 
 export const metadata = {
   title: "Client papers — HydraTax",
@@ -14,6 +17,7 @@ export default async function PublicPortalPage({
   const { token } = await params;
   const client = await findClientByPortalToken(token);
   if (!client?.deskProfile?.portal) notFound();
+  void recordPortalOpened(token);
 
   return (
     <main className="mx-auto max-w-xl px-4 py-12">
@@ -22,9 +26,9 @@ export default async function PublicPortalPage({
       </p>
       <h1 className="display mt-2 text-3xl text-ink">{client.name}</h1>
       <p className="mt-2 text-sm text-ink-soft">
-        Tick the papers you have sent and approve the filings your accountant
-        has prepared. This page does not submit anything to HMRC or Companies
-        House.
+        Upload the papers your accountant asked for, open any drafts they have
+        shared, and approve filings when ready. This page does not submit
+        anything to HMRC or Companies House.
       </p>
       <div className="mt-8">
         <ClientPortalForm

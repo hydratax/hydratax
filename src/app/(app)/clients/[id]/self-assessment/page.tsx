@@ -9,6 +9,7 @@ import { SaFilingForm } from "@/components/forms/sa-filing-form";
 import { Sa100Wizard } from "@/components/forms/sa100-wizard";
 import { money } from "@/lib/format";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
+import { EmailToClientButton } from "@/components/forms/email-to-client-button";
 
 export default async function SelfAssessmentPage({
   params,
@@ -49,6 +50,7 @@ export default async function SelfAssessmentPage({
               <Sa100Wizard
                 clientId={clientId}
                 clientName={client.name}
+                contactEmail={client.contactEmail ?? null}
                 utr={client.utr}
                 nino={client.nino}
                 initial={sa100Draft?.draft ?? null}
@@ -81,7 +83,7 @@ export default async function SelfAssessmentPage({
                           : ""}
                       </p>
                     </div>
-                    <div className="flex gap-3 text-xs font-semibold">
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
                       <a
                         className="text-sea underline-offset-2 hover:underline"
                         href={`/api/clients/${clientId}/sa100/${r.id}/sa100.pdf`}
@@ -90,6 +92,19 @@ export default async function SelfAssessmentPage({
                       >
                         SA100 PDF
                       </a>
+                      <EmailToClientButton
+                        clientId={clientId}
+                        defaultEmail={client.contactEmail ?? null}
+                        compact
+                        label="Email SA100"
+                        subject={`SA100 — ${client.name}`}
+                        message={`Please find attached your Self Assessment return (SA100).\n\nKind regards`}
+                        artifact={{
+                          type: "sa_pdf",
+                          returnId: r.id,
+                          doc: "sa100",
+                        }}
+                      />
                       <a
                         className="text-sea underline-offset-2 hover:underline"
                         href={`/api/clients/${clientId}/sa100/${r.id}/sa302.pdf`}
@@ -98,6 +113,19 @@ export default async function SelfAssessmentPage({
                       >
                         SA302 PDF
                       </a>
+                      <EmailToClientButton
+                        clientId={clientId}
+                        defaultEmail={client.contactEmail ?? null}
+                        compact
+                        label="Email SA302"
+                        subject={`SA302 tax calculation — ${client.name}`}
+                        message={`Please find attached your SA302 tax calculation.\n\nKind regards`}
+                        artifact={{
+                          type: "sa_pdf",
+                          returnId: r.id,
+                          doc: "sa302",
+                        }}
+                      />
                     </div>
                   </li>
                 ))}

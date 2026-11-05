@@ -45,8 +45,13 @@ export default async function ChannelsSettingsPage() {
         </ul>
         <p className="mt-3">
           Webhooks:{" "}
-          <code className="mono text-xs">/api/webhooks/whatsapp</code> and{" "}
-          <code className="mono text-xs">/api/webhooks/email</code>
+          <code className="mono text-xs">/api/webhooks/whatsapp</code>,{" "}
+          <code className="mono text-xs">/api/webhooks/email</code>, and{" "}
+          <code className="mono text-xs">/api/webhooks/resend-inbound</code>{" "}
+          (Resend <code className="mono text-xs">email.received</code> → client
+          document inboxes like{" "}
+          <code className="mono text-xs">hydratax.uk.hydraretail@docs.hydratax.uk</code>
+          ).
         </p>
       </div>
     </div>

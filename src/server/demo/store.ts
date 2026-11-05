@@ -287,6 +287,11 @@ type MemoryStore = {
     scopes: string;
   }>;
   auditEvents: Array<Record<string, unknown>>;
+  /** Practice letterhead keyed by practice id */
+  letterheads: Record<
+    string,
+    import("@/lib/desk-profile").PracticeLetterhead
+  >;
 };
 
 function seedFeatureRequests(): MemoryFeatureRequest[] {
@@ -364,6 +369,7 @@ function emptyStore(): MemoryStore {
     actingMemberId: null,
     hmrcConnections: [],
     auditEvents: [],
+    letterheads: {},
   };
 }
 

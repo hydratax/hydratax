@@ -19,8 +19,6 @@ import { parseComparatives, companiesHouseAccountsPeriod } from "@/lib/accountin
 import { buildCategoryLabelMap } from "@/lib/bank-categories";
 import { deskListCustomBankCategories } from "@/server/db/desk-store";
 import { appendAuditEvent } from "@/server/audit/log";
-import { put } from "@vercel/blob";
-import { isBlobConfigured } from "@/lib/env";
 import { tryGetDb } from "@/server/db";
 import {
   isDeskStoreConfigured,
@@ -62,8 +60,42 @@ export type BankImportResult =
       lines: CategorisedLine[];
       pdfStored: boolean;
       message: string;
+      document?: {
+        id: string;
+        filename: string;
+        blobUrl: string;
+        contentType: string;
+      };
     }
   | { ok: false; error: string };
+
+async function storeBankSourceFile(
+  clientId: string,
+  file: File,
+): Promise<{
+  id: string;
+  filename: string;
+  blobUrl: string;
+  contentType: string;
+} | null> {
+  try {
+    const { uploadClientDocument } = await import("@/server/actions/documents");
+    const fd = new FormData();
+    fd.set("clientId", clientId);
+    fd.set("category", "accounts");
+    fd.set("file", file);
+    const doc = await uploadClientDocument(fd);
+    return {
+      id: doc.id,
+      filename: doc.filename,
+      blobUrl: doc.blobUrl,
+      contentType: doc.contentType,
+    };
+  } catch {
+    // Import can still succeed without archival when storage is unavailable.
+    return null;
+  }
+}
 
 function dedupeImportLines(lines: CategorisedLine[]): CategorisedLine[] {
   const seen = new Set<string>();
@@ -116,29 +148,15 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
         lines = parseBankSpreadsheet(buffer, file.name);
       }
     } else if (name.endsWith(".pdf") || file.type === "application/pdf") {
-      // Store PDF for review; text extraction needs OCR/vendor — flag for ops
-      let blobUrl = "";
-      if (isBlobConfigured()) {
-        const blob = await put(
-          `bank-statements/${session.practiceId}/${clientId}/${Date.now()}-${file.name}`,
-          file,
-          { access: "public", addRandomSuffix: true },
-        );
-        blobUrl = blob.url;
-      }
-      if (isMemoryStore()) {
-        memoryStore.documents.push({
-          id: crypto.randomUUID(),
-          clientId,
-          practiceId: session.practiceId,
-          filename: file.name,
-          contentType: file.type || "application/pdf",
-          sizeBytes: file.size,
-          blobUrl: blobUrl || `pdf-pending:${file.name}`,
-          category: "accounts",
-          uploadedBy: session.userId,
-          createdAt: new Date().toISOString(),
-        });
+      // PDFs are archived on the client file; line extraction needs a CSV/Excel
+      // bank export (or Open Banking). We do not invent transactions from PDF.
+      const document = await storeBankSourceFile(clientId, file);
+      if (!document) {
+        return {
+          ok: false,
+          error:
+            "Could not store the PDF. Check Documents storage is configured, or upload a CSV/Excel export from the bank instead.",
+        };
       }
       await appendAuditEvent({
         practiceId: session.practiceId,
@@ -149,16 +167,19 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
         entityId: clientId,
         detail: {
           filename: file.name,
+          documentId: document.id,
           note: "PDF stored — use CSV for auto-categorisation, or connect Open Banking",
         },
       });
       revalidatePath(`/clients/${clientId}/bank`);
+      revalidatePath(`/clients/${clientId}/documents`);
       return {
         ok: true,
         lines: [] as CategorisedLine[],
         pdfStored: true,
+        document,
         message:
-          "PDF stored on the client file. For automatic categorisation upload CSV, or connect Open Banking when enabled.",
+          "PDF saved on the client file (open it below). PDFs are not auto-converted — upload the bank’s CSV or Excel export to categorise lines, then download CSV/XLS from the categorised table.",
       };
     } else {
       return {
@@ -244,6 +265,8 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
     }
   }
 
+  const document = await storeBankSourceFile(clientId, file);
+
   await appendAuditEvent({
     practiceId: session.practiceId,
     clientId,
@@ -251,10 +274,15 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
     action: "bank.statement.csv_imported",
     entityType: "bank_transaction",
     entityId: clientId,
-    detail: { count: lines.length, filename: file.name },
+    detail: {
+      count: lines.length,
+      filename: file.name,
+      documentId: document?.id,
+    },
   });
 
   revalidatePath(`/clients/${clientId}/bank`);
+  revalidatePath(`/clients/${clientId}/documents`);
   revalidatePath(`/clients/${clientId}/self-assessment`);
   revalidatePath(`/clients/${clientId}/corporation-tax`);
   revalidatePath(`/clients/${clientId}/accounts-pack`);
@@ -263,7 +291,8 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
     ok: true,
     lines,
     pdfStored: false,
-    message: `Replaced bank data with ${lines.length} lines from ${file.name}`,
+    document: document ?? undefined,
+    message: `Replaced bank data with ${lines.length} lines from ${file.name}. Download the categorised CSV or Excel below.`,
   };
   } catch (err) {
     const message =

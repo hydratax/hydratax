@@ -12,6 +12,10 @@ import {
 } from "@/server/companies-house/enrich-client";
 import type { PriorYearComparatives } from "@/lib/accounting-periods";
 import type { DeskProfile } from "@/lib/desk-profile";
+import {
+  mapBulkImportRow,
+  normalizeImportHeader,
+} from "@/lib/bulk-client-import-map";
 
 const createClientSchema = z.object({
   name: z.string().min(1).max(200),
@@ -364,6 +368,13 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
       ? (ch?.companyNumber ?? data.companyNumber?.trim().toUpperCase() ?? null)
       : (data.companyNumber ?? null);
 
+  const { documentInboxKeyFromName } = await import(
+    "@/lib/client-document-email"
+  );
+  const initialDeskProfile = {
+    documentInboxKey: documentInboxKeyFromName(name),
+  };
+
   if (isDemoMode()) {
     const client: DemoClient = {
       id: crypto.randomUUID(),
@@ -383,7 +394,7 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
       isVatRegistered: data.isVatRegistered,
       companiesHouse: ch,
       accountsComparatives: null,
-      deskProfile: null,
+      deskProfile: initialDeskProfile,
       createdAt: now,
       updatedAt: now,
     };
@@ -435,6 +446,7 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
         is_employer: data.isEmployer,
         is_vat_registered: data.isVatRegistered,
         companies_house: ch,
+        desk_profile: initialDeskProfile,
       })
       .select("*")
       .single();
@@ -482,6 +494,7 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
       isEmployer: data.isEmployer,
       isVatRegistered: data.isVatRegistered,
       companiesHouse: ch,
+      deskProfile: initialDeskProfile,
     })
     .returning();
 
@@ -966,6 +979,17 @@ function parseBool(v: unknown): boolean {
   return ["1", "true", "yes", "y"].includes(s);
 }
 
+/** Drop invalid emails on import so one bad address does not fail the row. */
+function sanitizeImportEmail(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  const v = raw.trim();
+  if (!v) return undefined;
+  // Take first address if the cell has a list
+  const first = v.split(/[;,]/)[0]?.trim() ?? v;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(first)) return undefined;
+  return first;
+}
+
 function normalizeType(
   raw: unknown,
 ): "sole_trader" | "limited_company" | "partnership" {
@@ -990,10 +1014,10 @@ function cell(
   ...keys: string[]
 ): string | undefined {
   const map = new Map(
-    Object.entries(row).map(([k, v]) => [k.trim().toLowerCase(), v]),
+    Object.entries(row).map(([k, v]) => [normalizeImportHeader(k), v]),
   );
   for (const key of keys) {
-    const v = map.get(key.toLowerCase());
+    const v = map.get(normalizeImportHeader(key));
     if (v != null && String(v).trim() !== "") return String(v).trim();
   }
   return undefined;
@@ -1009,35 +1033,19 @@ function normalizeCompanyAuthCode(raw?: string): string | null {
 }
 
 function importIdentifierPatch(raw: Record<string, unknown>) {
-  const authCode = normalizeCompanyAuthCode(
-    cell(
-      raw,
-      "company_auth_code",
-      "authentication_code",
-      "auth_code",
-      "company authentication code",
-      "company auth code",
-      "authentication code",
-    ),
-  );
-  const utr = cell(raw, "utr");
-  const vrn = cell(raw, "vrn", "vat", "vat_number");
-  const payeRef = cell(raw, "paye_ref", "paye", "paye ref");
-  const accountsOfficeRef = cell(
-    raw,
-    "accounts_office_ref",
-    "accounts_office",
-    "ao_ref",
-  );
-  const contactEmail = cell(raw, "contact_email", "email", "client_email");
+  const mapped = mapBulkImportRow(raw);
+  const authCode = normalizeCompanyAuthCode(mapped.companyAuthCode);
 
   const patch: Record<string, string | null> = {};
   if (authCode) patch.companyAuthCode = authCode;
-  if (utr) patch.utr = utr;
-  if (vrn) patch.vrn = vrn;
-  if (payeRef) patch.payeRef = payeRef;
-  if (accountsOfficeRef) patch.accountsOfficeRef = accountsOfficeRef;
-  if (contactEmail) patch.contactEmail = contactEmail;
+  if (mapped.utr) patch.utr = mapped.utr;
+  if (mapped.vrn) patch.vrn = mapped.vrn;
+  if (mapped.payeRef) patch.payeRef = mapped.payeRef;
+  if (mapped.accountsOfficeRef) patch.accountsOfficeRef = mapped.accountsOfficeRef;
+  const email = sanitizeImportEmail(mapped.contactEmail);
+  if (email) patch.contactEmail = email;
+  if (mapped.contactPhone) patch.contactPhone = mapped.contactPhone;
+  if (mapped.name) patch.name = mapped.name;
   return patch;
 }
 
@@ -1060,6 +1068,10 @@ async function applyClientImportPatch(
       row.accountsOfficeRef = patch.accountsOfficeRef;
     }
     if (patch.contactEmail !== undefined) row.contactEmail = patch.contactEmail;
+    if (patch.contactPhone !== undefined) row.contactPhone = patch.contactPhone;
+    if (typeof patch.name === "string" && patch.name.trim()) {
+      row.name = patch.name.trim();
+    }
     row.updatedAt = updatedAt;
     return row as ClientRecord;
   }
@@ -1083,6 +1095,12 @@ async function applyClientImportPatch(
           : {}),
         ...(patch.contactEmail !== undefined
           ? { contact_email: patch.contactEmail }
+          : {}),
+        ...(patch.contactPhone !== undefined
+          ? { contact_phone: patch.contactPhone }
+          : {}),
+        ...(typeof patch.name === "string" && patch.name.trim()
+          ? { name: patch.name.trim() }
           : {}),
         updated_at: updatedAt,
       })
@@ -1111,6 +1129,12 @@ async function applyClientImportPatch(
         : {}),
       ...(patch.contactEmail !== undefined
         ? { contactEmail: patch.contactEmail }
+        : {}),
+      ...(patch.contactPhone !== undefined
+        ? { contactPhone: patch.contactPhone }
+        : {}),
+      ...(typeof patch.name === "string" && patch.name.trim()
+        ? { name: patch.name.trim() }
         : {}),
       updatedAt: new Date(updatedAt),
     })
@@ -1166,7 +1190,7 @@ function findExistingClient(
  * (batched to respect API rate limits).
  */
 export async function bulkImportClients(
-  rows: Array<Record<string, unknown>>,
+  rows: Array<Record<string, string | null | undefined>>,
 ): Promise<{
   created: number;
   skipped: number;
@@ -1184,6 +1208,23 @@ export async function bulkImportClients(
     throw new Error(`Maximum ${MAX_BULK} clients per upload`);
   }
 
+  // Re-hydrate as plain string maps (defence against non-plain client payloads)
+  const safeRows: Record<string, unknown>[] = rows.map((row) => {
+    const out: Record<string, string> = {};
+    if (!row || typeof row !== "object") return out;
+    for (const [k, v] of Object.entries(row)) {
+      if (typeof k !== "string" || k.length > 80) continue;
+      if (v == null) continue;
+      if (typeof v === "string") {
+        const s = v.trim();
+        if (s) out[k] = s;
+      } else if (typeof v === "number" || typeof v === "boolean") {
+        out[k] = String(v);
+      }
+    }
+    return out;
+  });
+
   const existing = await listClients();
   const index = buildExistingClientIndex(existing);
   const seenCompanyNumbers = new Set<string>();
@@ -1191,33 +1232,26 @@ export async function bulkImportClients(
 
   const results: BulkImportRowResult[] = [];
   const CHUNK = 5;
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const slice = rows.slice(i, i + CHUNK);
+  for (let i = 0; i < safeRows.length; i += CHUNK) {
+    const slice = safeRows.slice(i, i + CHUNK);
     const chunkResults = await Promise.all(
       slice.map(async (raw, offset) => {
         const rowNum = i + offset + 2;
-        const companyNumber = cell(
-          raw,
-          "company_number",
-          "company number",
-          "companynumber",
-          "co_number",
-        );
-        let type = normalizeType(
-          cell(raw, "type", "client_type", "entity_type"),
-        );
-        if (!cell(raw, "type", "client_type", "entity_type") && companyNumber) {
+        const mapped = mapBulkImportRow(raw);
+        const companyNumber = mapped.companyNumber;
+        let type = normalizeType(mapped.type);
+        if (!mapped.type && companyNumber) {
           type = "limited_company";
         }
 
-        const name =
-          cell(raw, "name", "client_name", "client name", "company_name") ??
-          "";
+        const name = mapped.name ?? "";
         const displayName = name || companyNumber || "(blank)";
 
         try {
           if (!name && !(type === "limited_company" && companyNumber)) {
-            throw new Error("Missing name");
+            throw new Error(
+              "Missing company name (and no company number to fall back on)",
+            );
           }
 
           const normalizedName = normalizeClientName(
@@ -1266,7 +1300,7 @@ export async function bulkImportClients(
                 skipped: true,
                 updated: true,
                 clientId: existingClient.id,
-                error: "Updated identifiers on existing client",
+                error: "Updated details on existing client",
               };
             }
             return {
@@ -1279,37 +1313,24 @@ export async function bulkImportClients(
             };
           }
 
+          // Skip live CH enrichment here — 100s of rows would time out the
+          // server action. Company numbers are stored; open a client to enrich.
+          const email = sanitizeImportEmail(mapped.contactEmail);
           const client = await createClient({
             name: name || companyNumber || "Unnamed client",
             type,
             companyNumber,
-            utr: cell(raw, "utr"),
-            vrn: cell(raw, "vrn", "vat", "vat_number"),
-            nino: cell(raw, "nino", "ni"),
-            companyAuthCode: cell(
-              raw,
-              "company_auth_code",
-              "authentication_code",
-              "auth_code",
-              "company authentication code",
-              "company auth code",
-              "authentication code",
-            ),
-            payeRef: cell(raw, "paye_ref", "paye", "paye ref"),
-            accountsOfficeRef: cell(
-              raw,
-              "accounts_office_ref",
-              "accounts_office",
-              "ao_ref",
-            ),
-            contactEmail: cell(raw, "contact_email", "email", "client_email"),
-            isEmployer: parseBool(
-              cell(raw, "is_employer", "employer", "paye_employer"),
-            ),
-            isVatRegistered: parseBool(
-              cell(raw, "is_vat_registered", "vat_registered", "is_vat"),
-            ),
-            skipCompaniesHouse: false,
+            utr: mapped.utr,
+            vrn: mapped.vrn,
+            nino: mapped.nino,
+            companyAuthCode: mapped.companyAuthCode,
+            payeRef: mapped.payeRef,
+            accountsOfficeRef: mapped.accountsOfficeRef,
+            contactEmail: email,
+            contactPhone: mapped.contactPhone,
+            isEmployer: parseBool(mapped.isEmployer),
+            isVatRegistered: parseBool(mapped.isVatRegistered),
+            skipCompaniesHouse: true,
           });
 
           if (normalizedCo) seenCompanyNumbers.add(normalizedCo);
@@ -1336,11 +1357,12 @@ export async function bulkImportClients(
             ),
           };
         } catch (err) {
+          const { messageFromUnknown } = await import("@/lib/action-error");
           return {
             row: rowNum,
             name: displayName,
             ok: false as const,
-            error: err instanceof Error ? err.message : "Failed",
+            error: messageFromUnknown(err, "Failed"),
           };
         }
       }),

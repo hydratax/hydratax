@@ -120,6 +120,13 @@ export function assertModuleAccess(
 export function tabKeyToModule(key: string): AppModule {
   if (key === "self-assessment") return "self_assessment";
   if (key === "corporation-tax") return "corporation_tax";
-  if (key === "aml" || key === "engagement" || key === "portal") return "clients";
+  if (
+    key === "aml" ||
+    key === "engagement" ||
+    key === "portal" ||
+    key === "forms"
+  ) {
+    return "clients";
+  }
   return key as AppModule;
 }

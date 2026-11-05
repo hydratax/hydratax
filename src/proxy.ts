@@ -29,6 +29,7 @@ const PUBLIC_PREFIXES = [
   "/unsubscribe",
   "/api/companies-house",
   "/portal",
+  "/forms",
 ];
 
 function isPublicPath(pathname: string) {
@@ -140,6 +141,16 @@ export default async function proxy(request: NextRequest) {
     const returnTo = qs ? `${pathname}?${qs}` : pathname;
     url.searchParams.set("next", returnTo);
     return NextResponse.redirect(url);
+  }
+
+  // Local / demo: skip remote Supabase JWT refresh in middleware (pages still
+  // call requireSession). Removes a 1–3s network hop on every navigation.
+  if (
+    process.env.NODE_ENV === "development" ||
+    process.env.MEMORY_STORE === "true" ||
+    process.env.DEMO_MODE === "true"
+  ) {
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // Refresh Supabase session cookies and validate JWT

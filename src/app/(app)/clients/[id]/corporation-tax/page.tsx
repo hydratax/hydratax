@@ -179,6 +179,7 @@ export default async function CorporationTaxPage({
           <Ct600PeriodWorkspace
             clientId={clientId}
             clientSlug={slug}
+            contactEmail={client.contactEmail ?? null}
             periods={ctPeriods}
             returns={returns}
             initialStart={initialStart}

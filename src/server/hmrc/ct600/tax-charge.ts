@@ -52,16 +52,20 @@ export function computeTaxChargePence(
   return Math.max(0, Math.round(atMain - marginalRelief));
 }
 
-/** Rate label for CT600 XML / computation narrative. */
+/**
+ * HMRC CT600 XML TaxRate enumeration (not a bare percentage like "19.00").
+ * Company type 00 must use one of these labels or gateway error 9209 fires.
+ */
 export function ctRateLabelForProfitPence(
   taxableProfitPence: number,
   opts?: { associatedCompanies?: number; financialYear?: number },
-): string {
+): "FULL RATE OF CT" | "SMALL CO RATE OF CT" {
   const profit = Math.round(taxableProfitPence);
-  if (opts?.financialYear != null && opts.financialYear < 2023) return "19.00";
-  const { lower, upper } = ctThresholdsPence(opts?.associatedCompanies ?? 0);
-  if (profit <= 0) return "19.00";
-  if (profit <= lower) return "19.00";
-  if (profit >= upper) return "25.00";
-  return "25.00"; // main rate before marginal relief
+  if (opts?.financialYear != null && opts.financialYear < 2023) {
+    return "SMALL CO RATE OF CT";
+  }
+  const { lower } = ctThresholdsPence(opts?.associatedCompanies ?? 0);
+  if (profit <= lower) return "SMALL CO RATE OF CT";
+  // Marginal band uses full-rate rows + separate marginal relief
+  return "FULL RATE OF CT";
 }

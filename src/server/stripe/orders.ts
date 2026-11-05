@@ -142,6 +142,29 @@ export async function recordCheckoutEvent(event: Stripe.Event) {
   }
 
   await activatePlanFromCheckout(record, practiceId, chRequestId);
+  await maybeSendSubscriptionWelcome(record);
+}
+
+async function maybeSendSubscriptionWelcome(record: CheckoutRecord) {
+  if (record.planKey.startsWith("companies-house:")) return;
+  if (record.mode === "payment" && !record.planKey.startsWith("practice:")) {
+    return;
+  }
+  const to = record.customerEmail?.trim();
+  if (!to) return;
+  try {
+    const { sendSubscriptionWelcomeEmail } = await import(
+      "@/server/email/subscription-welcome"
+    );
+    await sendSubscriptionWelcomeEmail({
+      to,
+      planKey: record.planKey,
+      stripeSessionId: record.stripeSessionId,
+      trialEndsAt: record.trialEndsAt,
+    });
+  } catch (err) {
+    console.warn("[stripe] subscription welcome email failed", err);
+  }
 }
 
 async function activatePlanFromCheckout(
@@ -436,26 +459,32 @@ export async function fulfillCheckoutSession(sessionId: string) {
   const chRequestId = session.metadata?.chRequestId?.trim() || undefined;
 
   if (existing) {
+    const record: CheckoutRecord = {
+      id: existing.id ?? crypto.randomUUID(),
+      stripeSessionId: existing.stripeSessionId ?? sessionId,
+      stripeCustomerId: existing.stripeCustomerId ?? null,
+      stripeSubscriptionId: existing.stripeSubscriptionId ?? null,
+      planKey: existing.planKey,
+      amountTotal: existing.amountTotal ?? null,
+      currency: existing.currency ?? null,
+      customerEmail: existing.customerEmail ?? null,
+      status: existing.status ?? "paid",
+      mode: existing.mode ?? "subscription",
+      createdAt:
+        typeof existing.createdAt === "string"
+          ? existing.createdAt
+          : new Date().toISOString(),
+      trialEndsAt:
+        "trialEndsAt" in existing
+          ? ((existing as { trialEndsAt?: string | null }).trialEndsAt ?? null)
+          : null,
+    };
     await activatePlanFromCheckout(
-      {
-        id: existing.id ?? crypto.randomUUID(),
-        stripeSessionId: existing.stripeSessionId ?? sessionId,
-        stripeCustomerId: existing.stripeCustomerId ?? null,
-        stripeSubscriptionId: existing.stripeSubscriptionId ?? null,
-        planKey: existing.planKey,
-        amountTotal: existing.amountTotal ?? null,
-        currency: existing.currency ?? null,
-        customerEmail: existing.customerEmail ?? null,
-        status: existing.status ?? "paid",
-        mode: existing.mode ?? "subscription",
-        createdAt:
-          typeof existing.createdAt === "string"
-            ? existing.createdAt
-            : new Date().toISOString(),
-      },
+      record,
       session.metadata?.practiceId || undefined,
       chRequestId,
     );
+    await maybeSendSubscriptionWelcome(record);
     return existing;
   }
 

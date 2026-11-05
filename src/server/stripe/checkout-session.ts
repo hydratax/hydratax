@@ -38,8 +38,10 @@ export async function createStripeCheckoutSession(opts: CreateCheckoutOpts) {
   ).replace(/\/$/, "");
   const stripe = getStripe();
 
+  const isSubscription =
+    plan.interval === "month" || plan.interval === "year";
   const withTrial =
-    plan.interval === "month" && planKeyHasPracticeTrial(plan.key);
+    isSubscription && planKeyHasPracticeTrial(plan.key);
 
   const isChOneOff = opts.planKey.startsWith("companies-house:");
   const successUrl = isChOneOff
@@ -47,7 +49,7 @@ export async function createStripeCheckoutSession(opts: CreateCheckoutOpts) {
     : `${appUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
 
   const checkoutSession = await stripe.checkout.sessions.create({
-    mode: plan.interval === "month" ? "subscription" : "payment",
+    mode: isSubscription ? "subscription" : "payment",
     customer_email: opts.email || undefined,
     ...(withTrial ? { payment_method_collection: "always" as const } : {}),
     line_items: [
@@ -62,8 +64,15 @@ export async function createStripeCheckoutSession(opts: CreateCheckoutOpts) {
               ? `${plan.description} ${PRACTICE_TRIAL_DAYS}-day free trial — card saved now, first charge on day 8. Cancel anytime before then.`
               : plan.description,
           },
-          ...(plan.interval === "month"
-            ? { recurring: { interval: "month" as const } }
+          ...(isSubscription
+            ? {
+                recurring: {
+                  interval:
+                    plan.interval === "year"
+                      ? ("year" as const)
+                      : ("month" as const),
+                },
+              }
             : {}),
         },
       },

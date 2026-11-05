@@ -14,6 +14,7 @@ import { HmrcVatConnectModal } from "@/components/forms/hmrc-vat-connect-modal";
 import { VAT_BOX_DEFINITIONS } from "@/lib/hmrc/filing-guides";
 import { money } from "@/lib/format";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { EmailToClientButton } from "@/components/forms/email-to-client-button";
 
 type Obligation = {
   periodKey: string;
@@ -28,6 +29,7 @@ type ReturnRow = {
   id: string;
   periodKey: string;
   status: string;
+  boxes?: Record<string, string> | null;
 };
 
 type BoxKey = (typeof VAT_BOX_DEFINITIONS)[number]["key"];
@@ -137,6 +139,7 @@ function parseVatUpload(buffer: ArrayBuffer, filename: string): Partial<BoxInput
 export function VatReturnsWorkspace({
   clientId,
   clientName,
+  contactEmail = null,
   vrn,
   connected,
   signedIn,
@@ -145,6 +148,7 @@ export function VatReturnsWorkspace({
 }: {
   clientId: string;
   clientName: string;
+  contactEmail?: string | null;
   vrn: string | null;
   connected: boolean;
   signedIn: boolean;
@@ -269,10 +273,26 @@ export function VatReturnsWorkspace({
                 {returns.map((r) => (
                   <li
                     key={r.id}
-                    className="flex items-center justify-between py-2"
+                    className="flex flex-wrap items-center justify-between gap-2 py-2"
                   >
                     <span className="font-semibold">{r.periodKey}</span>
-                    <span className="badge badge-ok">{r.status}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="badge badge-ok">{r.status}</span>
+                      <EmailToClientButton
+                        clientId={clientId}
+                        defaultEmail={contactEmail}
+                        compact
+                        label="Email"
+                        subject={`VAT return ${r.periodKey} — ${clientName}`}
+                        message={`Please find a summary of the submitted VAT return for period ${r.periodKey}.\n\nKind regards`}
+                        artifact={{
+                          type: "vat_summary",
+                          periodKey: r.periodKey,
+                          status: "submitted",
+                          boxes: r.boxes ?? undefined,
+                        }}
+                      />
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -546,6 +566,23 @@ export function VatReturnsWorkspace({
                     ? "Submit VAT return to HMRC"
                     : "Connect to HMRC to submit"}
               </button>
+              {obligation ? (
+                <EmailToClientButton
+                  clientId={clientId}
+                  defaultEmail={contactEmail}
+                  label="Email draft to client"
+                  subject={`Draft VAT return ${obligation.periodKey} — ${clientName}`}
+                  message={`Please review this draft VAT return for period ${obligation.periodKey} before we submit to HMRC.\n\nKind regards`}
+                  artifact={{
+                    type: "vat_summary",
+                    periodKey: obligation.periodKey,
+                    status: "draft",
+                    boxes: Object.fromEntries(
+                      Object.entries(boxes).map(([k, v]) => [k, String(v)]),
+                    ),
+                  }}
+                />
+              ) : null}
               {!connected && (
                 <button
                   type="button"

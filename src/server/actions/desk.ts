@@ -10,6 +10,7 @@ import {
   type DeskProfile,
   type EngagementRecord,
   type JobStatus,
+  type PortalApprovalPack,
   type PortalRecord,
   type PortalUpload,
 } from "@/lib/desk-profile";
@@ -74,6 +75,8 @@ function revalidateClient(clientId: string) {
   revalidatePath(`/clients/${clientId}/aml`);
   revalidatePath(`/clients/${clientId}/engagement`);
   revalidatePath(`/clients/${clientId}/portal`);
+  revalidatePath(`/clients/${clientId}/forms`);
+  revalidatePath(`/clients/${clientId}/documents`);
 }
 
 export async function saveAmlRecord(input: {
@@ -146,6 +149,7 @@ export async function portalApprovalError(
 }
 
 export async function ensurePortal(clientId: string) {
+  const session = await requireSession();
   const client = await getClient(clientId);
   if (!client) throw new Error("Client not found");
   if (client.deskProfile?.portal?.token) {
@@ -159,6 +163,16 @@ export async function ensurePortal(clientId: string) {
     approveVat: false,
   };
   await writeProfile(clientId, mergeProfile(client.deskProfile, { portal }));
+  const { appendAuditEvent } = await import("@/server/audit/log");
+  await appendAuditEvent({
+    practiceId: session.practiceId,
+    clientId,
+    actorId: session.userId,
+    action: "portal.link_created",
+    entityType: "portal",
+    entityId: clientId,
+    detail: { tokenPrefix: portal.token.slice(0, 8) },
+  }).catch(() => undefined);
   revalidateClient(clientId);
   return portal;
 }
@@ -173,6 +187,24 @@ export async function setJobStatus(input: {
   const jobs = { ...(client.deskProfile?.jobs ?? {}), [input.filingId]: input.status };
   await writeProfile(input.clientId, mergeProfile(client.deskProfile, { jobs }));
   revalidatePath("/filings");
+  return { ok: true as const };
+}
+
+export async function recordPortalOpened(token: string) {
+  const client = await findClientByPortalToken(token);
+  if (!client?.deskProfile?.portal) return { ok: false as const };
+  const { appendAuditEvent } = await import("@/server/audit/log");
+  await appendAuditEvent({
+    practiceId:
+      "practiceId" in client && client.practiceId
+        ? String(client.practiceId)
+        : null,
+    clientId: client.id,
+    actorId: "client-portal",
+    action: "portal.opened",
+    entityType: "portal",
+    entityId: client.id,
+  }).catch(() => undefined);
   return { ok: true as const };
 }
 
@@ -245,14 +277,18 @@ export async function updatePortalFromClient(input: {
       r.id === input.requestId ? { ...r, done: Boolean(input.done) } : r,
     );
   }
+  const now = new Date().toISOString();
   if (typeof input.approveAccounts === "boolean") {
     portal.approveAccounts = input.approveAccounts;
+    portal.approveAccountsAt = input.approveAccounts ? now : undefined;
   }
   if (typeof input.approveCt600 === "boolean") {
     portal.approveCt600 = input.approveCt600;
+    portal.approveCt600At = input.approveCt600 ? now : undefined;
   }
   if (typeof input.approveVat === "boolean") {
     portal.approveVat = input.approveVat;
+    portal.approveVatAt = input.approveVat ? now : undefined;
   }
 
   if (isDemoMode()) {
@@ -299,8 +335,16 @@ const PORTAL_FILE_TYPES = new Set([
   "application/vnd.ms-excel",
 ]);
 
+function categoryForPortalRequest(requestId: string): string {
+  if (requestId === "bank") return "accounts";
+  if (requestId === "payroll") return "payroll";
+  if (requestId === "invoices") return "accounts";
+  return "general";
+}
+
 export async function uploadPortalPaper(formData: FormData) {
   const token = String(formData.get("token") ?? "");
+  const requestId = String(formData.get("requestId") ?? "").trim();
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
     return { ok: false as const, error: "Choose a file to upload." };
@@ -325,6 +369,9 @@ export async function uploadPortalPaper(formData: FormData) {
       : null;
   if (!practiceId) return { ok: false as const, error: "Link not found" };
 
+  const docCategory = requestId
+    ? categoryForPortalRequest(requestId)
+    : "general";
   const filename = file.name.replace(/[^\w.\- ()]/g, "_").slice(0, 180);
   const contentType = file.type || "application/octet-stream";
   const objectKey = `practices/${practiceId}/clients/${client.id}/portal/${Date.now()}-${filename}`;
@@ -373,7 +420,7 @@ export async function uploadPortalPaper(formData: FormData) {
         content_type: contentType,
         size_bytes: file.size,
         r2_key: r2Key,
-        category: "general",
+        category: docCategory,
         uploaded_by: "client-portal",
       })
       .select("id")
@@ -391,7 +438,7 @@ export async function uploadPortalPaper(formData: FormData) {
       contentType,
       sizeBytes: file.size,
       blobUrl,
-      category: "general",
+      category: docCategory,
       uploadedBy: "client-portal",
       createdAt: new Date().toISOString(),
     });
@@ -410,7 +457,7 @@ export async function uploadPortalPaper(formData: FormData) {
         contentType,
         sizeBytes: file.size,
         blobUrl,
-        category: "general",
+        category: docCategory,
         uploadedBy: "client-portal",
       })
       .returning();
@@ -421,9 +468,13 @@ export async function uploadPortalPaper(formData: FormData) {
     filename,
     documentId,
     uploadedAt: new Date().toISOString(),
+    requestId: requestId || undefined,
   };
   const portal: PortalRecord = {
     ...client.deskProfile.portal,
+    requests: client.deskProfile.portal.requests.map((r) =>
+      requestId && r.id === requestId ? { ...r, done: true } : r,
+    ),
     uploads: [...(client.deskProfile.portal.uploads ?? []), upload],
   };
 
@@ -457,5 +508,95 @@ export async function uploadPortalPaper(formData: FormData) {
 
   revalidatePath(`/clients/${client.id}/documents`);
   revalidatePath(`/clients/${client.id}/portal`);
-  return { ok: true as const, filename };
+  revalidatePath(`/clients/${client.id}/bank`);
+  return { ok: true as const, filename, documentId, requestId: requestId || null };
+}
+
+export async function sendPortalApprovalPack(input: {
+  clientId: string;
+  kind: "accounts" | "ct600" | "vat";
+  documentId?: string;
+  message?: string;
+  title?: string;
+}) {
+  const client = await getClient(input.clientId);
+  if (!client) throw new Error("Client not found");
+  let portal = client.deskProfile?.portal;
+  if (!portal?.token) {
+    portal = await ensurePortal(input.clientId);
+  }
+
+  let documentUrl: string | undefined;
+  let filename: string | undefined;
+  if (input.documentId) {
+    const { listClientDocuments } = await import("@/server/actions/documents");
+    const docs = await listClientDocuments(input.clientId);
+    const doc = docs.find((d) => d.id === input.documentId);
+    if (!doc) throw new Error("Choose a document from this client’s file.");
+    documentUrl = doc.blobUrl;
+    filename = doc.filename;
+  }
+
+  const defaults = {
+    accounts: "Annual accounts for your approval",
+    ct600: "Company Tax Return for your approval",
+    vat: "VAT return for your approval",
+  } as const;
+
+  const pack: PortalApprovalPack = {
+    title: input.title?.trim() || defaults[input.kind],
+    message:
+      input.message?.trim() ||
+      "Please review the attached draft, then tick approval on this page.",
+    documentId: input.documentId,
+    documentUrl,
+    filename,
+    sentAt: new Date().toISOString(),
+  };
+
+  const nextPortal: PortalRecord = {
+    ...portal,
+    approvalPacks: {
+      ...(portal.approvalPacks ?? {}),
+      [input.kind]: pack,
+    },
+    // Reset approval when a new pack is sent
+    ...(input.kind === "accounts"
+      ? { approveAccounts: false, approveAccountsAt: undefined }
+      : input.kind === "ct600"
+        ? { approveCt600: false, approveCt600At: undefined }
+        : { approveVat: false, approveVatAt: undefined }),
+  };
+
+  await writeProfile(
+    input.clientId,
+    mergeProfile(client.deskProfile, { portal: nextPortal }),
+  );
+  revalidateClient(input.clientId);
+  revalidatePath(`/clients/${input.clientId}/accounts-pack`);
+  revalidatePath(`/clients/${input.clientId}/corporation-tax`);
+  revalidatePath(`/clients/${input.clientId}/vat`);
+  return nextPortal;
+}
+
+export async function updatePortalRequests(input: {
+  clientId: string;
+  requests: { id: string; label: string; done: boolean }[];
+}) {
+  const client = await getClient(input.clientId);
+  if (!client?.deskProfile?.portal) throw new Error("Create the client link first");
+  const portal: PortalRecord = {
+    ...client.deskProfile.portal,
+    requests: input.requests.map((r) => ({
+      id: r.id,
+      label: r.label,
+      done: r.done,
+    })),
+  };
+  await writeProfile(
+    input.clientId,
+    mergeProfile(client.deskProfile, { portal }),
+  );
+  revalidateClient(input.clientId);
+  return portal;
 }

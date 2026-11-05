@@ -30,7 +30,7 @@ export const SUPPORT_CATEGORIES: Array<{
   {
     id: "troubleshooting",
     title: "Troubleshooting",
-    blurb: "Decode gateway rejections, pending states, and â€œwhy didnâ€™t this land?â€ moments.",
+    blurb: "Decode gateway rejections, pending states, and “why didn’t this land?” moments.",
   },
   {
     id: "ct600",
@@ -73,20 +73,20 @@ export const SUPPORT_ARTICLES: SupportArticle[] = [
     category: "getting-started",
     popular: true,
     body: [
-      "HydraTax is built for accountants who juggle many entities. Start in the practice dashboard, add a client, and choose a filing rail â€” VAT, CT600, Self Assessment, or payroll.",
-      "Keep books in integer pence so every return draws from the same digital record. When you are ready, use prepare â†’ review â†’ submit. Fraud-prevention metadata is collected at the final step and blocked locally if incomplete.",
-      "Without HMRC Developer Hub credentials you can still prepare and review locally. For live submits, store test and live credentials in separate environments â€” Hydra refuses mixed keys.",
+      "HydraTax is built for accountants who juggle many entities. Start in the practice dashboard, add a client, and choose a filing rail — VAT, CT600, Self Assessment, or payroll.",
+      "Keep books in integer pence so every return draws from the same digital record. When you are ready, use prepare → review → submit. Fraud-prevention metadata is collected at the final step and blocked locally if incomplete.",
+      "Without HMRC Developer Hub credentials you can still prepare and review locally. For live submits, store test and live credentials in separate environments — Hydra refuses mixed keys.",
     ],
   },
   {
     slug: "add-clients-to-practice",
     title: "Adding clients to your practice",
     summary:
-      "Limited companies, sole traders, and employers â€” which identifiers Hydra needs before you can file.",
+      "Limited companies, sole traders, and employers — which identifiers Hydra needs before you can file.",
     category: "getting-started",
     popular: true,
     body: [
-      "From Clients â†’ Add client, set the entity type and the refs you already hold: company number and UTR for CT600, VRN for VAT, NINO for Self Assessment, PAYE and Accounts Office refs for RTI.",
+      "From Clients → Add client, set the entity type and the refs you already hold: company number and UTR for CT600, VRN for VAT, NINO for Self Assessment, PAYE and Accounts Office refs for RTI.",
       "Flags for VAT-registered and employer unlock the matching module tabs. You can add identifiers later, but Hydra will block submit until the statutory fields for that rail are present.",
     ],
   },
@@ -100,19 +100,19 @@ export const SUPPORT_ARTICLES: SupportArticle[] = [
     body: [
       "If HMRC rejects authentication, confirm the company is enrolled for Corporation Tax Online and that the credentials match the UTR on the return.",
       "Invalid UTR almost always means a typo or a UTR that does not belong to that company number. Re-check both fields before rebuilding the XML.",
-      "Business-logic failures usually mean the figures or period dates contradict HMRCâ€™s records (overlapping periods, missing prior return, or schema rules for older periods). Adjust the period or mark an earlier period as filed elsewhere, then resubmit.",
+      "Business-logic failures usually mean the figures or period dates contradict HMRC’s records (overlapping periods, missing prior return, or schema rules for older periods). Adjust the period or mark an earlier period as filed elsewhere, then resubmit.",
     ],
   },
   {
     slug: "pending-hmrc-status",
     title: "Why a filing shows as pending with HMRC",
     summary:
-      "What â€œpendingâ€ means after submit, how long to wait, and when to open a support ticket.",
+      "What “pending” means after submit, how long to wait, and when to open a support ticket.",
     category: "troubleshooting",
     popular: true,
     body: [
       "Pending means the gateway accepted your payload and HMRC has not yet returned a final acceptance or rejection. This can take minutes or, at busy times, longer.",
-      "Keep the correlation ID from Hydraâ€™s audit trail. Do not submit a duplicate while the first request is still pending unless HMRC confirms there is no original return recorded.",
+      "Keep the correlation ID from Hydra’s audit trail. Do not submit a duplicate while the first request is still pending unless HMRC confirms there is no original return recorded.",
       "If the status stalls beyond a normal business day, contact Hydra support with the client name, period, and correlation ID.",
     ],
   },
@@ -120,24 +120,24 @@ export const SUPPORT_ARTICLES: SupportArticle[] = [
     slug: "hmrc-error-authentication",
     title: "HMRC authentication failure on CT600",
     summary:
-      "Five usual causes â€” wrong credentials, CT not enrolled, expired session, mismatched UTR, or environment mix-up.",
+      "Five usual causes — wrong credentials, CT not enrolled, expired session, mismatched UTR, or environment mix-up.",
     category: "troubleshooting",
     body: [
-      "Reconnect the clientâ€™s HMRC authorisation from Settings â†’ HMRC. Confirm you are on the test environment when testing and live only with live credentials.",
+      "Reconnect the client’s HMRC authorisation from Settings → HMRC. Confirm you are on the test environment when testing and live only with live credentials.",
       "Enrol the company for Corporation Tax Online via Government Gateway if it has never filed electronically. Activation codes can take several days to arrive.",
-      "Never paste test client IDs into a live Hydra deployment â€” the platform blocks that bleed by design.",
+      "Never paste test client IDs into a live Hydra deployment — the platform blocks that bleed by design.",
     ],
   },
   {
     slug: "ct600-checklist",
     title: "CT600 filing checklist",
     summary:
-      "What to gather before you open the Corporation Tax rail â€” periods, P&L, balance sheet, and prior filings.",
+      "What to gather before you open the Corporation Tax rail — periods, P&L, balance sheet, and prior filings.",
     category: "ct600",
     popular: true,
     body: [
       "Confirm the accounting period dates before you start. Hydra pre-fills them from the client record where available.",
-      "Enter turnover, costs, and balance sheet figures in pounds and pence â€” Hydra stores them as integer pence and builds the XML payload for you.",
+      "Enter turnover, costs, and balance sheet figures in pounds and pence — Hydra stores them as integer pence and builds the XML payload for you.",
       "If an earlier period is overdue and filed elsewhere, mark it filed so the current period can proceed.",
     ],
   },
@@ -155,7 +155,7 @@ export const SUPPORT_ARTICLES: SupportArticle[] = [
   },
   {
     slug: "previous-period-required",
-    title: "Previous period required â€” unblock the current CT600",
+    title: "Previous period required — unblock the current CT600",
     summary:
       "Why Hydra (and HMRC) insist on earlier periods first, and how to clear the blockage.",
     category: "ct600",
@@ -186,7 +186,7 @@ export const SUPPORT_ARTICLES: SupportArticle[] = [
     category: "vat",
     body: [
       "MTD links can expire or be revoked from the Government Gateway. Open the client workspace and use Connect HMRC (or reconnect) to run OAuth again.",
-      "If credentials were rotated on the Developer Hub, update environment variables and restart â€” never mix test and live secrets.",
+      "If credentials were rotated on the Developer Hub, update environment variables and restart — never mix test and live secrets.",
       "A credential problem looks different from a validation error: reconnect first, then retry the return.",
     ],
   },
@@ -197,8 +197,8 @@ export const SUPPORT_ARTICLES: SupportArticle[] = [
       "When you can amend, what Hydra stores, and how to keep the audit trail clean.",
     category: "vat",
     body: [
-      "If HMRC accepted an incorrect return, follow HMRCâ€™s amendment rules for the period. Prepare a corrected draft in Hydra and submit only when the gateway allows an amendment.",
-      "Do not delete audit events â€” Hydraâ€™s log is append-only so partners can see every attempt and response code.",
+      "If HMRC accepted an incorrect return, follow HMRC’s amendment rules for the period. Prepare a corrected draft in Hydra and submit only when the gateway allows an amendment.",
+      "Do not delete audit events — Hydra’s log is append-only so partners can see every attempt and response code.",
     ],
   },
   {
@@ -209,7 +209,7 @@ export const SUPPORT_ARTICLES: SupportArticle[] = [
     category: "self-assessment",
     popular: true,
     body: [
-      "Self Assessment in Hydra is for sole traders and partnerships â€” limited companies use the Corporation Tax rail instead.",
+      "Self Assessment in Hydra is for sole traders and partnerships — limited companies use the Corporation Tax rail instead.",
       "Pick the tax year and period dates. Hydra totals turnover and expenses from books in that window, validates the payload, then submits with fraud-prevention headers.",
       "If the tax calculation looks higher than expected, check allowances (for example dividend nil-rate bands still consume basic-rate band) before amending figures.",
     ],
@@ -222,7 +222,7 @@ export const SUPPORT_ARTICLES: SupportArticle[] = [
     category: "self-assessment",
     body: [
       "Every SA submit writes a correlation ID and status into the client audit trail.",
-      "Export or screenshot that entry for your working papers. For official SA302-style documents, continue to retrieve them from HMRCâ€™s services once the year-end return is complete.",
+      "Export or screenshot that entry for your working papers. For official SA302-style documents, continue to retrieve them from HMRC’s services once the year-end return is complete.",
     ],
   },
   {
@@ -234,7 +234,7 @@ export const SUPPORT_ARTICLES: SupportArticle[] = [
     popular: true,
     body: [
       "Enable employer status and enter PAYE plus Accounts Office references before creating employees.",
-      "Add employees with NINO, tax code, and annual salary. On payday, create a pay run â€” Hydra calculates PAYE and NI in pence and builds the FPS XML.",
+      "Add employees with NINO, tax code, and annual salary. On payday, create a pay run — Hydra calculates PAYE and NI in pence and builds the FPS XML.",
       "Submit FPS on or before payday. Use EPS when there is no payment in a period so HMRC still receives the required notification.",
     ],
   },
@@ -246,12 +246,12 @@ export const SUPPORT_ARTICLES: SupportArticle[] = [
     category: "payroll",
     body: [
       "If a pay period has no employees paid, send an EPS with the no-payment indicator instead of inventing an FPS.",
-      "Hydraâ€™s payroll rail includes an EPS action for this case. Confirm the tax year and employer refs before submit.",
+      "Hydra’s payroll rail includes an EPS action for this case. Confirm the tax year and employer refs before submit.",
     ],
   },
   {
     slug: "fraud-prevention-headers",
-    title: "Fraud-prevention headers â€” why submit can be blocked",
+    title: "Fraud-prevention headers — why submit can be blocked",
     summary:
       "Hydra refuses to call MTD APIs when browser metadata is incomplete.",
     category: "hmrc-connection",

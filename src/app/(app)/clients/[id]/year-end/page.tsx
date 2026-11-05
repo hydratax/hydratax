@@ -160,6 +160,7 @@ export default async function YearEndFilingPage({
       >
         <YearEndFilingForm
           clientId={clientId}
+          contactEmail={client.contactEmail ?? null}
           initialMode={mode}
           lockFilingMode
           persistKey={`hydratax_year_end_client_${clientId}`}

@@ -115,6 +115,7 @@ function toCardFromCustom(start: string, end: string): PeriodCard {
 export function Ct600PeriodWorkspace({
   clientId,
   clientSlug,
+  contactEmail = null,
   periods,
   returns,
   initialStart,
@@ -129,6 +130,7 @@ export function Ct600PeriodWorkspace({
 }: {
   clientId: string;
   clientSlug: string;
+  contactEmail?: string | null;
   periods: CtAccountingPeriod[];
   returns: FiledReturn[];
   initialStart?: string;
@@ -326,6 +328,7 @@ export function Ct600PeriodWorkspace({
         <YearEndFilingForm
           key={`${selected.start}-${selected.end}`}
           clientId={clientId}
+          contactEmail={contactEmail}
           initialMode="ct600"
           lockFilingMode
           defaultPeriodStart={selected.start}
@@ -401,13 +404,18 @@ export function Ct600PeriodWorkspace({
             return (
               <div
                 key={periodKey(p.start, p.end)}
+                role="button"
+                tabIndex={0}
                 className="panel panel-interactive flex w-full flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6"
+                onClick={() => openPeriod(p.start, p.end)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openPeriod(p.start, p.end);
+                  }
+                }}
               >
-                <button
-                  type="button"
-                  onClick={() => openPeriod(p.start, p.end)}
-                  className="min-w-0 flex-1 text-left"
-                >
+                <div className="min-w-0 flex-1 text-left">
                   <div className="flex w-full flex-wrap items-center gap-2">
                     <span className="text-xs font-bold uppercase tracking-[0.12em] text-sea">
                       {p.label}
@@ -443,15 +451,9 @@ export function Ct600PeriodWorkspace({
                       </dd>
                     </div>
                   </dl>
-                </button>
+                </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-primary text-sm"
-                    onClick={() => openPeriod(p.start, p.end)}
-                  >
-                    File CT600 →
-                  </button>
+                  <span className="open-chip">File CT600 →</span>
                   {submitted ? (
                     <span
                       className="rounded-md border border-line px-3 py-2 text-xs text-ink-soft"

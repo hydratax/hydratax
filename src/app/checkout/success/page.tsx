@@ -5,6 +5,7 @@ import { PendingLink } from "@/components/pending-link";
 import { ClearCs01DraftOnSuccess } from "@/components/checkout/clear-cs01-draft";
 import { isStripeConfigured } from "@/lib/env";
 import { getChService } from "@/lib/ch-services";
+import { describeCheckoutPlan } from "@/lib/checkout-plan-copy";
 import { getStripe } from "@/server/stripe/client";
 import {
   attachCheckoutToPractice,
@@ -32,10 +33,10 @@ export default async function CheckoutSuccessPage({
   searchParams: Promise<{ session_id?: string; filing?: string }>;
 }) {
   const { session_id: sessionId, filing: filingFlag } = await searchParams;
-  let planLabel = "your plan";
   let planKey = "";
   let email: string | null = null;
-  let activated = false;
+  let emailDelivery: "resend" | "logged" | "skipped" | null = null;
+  let trialEndsAt: string | null = null;
   let chFulfillment: ChFulfillmentResult | null = null;
   const isFilingCheckout = filingFlag === "1";
 
@@ -45,10 +46,20 @@ export default async function CheckoutSuccessPage({
     try {
       const session = await getStripe().checkout.sessions.retrieve(sessionId);
       planKey = session.metadata?.planKey ?? "";
-      planLabel = planKey.replace(":", " · ") || planLabel;
       email = session.customer_details?.email ?? session.customer_email;
-      await fulfillCheckoutSession(sessionId);
-      activated = true;
+
+      const order = await fulfillCheckoutSession(sessionId);
+
+      if (
+        order &&
+        "trialEndsAt" in order &&
+        typeof (order as { trialEndsAt?: string | null }).trialEndsAt === "string"
+      ) {
+        trialEndsAt = (order as { trialEndsAt: string }).trialEndsAt;
+      } else if (Number(session.metadata?.trialDays ?? 0) > 0) {
+        const { practiceTrialEndsAt } = await import("@/lib/trial");
+        trialEndsAt = practiceTrialEndsAt().toISOString();
+      }
 
       const chRequestId = session.metadata?.chRequestId?.trim();
       if (chRequestId && planKey.startsWith("companies-house:")) {
@@ -63,12 +74,19 @@ export default async function CheckoutSuccessPage({
         if (!chFulfillment.submitted && chFulfillment.error) {
           fulfillError = chFulfillment.error;
         }
-      } else if (
-        planKey.startsWith("companies-house:") &&
-        !chRequestId
-      ) {
+      } else if (planKey.startsWith("companies-house:") && !chRequestId) {
         fulfillError =
           "Payment received but filing link was missing — contact support with your receipt.";
+      } else if (email && !planKey.startsWith("companies-house:")) {
+        const { sendSubscriptionWelcomeEmail } = await import(
+          "@/server/email/subscription-welcome"
+        );
+        emailDelivery = await sendSubscriptionWelcomeEmail({
+          to: email,
+          planKey,
+          stripeSessionId: sessionId,
+          trialEndsAt,
+        });
       }
 
       const { getOptionalSession } = await import("@/server/auth/session");
@@ -94,12 +112,22 @@ export default async function CheckoutSuccessPage({
   const submitFailed =
     Boolean(fulfillError) ||
     (chFulfillment != null && !chFulfillment.submitted);
-  const emailSent = chFulfillment?.emailDelivery === "resend";
+  const chEmailSent = chFulfillment?.emailDelivery === "resend";
+  const deskEmailSent = emailDelivery === "resend";
   const fileAnotherHref = isAccounts
     ? "/companies-house/accounts-ixbrl"
     : isCs01
       ? "/companies-house/confirmation-statement"
       : "/companies-house";
+
+  const planCopy = describeCheckoutPlan(planKey);
+  const trialEndsLabel = trialEndsAt
+    ? new Date(trialEndsAt).toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      })
+    : null;
 
   return (
     <div className="min-h-screen">
@@ -154,7 +182,7 @@ export default async function CheckoutSuccessPage({
                   {fulfillError && fulfillError !== "fulfillment_failed"
                     ? ` (${fulfillError})`
                     : ""}
-                  {email && emailSent ? (
+                  {email && chEmailSent ? (
                     <>
                       {" "}
                       — we&apos;ve emailed an update to{" "}
@@ -186,7 +214,7 @@ export default async function CheckoutSuccessPage({
                 Reference: {chFulfillment.submissionNumber}
               </p>
             )}
-            {emailSent && email && (
+            {chEmailSent && email && (
               <p className="mt-3 text-sm text-ink-soft">
                 We emailed confirmation to{" "}
                 <span className="font-semibold text-ink">{email}</span>.
@@ -206,7 +234,11 @@ export default async function CheckoutSuccessPage({
               <Link href={fileAnotherHref} className="btn btn-secondary">
                 File another
               </Link>
-              <PendingLink href="/dashboard" className="btn btn-primary" pendingLabel="Opening desk…">
+              <PendingLink
+                href="/dashboard"
+                className="btn btn-primary"
+                pendingLabel="Opening desk…"
+              >
                 Open desk
               </PendingLink>
             </div>
@@ -220,21 +252,69 @@ export default async function CheckoutSuccessPage({
               You&apos;re in
             </h1>
             <p className="mt-4 text-ink-soft">
-              Payment received for{" "}
-              <span className="font-semibold text-ink">{planLabel}</span>
-              {email ? (
+              Payment received for your{" "}
+              <span className="font-semibold text-ink">{planCopy.title}</span>
+              {planCopy.priceLabel ? (
                 <>
                   {" "}
-                  — confirmation sent to{" "}
-                  <span className="font-semibold text-ink">{email}</span>
+                  ({planCopy.priceLabel})
                 </>
               ) : null}
-              {activated ? "." : "."}
+              .
             </p>
+
+            {planCopy.lines.length > 0 && (
+              <ul className="mt-6 w-full max-w-md space-y-2 rounded-xl border border-line bg-panel/60 px-5 py-4 text-left text-sm text-ink">
+                {planCopy.lines.map((line) => (
+                  <li key={line} className="flex gap-2">
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-sea" aria-hidden />
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {trialEndsLabel && (
+              <p className="mt-4 text-sm text-ink-soft">
+                Free trial until{" "}
+                <span className="font-semibold text-ink">{trialEndsLabel}</span>
+                — no Hydra fees while you trial. Billing starts after that.
+              </p>
+            )}
+
+            {email && (
+              <p className="mt-3 text-sm text-ink-soft">
+                {deskEmailSent ? (
+                  <>
+                    Confirmation emailed to{" "}
+                    <span className="font-semibold text-ink">{email}</span>.
+                  </>
+                ) : emailDelivery === "logged" ? (
+                  <>
+                    We&apos;ll send confirmation to{" "}
+                    <span className="font-semibold text-ink">{email}</span>{" "}
+                    once email delivery is configured.
+                  </>
+                ) : (
+                  <>
+                    Receipt available for{" "}
+                    <span className="font-semibold text-ink">{email}</span>.
+                  </>
+                )}
+              </p>
+            )}
+
             <div className="mt-8 flex flex-wrap justify-center gap-3">
-              <PendingLink href="/dashboard" className="btn btn-primary" pendingLabel="Opening desk…">
+              <PendingLink
+                href="/dashboard"
+                className="btn btn-primary"
+                pendingLabel="Opening desk…"
+              >
                 Open desk
               </PendingLink>
+              <Link href="/settings/account" className="btn btn-secondary">
+                Manage billing
+              </Link>
             </div>
           </>
         )}

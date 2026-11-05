@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { listClientDocuments } from "@/server/actions/documents";
 import { DocumentUploadForm } from "@/components/forms/document-upload-form";
+import { DocumentInboxCard } from "@/components/forms/document-inbox-card";
 import { EmailDocumentsForm } from "@/components/forms/email-documents-form";
 import { isBlobConfigured, isMemoryStore } from "@/lib/env";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
+import { ensureClientDocumentInbox } from "@/server/documents/inbound-email";
+import type { DeskProfile } from "@/lib/desk-profile";
 
 export default async function ClientDocumentsPage({
   params,
@@ -24,11 +27,25 @@ export default async function ClientDocumentsPage({
       ? ((client as { contactEmail?: string | null }).contactEmail ?? null)
       : null;
 
+  const inbox = await ensureClientDocumentInbox({
+    clientId,
+    practiceId: client.practiceId,
+    clientName: client.name,
+    deskProfile: (client.deskProfile as DeskProfile | null) ?? null,
+  });
+
   return (
     <div>
       <p className="mb-4 text-sm text-ink-soft">
         Documents · storage: {storageHint}
       </p>
+
+      <div className="mb-6">
+        <DocumentInboxCard
+          inboxEmail={inbox.inboxEmail}
+          clientName={client.name}
+        />
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <DocumentUploadForm clientId={clientId} />
@@ -45,8 +62,9 @@ export default async function ClientDocumentsPage({
         </div>
         {docs.length === 0 ? (
           <p className="p-6 text-sm text-ink-soft">
-            No documents yet. Upload bank statements, P60s, accounts packs, or
-            working papers here before prepare → review → submit.
+            No documents yet. Upload here, collect via the client form (photos
+            save as PDF), or ask bookkeeping to email{" "}
+            <span className="mono text-ink">{inbox.inboxEmail}</span>.
           </p>
         ) : (
           <ul className="divide-y divide-line">
@@ -62,7 +80,8 @@ export default async function ClientDocumentsPage({
                     {new Date(doc.createdAt).toLocaleString("en-GB")}
                   </p>
                 </div>
-                {doc.blobUrl.startsWith("http") ? (
+                {doc.blobUrl.startsWith("http") ||
+                doc.blobUrl.startsWith("/api/") ? (
                   <a
                     href={doc.blobUrl}
                     target="_blank"

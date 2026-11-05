@@ -17,6 +17,12 @@ describe("featuresForPlanKey", () => {
     expect(r.label).toBe("Custom");
     expect(r.features.some((f) => /VAT/i.test(f))).toBe(true);
   });
+
+  it("summarises yearly Custom modules", () => {
+    const r = featuresForPlanKey("practice:Custom:vat:10:yearly");
+    expect(r.label).toBe("Custom");
+    expect(r.features.some((f) => /yearly|15%/i.test(f))).toBe(true);
+  });
 });
 
 describe("statusLabel", () => {

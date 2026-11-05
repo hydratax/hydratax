@@ -7,6 +7,7 @@ import { getPracticeEntitlements } from "@/server/actions/account";
 import { getPracticeTrialStatus } from "@/server/billing/trial-status";
 import { DashboardClientFilters } from "@/components/dashboard-client-filters";
 import { ClaimFreeTrialButton } from "@/components/claim-free-trial-button";
+import { PendingLink } from "@/components/pending-link";
 import { moduleLabel, type ServiceModule } from "@/lib/entitlements";
 import { displayPracticeName } from "@/lib/practice-name";
 import { PRACTICE_TRIAL_DAYS } from "@/lib/trial";
@@ -139,7 +140,26 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {trial.onTrial && (
+      {trial.onTrial && entitlements.hasAnyPaid && (
+        <aside className="panel border-sea/40 bg-sea/5 p-5">
+          <p className="font-semibold text-ink">
+            {entitlements.plans[0]?.label ?? "Your plan"} —{" "}
+            {PRACTICE_TRIAL_DAYS}-day trial
+          </p>
+          <p className="mt-1 text-sm text-ink-soft">
+            You&apos;re already on this plan. No Hydra fees and free submissions
+            until
+            {trialEndsLabel ? ` ${trialEndsLabel}` : " your trial ends"}
+            ; billing continues automatically after that. Companies House
+            statutory fees still apply where charged.
+          </p>
+          <Link href="/settings/account" className="btn btn-secondary mt-4 text-sm">
+            Manage billing
+          </Link>
+        </aside>
+      )}
+
+      {trial.onTrial && !entitlements.hasAnyPaid && (
         <aside className="panel border-sea/40 bg-sea/5 p-5">
           <p className="font-semibold text-ink">
             {PRACTICE_TRIAL_DAYS}-day free trial active
@@ -147,16 +167,16 @@ export default async function DashboardPage() {
           <p className="mt-1 text-sm text-ink-soft">
             No Hydra fees and free submissions until
             {trialEndsLabel ? ` ${trialEndsLabel}` : " your trial ends"}.
-            Companies House statutory fees still apply where charged. Add a paid
+            Companies House statutory fees still apply where charged. Choose a
             plan before the trial ends to keep filing without interruption.
           </p>
           <Link href="/pricing" className="btn btn-secondary mt-4 text-sm">
-            Choose plan after trial
+            Choose a plan
           </Link>
         </aside>
       )}
 
-      {!entitlements.hasAnyPaid && (
+      {!entitlements.hasAnyPaid && !trial.onTrial && (
         <aside className="panel border-accent/40 bg-accent/5 p-5">
           <p className="font-semibold text-ink">Unlock Practice or Custom features</p>
           <p className="mt-1 text-sm text-ink-soft">
@@ -185,39 +205,64 @@ export default async function DashboardPage() {
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {RAIL_LINKS.map((rail) => {
             const open = unlocked.has(rail.module);
+            if (open) {
+              return (
+                <PendingLink
+                  key={rail.module}
+                  href={rail.href}
+                  className="panel panel-interactive relative block p-4"
+                  pendingLabel={`Opening ${rail.title}…`}
+                >
+                  {(pending) => (
+                    <>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold uppercase tracking-wide text-ink-soft">
+                            {moduleLabel(rail.module)}
+                          </p>
+                          <p className="display mt-1 text-xl text-ink">
+                            {rail.title}
+                          </p>
+                          <p className="mt-1 text-sm text-ink-soft">
+                            {rail.blurb}
+                          </p>
+                        </div>
+                        <span
+                          className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}
+                        >
+                          {pending ? "Opening…" : "Open"}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </PendingLink>
+              );
+            }
             return (
-              <div
+              <PendingLink
                 key={rail.module}
-                className={`panel relative p-4 ${
-                  open ? "panel-interactive" : "opacity-75"
-                }`}
+                href="/pricing#practice"
+                className="panel panel-interactive relative block p-4 opacity-90"
+                pendingLabel="Opening plans…"
               >
-                {!open && (
-                  <span className="badge badge-muted absolute right-3 top-3">
-                    Locked
-                  </span>
+                {(pending) => (
+                  <>
+                    <span className="badge badge-muted absolute right-3 top-3">
+                      Locked
+                    </span>
+                    <p className="text-xs font-bold uppercase tracking-wide text-ink-soft">
+                      {moduleLabel(rail.module)}
+                    </p>
+                    <p className="display mt-1 text-xl text-ink">{rail.title}</p>
+                    <p className="mt-1 text-sm text-ink-soft">{rail.blurb}</p>
+                    <span
+                      className={`mt-3 inline-flex open-chip ${pending ? "is-pending" : ""}`}
+                    >
+                      {pending ? "Opening…" : "Try Practice free →"}
+                    </span>
+                  </>
                 )}
-                <p className="text-xs font-bold uppercase tracking-wide text-ink-soft">
-                  {moduleLabel(rail.module)}
-                </p>
-                <p className="display mt-1 text-xl text-ink">{rail.title}</p>
-                <p className="mt-1 text-sm text-ink-soft">{rail.blurb}</p>
-                {open ? (
-                  <Link
-                    href={rail.href}
-                    className="mt-3 inline-block text-sm font-semibold text-sea"
-                  >
-                    Open →
-                  </Link>
-                ) : (
-                  <Link
-                    href="/pricing#practice"
-                    className="mt-3 inline-block text-sm font-semibold text-accent"
-                  >
-                    Try Practice free →
-                  </Link>
-                )}
-              </div>
+              </PendingLink>
             );
           })}
         </div>

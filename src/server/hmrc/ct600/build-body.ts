@@ -3,11 +3,9 @@ import { ct600FiguresSchema } from "@/server/money/schemas";
 import type { Ct600Figures, Ct600PrincipalContact } from "@/server/hmrc/ct600/types";
 import { attachmentsXml, buildCt600Attachments } from "@/server/hmrc/ct600/attachments";
 import { ctTag } from "@/server/hmrc/ct600/ct-xml";
-import {
-  computeTaxChargePence,
-  ctRateLabelForProfitPence,
-} from "@/server/hmrc/ct600/tax-charge";
-import { escapeXml, penceToPoundsDisplay } from "@/server/hmrc/ct600/xml-utils";
+import { computeTaxChargePence } from "@/server/hmrc/ct600/tax-charge";
+import { computeCt600TaxSchedule } from "@/server/hmrc/ct600/tax-schedule";
+import { escapeXml } from "@/server/hmrc/ct600/xml-utils";
 import type { YearEndAccountsDraft } from "@/server/accounts/year-end-from-bank";
 
 export { computeTaxChargePence } from "@/server/hmrc/ct600/tax-charge";
@@ -19,93 +17,26 @@ export function computeTaxableProfit(figures: Ct600Figures): Pence {
   return subtractPence(income, costs);
 }
 
-function poundsFromPence(pence: number): string {
-  const whole = Math.trunc(pence / 100);
-  return `${whole.toFixed(2)}`;
+function poundsWhole(pounds: number): string {
+  return `${Math.trunc(pounds).toFixed(2)}`;
 }
 
 function moneyFromPence(pence: number): string {
   return (pence / 100).toFixed(2);
 }
 
-function parseIsoDate(iso: string): Date {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  if (!m) throw new Error(`Invalid ISO date: ${iso}`);
-  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-}
-
-function daysInclusive(start: Date, end: Date): number {
-  return Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
-}
-
-function financialYearStart(date: Date): number {
-  const y = date.getUTCFullYear();
-  const month = date.getUTCMonth();
-  const day = date.getUTCDate();
-  if (month < 3 || (month === 3 && day < 1)) return y - 1;
-  return y;
-}
-
-function endOfFinancialYear(fyStart: number): Date {
-  return new Date(Date.UTC(fyStart + 1, 2, 31));
-}
-
-function apportionByFinancialYear(
-  periodStart: string,
-  periodEnd: string,
-  amountPence: number,
-): Array<{ fy: number; pence: number }> {
-  const start = parseIsoDate(periodStart);
-  const end = parseIsoDate(periodEnd);
-  const totalDays = daysInclusive(start, end);
-  if (totalDays <= 0) return [];
-
-  if (amountPence <= 0) {
-    const slices = new Map<number, number>();
-    let cursor = start;
-    while (cursor <= end) {
-      const fy = financialYearStart(cursor);
-      const sliceEnd = endOfFinancialYear(fy);
-      const periodSliceEnd = sliceEnd < end ? sliceEnd : end;
-      slices.set(fy, 0);
-      cursor = new Date(periodSliceEnd);
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
-    }
-    return [...slices.entries()]
-      .sort(([a], [b]) => a - b)
-      .map(([fy]) => ({ fy, pence: 0 }));
-  }
-
-  const slices = new Map<number, number>();
-  let cursor = start;
-  while (cursor <= end) {
-    const fy = financialYearStart(cursor);
-    const sliceEnd = endOfFinancialYear(fy);
-    const periodSliceEnd = sliceEnd < end ? sliceEnd : end;
-    const days = daysInclusive(cursor, periodSliceEnd);
-    const share = Math.round((amountPence * days) / totalDays);
-    slices.set(fy, (slices.get(fy) ?? 0) + share);
-    cursor = new Date(periodSliceEnd);
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-
-  return [...slices.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([fy, pence]) => ({ fy, pence }));
-}
-
 function financialYearXml(
   tag: "FinancialYearOne" | "FinancialYearTwo",
   fy: number,
-  profitPence: number,
+  profitPounds: number,
   taxPence: number,
   rateLabel: string,
 ): string {
   return `<${ctTag(tag)}>
           <${ctTag("Year")}>${fy}</${ctTag("Year")}>
           <${ctTag("Details")}>
-            <${ctTag("Profit")}>${poundsFromPence(profitPence)}</${ctTag("Profit")}>
-            <${ctTag("TaxRate")}>${rateLabel}</${ctTag("TaxRate")}>
+            <${ctTag("Profit")}>${poundsWhole(profitPounds)}</${ctTag("Profit")}>
+            <${ctTag("TaxRate")}>${escapeXml(rateLabel)}</${ctTag("TaxRate")}>
             <${ctTag("Tax")}>${moneyFromPence(taxPence)}</${ctTag("Tax")}>
           </${ctTag("Details")}>
         </${ctTag(tag)}>`;
@@ -132,15 +63,21 @@ export function buildCt600BodyInner(opts: {
   const utr = String(opts.utr).replace(/\s+/g, "");
   const taxable = computeTaxableProfit(figures);
   const taxablePence = Number(taxable);
-  const taxCharge = computeTaxChargePence(taxablePence);
-  const rateLabel = ctRateLabelForProfitPence(taxablePence);
+  const schedule = computeCt600TaxSchedule({
+    periodStart: figures.periodStart,
+    periodEnd: figures.periodEnd,
+    taxableProfitPence: taxablePence,
+  });
+  const taxCharge = schedule.netTaxPence;
   const tradingPence = Math.max(
     0,
     Number(figures.turnoverPence) -
       Number(figures.costOfSalesPence) -
       Number(figures.administrativeExpensesPence),
   );
-  const turnoverPence = Number(figures.turnoverPence);
+  const tradingPounds = Math.trunc(tradingPence / 100);
+  const turnoverPounds = Math.trunc(Number(figures.turnoverPence) / 100);
+  const chargeablePounds = schedule.chargeableProfitPounds;
   const declarant =
     opts.declarantName?.trim() || "Director";
   const declarantStatus = opts.declarantStatus?.trim() || "Director";
@@ -155,7 +92,7 @@ export function buildCt600BodyInner(opts: {
           utr,
           figures,
           accountsDraft: opts.accountsDraft,
-          taxableProfitPence: taxablePence,
+          taxableProfitPence: chargeablePounds * 100,
           taxChargePence: taxCharge,
           declarantName: declarant,
           declarantStatus,
@@ -163,43 +100,42 @@ export function buildCt600BodyInner(opts: {
 
   const attached = attachmentsXml(attachments);
 
-  const profitSlices = apportionByFinancialYear(
-    figures.periodStart,
-    figures.periodEnd,
-    taxablePence,
-  );
-  // Apportion the single correctly-rated charge across FY slices (do not
-  // re-apply 25% per slice — that ignored the small profits rate).
-  const taxSlices = apportionByFinancialYear(
-    figures.periodStart,
-    figures.periodEnd,
-    taxCharge,
-  );
-  const fyOne = profitSlices[0];
-  const fyTwo = profitSlices[1];
-  const taxOne = taxSlices[0]?.pence ?? 0;
-  const taxTwo = taxSlices[1]?.pence ?? 0;
+  const fyOne = schedule.slices[0];
+  const fyTwo = schedule.slices[1];
 
   const fyXml = [
     fyOne
       ? financialYearXml(
           "FinancialYearOne",
           fyOne.fy,
-          fyOne.pence,
-          taxOne,
-          rateLabel,
+          fyOne.profitPounds,
+          fyOne.taxPence,
+          fyOne.rateLabel,
         )
       : "",
     fyTwo
       ? financialYearXml(
           "FinancialYearTwo",
           fyTwo.fy,
-          fyTwo.pence,
-          taxTwo,
-          rateLabel,
+          fyTwo.profitPounds,
+          fyTwo.taxPence,
+          fyTwo.rateLabel,
         )
       : "",
   ].join("");
+
+  // Gross CT (box 430) then optional marginal relief (box 435) → net (box 440).
+  const marginalXml =
+    schedule.marginalReliefPence > 0
+      ? `<${ctTag("MarginalRateRelief")}>${moneyFromPence(schedule.marginalReliefPence)}</${ctTag("MarginalRateRelief")}>`
+      : "";
+
+  // Box 329 — required when using small profits rate or claiming marginal relief.
+  const box329Xml = schedule.claimSmallProfitsOrMarginalRelief
+    ? `<${ctTag("Indicator")}>
+            <${ctTag("SmallProfitsRateOrMarginalRelief")}>yes</${ctTag("SmallProfitsRateOrMarginalRelief")}>
+          </${ctTag("Indicator")}>`
+    : "";
 
   const t = ctTag;
   const bodyInner = `<${t("IRenvelope")}>
@@ -231,24 +167,26 @@ export function buildCt600BodyInner(opts: {
           </${t("Computations")}>
         </${t("ReturnInfoSummary")}>
         <${t("Turnover")}>
-          <${t("Total")}>${poundsFromPence(turnoverPence)}</${t("Total")}>
+          <${t("Total")}>${poundsWhole(turnoverPounds)}</${t("Total")}>
         </${t("Turnover")}>
         <${t("CompanyTaxCalculation")}>
           <${t("Income")}>
             <${t("Trading")}>
-              <${t("Profits")}>${poundsFromPence(tradingPence)}</${t("Profits")}>
-              <${t("NetProfits")}>${poundsFromPence(tradingPence)}</${t("NetProfits")}>
+              <${t("Profits")}>${poundsWhole(tradingPounds)}</${t("Profits")}>
+              <${t("NetProfits")}>${poundsWhole(tradingPounds)}</${t("NetProfits")}>
             </${t("Trading")}>
           </${t("Income")}>
-          <${t("ProfitsBeforeOtherDeductions")}>${poundsFromPence(taxablePence)}</${t("ProfitsBeforeOtherDeductions")}>
+          <${t("ProfitsBeforeOtherDeductions")}>${poundsWhole(chargeablePounds)}</${t("ProfitsBeforeOtherDeductions")}>
           <${t("ChargesAndReliefs")}>
-            <${t("ProfitsBeforeDonationsAndGroupRelief")}>${poundsFromPence(taxablePence)}</${t("ProfitsBeforeDonationsAndGroupRelief")}>
+            <${t("ProfitsBeforeDonationsAndGroupRelief")}>${poundsWhole(chargeablePounds)}</${t("ProfitsBeforeDonationsAndGroupRelief")}>
           </${t("ChargesAndReliefs")}>
-          <${t("ChargeableProfits")}>${poundsFromPence(taxablePence)}</${t("ChargeableProfits")}>
+          <${t("ChargeableProfits")}>${poundsWhole(chargeablePounds)}</${t("ChargeableProfits")}>
+          ${box329Xml}
           <${t("CorporationTaxChargeable")}>
             ${fyXml}
           </${t("CorporationTaxChargeable")}>
-          <${t("CorporationTax")}>${moneyFromPence(taxCharge)}</${t("CorporationTax")}>
+          <${t("CorporationTax")}>${moneyFromPence(schedule.grossTaxPence)}</${t("CorporationTax")}>
+          ${marginalXml}
           <${t("NetCorporationTaxChargeable")}>${moneyFromPence(taxCharge)}</${t("NetCorporationTaxChargeable")}>
         </${t("CompanyTaxCalculation")}>
         <${t("CalculationOfTaxOutstandingOrOverpaid")}>
@@ -258,7 +196,7 @@ export function buildCt600BodyInner(opts: {
           <${t("TaxPayableIncludingRestitutionTax")}>${moneyFromPence(taxCharge)}</${t("TaxPayableIncludingRestitutionTax")}>
         </${t("CalculationOfTaxOutstandingOrOverpaid")}>
         <${t("AllowancesAndCharges")}>
-          <${t("AIACapitalAllowancesInc")}>${poundsFromPence(0)}</${t("AIACapitalAllowancesInc")}>
+          <${t("AIACapitalAllowancesInc")}>${poundsWhole(0)}</${t("AIACapitalAllowancesInc")}>
         </${t("AllowancesAndCharges")}>
         <${t("OverpaymentsAndRepayments")}/>
         <${t("Declaration")}>
@@ -272,7 +210,7 @@ export function buildCt600BodyInner(opts: {
 
   return {
     bodyInner,
-    taxableProfitPence: taxablePence,
+    taxableProfitPence: chargeablePounds * 100,
     taxChargePence: taxCharge,
     attachments,
   };

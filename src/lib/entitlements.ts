@@ -5,6 +5,7 @@
 
 import {
   CUSTOM_PLAN_MODULES,
+  basePlanKey,
   parseCustomPlanSelection,
 } from "@/lib/pricing";
 
@@ -61,7 +62,7 @@ export const PLAN_ENTITLEMENTS: PlanEntitlement[] = [
     planKey: "practice:Custom",
     label: "Custom",
     modules: ["clients", "books", "documents", "companies_house", "practice_desk"],
-    maxClients: 500,
+    maxClients: 10_000,
   },
   {
     planKey: "vat:Single VRN",
@@ -141,7 +142,8 @@ export function entitlementsForPlans(planKeys: string[]): {
   let maxClients: number | null = 0;
   let unlimited = false;
 
-  for (const key of planKeys) {
+  for (const rawKey of planKeys) {
+    const key = basePlanKey(rawKey);
     if (isCompaniesHousePlan(key)) {
       modules.add("companies_house");
       modules.add("clients");
@@ -156,22 +158,31 @@ export function entitlementsForPlans(planKeys: string[]): {
       modules.add("practice_desk");
       const selection = parseCustomPlanSelection(key);
       let clientCap = 0;
+      let customUnlimited = false;
       for (const mod of CUSTOM_PLAN_MODULES) {
         const hit = selection.modules.find((m) => m.id === mod.id);
         if (hit) {
           modules.add(mod.entitlement);
-          clientCap = Math.max(clientCap, hit.clients);
+          if (hit.clients == null) {
+            customUnlimited = true;
+          } else {
+            clientCap = Math.max(clientCap, hit.clients);
+          }
         }
       }
-      const maxForPlan = Math.max(clientCap, 15);
+      const maxForPlan = customUnlimited
+        ? null
+        : Math.max(clientCap, 15);
       plans.push({
-        planKey: key,
+        planKey: rawKey,
         label: "Custom",
         modules: [...modules] as ServiceModule[],
         maxClients: maxForPlan,
       });
-      if (typeof maxClients === "number") {
-        maxClients = Math.max(maxClients, maxForPlan);
+      if (customUnlimited) {
+        unlimited = true;
+      } else if (typeof maxClients === "number") {
+        maxClients = Math.max(maxClients, maxForPlan ?? 0);
       }
       continue;
     }

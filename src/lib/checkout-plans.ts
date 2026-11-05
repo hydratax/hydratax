@@ -8,6 +8,10 @@ import {
   customPlanAmountPounds,
   customPlanKey,
   parseCustomPlanSelection,
+  basePlanKey,
+  isYearlyPlanKey,
+  withYearlyPlanKey,
+  yearlyAmountPoundsFromMonthly,
   type CustomPlanSelection,
   type DeskPlanTier,
 } from "@/lib/pricing";
@@ -22,9 +26,19 @@ export type CheckoutPlan = {
   sectionId: string;
   name: string;
   amountPence: number;
-  interval: "month" | "one_time";
+  interval: "month" | "year" | "one_time";
   description: string;
+  /** Monthly list price before yearly discount (for UI). */
+  monthlyListPounds?: number;
 };
+
+function practiceDeskYearlyEligible(baseKey: string): boolean {
+  return (
+    baseKey === "practice:Solo" ||
+    baseKey === "practice:Practice" ||
+    baseKey.startsWith("practice:Custom")
+  );
+}
 
 export function listCheckoutPlans(): CheckoutPlan[] {
   const plans: CheckoutPlan[] = [];
@@ -34,14 +48,28 @@ export function listCheckoutPlans(): CheckoutPlan[] {
     for (const plan of section.plans) {
       if ("customBuilder" in plan && plan.customBuilder) continue;
       const oneTime = plan.period.includes("filing");
+      const key = `${section.id}:${plan.name}`;
       plans.push({
-        key: `${section.id}:${plan.name}`,
+        key,
         sectionId: section.id,
         name: `${section.title} — ${plan.name}`,
         amountPence: plan.price * 100,
         interval: oneTime ? "one_time" : "month",
         description: plan.blurb,
+        monthlyListPounds: oneTime ? undefined : plan.price,
       });
+      if (!oneTime && practiceDeskYearlyEligible(key)) {
+        const yearly = yearlyAmountPoundsFromMonthly(plan.price);
+        plans.push({
+          key: withYearlyPlanKey(key),
+          sectionId: section.id,
+          name: `${section.title} — ${plan.name} (yearly)`,
+          amountPence: yearly * 100,
+          interval: "year",
+          description: `${plan.blurb} Billed yearly — 15% off (almost 2 months free).`,
+          monthlyListPounds: plan.price,
+        });
+      }
     }
   }
 
@@ -92,24 +120,56 @@ export function getCheckoutPlan(key: string): CheckoutPlan | undefined {
     };
   }
 
-  if (key.startsWith("practice:Custom")) {
-    const selection = parseCustomPlanSelection(key);
+  const yearly = isYearlyPlanKey(key);
+  const baseKey = basePlanKey(key);
+
+  if (baseKey.startsWith("practice:Custom")) {
+    const selection = parseCustomPlanSelection(baseKey);
     if (selection.modules.length === 0) return undefined;
 
-    const amount = customPlanAmountPounds(selection);
+    const monthly = customPlanAmountPounds(selection);
+    const amount = yearly ? yearlyAmountPoundsFromMonthly(monthly) : monthly;
     const labels = selection.modules
-      .map((m) => `${m.id}×${m.clients}`)
+      .map((m) =>
+        m.clients == null ? `${m.id} (unlimited)` : `${m.id}×${m.clients}`,
+      )
       .join(", ");
+    const planKey = yearly
+      ? withYearlyPlanKey(customPlanKey(selection))
+      : customPlanKey(selection);
 
     return {
-      key: customPlanKey(selection),
+      key: planKey,
       sectionId: "practice",
-      name: `Practice desk — Custom (${labels})`,
+      name: `Practice desk — Custom (${labels})${yearly ? " · yearly" : ""}`,
       amountPence: amount * 100,
-      interval: "month",
-      description:
-        "Custom HMRC modules by client count with volume discounts. Companies House filings included. No desk fee.",
+      interval: yearly ? "year" : "month",
+      description: yearly
+        ? "Custom unlimited HMRC modules. Billed yearly — 15% off (almost 2 months free). Companies House included."
+        : "Custom unlimited HMRC modules. Companies House filings included. No desk fee.",
+      monthlyListPounds: monthly,
     };
+  }
+
+  // Yearly Solo / Practice if not already listed (safety)
+  if (yearly && practiceDeskYearlyEligible(baseKey)) {
+    const monthlyPlan = listCheckoutPlans().find(
+      (p) => p.key === baseKey && p.interval === "month",
+    );
+    if (monthlyPlan?.monthlyListPounds != null) {
+      const yearlyAmt = yearlyAmountPoundsFromMonthly(
+        monthlyPlan.monthlyListPounds,
+      );
+      return {
+        key,
+        sectionId: monthlyPlan.sectionId,
+        name: `${monthlyPlan.name} (yearly)`,
+        amountPence: yearlyAmt * 100,
+        interval: "year",
+        description: `${monthlyPlan.description} Billed yearly — 15% off (almost 2 months free).`,
+        monthlyListPounds: monthlyPlan.monthlyListPounds,
+      };
+    }
   }
 
   return undefined;

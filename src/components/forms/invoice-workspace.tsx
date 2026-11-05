@@ -631,19 +631,15 @@ export function InvoiceSummaryCards({
   const dueSoon = open.filter((i) => !isOverdue(i));
 
   return (
-    <div
-      className={`panel p-5 ${
+    <Link
+      href={`/clients/${clientId}/invoices`}
+      className={`panel panel-interactive block p-5 ${
         overdue.length ? "border-danger/35 ring-1 ring-danger/15" : ""
       }`}
     >
       <div className="flex items-center justify-between gap-3">
         <h2 className="display text-2xl">{title}</h2>
-        <Link
-          href={`/clients/${clientId}/invoices`}
-          className="text-sm font-semibold text-sea"
-        >
-          Open →
-        </Link>
+        <span className="open-chip">Open</span>
       </div>
       {overdue.length > 0 && (
         <p className="mt-2 text-sm text-danger">
@@ -676,6 +672,6 @@ export function InvoiceSummaryCards({
           <li className="py-3 text-ink-soft">No invoices yet.</li>
         )}
       </ul>
-    </div>
+    </Link>
   );
 }

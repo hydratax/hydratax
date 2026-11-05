@@ -20,6 +20,7 @@ import {
   type Ct600TbFigures,
 } from "@/components/forms/trial-balance-upload";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { EmailToClientButton } from "@/components/forms/email-to-client-button";
 import { FilingConfirmation } from "@/components/filing-confirmation";
 import {
   GatewayCredentialsFields,
@@ -31,6 +32,10 @@ import {
   comparativesHaveFigures,
   type PriorYearComparatives,
 } from "@/lib/accounting-periods";
+import {
+  computeTaxChargePence,
+  ctRateLabelForProfitPence,
+} from "@/server/hmrc/ct600/tax-charge";
 
 export type YearEndFilingMode = "ct600" | "accounts" | "both";
 
@@ -83,6 +88,7 @@ export type LastFiledAccounts = {
 type Props = {
   /** Practice client — required for CT600 prepare/submit */
   clientId?: string | null;
+  contactEmail?: string | null;
   initialMode: YearEndFilingMode;
   company: CompanySummary;
   defaultPeriodEnd?: string | null;
@@ -359,7 +365,14 @@ function derivePl(year: YearPl) {
   const totalExpenses =
     costOfMaterials + staffCosts + depreciation + otherCharges;
   const profitBeforeTax = totalIncome - totalExpenses;
-  const corporationTax = num(year.corporationTax);
+  const entered = String(year.corporationTax ?? "").trim();
+  const autoPence =
+    profitBeforeTax > 0
+      ? computeTaxChargePence(Math.round(profitBeforeTax * 100))
+      : 0;
+  const corporationTaxAuto = autoPence / 100;
+  const corporationTaxIsAuto = !entered && corporationTaxAuto > 0;
+  const corporationTax = entered ? num(year.corporationTax) : corporationTaxAuto;
   const profitForYear = profitBeforeTax - corporationTax;
   return {
     turnover,
@@ -372,15 +385,24 @@ function derivePl(year: YearPl) {
     totalExpenses,
     profitBeforeTax,
     corporationTax,
+    corporationTaxIsAuto,
+    corporationTaxRateLabel: ctRateLabelForProfitPence(
+      Math.round(Math.max(0, profitBeforeTax) * 100),
+    ),
     profitForYear,
   };
 }
 
-function deriveBs(year: YearBs) {
+function deriveBs(year: YearBs, corporationTaxCharge = 0) {
   const fixedAssets = num(year.fixedAssets);
   const totalCurrentAssets = num(year.totalCurrentAssets);
   const creditorsWithin = num(year.creditorsWithinOneYear);
-  const ctPayable = num(year.corporationTaxPayable);
+  const ctPayableEntered = String(year.corporationTaxPayable ?? "").trim();
+  const ctPayable = ctPayableEntered
+    ? num(year.corporationTaxPayable)
+    : corporationTaxCharge > 0
+      ? corporationTaxCharge
+      : 0;
   const totalCreditorsWithin = creditorsWithin + ctPayable;
   const netCurrentAssets = totalCurrentAssets - totalCreditorsWithin;
   const totalAssetsLessCurrent = fixedAssets + netCurrentAssets;
@@ -407,6 +429,7 @@ function deriveBs(year: YearBs) {
 
 export function YearEndFilingForm({
   clientId,
+  contactEmail = null,
   initialMode,
   company,
   defaultPeriodEnd,
@@ -729,8 +752,14 @@ export function YearEndFilingForm({
 
   const plCur = useMemo(() => derivePl(plCurrent), [plCurrent]);
   const plPrev = useMemo(() => derivePl(plPrevious), [plPrevious]);
-  const bsCur = useMemo(() => deriveBs(bsCurrent), [bsCurrent]);
-  const bsPrev = useMemo(() => deriveBs(bsPrevious), [bsPrevious]);
+  const bsCur = useMemo(
+    () => deriveBs(bsCurrent, plCur.corporationTax),
+    [bsCurrent, plCur.corporationTax],
+  );
+  const bsPrev = useMemo(
+    () => deriveBs(bsPrevious, plPrev.corporationTax),
+    [bsPrevious, plPrev.corporationTax],
+  );
 
   const tradingProfitAccounts = plCur.profitBeforeTax;
   const adjustedTrading = Math.max(
@@ -1335,8 +1364,18 @@ export function YearEndFilingForm({
                 />
                 <InputRow
                   label="Corporation tax"
-                  current={plCurrent.corporationTax}
-                  previous={plPrevious.corporationTax}
+                  current={
+                    plCurrent.corporationTax ||
+                    (plCur.corporationTaxIsAuto
+                      ? fmtPounds(plCur.corporationTax)
+                      : "")
+                  }
+                  previous={
+                    plPrevious.corporationTax ||
+                    (plPrev.corporationTaxIsAuto
+                      ? fmtPounds(plPrev.corporationTax)
+                      : "")
+                  }
                   onCurrent={(v) =>
                     setPlCurrent((p) => ({ ...p, corporationTax: v }))
                   }
@@ -1345,6 +1384,25 @@ export function YearEndFilingForm({
                   }
                   brackets
                 />
+                {plCur.corporationTaxIsAuto ? (
+                  <tr className="border-t border-line/60">
+                    <td
+                      colSpan={3}
+                      className="px-3 py-2 text-xs text-ink-soft"
+                    >
+                      Auto from HMRC small profits / main rate rules (
+                      {plCur.corporationTaxRateLabel}% band on profit before
+                      tax). Clear or edit the box to override. See{" "}
+                      <Link
+                        href="/settings/hmrc-rules"
+                        className="font-semibold text-sea"
+                      >
+                        HMRC tax rules
+                      </Link>
+                      .
+                    </td>
+                  </tr>
+                ) : null}
                 <ComputedRow
                   label="Profit for the year"
                   current={fmtDisplay(plCur.profitForYear, false, blankTotals)}
@@ -1470,8 +1528,18 @@ export function YearEndFilingForm({
               />
               <InputRow
                 label="Corporation Tax Payable"
-                current={bsCurrent.corporationTaxPayable}
-                previous={bsPrevious.corporationTaxPayable}
+                current={
+                  bsCurrent.corporationTaxPayable ||
+                  (plCur.corporationTax > 0
+                    ? fmtPounds(plCur.corporationTax)
+                    : "")
+                }
+                previous={
+                  bsPrevious.corporationTaxPayable ||
+                  (plPrev.corporationTax > 0
+                    ? fmtPounds(plPrev.corporationTax)
+                    : "")
+                }
                 onCurrent={(v) =>
                   setBsCurrent((p) => ({ ...p, corporationTaxPayable: v }))
                 }
@@ -1880,6 +1948,66 @@ export function YearEndFilingForm({
                   })
               : undefined
           }
+          emailCt600={
+            clientId ? (
+              <EmailToClientButton
+                clientId={clientId}
+                defaultEmail={contactEmail}
+                compact
+                label="Email to client"
+                subject={`CT600 — ${company.name}`}
+                message={`Please find attached the CT600 for ${company.name}.\n\nKind regards`}
+                prepareArtifact={async () => {
+                  const id = await ensureCtDraft();
+                  return {
+                    type: "ct_pack" as const,
+                    returnId: id,
+                    kind: "ct600" as const,
+                  };
+                }}
+              />
+            ) : null
+          }
+          emailComputation={
+            clientId ? (
+              <EmailToClientButton
+                clientId={clientId}
+                defaultEmail={contactEmail}
+                compact
+                label="Email to client"
+                subject={`CT computation — ${company.name}`}
+                message={`Please find attached the corporation tax computation for ${company.name}.\n\nKind regards`}
+                prepareArtifact={async () => {
+                  const id = await ensureCtDraft();
+                  return {
+                    type: "ct_pack" as const,
+                    returnId: id,
+                    kind: "computation" as const,
+                  };
+                }}
+              />
+            ) : null
+          }
+          emailAccounts={
+            clientId ? (
+              <EmailToClientButton
+                clientId={clientId}
+                defaultEmail={contactEmail}
+                compact
+                label="Email to client"
+                subject={`Year end accounts — ${company.name}`}
+                message={`Please find attached the year end accounts for ${company.name}.\n\nKind regards`}
+                prepareArtifact={async () => {
+                  const id = await ensureCtDraft();
+                  return {
+                    type: "ct_pack" as const,
+                    returnId: id,
+                    kind: "accounts" as const,
+                  };
+                }}
+              />
+            ) : null
+          }
           onBack={() => setPhase(0)}
           onNext={() => {
             saveProgress({ phase: 2 });
@@ -2054,6 +2182,51 @@ export function YearEndFilingForm({
                       </span>
                     </button>
                   </div>
+                  {clientId ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {needsAccounts ? (
+                        <EmailToClientButton
+                          clientId={clientId}
+                          defaultEmail={contactEmail}
+                          compact
+                          label="Email accounts"
+                          subject={`Year end accounts — ${company.name}`}
+                          message={`Please find attached the year end accounts for ${company.name}.\n\nKind regards`}
+                          prepareArtifact={async () => ({
+                            type: "ct_pack" as const,
+                            returnId: await ensureCtDraft(),
+                            kind: "accounts" as const,
+                          })}
+                        />
+                      ) : null}
+                      <EmailToClientButton
+                        clientId={clientId}
+                        defaultEmail={contactEmail}
+                        compact
+                        label="Email CT600"
+                        subject={`CT600 — ${company.name}`}
+                        message={`Please find attached the CT600 for ${company.name}.\n\nKind regards`}
+                        prepareArtifact={async () => ({
+                          type: "ct_pack" as const,
+                          returnId: await ensureCtDraft(),
+                          kind: "ct600" as const,
+                        })}
+                      />
+                      <EmailToClientButton
+                        clientId={clientId}
+                        defaultEmail={contactEmail}
+                        compact
+                        label="Email computation"
+                        subject={`CT computation — ${company.name}`}
+                        message={`Please find attached the corporation tax computation for ${company.name}.\n\nKind regards`}
+                        prepareArtifact={async () => ({
+                          type: "ct_pack" as const,
+                          returnId: await ensureCtDraft(),
+                          kind: "computation" as const,
+                        })}
+                      />
+                    </div>
+                  ) : null}
                   {clientId ? (
                     <GatewayCredentialsFields
                       clientId={clientId}
@@ -2366,6 +2539,7 @@ function PdfDownloadCard({
   pending,
   onClick,
   variant = "document",
+  emailSlot,
 }: {
   title: string;
   description: string;
@@ -2373,71 +2547,75 @@ function PdfDownloadCard({
   pending: boolean;
   onClick: () => void;
   variant?: "document" | "form";
+  emailSlot?: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      disabled={pending}
-      onClick={onClick}
-      className="group flex w-full items-start gap-3 rounded-2xl border border-line bg-white p-4 text-left transition hover:border-sea/40 hover:bg-sea/[0.03] disabled:opacity-50"
-    >
-      <span
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sea/10 text-sea"
-        aria-hidden
+    <div className="flex flex-col gap-2 rounded-2xl border border-line bg-white p-4">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={onClick}
+        className="group flex w-full items-start gap-3 text-left transition hover:opacity-90 disabled:opacity-50"
       >
-        {variant === "form" ? (
-          <svg
-            width="22"
-            height="22"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          >
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <path d="M14 2v6h6" />
-            <path d="M9 15h6" />
-          </svg>
-        ) : (
-          <svg
-            width="22"
-            height="22"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          >
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <path d="M14 2v6h6" />
-            <path d="M8 13h8M8 17h5" />
-          </svg>
-        )}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block font-semibold text-ink">{title}</span>
-        <span className="mt-0.5 block text-sm text-ink-soft">
-          {pending ? "Preparing your PDF…" : description}
-        </span>
-        {!pending && (
-          <span className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-sea group-hover:underline">
+        <span
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sea/10 text-sea"
+          aria-hidden
+        >
+          {variant === "form" ? (
             <svg
-              width="14"
-              height="14"
+              width="22"
+              height="22"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden
+              strokeWidth="1.8"
             >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <path d="M14 2v6h6" />
+              <path d="M9 15h6" />
             </svg>
-            {actionLabel}
+          ) : (
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+            >
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <path d="M14 2v6h6" />
+              <path d="M8 13h8M8 17h5" />
+            </svg>
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-semibold text-ink">{title}</span>
+          <span className="mt-0.5 block text-sm text-ink-soft">
+            {pending ? "Preparing your PDF…" : description}
           </span>
-        )}
-      </span>
-    </button>
+          {!pending && (
+            <span className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-sea group-hover:underline">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              {actionLabel}
+            </span>
+          )}
+        </span>
+      </button>
+      {emailSlot ? <div className="pl-14">{emailSlot}</div> : null}
+    </div>
   );
 }
 
@@ -2471,6 +2649,9 @@ function ReviewPhase({
   onDownloadCt600,
   onDownloadComputation,
   onDownloadAccounts,
+  emailCt600,
+  emailComputation,
+  emailAccounts,
   onBack,
   onNext,
 }: {
@@ -2503,6 +2684,9 @@ function ReviewPhase({
   onDownloadCt600?: () => void;
   onDownloadComputation?: () => void;
   onDownloadAccounts?: () => void;
+  emailCt600?: ReactNode;
+  emailComputation?: ReactNode;
+  emailAccounts?: ReactNode;
   onBack: () => void;
   onNext: () => void;
 }) {
@@ -2697,6 +2881,7 @@ function ReviewPhase({
                 pending={downloadPending}
                 onClick={onDownloadCt600}
                 variant="form"
+                emailSlot={emailCt600}
               />
             )}
             {onDownloadComputation && (
@@ -2707,6 +2892,7 @@ function ReviewPhase({
                 pending={downloadPending}
                 onClick={onDownloadComputation}
                 variant="document"
+                emailSlot={emailComputation}
               />
             )}
             {onDownloadAccounts && (
@@ -2717,6 +2903,7 @@ function ReviewPhase({
                 pending={downloadPending}
                 onClick={onDownloadAccounts}
                 variant="document"
+                emailSlot={emailAccounts}
               />
             )}
           </div>
@@ -3130,16 +3317,16 @@ function TwoYearTable({
       >
         <colgroup>
           <col />
-          <col className="w-[9.5rem]" />
-          <col className="w-[9.5rem]" />
+          <col className="w-[10.5rem]" />
+          <col className="w-[10.5rem]" />
         </colgroup>
         <thead>
           <tr className="border-b border-line text-left text-ink-soft">
             <th className="py-2 pr-3 font-semibold">Category</th>
-            <th className="w-[9.5rem] py-2 px-1 text-right font-semibold">
+            <th className="w-[10.5rem] py-2 pl-2 pr-0 text-right font-semibold">
               {currentLabel}
             </th>
-            <th className="w-[9.5rem] py-2 px-1 text-right font-semibold">
+            <th className="w-[10.5rem] py-2 pl-2 pr-0 text-right font-semibold">
               {previousLabel}
             </th>
           </tr>
@@ -3168,10 +3355,10 @@ function InputRow({
   return (
     <tr className="border-b border-line/60">
       <td className="py-2 pr-3 text-ink">{label}</td>
-      <td className="w-[9.5rem] px-1 py-1.5">
+      <td className="w-[10.5rem] py-1.5 pl-2 pr-0 text-right">
         <MoneyInput value={current} onChange={onCurrent} brackets={brackets} />
       </td>
-      <td className="w-[9.5rem] px-1 py-1.5">
+      <td className="w-[10.5rem] py-1.5 pl-2 pr-0 text-right">
         <MoneyInput
           value={previous}
           onChange={onPrevious}
@@ -3200,10 +3387,10 @@ function ComputedRow({
       >
         {label}
       </td>
-      <td className="w-[9.5rem] px-1 py-2">
+      <td className="w-[10.5rem] py-2 pl-2 pr-0 text-right">
         <AmountText value={current} emphasis={emphasis} />
       </td>
-      <td className="w-[9.5rem] px-1 py-2">
+      <td className="w-[10.5rem] py-2 pl-2 pr-0 text-right">
         <AmountText value={previous} emphasis={emphasis} />
       </td>
     </tr>
@@ -3219,7 +3406,7 @@ function AmountText({
 }) {
   return (
     <div
-      className={`mono ml-auto w-full max-w-[8.75rem] px-2.5 text-right tabular-nums tracking-tight ${
+      className={`mono w-full px-2.5 text-right tabular-nums tracking-tight ${
         emphasis ? "font-semibold text-ink" : "text-ink"
       }`}
     >
@@ -3238,37 +3425,35 @@ function MoneyInput({
   brackets?: boolean;
 }) {
   return (
-    <div className="ml-auto flex w-full max-w-[8.75rem] justify-end">
-      <div
-        className={`inline-flex items-center rounded-lg border border-line bg-white transition focus-within:border-sea focus-within:ring-2 focus-within:ring-sea/20 ${
-          brackets ? "pl-1.5 pr-1" : "px-2.5"
-        }`}
-      >
-        {brackets ? (
-          <span
-            className="select-none font-mono text-sm leading-none text-ink-soft"
-            aria-hidden
-          >
-            (
-          </span>
-        ) : null}
-        <input
-          className="w-[6.25rem] border-0 bg-transparent py-2 text-right font-mono text-sm tabular-nums tracking-tight text-ink outline-none placeholder:text-ink-soft/40"
-          inputMode="decimal"
-          value={value}
-          placeholder=""
-          onChange={(e) => onChange(e.target.value.replace(/[^\d.-]/g, ""))}
-          aria-label={brackets ? "Amount (shown as a deduction)" : undefined}
-        />
-        {brackets ? (
-          <span
-            className="select-none font-mono text-sm leading-none text-ink-soft"
-            aria-hidden
-          >
-            )
-          </span>
-        ) : null}
-      </div>
+    <div
+      className={`ml-auto flex w-full items-center rounded-lg border border-line bg-white transition focus-within:border-sea focus-within:ring-2 focus-within:ring-sea/20 ${
+        brackets ? "pl-1.5 pr-1.5" : "px-2.5"
+      }`}
+    >
+      {brackets ? (
+        <span
+          className="shrink-0 select-none font-mono text-sm leading-none text-ink-soft"
+          aria-hidden
+        >
+          (
+        </span>
+      ) : null}
+      <input
+        className="min-w-0 flex-1 border-0 bg-transparent py-2 text-right font-mono text-sm tabular-nums tracking-tight text-ink outline-none placeholder:text-ink-soft/40"
+        inputMode="decimal"
+        value={value}
+        placeholder=""
+        onChange={(e) => onChange(e.target.value.replace(/[^\d.-]/g, ""))}
+        aria-label={brackets ? "Amount (shown as a deduction)" : undefined}
+      />
+      {brackets ? (
+        <span
+          className="shrink-0 select-none font-mono text-sm leading-none text-ink-soft"
+          aria-hidden
+        >
+          )
+        </span>
+      ) : null}
     </div>
   );
 }

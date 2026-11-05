@@ -14,8 +14,11 @@ export default function BulkImportClientsPage() {
         </p>
         <h1 className="display mt-1 text-4xl text-ink">Bulk import</h1>
         <p className="mt-2 text-ink-soft">
-          Excel or CSV, up to 1,000 rows. Limited companies are enriched from
-          Companies House when a company number is present.
+          Excel or CSV, up to 1,000 rows. Download the sample file for every
+          field we can keep (name, company number, auth code, UTR, VAT, NI,
+          PAYE, email, phone, and flags). Match your own spreadsheet to those
+          headers — extra columns such as address are ignored. Imports run in
+          small batches; Companies House details load when you open each client.
         </p>
       </div>
 

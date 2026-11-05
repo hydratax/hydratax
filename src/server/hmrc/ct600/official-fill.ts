@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import type { Ct600Figures, Ct600ReviewCompany } from "@/server/hmrc/ct600/types";
+import { computeCt600TaxSchedule } from "@/server/hmrc/ct600/tax-schedule";
 import ct600Spec from "@/server/hmrc/ct600/templates/spec-ct600-v3.json";
 
 const MM = 72 / 25.4;
@@ -272,58 +273,6 @@ function applyAnnotation(
   }
 }
 
-function parseIsoDate(iso: string): Date {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  if (!m) throw new Error(`Invalid ISO date: ${iso}`);
-  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-}
-
-function daysInclusive(start: Date, end: Date): number {
-  return Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
-}
-
-/** UK CT financial year label (year starting 1 April). */
-function financialYearStart(date: Date): number {
-  const y = date.getUTCFullYear();
-  const month = date.getUTCMonth();
-  const day = date.getUTCDate();
-  if (month < 3 || (month === 3 && day < 1)) return y - 1;
-  return y;
-}
-
-function endOfFinancialYear(fyStart: number): Date {
-  return new Date(Date.UTC(fyStart + 1, 2, 31));
-}
-
-function apportionProfitByFinancialYear(
-  periodStart: string,
-  periodEnd: string,
-  profitPence: number,
-): Array<{ fy: number; profitPence: number }> {
-  if (profitPence <= 0) return [];
-  const start = parseIsoDate(periodStart);
-  const end = parseIsoDate(periodEnd);
-  const totalDays = daysInclusive(start, end);
-  if (totalDays <= 0) return [];
-
-  const slices = new Map<number, number>();
-  let cursor = start;
-  while (cursor <= end) {
-    const fy = financialYearStart(cursor);
-    const sliceEnd = endOfFinancialYear(fy);
-    const periodSliceEnd = sliceEnd < end ? sliceEnd : end;
-    const days = daysInclusive(cursor, periodSliceEnd);
-    const share = Math.round((profitPence * days) / totalDays);
-    slices.set(fy, (slices.get(fy) ?? 0) + share);
-    cursor = new Date(periodSliceEnd);
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-
-  return [...slices.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([fy, pence]) => ({ fy, profitPence: pence }));
-}
-
 function isDormantFigures(figures: Ct600Figures): boolean {
   return (
     Number(figures.turnoverPence) === 0 &&
@@ -333,8 +282,6 @@ function isDormantFigures(figures: Ct600Figures): boolean {
   );
 }
 
-const CT_RATE = 19;
-
 /** Map return figures to CT600 box numbers (ct600-fill coordinate spec). */
 export function buildCt600BoxValues(opts: {
   company: Ct600ReviewCompany;
@@ -342,20 +289,20 @@ export function buildCt600BoxValues(opts: {
   taxableProfitPence: number;
   taxChargePence: number;
 }): Record<number, string | number | boolean> {
-  const { company, figures, taxableProfitPence, taxChargePence } = opts;
+  const { company, figures, taxableProfitPence } = opts;
   const dormant = isDormantFigures(figures);
 
   const turnover = dormant
     ? 0
-    : Math.round(Number(figures.turnoverPence) / 100);
+    : Math.trunc(Number(figures.turnoverPence) / 100);
   const otherIncome = dormant
     ? 0
-    : Math.round(Number(figures.otherIncomePence) / 100);
+    : Math.trunc(Number(figures.otherIncomePence) / 100);
   const tradingProfit = dormant
     ? 0
     : Math.max(
         0,
-        Math.round(
+        Math.trunc(
           (Number(figures.turnoverPence) -
             Number(figures.costOfSalesPence) -
             Number(figures.administrativeExpensesPence)) /
@@ -364,10 +311,19 @@ export function buildCt600BoxValues(opts: {
       );
   const netTrading = tradingProfit;
   const profitsBeforeDeductions = netTrading + otherIncome;
-  const chargeableProfit = dormant
-    ? 0
-    : Math.max(0, Math.round(taxableProfitPence / 100));
-  const taxDue = dormant ? 0 : taxChargePence / 100;
+
+  const schedule = dormant
+    ? null
+    : computeCt600TaxSchedule({
+        periodStart: figures.periodStart,
+        periodEnd: figures.periodEnd,
+        taxableProfitPence,
+      });
+
+  const chargeableProfit = schedule?.chargeableProfitPounds ?? 0;
+  const taxDue = schedule ? schedule.netTaxPence / 100 : 0;
+  const grossTax = schedule ? schedule.grossTaxPence / 100 : 0;
+  const marginalRelief = schedule ? schedule.marginalReliefPence / 100 : 0;
 
   const declarant =
     company.declarantName?.trim() ||
@@ -396,6 +352,8 @@ export function buildCt600BoxValues(opts: {
     312: 0,
     315: chargeableProfit,
     326: 0,
+    430: grossTax,
+    435: marginalRelief,
     440: taxDue,
     475: taxDue,
     528: taxDue,
@@ -405,35 +363,25 @@ export function buildCt600BoxValues(opts: {
     985: company.declarantStatus?.trim() || "Director",
   };
 
-  if (dormant) {
+  if (dormant || schedule?.claimSmallProfitsOrMarginalRelief) {
     values[329] = true;
   }
 
-  const fySlices = apportionProfitByFinancialYear(
-    figures.periodStart,
-    figures.periodEnd,
-    chargeableProfit * 100,
-  );
-  const taxSlices = apportionProfitByFinancialYear(
-    figures.periodStart,
-    figures.periodEnd,
-    dormant ? 0 : taxChargePence,
-  );
-  const fyRows: Array<[number, number, number, number]> = [
-    [330, 335, 340, 345],
-    [350, 355, 360, 365],
-    [370, 375, 380, 385],
-  ];
-  for (let i = 0; i < fySlices.length && i < fyRows.length; i++) {
-    const slice = fySlices[i]!;
-    const taxSlice = taxSlices[i]?.profitPence ?? 0;
-    const [yearBox, profitBox, rateBox, taxBox] = fyRows[i]!;
-    const profit = Math.round(slice.profitPence / 100);
-    const tax = taxSlice / 100;
-    values[yearBox] = String(slice.fy);
-    values[profitBox] = profit;
-    values[rateBox] = profit > 0 ? CT_RATE : 0;
-    values[taxBox] = tax;
+  // CT600 layout: FY1 year=330, bands 335/340/345; FY2 year=380, bands 385/390/395
+  const slices = schedule?.slices ?? [];
+  if (slices[0]) {
+    const s = slices[0];
+    values[330] = String(s.fy);
+    values[335] = s.profitPounds;
+    values[340] = s.ratePercent;
+    values[345] = s.taxPence / 100;
+  }
+  if (slices[1]) {
+    const s = slices[1];
+    values[380] = String(s.fy);
+    values[385] = s.profitPounds;
+    values[390] = s.ratePercent;
+    values[395] = s.taxPence / 100;
   }
 
   return values;

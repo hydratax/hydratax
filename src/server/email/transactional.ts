@@ -1,6 +1,13 @@
 import { PRACTICE_TRIAL_DAYS } from "@/lib/trial";
 import { PRACTICE_PLAN_PRICE_POUNDS } from "@/lib/pricing";
 
+export type EmailAttachment = {
+  filename: string;
+  /** Base64-encoded file contents */
+  content: string;
+  contentType?: string;
+};
+
 export async function sendTransactionalEmail(opts: {
   to: string | string[];
   subject: string;
@@ -9,6 +16,7 @@ export async function sendTransactionalEmail(opts: {
   replyTo?: string;
   from?: string;
   listUnsubscribeUrl?: string;
+  attachments?: EmailAttachment[];
 }): Promise<"resend" | "logged"> {
   const resendKey = process.env.RESEND_API_KEY;
   const from =
@@ -37,6 +45,15 @@ export async function sendTransactionalEmail(opts: {
         html: opts.html,
         ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
         ...(Object.keys(headers).length ? { headers } : {}),
+        ...(opts.attachments?.length
+          ? {
+              attachments: opts.attachments.map((a) => ({
+                filename: a.filename,
+                content: a.content,
+                ...(a.contentType ? { content_type: a.contentType } : {}),
+              })),
+            }
+          : {}),
       }),
     });
     if (!res.ok) {
@@ -51,6 +68,7 @@ export async function sendTransactionalEmail(opts: {
     subject: opts.subject,
     replyTo: opts.replyTo,
     text: opts.text.slice(0, 200),
+    attachments: opts.attachments?.map((a) => a.filename) ?? [],
   });
   return "logged";
 }

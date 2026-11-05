@@ -8,6 +8,7 @@ import { TAX_YEAR_LABEL } from "@/lib/sa100/rates-2025-26";
 import { saveSa100Draft, submitSa100Return } from "@/server/actions/sa100";
 import { gatherFraudMetadata } from "@/components/fraud-metadata";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { EmailToClientButton } from "@/components/forms/email-to-client-button";
 
 const STEPS = [
   "about",
@@ -100,12 +101,14 @@ function YN({
 export function Sa100Wizard({
   clientId,
   clientName,
+  contactEmail = null,
   utr,
   nino,
   initial,
 }: {
   clientId: string;
   clientName: string;
+  contactEmail?: string | null;
   utr?: string | null;
   nino?: string | null;
   initial?: Partial<Sa100Draft> | null;
@@ -553,7 +556,7 @@ export function Sa100Wizard({
         </div>
 
         {returnId && (
-          <div className="mt-4 flex flex-wrap gap-4 text-sm font-semibold">
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm font-semibold">
             <a
               className="text-sea underline-offset-2 hover:underline"
               href={`/api/clients/${clientId}/sa100/${returnId}/sa100.pdf`}
@@ -562,6 +565,19 @@ export function Sa100Wizard({
             >
               Download filled SA100 PDF
             </a>
+            <EmailToClientButton
+              clientId={clientId}
+              defaultEmail={contactEmail}
+              compact
+              label="Email SA100"
+              subject={`SA100 — ${clientName}`}
+              message={`Please find attached your Self Assessment return (SA100).\n\nKind regards`}
+              artifact={{
+                type: "sa_pdf",
+                returnId,
+                doc: "sa100",
+              }}
+            />
             <a
               className="text-sea underline-offset-2 hover:underline"
               href={`/api/clients/${clientId}/sa100/${returnId}/sa302.pdf`}
@@ -570,6 +586,19 @@ export function Sa100Wizard({
             >
               Download SA302 PDF
             </a>
+            <EmailToClientButton
+              clientId={clientId}
+              defaultEmail={contactEmail}
+              compact
+              label="Email SA302"
+              subject={`SA302 tax calculation — ${clientName}`}
+              message={`Please find attached your SA302 tax calculation.\n\nKind regards`}
+              artifact={{
+                type: "sa_pdf",
+                returnId,
+                doc: "sa302",
+              }}
+            />
           </div>
         )}
       </div>

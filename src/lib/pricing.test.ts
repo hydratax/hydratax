@@ -4,9 +4,15 @@ import {
   CUSTOM_VS_PRACTICE_RATIO,
   PRACTICE_PLAN_CLIENT_LIMIT,
   PRACTICE_PLAN_PRICE_POUNDS,
+  basePlanKey,
   customPlanAmountPounds,
-  practiceScaledCeilingPounds,
+  customPlanKey,
+  parseCustomPlanSelection,
+  withYearlyPlanKey,
+  yearlyAmountPoundsFromMonthly,
+  yearlySavingsPoundsFromMonthly,
 } from "@/lib/pricing";
+import { getCheckoutPlan } from "@/lib/checkout-plans";
 
 function allInclusive(clients: number) {
   return customPlanAmountPounds({
@@ -40,22 +46,64 @@ describe("custom volume pricing", () => {
     );
   });
 
-  it("stays under Practice-scaled £790 at 500 clients all-inclusive", () => {
-    const custom = allInclusive(500);
-    const practiceScaled = practiceScaledCeilingPounds(500);
-    expect(practiceScaled).toBe(790);
-    expect(custom).toBeLessThan(practiceScaled);
-    expect(custom).toBeLessThanOrEqual(
-      Math.round(practiceScaled * CUSTOM_VS_PRACTICE_RATIO),
-    );
-  });
-
   it("gets cheaper per client as volume grows", () => {
     const at1 = allInclusive(1) / 1;
     const at50 = allInclusive(50) / 50;
     const at500 = allInclusive(500) / 500;
     expect(at50).toBeLessThan(at1);
     expect(at500).toBeLessThan(at1);
-    expect(at500).toBeLessThan(practiceScaledCeilingPounds(500) / 500);
+  });
+
+  it("encodes client counts in the plan key", () => {
+    expect(
+      customPlanKey({
+        modules: [
+          { id: "vat", clients: 10 },
+          { id: "payroll", clients: 5 },
+        ],
+      }),
+    ).toBe("practice:Custom:payroll:5+vat:10");
+  });
+});
+
+describe("yearly desk billing (15% off)", () => {
+  it("charges about 10.2 months — almost 2 months free", () => {
+    expect(yearlyAmountPoundsFromMonthly(79)).toBe(806);
+    expect(yearlySavingsPoundsFromMonthly(79)).toBe(79 * 12 - 806);
+    expect(yearlyAmountPoundsFromMonthly(29)).toBe(296);
+  });
+
+  it("resolves yearly Solo / Practice / Custom checkout plans", () => {
+    const solo = getCheckoutPlan("practice:Solo:yearly");
+    expect(solo?.interval).toBe("year");
+    expect(solo?.amountPence).toBe(29600);
+
+    const practice = getCheckoutPlan("practice:Practice:yearly");
+    expect(practice?.interval).toBe("year");
+    expect(practice?.amountPence).toBe(80600);
+
+    const customMonthly = customPlanAmountPounds({
+      modules: [{ id: "vat", clients: 10 }],
+    });
+    const custom = getCheckoutPlan("practice:Custom:vat:10:yearly");
+    expect(custom?.interval).toBe("year");
+    expect(custom?.amountPence).toBe(
+      yearlyAmountPoundsFromMonthly(customMonthly) * 100,
+    );
+  });
+
+  it("round-trips yearly suffix helpers", () => {
+    expect(withYearlyPlanKey("practice:Practice")).toBe(
+      "practice:Practice:yearly",
+    );
+    expect(basePlanKey("practice:Practice:yearly")).toBe("practice:Practice");
+    expect(
+      parseCustomPlanSelection("practice:Custom:vat:10+payroll:5:yearly"),
+    ).toEqual({
+      modules: [
+        { id: "vat", clients: 10 },
+        { id: "payroll", clients: 5 },
+      ],
+    });
   });
 });

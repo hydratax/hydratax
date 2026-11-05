@@ -47,7 +47,7 @@ export type BulkEmailCandidate = {
   dueWindow: AccountsDueMonthWindow;
 };
 
-async function insertClientEmailLog(input: {
+export async function insertClientEmailLog(input: {
   practiceId: string;
   clientId: string;
   sentBy: string;
@@ -259,6 +259,15 @@ const sendOneSchema = z.object({
   kind: z.string().default("general"),
   accountsDue: z.string().optional().nullable(),
   documentCount: z.number().int().min(0).default(0),
+  attachments: z
+    .array(
+      z.object({
+        filename: z.string().min(1),
+        content: z.string().min(1),
+        contentType: z.string().optional(),
+      }),
+    )
+    .optional(),
 });
 
 export async function sendClientCommunicationEmail(
@@ -277,6 +286,7 @@ export async function sendClientCommunicationEmail(
     replyTo: sender.replyTo,
     subject: data.subject,
     text: data.message,
+    attachments: data.attachments,
   });
 
   const logId = await insertClientEmailLog({

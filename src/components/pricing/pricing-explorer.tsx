@@ -7,10 +7,15 @@ import {
   COMPANIES_HOUSE_SERVICES,
   hydraTotal,
   CUSTOM_PLAN_MODULES,
+  CUSTOM_PLAN_MAX_CLIENTS,
   customPlanAmountPounds,
   customModuleAmountPounds,
   customModuleEffectiveRatePounds,
   customPlanKey,
+  withYearlyPlanKey,
+  yearlyAmountPoundsFromMonthly,
+  yearlySavingsPoundsFromMonthly,
+  YEARLY_MARKETING_LINE,
   type CustomModuleId,
   type CustomModuleSelection,
 } from "@/lib/pricing";
@@ -33,6 +38,7 @@ export function PricingExplorer({
   stripeReady: boolean;
 }) {
   const [activeId, setActiveId] = useState<string>(PRICING_SECTIONS[0].id);
+  const [billing, setBilling] = useState<"month" | "year">("month");
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -120,6 +126,41 @@ export function PricingExplorer({
                 <p className="mt-3 text-base text-ink-soft md:text-lg">
                   {section.subtitle}
                 </p>
+                {section.id === "practice" ? (
+                  <div className="mt-6 space-y-3">
+                    <div
+                      className="inline-flex rounded-full border border-line bg-paper p-1"
+                      role="group"
+                      aria-label="Billing period"
+                    >
+                      <button
+                        type="button"
+                        className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
+                          billing === "month"
+                            ? "bg-sea text-white"
+                            : "text-ink-soft hover:text-ink"
+                        }`}
+                        onClick={() => setBilling("month")}
+                      >
+                        Monthly
+                      </button>
+                      <button
+                        type="button"
+                        className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
+                          billing === "year"
+                            ? "bg-sea text-white"
+                            : "text-ink-soft hover:text-ink"
+                        }`}
+                        onClick={() => setBilling("year")}
+                      >
+                        Yearly · 15% off
+                      </button>
+                    </div>
+                    <p className="text-sm font-semibold text-sea">
+                      {YEARLY_MARKETING_LINE}
+                    </p>
+                  </div>
+                ) : null}
               </div>
 
               {error ? (
@@ -138,6 +179,7 @@ export function PricingExplorer({
               ) : (
                 <PlanCards
                   section={section}
+                  billing={section.id === "practice" ? billing : "month"}
                   onCheckout={checkout}
                   pendingKey={pendingKey}
                   busy={isPending}
@@ -160,11 +202,13 @@ export function PricingExplorer({
 
 function PlanCards({
   section,
+  billing,
   onCheckout,
   pendingKey,
   busy,
 }: {
   section: Section;
+  billing: "month" | "year";
   onCheckout: (key: string) => void;
   pendingKey: string | null;
   busy: boolean;
@@ -186,6 +230,7 @@ function PlanCards({
             <CustomPlanCard
               key={plan.name}
               plan={plan}
+              billing={billing}
               onCheckout={onCheckout}
               pendingKey={pendingKey}
               busy={busy}
@@ -193,9 +238,16 @@ function PlanCards({
           );
         }
 
-        const checkoutKey = planKey(section.id, plan.name);
+        const monthlyKey = planKey(section.id, plan.name);
+        const checkoutKey =
+          billing === "year" && section.id === "practice"
+            ? withYearlyPlanKey(monthlyKey)
+            : monthlyKey;
         const loading = busy && pendingKey === checkoutKey;
         const isLink = "href" in plan && Boolean(plan.href);
+        const yearly = billing === "year" && section.id === "practice";
+        const yearlyTotal = yearlyAmountPoundsFromMonthly(plan.price);
+        const yearlySave = yearlySavingsPoundsFromMonthly(plan.price);
 
         return (
           <article
@@ -213,10 +265,25 @@ function PlanCards({
             <p className="mt-2 min-h-[2.75rem] text-sm leading-relaxed text-ink-soft">
               {plan.blurb}
             </p>
-            <p className="price-figure mt-6">
-              <span className="price-amount">{formatGBP(plan.price)}</span>
-              <span className="price-period">{plan.period}</span>
-            </p>
+            {yearly ? (
+              <>
+                <p className="price-figure mt-6">
+                  <span className="price-amount">{formatGBP(yearlyTotal)}</span>
+                  <span className="price-period">/year</span>
+                </p>
+                <p className="mt-1 text-xs text-ink-soft">
+                  <span className="line-through">
+                    {formatGBP(plan.price * 12)}
+                  </span>{" "}
+                  · save {formatGBP(yearlySave)} · almost 2 months free
+                </p>
+              </>
+            ) : (
+              <p className="price-figure mt-6">
+                <span className="price-amount">{formatGBP(plan.price)}</span>
+                <span className="price-period">{plan.period}</span>
+              </p>
+            )}
             <ul className="mt-6 min-h-[8.5rem] flex-1 space-y-3 text-sm text-ink-soft">
               {plan.features.map((f) => (
                 <li key={f} className="flex gap-2.5">
@@ -242,7 +309,11 @@ function PlanCards({
                   onClick={() => onCheckout(checkoutKey)}
                   className="btn btn-primary w-full px-3 py-2.5 text-sm leading-snug disabled:opacity-60"
                 >
-                  {loading ? "Redirecting…" : plan.cta}
+                  {loading
+                    ? "Redirecting…"
+                    : yearly
+                      ? `${plan.cta} · yearly`
+                      : plan.cta}
                 </button>
               )}
             </div>
@@ -255,11 +326,13 @@ function PlanCards({
 
 function CustomPlanCard({
   plan,
+  billing,
   onCheckout,
   pendingKey,
   busy,
 }: {
   plan: Plan;
+  billing: "month" | "year";
   onCheckout: (key: string) => void;
   pendingKey: string | null;
   busy: boolean;
@@ -267,10 +340,18 @@ function CustomPlanCard({
   const [modules, setModules] = useState<CustomModuleSelection[]>([]);
 
   const selection = useMemo(() => ({ modules }), [modules]);
-  const total = customPlanAmountPounds(selection);
-  const key = customPlanKey(selection);
+  const monthlyTotal = customPlanAmountPounds(selection);
+  const total =
+    billing === "year"
+      ? yearlyAmountPoundsFromMonthly(monthlyTotal)
+      : monthlyTotal;
+  const key =
+    billing === "year"
+      ? withYearlyPlanKey(customPlanKey(selection))
+      : customPlanKey(selection);
   const loading = busy && pendingKey === key;
   const canCheckout = modules.length > 0;
+  const yearlySave = yearlySavingsPoundsFromMonthly(monthlyTotal);
 
   function isModuleOn(id: CustomModuleId) {
     return modules.some((m) => m.id === id);
@@ -289,7 +370,10 @@ function CustomPlanCard({
   }
 
   function setClients(id: CustomModuleId, clients: number) {
-    const n = Math.max(1, Math.min(500, Math.floor(clients) || 1));
+    const n = Math.max(
+      1,
+      Math.min(CUSTOM_PLAN_MAX_CLIENTS, Math.floor(clients) || 1),
+    );
     setModules((prev) =>
       prev.map((m) => (m.id === id ? { ...m, clients: n } : m)),
     );
@@ -306,15 +390,30 @@ function CustomPlanCard({
         <>
           <p className="price-figure mt-6">
             <span className="price-amount">{formatGBP(total)}</span>
-            <span className="price-period">/month</span>
+            <span className="price-period">
+              {billing === "year" ? "/year" : "/month"}
+            </span>
           </p>
           <p className="mt-1 text-xs text-ink-soft">
-            HMRC by client count · volume discounts · Companies House included
+            {billing === "year" ? (
+              <>
+                <span className="line-through">
+                  {formatGBP(monthlyTotal * 12)}
+                </span>{" "}
+                · save {formatGBP(yearlySave)} · almost 2 months free
+              </>
+            ) : (
+              <>
+                HMRC by client count · volume discounts · Companies House
+                included
+              </>
+            )}
           </p>
         </>
       ) : (
         <p className="mt-6 min-h-[4.25rem] text-sm text-ink-soft">
-          Select a service below to see your monthly price.
+          Select a service below to see your{" "}
+          {billing === "year" ? "yearly" : "monthly"} price.
         </p>
       )}
 
@@ -325,7 +424,9 @@ function CustomPlanCard({
         {CUSTOM_PLAN_MODULES.map((mod) => {
           const on = isModuleOn(mod.id);
           const clients = clientsFor(mod.id);
-          const lineTotal = on ? customModuleAmountPounds(mod.id, clients) : 0;
+          const lineTotal = on
+            ? customModuleAmountPounds(mod.id, clients)
+            : 0;
           const rate = on
             ? customModuleEffectiveRatePounds(mod.id, clients)
             : mod.pricePerClient;
@@ -350,19 +451,24 @@ function CustomPlanCard({
                   </span>
                 </span>
               </label>
-              {on && (
+              {on ? (
                 <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line/60 pt-2 pl-6">
-                  <label className="text-xs text-ink-soft" htmlFor={`clients-${mod.id}`}>
+                  <label
+                    className="text-xs text-ink-soft"
+                    htmlFor={`clients-${mod.id}`}
+                  >
                     Number of clients
                   </label>
                   <input
                     id={`clients-${mod.id}`}
                     type="number"
                     min={1}
-                    max={500}
+                    max={CUSTOM_PLAN_MAX_CLIENTS}
                     value={clients}
-                    onChange={(e) => setClients(mod.id, Number(e.target.value))}
-                    className="w-20 rounded-md border border-line bg-white px-2 py-1 text-sm text-ink"
+                    onChange={(e) =>
+                      setClients(mod.id, Number(e.target.value))
+                    }
+                    className="w-24 rounded-md border border-line bg-white px-2 py-1 text-sm text-ink"
                   />
                   <span className="text-xs text-ink-soft">
                     {new Intl.NumberFormat("en-GB", {
@@ -374,7 +480,7 @@ function CustomPlanCard({
                     /client · {formatGBP(lineTotal)}
                   </span>
                 </div>
-              )}
+              ) : null}
             </div>
           );
         })}
@@ -396,7 +502,9 @@ function CustomPlanCard({
             ? "Redirecting…"
             : !canCheckout
               ? "Select a service"
-              : `Start free trial · ${formatGBP(total)}/mo after`}
+              : billing === "year"
+                ? `Start free trial · ${formatGBP(total)}/yr after`
+                : `Start free trial · ${formatGBP(total)}/mo after`}
         </button>
       </div>
     </article>

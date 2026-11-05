@@ -43,15 +43,33 @@ export default async function VatPage({
       <VatReturnsWorkspace
         clientId={clientId}
         clientName={client.name}
+        contactEmail={client.contactEmail ?? null}
         vrn={client.vrn ?? null}
         connected={connection.connected}
         signedIn
         obligations={obligations}
-        returns={returns.map((r) => ({
-          id: String(r.id),
-          periodKey: String(r.periodKey),
-          status: String(r.status),
-        }))}
+        returns={returns.map((r) => {
+          const boxesRaw =
+            "boxes" in r && r.boxes && typeof r.boxes === "object"
+              ? (r.boxes as Record<string, unknown>)
+              : null;
+          const boxes = boxesRaw
+            ? Object.fromEntries(
+                Object.entries(boxesRaw).map(([k, v]) => [
+                  k,
+                  typeof v === "number"
+                    ? (v / 100).toFixed(2)
+                    : String(v ?? ""),
+                ]),
+              )
+            : null;
+          return {
+            id: String(r.id),
+            periodKey: String(r.periodKey),
+            status: String(r.status),
+            boxes,
+          };
+        })}
       />
     </div>
   );

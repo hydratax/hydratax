@@ -13,6 +13,7 @@ import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { messageFromUnknown } from "@/lib/action-error";
 import { BankCategorisedView } from "@/components/forms/bank-categorised-view";
 import { recategoriseBankTransactions } from "@/server/actions/bank-recategorise";
+import { downloadBankCsv, downloadBankXlsx } from "@/lib/bank-export";
 
 type Tx = {
   id: string;
@@ -23,17 +24,36 @@ type Tx = {
   confidence: string;
 };
 
+type StatementDoc = {
+  id: string;
+  filename: string;
+  blobUrl: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: string;
+};
+
+function canOpenDoc(url: string) {
+  return (
+    url.startsWith("http") ||
+    url.startsWith("/") ||
+    url.startsWith("data:")
+  );
+}
+
 export function BankWorkspace({
   clientId,
   clientSlug,
   transactions,
   draft,
   customCategories,
+  statements,
 }: {
   clientId: string;
   clientSlug: string;
   transactions: Tx[];
   customCategories: Array<{ id: string; label: string }>;
+  statements: StatementDoc[];
   draft: {
     selfAssessment: {
       turnoverPence: number;
@@ -103,9 +123,10 @@ export function BankWorkspace({
         >
           <h3 className="display text-xl text-ink">Upload bank statement</h3>
           <p className="text-sm text-ink-soft">
-            Import CSV or Excel — we auto-sort into fuel, insurance, salaries,
-            subcontractors, finance, and other account heads. Re-uploading
-            replaces the previous statement for this client.
+            Prefer CSV or Excel from the bank app — we categorise into fuel,
+            insurance, salaries, subcontractors, finance, and other heads.
+            A PDF is kept on the client file for review but is not converted
+            into lines. Re-uploading a CSV/Excel replaces the previous lines.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <input
@@ -163,6 +184,91 @@ export function BankWorkspace({
         </div>
       </div>
 
+      <div className="panel p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="display text-xl text-ink">Uploaded statements</h3>
+            <p className="mt-1 text-sm text-ink-soft">
+              Source files saved to the client file. Also listed under{" "}
+              <Link
+                href={`/clients/${clientSlug}/documents`}
+                className="font-semibold text-sea"
+              >
+                Documents
+              </Link>
+              .
+            </p>
+          </div>
+          {hasTransactions ? (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary text-sm"
+                onClick={() =>
+                  downloadBankCsv(transactions, "bank-categorised.csv")
+                }
+              >
+                Download CSV
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary text-sm"
+                onClick={() =>
+                  downloadBankXlsx(transactions, "bank-categorised.xlsx")
+                }
+              >
+                Download Excel
+              </button>
+            </div>
+          ) : null}
+        </div>
+        {statements.length === 0 ? (
+          <p className="mt-4 text-sm text-ink-soft">
+            No statement files stored yet. After upload, the PDF or spreadsheet
+            appears here so you can open or download it.
+          </p>
+        ) : (
+          <ul className="mt-4 divide-y divide-line rounded-lg border border-line">
+            {statements.map((doc) => (
+              <li
+                key={doc.id}
+                className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"
+              >
+                <div>
+                  <p className="font-semibold text-ink">{doc.filename}</p>
+                  <p className="text-xs text-ink-soft">
+                    {(doc.sizeBytes / 1024).toFixed(0)} KB ·{" "}
+                    {new Date(doc.createdAt).toLocaleString("en-GB")}
+                  </p>
+                </div>
+                {canOpenDoc(doc.blobUrl) ? (
+                  <a
+                    href={doc.blobUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn-secondary text-xs"
+                    download={doc.filename}
+                  >
+                    Open / download
+                  </a>
+                ) : (
+                  <span className="badge badge-muted">Stored</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {!hasTransactions && statements.some((d) =>
+          d.contentType.includes("pdf") || d.filename.toLowerCase().endsWith(".pdf"),
+        ) ? (
+          <p className="mt-3 text-sm text-ink-soft">
+            Your PDF is saved above. To get a categorised CSV/Excel download,
+            upload the bank’s CSV or Excel export (Monzo, Starling, Barclays,
+            etc.) — we cannot read transaction lines from a PDF statement yet.
+          </p>
+        ) : null}
+      </div>
+
       {hasTransactions ? (
         <div className="panel overflow-hidden border-sea/30 bg-sea/5 p-5">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -170,7 +276,8 @@ export function BankWorkspace({
               <h3 className="display text-xl text-ink">Ready for accounts</h3>
               <p className="mt-1 text-sm text-ink-soft">
                 {draft.lineCount} categorised lines — review sections below, then
-                build the year-end pack.
+                build the year-end pack. Use Download CSV / Excel above for the
+                converted file.
               </p>
             </div>
             <Link

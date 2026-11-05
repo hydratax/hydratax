@@ -45,6 +45,7 @@ const COLUMNS = [
       { href: "/create-account", label: "Sign up" },
       { href: "/clients", label: "Clients" },
       { href: "/settings/hmrc", label: "HMRC settings" },
+      { href: "/settings/hmrc-rules", label: "HMRC tax rules" },
     ],
   },
   {
