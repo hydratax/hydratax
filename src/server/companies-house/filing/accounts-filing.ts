@@ -72,6 +72,7 @@ function normaliseCompanyNumber(raw: string) {
 
 type YearEndPayload = {
   pl?: Record<string, string>;
+  plPrevious?: Record<string, string>;
   bs?: Record<string, string>;
   bsPrevious?: Record<string, string>;
   periodStart?: string;
@@ -91,6 +92,17 @@ function parseYearEndFiguresField(raw: unknown): YearEndPayload | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Micro face creditors line. Legacy drafts may still store corporationTaxPayable
+ * separately — include it so totals are not understated. Never invent CT from P&L.
+ */
+function creditorsWithinPenceFromBs(bs: Record<string, string>): number {
+  return (
+    poundsToPence(bs.creditorsWithinOneYear) +
+    poundsToPence(bs.corporationTaxPayable)
+  );
 }
 
 /** Map year-end wizard BS fields into micro-entity pence lines. */
@@ -115,9 +127,7 @@ export function balanceSheetFromYearEndPayload(
   return {
     fixedAssetsPence: poundsToPence(bs.fixedAssets),
     currentAssetsPence: poundsToPence(bs.totalCurrentAssets),
-    creditorsWithinPence:
-      poundsToPence(bs.creditorsWithinOneYear) +
-      poundsToPence(bs.corporationTaxPayable),
+    creditorsWithinPence: creditorsWithinPenceFromBs(bs),
     creditorsAfterPence: poundsToPence(bs.creditorsAfterOneYear),
     shareCapitalPence,
     retainedEarningsPence: poundsToPence(bs.retainedEarnings),
@@ -137,9 +147,7 @@ export function priorBalanceSheetFromYearEndPayload(
   return {
     fixedAssetsPence: poundsToPence(bs.fixedAssets),
     currentAssetsPence: poundsToPence(bs.totalCurrentAssets),
-    creditorsWithinPence:
-      poundsToPence(bs.creditorsWithinOneYear) +
-      poundsToPence(bs.corporationTaxPayable),
+    creditorsWithinPence: creditorsWithinPenceFromBs(bs),
     creditorsAfterPence: poundsToPence(bs.creditorsAfterOneYear),
     shareCapitalPence,
     retainedEarningsPence: poundsToPence(bs.retainedEarnings),

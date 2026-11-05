@@ -95,6 +95,28 @@ describe("balanceSheetFromYearEndPayload", () => {
     expect(bs.shareCapitalPence).toBe(100);
   });
 
+  it("does not invent corporation tax from P&L onto the balance sheet", () => {
+    const bs = balanceSheetFromYearEndPayload(
+      {
+        pl: {
+          turnover: "10000",
+          corporationTax: "1900",
+        },
+        bs: {
+          fixedAssets: "0",
+          totalCurrentAssets: "10000",
+          creditorsWithinOneYear: "100",
+          corporationTaxPayable: "",
+          creditorsAfterOneYear: "0",
+          shareCapital: "1",
+          retainedEarnings: "8000",
+        },
+      },
+      "micro",
+    );
+    expect(bs.creditorsWithinPence).toBe(10_000);
+  });
+
   it("defaults dormant balance sheet when no figures", () => {
     const bs = balanceSheetFromYearEndPayload(null, "dormant");
     expect(bs.shareCapitalPence).toBe(100);

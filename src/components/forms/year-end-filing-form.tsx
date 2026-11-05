@@ -32,10 +32,7 @@ import {
   comparativesHaveFigures,
   type PriorYearComparatives,
 } from "@/lib/accounting-periods";
-import {
-  computeTaxChargePence,
-  ctRateLabelForProfitPence,
-} from "@/server/hmrc/ct600/tax-charge";
+import { computeTaxChargePence } from "@/server/hmrc/ct600/tax-charge";
 
 export type YearEndFilingMode = "ct600" | "accounts" | "both";
 
@@ -257,8 +254,9 @@ function figuresToPlBs(f: Ct600TbFigures): { pl: YearPl; bs: YearBs } {
       ...BLANK_BS,
       fixedAssets: penceToInput(Number(f.tangibleAssetsPence)),
       totalCurrentAssets: penceToInput(cash + debtors),
-      creditorsWithinOneYear: penceToInput(Number(f.creditorsPence)),
-      corporationTaxPayable: ct ? penceToInput(ct) : "",
+      // Micro BS face: unpaid CT sits inside creditors within one year — not a separate line.
+      creditorsWithinOneYear: penceToInput(Number(f.creditorsPence) + ct),
+      corporationTaxPayable: "",
       shareCapital: penceToInput(Number(f.calledUpShareCapitalPence)),
       retainedEarnings: penceToInput(Number(f.profitAndLossAccountPence)),
     },
@@ -386,24 +384,31 @@ function derivePl(year: YearPl) {
     profitBeforeTax,
     corporationTax,
     corporationTaxIsAuto,
-    corporationTaxRateLabel: ctRateLabelForProfitPence(
-      Math.round(Math.max(0, profitBeforeTax) * 100),
-    ),
     profitForYear,
   };
 }
 
-function deriveBs(year: YearBs, corporationTaxCharge = 0) {
+/**
+ * FRS 105 micro face: creditors within one year is a single editable figure.
+ * Do not invent a separate Corporation tax payable line on the balance sheet.
+ * Legacy drafts may still carry corporationTaxPayable — fold it into creditors once.
+ */
+function mergeLegacyCorporationTaxIntoCreditors(year: YearBs): YearBs {
+  const legacyCt = String(year.corporationTaxPayable ?? "").trim();
+  if (!legacyCt) return year;
+  const total = num(year.creditorsWithinOneYear) + num(year.corporationTaxPayable);
+  return {
+    ...year,
+    creditorsWithinOneYear: total ? fmtPounds(total) : "",
+    corporationTaxPayable: "",
+  };
+}
+
+function deriveBs(year: YearBs) {
   const fixedAssets = num(year.fixedAssets);
   const totalCurrentAssets = num(year.totalCurrentAssets);
-  const creditorsWithin = num(year.creditorsWithinOneYear);
-  const ctPayableEntered = String(year.corporationTaxPayable ?? "").trim();
-  const ctPayable = ctPayableEntered
-    ? num(year.corporationTaxPayable)
-    : corporationTaxCharge > 0
-      ? corporationTaxCharge
-      : 0;
-  const totalCreditorsWithin = creditorsWithin + ctPayable;
+  const totalCreditorsWithin =
+    num(year.creditorsWithinOneYear) + num(year.corporationTaxPayable);
   const netCurrentAssets = totalCurrentAssets - totalCreditorsWithin;
   const totalAssetsLessCurrent = fixedAssets + netCurrentAssets;
   const creditorsAfter = num(year.creditorsAfterOneYear);
@@ -414,8 +419,6 @@ function deriveBs(year: YearBs, corporationTaxCharge = 0) {
   return {
     fixedAssets,
     totalCurrentAssets,
-    creditorsWithin,
-    ctPayable,
     totalCreditorsWithin,
     netCurrentAssets,
     totalAssetsLessCurrent,
@@ -542,12 +545,18 @@ export function YearEndFilingForm({
   });
   const [bsCurrent, setBsCurrent] = useState<YearBs>(() =>
     restored?.bsCurrent && typeof restored.bsCurrent === "object"
-      ? { ...BLANK_BS, ...(restored.bsCurrent as YearBs) }
+      ? mergeLegacyCorporationTaxIntoCreditors({
+          ...BLANK_BS,
+          ...(restored.bsCurrent as YearBs),
+        })
       : { ...BLANK_BS },
   );
   const [bsPrevious, setBsPrevious] = useState<YearBs>(() => {
     if (restored?.bsPrevious && typeof restored.bsPrevious === "object") {
-      const fromStore = { ...BLANK_BS, ...(restored.bsPrevious as YearBs) };
+      const fromStore = mergeLegacyCorporationTaxIntoCreditors({
+        ...BLANK_BS,
+        ...(restored.bsPrevious as YearBs),
+      });
       if (yearHasAnyFigures(fromStore)) return fromStore;
     }
     if (priorYearComparatives) return comparativesToPlBs(priorYearComparatives).bs;
@@ -753,12 +762,12 @@ export function YearEndFilingForm({
   const plCur = useMemo(() => derivePl(plCurrent), [plCurrent]);
   const plPrev = useMemo(() => derivePl(plPrevious), [plPrevious]);
   const bsCur = useMemo(
-    () => deriveBs(bsCurrent, plCur.corporationTax),
-    [bsCurrent, plCur.corporationTax],
+    () => deriveBs(bsCurrent),
+    [bsCurrent],
   );
   const bsPrev = useMemo(
-    () => deriveBs(bsPrevious, plPrev.corporationTax),
-    [bsPrevious, plPrev.corporationTax],
+    () => deriveBs(bsPrevious),
+    [bsPrevious],
   );
 
   const tradingProfitAccounts = plCur.profitBeforeTax;
@@ -1384,25 +1393,6 @@ export function YearEndFilingForm({
                   }
                   brackets
                 />
-                {plCur.corporationTaxIsAuto ? (
-                  <tr className="border-t border-line/60">
-                    <td
-                      colSpan={3}
-                      className="px-3 py-2 text-xs text-ink-soft"
-                    >
-                      Auto from HMRC small profits / main rate rules (
-                      {plCur.corporationTaxRateLabel}% band on profit before
-                      tax). Clear or edit the box to override. See{" "}
-                      <Link
-                        href="/settings/hmrc-rules"
-                        className="font-semibold text-sea"
-                      >
-                        HMRC tax rules
-                      </Link>
-                      .
-                    </td>
-                  </tr>
-                ) : null}
                 <ComputedRow
                   label="Profit for the year"
                   current={fmtDisplay(plCur.profitForYear, false, blankTotals)}
@@ -1519,48 +1509,20 @@ export function YearEndFilingForm({
                 current={bsCurrent.creditorsWithinOneYear}
                 previous={bsPrevious.creditorsWithinOneYear}
                 onCurrent={(v) =>
-                  setBsCurrent((p) => ({ ...p, creditorsWithinOneYear: v }))
+                  setBsCurrent((p) => ({
+                    ...p,
+                    creditorsWithinOneYear: v,
+                    corporationTaxPayable: "",
+                  }))
                 }
                 onPrevious={(v) =>
-                  setBsPrevious((p) => ({ ...p, creditorsWithinOneYear: v }))
+                  setBsPrevious((p) => ({
+                    ...p,
+                    creditorsWithinOneYear: v,
+                    corporationTaxPayable: "",
+                  }))
                 }
                 brackets
-              />
-              <InputRow
-                label="Corporation Tax Payable"
-                current={
-                  bsCurrent.corporationTaxPayable ||
-                  (plCur.corporationTax > 0
-                    ? fmtPounds(plCur.corporationTax)
-                    : "")
-                }
-                previous={
-                  bsPrevious.corporationTaxPayable ||
-                  (plPrev.corporationTax > 0
-                    ? fmtPounds(plPrev.corporationTax)
-                    : "")
-                }
-                onCurrent={(v) =>
-                  setBsCurrent((p) => ({ ...p, corporationTaxPayable: v }))
-                }
-                onPrevious={(v) =>
-                  setBsPrevious((p) => ({ ...p, corporationTaxPayable: v }))
-                }
-                brackets
-              />
-              <ComputedRow
-                label="Total Creditors: amounts falling due within one year"
-                current={fmtDisplay(
-                  bsCur.totalCreditorsWithin,
-                  true,
-                  blankTotals,
-                )}
-                previous={fmtDisplay(
-                  bsPrev.totalCreditorsWithin,
-                  true,
-                  blankTotals,
-                )}
-                emphasis
               />
               <ComputedRow
                 label="Net Current Assets"
@@ -2396,8 +2358,10 @@ export function YearEndFilingForm({
                           previousPeriodEnd,
                           companyType,
                           pl: plCurrent,
-                          bs: bsCurrent,
-                          bsPrevious,
+                          plPrevious,
+                          bs: mergeLegacyCorporationTaxIntoCreditors(bsCurrent),
+                          bsPrevious:
+                            mergeLegacyCorporationTaxIntoCreditors(bsPrevious),
                           directorName,
                         }),
                       );
@@ -2435,8 +2399,10 @@ export function YearEndFilingForm({
                           previousPeriodEnd,
                           companyType,
                           pl: plCurrent,
-                          bs: bsCurrent,
-                          bsPrevious,
+                          plPrevious,
+                          bs: mergeLegacyCorporationTaxIntoCreditors(bsCurrent),
+                          bsPrevious:
+                            mergeLegacyCorporationTaxIntoCreditors(bsPrevious),
                           directorName,
                         }),
                       );
@@ -3309,7 +3275,7 @@ function TwoYearTable({
   return (
     <div className="overflow-x-auto">
       <table
-        className={`w-full border-collapse text-sm ${
+        className={`w-full table-fixed border-collapse text-sm ${
           showPrevious
             ? "min-w-[36rem]"
             : "min-w-[20rem] [&_td:nth-child(3)]:hidden [&_th:nth-child(3)]:hidden"
@@ -3317,16 +3283,16 @@ function TwoYearTable({
       >
         <colgroup>
           <col />
-          <col className="w-[10.5rem]" />
-          <col className="w-[10.5rem]" />
+          <col className="w-[9.75rem]" />
+          <col className="w-[9.75rem]" />
         </colgroup>
         <thead>
           <tr className="border-b border-line text-left text-ink-soft">
-            <th className="py-2 pr-3 font-semibold">Category</th>
-            <th className="w-[10.5rem] py-2 pl-2 pr-0 text-right font-semibold">
+            <th className="py-2 pr-4 font-semibold">Category</th>
+            <th className="w-[9.75rem] py-2 pl-3 pr-0 text-right font-semibold">
               {currentLabel}
             </th>
-            <th className="w-[10.5rem] py-2 pl-2 pr-0 text-right font-semibold">
+            <th className="w-[9.75rem] py-2 pl-3 pr-0 text-right font-semibold">
               {previousLabel}
             </th>
           </tr>
@@ -3354,11 +3320,11 @@ function InputRow({
 }) {
   return (
     <tr className="border-b border-line/60">
-      <td className="py-2 pr-3 text-ink">{label}</td>
-      <td className="w-[10.5rem] py-1.5 pl-2 pr-0 text-right">
+      <td className="py-2 pr-4 text-ink">{label}</td>
+      <td className="w-[9.75rem] py-1.5 pl-3 pr-0 align-middle">
         <MoneyInput value={current} onChange={onCurrent} brackets={brackets} />
       </td>
-      <td className="w-[10.5rem] py-1.5 pl-2 pr-0 text-right">
+      <td className="w-[9.75rem] py-1.5 pl-3 pr-0 align-middle">
         <MoneyInput
           value={previous}
           onChange={onPrevious}
@@ -3383,14 +3349,14 @@ function ComputedRow({
   return (
     <tr className="border-b border-line/60 bg-sand/30">
       <td
-        className={`py-2 pr-3 ${emphasis ? "font-semibold text-ink" : "text-ink"}`}
+        className={`py-2 pr-4 ${emphasis ? "font-semibold text-ink" : "text-ink"}`}
       >
         {label}
       </td>
-      <td className="w-[10.5rem] py-2 pl-2 pr-0 text-right">
+      <td className="w-[9.75rem] py-2 pl-3 pr-0 align-middle">
         <AmountText value={current} emphasis={emphasis} />
       </td>
-      <td className="w-[10.5rem] py-2 pl-2 pr-0 text-right">
+      <td className="w-[9.75rem] py-2 pl-3 pr-0 align-middle">
         <AmountText value={previous} emphasis={emphasis} />
       </td>
     </tr>
@@ -3406,7 +3372,7 @@ function AmountText({
 }) {
   return (
     <div
-      className={`mono w-full px-2.5 text-right tabular-nums tracking-tight ${
+      className={`mono ml-auto w-full max-w-[9.25rem] px-2 text-right tabular-nums tracking-tight ${
         emphasis ? "font-semibold text-ink" : "text-ink"
       }`}
     >
@@ -3426,8 +3392,8 @@ function MoneyInput({
 }) {
   return (
     <div
-      className={`ml-auto flex w-full items-center rounded-lg border border-line bg-white transition focus-within:border-sea focus-within:ring-2 focus-within:ring-sea/20 ${
-        brackets ? "pl-1.5 pr-1.5" : "px-2.5"
+      className={`ml-auto flex w-full max-w-[9.25rem] items-center rounded-lg border border-line bg-white transition focus-within:border-sea focus-within:ring-2 focus-within:ring-sea/20 ${
+        brackets ? "pl-1.5 pr-1.5" : "px-2"
       }`}
     >
       {brackets ? (
