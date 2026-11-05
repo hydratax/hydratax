@@ -437,3 +437,13 @@ export function parseComparatives(raw: unknown): PriorYearComparatives {
     profitAndLossReservePence: n("profitAndLossReservePence"),
   };
 }
+
+/** True when at least one comparative field is a non-zero number. */
+export function comparativesHaveFigures(
+  c: PriorYearComparatives | null | undefined,
+) {
+  if (!c) return false;
+  return Object.values(c).some(
+    (v) => typeof v === "number" && Number.isFinite(v) && v !== 0,
+  );
+}

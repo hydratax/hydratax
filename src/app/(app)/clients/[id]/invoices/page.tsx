@@ -9,18 +9,32 @@ import { loadClientPage } from "@/server/clients/resolve-client-page";
 
 export default async function ClientInvoicesPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ fee?: string; services?: string }>;
 }) {
-  let session;
   try {
-    session = await requireModule("invoices");
+    await requireModule("invoices");
   } catch {
     redirect("/clients");
   }
 
   const { id: ref } = await params;
-  const { client, slug, clientId } = await loadClientPage(ref, "invoices");
+  const query = await searchParams;
+  const fee = Number(query.fee);
+  const initialLine =
+    Number.isFinite(fee) && fee > 0
+      ? {
+          description: query.services?.trim()
+            ? `Professional fees — ${query.services.trim()}`
+            : "Professional fees",
+          quantity: "1",
+          unitPricePounds: fee.toFixed(2),
+          vatRateBps: "2000" as const,
+        }
+      : null;
+  const { client, clientId } = await loadClientPage(ref, "invoices");
   const [invoices, templates] = await Promise.all([
     listClientInvoices(clientId),
     listInvoiceLineTemplates(),
@@ -35,6 +49,7 @@ export default async function ClientInvoicesPage({
         clientEmail={client.contactEmail}
         invoices={invoices}
         templates={templates}
+        initialLine={initialLine}
       />
     </div>
   );

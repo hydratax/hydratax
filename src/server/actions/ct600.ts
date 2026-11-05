@@ -22,6 +22,7 @@ import {
   buildCt600Package,
   buildCt600FormReviewPdf,
   buildAccountsReviewPdf,
+  buildComputationReviewPdf,
 } from "@/server/hmrc/ct600/index";
 import { sendTransactionalEmail } from "@/server/email/transactional";
 import { ct600SubmitEmailContent } from "@/server/email/ct600-submit-template";
@@ -364,6 +365,9 @@ export async function submitCt600(
   if (!client.companyNumber || !client.utr) {
     throw new Error("Company number and a valid 10-digit UTR are required for CT600");
   }
+  const { portalApprovalError } = await import("@/server/actions/desk");
+  const approval = await portalApprovalError(clientId, "ct600");
+  if (approval) throw new Error(approval);
 
   const draft = await loadDraft(returnId, clientId);
   if (!draft) throw new Error("CT600 draft not found");
@@ -542,7 +546,7 @@ export async function getCt600SubmitInfo() {
 export async function downloadCt600Draft(
   returnId: string,
   clientId: string,
-  kind: "ct600" | "accounts" | "both" = "both",
+  kind: "ct600" | "accounts" | "computation" | "both" = "both",
   opts?: { declarantName?: string; declarantStatus?: string },
 ) {
   await requireSession();
@@ -612,6 +616,20 @@ export async function downloadCt600Draft(
       filename: `${fileSlug}_CT600_${ye}.pdf`,
       mimeType: "application/pdf",
       base64: Buffer.from(ct600Pdf).toString("base64"),
+    });
+  }
+
+  if (kind === "computation" || kind === "both") {
+    const computationPdf = await buildComputationReviewPdf({
+      company,
+      figures,
+      taxableProfitPence: built.taxableProfitPence,
+      taxChargePence: built.taxChargePence,
+    });
+    files.push({
+      filename: `${fileSlug}_CT_Computation_${ye}.pdf`,
+      mimeType: "application/pdf",
+      base64: Buffer.from(computationPdf).toString("base64"),
     });
   }
 

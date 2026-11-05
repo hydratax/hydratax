@@ -11,6 +11,7 @@ import {
   isExistingAccountAuthError,
 } from "@/lib/auth-errors";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { clearNavPending, markNavPending } from "@/components/pending-link";
 import {
   AuthDivider,
   GoogleAuthButton,
@@ -99,6 +100,7 @@ export function SignInForm() {
       onSubmit={(e) => {
         e.preventDefault();
         setError(null);
+        markNavPending("Signing in…");
         const fd = new FormData(e.currentTarget);
         start(async () => {
           try {
@@ -107,12 +109,14 @@ export function SignInForm() {
               password: String(fd.get("password") ?? ""),
             });
             if (!res.ok) {
+              clearNavPending();
               setError(res.error);
               return;
             }
             router.push(next);
             router.refresh();
           } catch (err) {
+            clearNavPending();
             setError(messageFromUnknown(err, "Sign in failed"));
           }
         });
@@ -199,7 +203,12 @@ export function SignInForm() {
         />
       </label>
 
-      <button type="submit" disabled={pending} className="btn btn-primary w-full">
+      <button
+        type="submit"
+        disabled={pending}
+        aria-busy={pending || undefined}
+        className={`btn btn-primary w-full ${pending ? "is-pending" : ""}`}
+      >
         {pending ? "Signing in…" : "Sign in"}
       </button>
 

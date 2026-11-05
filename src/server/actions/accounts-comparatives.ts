@@ -90,3 +90,36 @@ export async function saveAccountsComparatives(
   revalidatePath(`/clients/${client.id}/accounts-pack`);
   return { ok: true as const };
 }
+
+const fetchPriorSchema = z.object({
+  clientId: z.string().min(1),
+  companyNumber: z.string().min(6).max(8).nullable().optional(),
+  periodEnd: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+});
+
+/** Live fetch of last-year BS figures from CH / prior CT600 / saved comps. */
+export async function fetchPriorYearComparatives(
+  input: z.input<typeof fetchPriorSchema>,
+) {
+  await requireSession();
+  const data = fetchPriorSchema.parse(input);
+  const { loadPriorYearComparatives } = await import(
+    "@/server/accounts/load-prior-year-comparatives"
+  );
+  const client = await getClient(data.clientId);
+  const companyNumber =
+    data.companyNumber?.trim().toUpperCase() ||
+    client.companyNumber ||
+    null;
+  return loadPriorYearComparatives({
+    clientId: data.clientId,
+    companyNumber,
+    periodEnd: data.periodEnd ?? null,
+    savedComparatives:
+      "accountsComparatives" in client ? client.accountsComparatives : null,
+  });
+}

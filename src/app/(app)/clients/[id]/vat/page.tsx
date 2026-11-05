@@ -33,6 +33,13 @@ export default async function VatPage({
 
   return (
     <div>
+      {client.deskProfile?.portal ? (
+        <p className="mb-4 text-sm text-ink-soft">
+          {client.deskProfile.portal.approveVat
+            ? "The client has approved the VAT return on their link."
+            : "The client link is active. VAT filing waits until they approve the return."}
+        </p>
+      ) : null}
       <VatReturnsWorkspace
         clientId={clientId}
         clientName={client.name}

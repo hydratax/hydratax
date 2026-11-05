@@ -3,7 +3,10 @@ import { notFound } from "next/navigation";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { CompanyHub } from "@/components/companies-house/company-hub";
+import { companyProfilePath } from "@/lib/company-slug";
+import { siteUrl } from "@/lib/site";
 import {
+  getCompanyProfile,
   isCompaniesHouseApiConfigured,
   lookupCompanyBundle,
 } from "@/server/companies-house/api";
@@ -14,10 +17,26 @@ export async function generateMetadata({
   params: Promise<{ companyNumber: string }>;
 }) {
   const { companyNumber } = await params;
-  return {
-    title: `${companyNumber.toUpperCase()} — Companies House · HydraTax`,
-    description: `Company hub for ${companyNumber}: confirmation statement, accounts, and other Companies House filings.`,
+  const number = decodeURIComponent(companyNumber).trim().toUpperCase();
+  const fallback = {
+    title: `${number} — Companies House · HydraTax`,
+    description: `Company hub for ${number}: confirmation statement, accounts, and other Companies House filings.`,
   };
+  if (!isCompaniesHouseApiConfigured() || !/^[A-Z0-9]{6,8}$/.test(number)) {
+    return fallback;
+  }
+  try {
+    const profile = await getCompanyProfile(number, 86_400);
+    return {
+      ...fallback,
+      title: `${profile.company_name} — Companies House · HydraTax`,
+      alternates: {
+        canonical: `${siteUrl()}${companyProfilePath(profile.company_name, profile.company_number)}`,
+      },
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 export default async function CompanyHubPage({

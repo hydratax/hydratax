@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { PendingLink } from "@/components/pending-link";
 
 type ClientRow = {
   id: string;
@@ -128,11 +129,14 @@ export function DashboardClientList({ clients }: { clients: ClientRow[] }) {
       {view === "cards" && filtered.length > 0 && (
         <div className="grid gap-3 md:grid-cols-2">
           {filtered.map((client) => (
-            <Link
+            <PendingLink
               key={client.id}
               href={clientHref(client)}
               className="panel panel-interactive block p-5"
+              pendingLabel="Opening client…"
             >
+              {(pending) => (
+                <>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <h3 className="display text-2xl text-ink">{client.name}</h3>
@@ -140,8 +144,8 @@ export function DashboardClientList({ clients }: { clients: ClientRow[] }) {
                     {typeLabel(client.type)}
                   </p>
                 </div>
-                <span className="shrink-0 text-sm font-semibold text-sea">
-                  Open →
+                <span className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}>
+                  {pending ? "Opening…" : "Open"}
                 </span>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
@@ -181,7 +185,9 @@ export function DashboardClientList({ clients }: { clients: ClientRow[] }) {
                   .filter(Boolean)
                   .join(" · ") || "No identifiers yet"}
               </p>
-            </Link>
+                </>
+              )}
+            </PendingLink>
           ))}
         </div>
       )}
@@ -190,10 +196,13 @@ export function DashboardClientList({ clients }: { clients: ClientRow[] }) {
         <ul className="divide-y divide-line rounded-2xl border border-line">
           {filtered.map((client) => (
             <li key={client.id}>
-              <Link
+              <PendingLink
                 href={clientHref(client)}
                 className="client-row flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-sea/[0.04]"
+                pendingLabel="Opening client…"
               >
+                {(pending) => (
+                  <>
                 <div className="min-w-0">
                   <p className="font-semibold text-ink">{client.name}</p>
                   <p className="text-sm capitalize text-ink-soft">
@@ -202,10 +211,12 @@ export function DashboardClientList({ clients }: { clients: ClientRow[] }) {
                     {client.isEmployer ? " · PAYE" : ""}
                   </p>
                 </div>
-                <span className="shrink-0 text-sm font-semibold text-sea">
-                  Open →
+                <span className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}>
+                  {pending ? "Opening…" : "Open"}
                 </span>
-              </Link>
+                  </>
+                )}
+              </PendingLink>
             </li>
           ))}
         </ul>

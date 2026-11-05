@@ -92,6 +92,8 @@ export const clients = pgTable(
     companiesHouse: jsonb("companies_house"),
     /** Prior-year P&L/BS comparatives entered for year-end packs */
     accountsComparatives: jsonb("accounts_comparatives"),
+    /** AML, engagement, client portal, and filing job status */
+    deskProfile: jsonb("desk_profile").notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

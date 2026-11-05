@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useId, useState } from "react";
+import { createPortal } from "react-dom";
 
 type Props = {
   companyNumber: string;
@@ -33,6 +34,11 @@ export function FileAccountsMenu({
 }: Props) {
   const titleId = useId();
   const [open, setOpen] = useState(defaultOpen);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -40,10 +46,11 @@ export function FileAccountsMenu({
       if (e.key === "Escape") setOpen(false);
     };
     document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
+      document.body.style.overflow = prev;
     };
   }, [open]);
 
@@ -56,6 +63,76 @@ export function FileAccountsMenu({
     if (clientId) return `${base}?mode=${mode}&company=${company}`;
     return `${base}?company=${company}&mode=${mode}`;
   }
+
+  const sheet =
+    open && mounted
+      ? createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-end justify-center bg-ink/45 p-3 sm:items-center sm:p-6"
+            onClick={() => setOpen(false)}
+            role="presentation"
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={titleId}
+              className="flex max-h-[min(92dvh,40rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-sea">
+                    Year-end filing
+                  </p>
+                  <h2 id={titleId} className="display mt-0.5 text-xl text-ink sm:text-2xl">
+                    File Accounts
+                  </h2>
+                  {(companyName || periodEndLabel) && (
+                    <p className="mt-0.5 truncate text-sm text-ink-soft">
+                      {[
+                        companyName,
+                        periodEndLabel && `Period end ${periodEndLabel}`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary shrink-0 px-3 py-2 text-sm"
+                  onClick={() => setOpen(false)}
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5 sm:py-4">
+                <ActionCard
+                  href={hrefFor("both")}
+                  title="File both"
+                  blurb="CT600 and Companies House accounts for this year-end, together."
+                  primary
+                  onNavigate={() => setOpen(false)}
+                />
+                <ActionCard
+                  href={hrefFor("accounts")}
+                  title="Accounts only"
+                  blurb="Companies House annual accounts only — no CT600 in this step."
+                  onNavigate={() => setOpen(false)}
+                />
+                <ActionCard
+                  href={hrefFor("ct600")}
+                  title="CT600 only"
+                  blurb="Corporation tax return to HMRC only — no accounts in this step."
+                  onNavigate={() => setOpen(false)}
+                />
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
 
   return (
     <>
@@ -70,72 +147,7 @@ export function FileAccountsMenu({
       >
         {label}
       </button>
-
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center"
-          onClick={() => setOpen(false)}
-          role="presentation"
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={titleId}
-            className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-2xl border border-line bg-white p-5 shadow-xl sm:p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-sea">
-                  Year-end filing
-                </p>
-                <h2 id={titleId} className="display mt-1 text-2xl text-ink">
-                  File Accounts
-                </h2>
-                {(companyName || periodEndLabel) && (
-                  <p className="mt-1 text-sm text-ink-soft">
-                    {[
-                      companyName,
-                      periodEndLabel && `Period end ${periodEndLabel}`,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </p>
-                )}
-              </div>
-              <button
-                type="button"
-                className="btn btn-secondary shrink-0 px-3 text-sm"
-                onClick={() => setOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mt-5 space-y-3">
-              <ActionCard
-                href={hrefFor("accounts")}
-                title="Accounts only"
-                blurb="Prepare Companies House annual accounts for this company without filing CT600 here."
-                onNavigate={() => setOpen(false)}
-              />
-              <ActionCard
-                href={hrefFor("ct600")}
-                title="CT600 only"
-                blurb="Prepare and submit the CT600 to HMRC for this company without filing accounts here."
-                onNavigate={() => setOpen(false)}
-              />
-              <ActionCard
-                href={hrefFor("both")}
-                title="File both"
-                blurb="Prepare CT600 and Companies House accounts together for this year-end period."
-                primary
-                onNavigate={() => setOpen(false)}
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      {sheet}
     </>
   );
 }
@@ -180,24 +192,24 @@ export function FileAccountsChooser({
           Choose what you would like to file for this period.
         </p>
       </div>
-      <div className="space-y-3">
+      <div className="space-y-2">
+        <ActionCard
+          href={hrefFor("both")}
+          title="File both"
+          blurb="CT600 and Companies House accounts for this year-end, together."
+          primary
+          onNavigate={() => undefined}
+        />
         <ActionCard
           href={hrefFor("accounts")}
           title="Accounts only"
-          blurb="Prepare Companies House annual accounts for this company without filing CT600 here."
+          blurb="Companies House annual accounts only — no CT600 in this step."
           onNavigate={() => undefined}
         />
         <ActionCard
           href={hrefFor("ct600")}
           title="CT600 only"
-          blurb="Prepare and submit the CT600 to HMRC for this company without filing accounts here."
-          onNavigate={() => undefined}
-        />
-        <ActionCard
-          href={hrefFor("both")}
-          title="File both"
-          blurb="Prepare CT600 and Companies House accounts together for this year-end period."
-          primary
+          blurb="Corporation tax return to HMRC only — no accounts in this step."
           onNavigate={() => undefined}
         />
       </div>
@@ -222,16 +234,16 @@ function ActionCard({
     <Link
       href={href}
       onClick={onNavigate}
-      className={`block rounded-2xl border p-4 transition hover:-translate-y-0.5 hover:shadow-md ${
+      className={`block rounded-xl border px-3.5 py-3 transition hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99] ${
         primary
           ? "border-sea/40 bg-sea/5 hover:border-sea"
           : "border-line bg-white hover:border-sea/50"
       }`}
     >
       <p className="font-semibold text-ink">{title}</p>
-      <p className="mt-1 text-sm text-ink-soft">{blurb}</p>
+      <p className="mt-0.5 text-sm leading-snug text-ink-soft">{blurb}</p>
       <span
-        className={`mt-3 inline-flex text-sm font-semibold ${
+        className={`mt-2 inline-flex text-sm font-semibold ${
           primary ? "text-sea" : "text-ink-soft"
         }`}
       >

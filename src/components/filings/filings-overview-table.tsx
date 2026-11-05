@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { PracticeFilingRow } from "@/lib/practice-filings";
+import { JobStatusSelect } from "@/components/filings/job-status-select";
 
 function dueBadge(row: PracticeFilingRow) {
   if (row.urgency === "overdue") {
@@ -54,6 +55,7 @@ export function FilingsOverviewTable({
             <th className="px-4 py-3 font-semibold">Filing</th>
             <th className="px-4 py-3 font-semibold">Period</th>
             <th className="px-4 py-3 font-semibold">Deadline</th>
+            <th className="px-4 py-3 font-semibold">Status</th>
             <th className="px-4 py-3 font-semibold" />
           </tr>
         </thead>
@@ -88,6 +90,13 @@ export function FilingsOverviewTable({
                 }`}
               >
                 {row.deadlineLabel}
+              </td>
+              <td className="px-4 py-3 align-middle">
+                <JobStatusSelect
+                  clientId={row.clientId}
+                  filingId={row.id}
+                  status={row.jobStatus ?? null}
+                />
               </td>
               <td className="px-4 py-3 align-middle text-right">
                 <Link

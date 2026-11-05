@@ -60,6 +60,13 @@ export default async function AccountsPackPage({
       <p className="mb-4 text-sm text-ink-soft">
         Year-end accounts from bank statements · review heads · print PDF pack
       </p>
+      {client.deskProfile?.portal ? (
+        <p className="mb-4 text-sm text-ink-soft">
+          {client.deskProfile.portal.approveAccounts
+            ? "The client has approved the annual accounts on their link."
+            : "The client link is active. Accounts filing waits until they approve them."}
+        </p>
+      ) : null}
 
       <div className="mt-6 space-y-6">
         <AccountsPackPeriodForm

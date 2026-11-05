@@ -3,6 +3,7 @@ import { DM_Sans, Fraunces, IBM_Plex_Mono, Source_Serif_4 } from "next/font/goog
 import { ClerkProvider } from "@clerk/nextjs";
 import { isClerkConfigured } from "@/lib/env";
 import { defaultMetadata } from "@/lib/seo";
+import { NavPendingReset } from "@/components/nav-pending-reset";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -63,6 +64,7 @@ export default function RootLayout({
       <body
         className={`${dmSans.variable} ${fraunces.variable} ${sourceSerif.variable} ${ibmPlex.variable} antialiased`}
       >
+        <NavPendingReset />
         {children}
       </body>
     </html>

@@ -75,17 +75,21 @@ export function InvoiceWorkspace({
   clientEmail,
   invoices,
   templates,
+  initialLine,
 }: {
   clientId: string;
   clientName: string;
   clientEmail?: string | null;
   invoices: MemoryInvoice[];
   templates: MemoryInvoiceLineTemplate[];
+  initialLine?: LineDraft | null;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [lines, setLines] = useState<LineDraft[]>([emptyLine()]);
+  const [lines, setLines] = useState<LineDraft[]>([
+    initialLine ?? emptyLine(),
+  ]);
   const [issueDate, setIssueDate] = useState(
     () => new Date().toISOString().slice(0, 10),
   );

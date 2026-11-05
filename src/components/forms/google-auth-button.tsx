@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/env";
+import { clearNavPending, markNavPending } from "@/components/pending-link";
 
 type OrgType = "company" | "sole_trader" | "partnership" | "practice";
 
@@ -50,6 +51,7 @@ export function GoogleAuthButton({
   async function startGoogle() {
     setError(null);
     setPending(true);
+    markNavPending("Redirecting to Google…");
     try {
       // Canonical host first — PKCE verifier cookies are host-bound.
       if (window.location.hostname === "www.hydratax.uk") {
@@ -79,6 +81,7 @@ export function GoogleAuthButton({
       if (oauthError) {
         reportError(oauthError.message);
         setPending(false);
+        clearNavPending();
         return;
       }
 
@@ -87,6 +90,7 @@ export function GoogleAuthButton({
           "Could not start Google sign-in. Check Supabase Google provider settings.",
         );
         setPending(false);
+        clearNavPending();
         return;
       }
 
@@ -96,6 +100,7 @@ export function GoogleAuthButton({
           "Could not start Google sign-in securely. Allow cookies for this site and try again.",
         );
         setPending(false);
+        clearNavPending();
         return;
       }
 
@@ -103,6 +108,7 @@ export function GoogleAuthButton({
     } catch (err) {
       reportError(err instanceof Error ? err.message : "Google sign-in failed");
       setPending(false);
+      clearNavPending();
     }
   }
 
@@ -112,7 +118,7 @@ export function GoogleAuthButton({
         type="button"
         onClick={() => void startGoogle()}
         disabled={pending}
-        className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-line bg-white px-3 py-2.5 text-sm font-semibold text-ink transition hover:bg-sand disabled:opacity-60"
+        className={`flex w-full items-center justify-center gap-2.5 rounded-lg border border-line bg-white px-3 py-2.5 text-sm font-semibold text-ink transition hover:bg-sand active:scale-[0.98] disabled:opacity-70 ${pending ? "is-pending cursor-progress" : ""}`}
       >
         <GoogleMark />
         {pending ? "Redirecting to Google…" : label}

@@ -24,6 +24,7 @@ export type MemoryClient = {
   /** Companies House enrichment for limited companies */
   companiesHouse?: import("@/server/companies-house/enrich-client").ClientCompaniesHouseSnapshot | null;
   accountsComparatives?: import("@/lib/accounting-periods").PriorYearComparatives | null;
+  deskProfile?: import("@/lib/desk-profile").DeskProfile | null;
   createdAt: string;
   updatedAt: string;
 };

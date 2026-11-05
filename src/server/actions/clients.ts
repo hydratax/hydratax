@@ -11,6 +11,7 @@ import {
   type ClientCompaniesHouseSnapshot,
 } from "@/server/companies-house/enrich-client";
 import type { PriorYearComparatives } from "@/lib/accounting-periods";
+import type { DeskProfile } from "@/lib/desk-profile";
 
 const createClientSchema = z.object({
   name: z.string().min(1).max(200),
@@ -69,6 +70,7 @@ export type ClientRecord = {
   isVatRegistered: boolean;
   companiesHouse: ClientCompaniesHouseSnapshot | null;
   accountsComparatives: PriorYearComparatives | null;
+  deskProfile: DeskProfile | null;
   createdAt: string | Date;
   updatedAt: string | Date;
 };
@@ -93,6 +95,7 @@ function mapSupabaseClient(row: Record<string, unknown>): ClientRecord {
     companiesHouse:
       (row.companies_house as ClientCompaniesHouseSnapshot | null) ?? null,
     accountsComparatives: (row.accounts_comparatives as ClientRecord["accountsComparatives"]) ?? null,
+    deskProfile: (row.desk_profile as DeskProfile | null) ?? null,
     createdAt: (row.created_at as string) ?? new Date().toISOString(),
     updatedAt: (row.updated_at as string) ?? new Date().toISOString(),
   };
@@ -380,6 +383,7 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
       isVatRegistered: data.isVatRegistered,
       companiesHouse: ch,
       accountsComparatives: null,
+      deskProfile: null,
       createdAt: now,
       updatedAt: now,
     };

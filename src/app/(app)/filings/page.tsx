@@ -17,13 +17,28 @@ export default async function FilingsOverviewPage() {
       id: c.id,
       name: c.name,
       type: c.type,
+      isVatRegistered: c.isVatRegistered,
+      isEmployer: c.isEmployer,
+      amlNextReviewOn:
+        "deskProfile" in c
+          ? ((c.deskProfile as { aml?: { nextReviewOn?: string } } | null)?.aml
+              ?.nextReviewOn ?? null)
+          : null,
       companyNumber: c.companyNumber,
       companiesHouse:
         "companiesHouse" in c
           ? (c.companiesHouse as ClientCompaniesHouseSnapshot | null)
           : null,
     })),
-  );
+  ).map((row) => {
+    const client = clients.find((c) => c.id === row.clientId);
+    const jobs =
+      client && "deskProfile" in client
+        ? (client.deskProfile as { jobs?: Record<string, import("@/lib/desk-profile").JobStatus> } | null)
+            ?.jobs
+        : null;
+    return { ...row, jobStatus: jobs?.[row.id] ?? null };
+  });
 
   const overdue = rows.filter((r) => r.urgency === "overdue").length;
 
@@ -38,8 +53,9 @@ export default async function FilingsOverviewPage() {
             Overview
           </h1>
           <p className="mt-2 max-w-2xl text-ink-soft">
-            Upcoming Corporation Tax, Confirmation Statement and Annual accounts
-            deadlines across your clients.
+            Upcoming Corporation Tax, VAT, PAYE, Self Assessment, Confirmation
+            Statement and Annual accounts deadlines across your clients. Set a
+            job status before you file.
             {overdue > 0 ? ` ${overdue} overdue.` : ""}
           </p>
         </div>

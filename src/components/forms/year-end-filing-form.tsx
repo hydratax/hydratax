@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { prepareCt600, submitCt600, getCt600SubmitInfo, downloadCt600Draft } from "@/server/actions/ct600";
+import { previewChAccountsHtml } from "@/server/actions/accounts-preview";
 import { money } from "@/lib/format";
 import { authEntryHref } from "@/lib/auth-return";
 import { CT600_PHASES } from "@/lib/hmrc/filing-guides";
@@ -25,6 +26,11 @@ import {
   gatewayCredentialsReady,
 } from "@/components/forms/gateway-credentials-fields";
 import { getPracticeCompanyAuthCode } from "@/server/actions/clients";
+import { fetchPriorYearComparatives } from "@/server/actions/accounts-comparatives";
+import {
+  comparativesHaveFigures,
+  type PriorYearComparatives,
+} from "@/lib/accounting-periods";
 
 export type YearEndFilingMode = "ct600" | "accounts" | "both";
 
@@ -83,6 +89,10 @@ type Props = {
   defaultPeriodStart?: string | null;
   accountsCheckoutHref: string;
   lastFiledAccounts?: LastFiledAccounts | null;
+  /** Prior-year figures from the accounts pack / CT600 / last filed CH accounts */
+  priorYearComparatives?: PriorYearComparatives | null;
+  priorYearSource?: "saved" | "ct600" | "companies_house" | "none";
+  priorYearMadeUpTo?: string | null;
   /** Sign-in URL when CT600 is selected without a practice client */
   signInHref?: string;
   /** Path to return to after sign-in (preferred over parsing signInHref) */
@@ -206,13 +216,13 @@ function num(v: string) {
 }
 
 function fmtDisplay(n: number, brackets?: boolean, blankWhenZero?: boolean) {
-  if (blankWhenZero && n === 0) return brackets ? "(   )" : "";
+  if (blankWhenZero && n === 0) return brackets ? "()" : "";
   const abs = Math.abs(n);
   const s = abs.toLocaleString("en-GB", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   });
-  if (brackets || n < 0) return `( ${s} )`;
+  if (brackets || n < 0) return `(${s})`;
   return s;
 }
 
@@ -227,6 +237,7 @@ function penceToInput(n: number) {
 function figuresToPlBs(f: Ct600TbFigures): { pl: YearPl; bs: YearBs } {
   const cash = Number(f.cashAtBankPence);
   const debtors = Number(f.debtorsPence);
+  const ct = Number(f.corporationTaxPence ?? 0);
   return {
     pl: {
       ...BLANK_PL,
@@ -234,16 +245,60 @@ function figuresToPlBs(f: Ct600TbFigures): { pl: YearPl; bs: YearBs } {
       interestIncome: penceToInput(Number(f.otherIncomePence)),
       costOfMaterials: penceToInput(Number(f.costOfSalesPence)),
       otherCharges: penceToInput(Number(f.administrativeExpensesPence)),
+      corporationTax: ct ? penceToInput(ct) : "",
     },
     bs: {
       ...BLANK_BS,
       fixedAssets: penceToInput(Number(f.tangibleAssetsPence)),
       totalCurrentAssets: penceToInput(cash + debtors),
       creditorsWithinOneYear: penceToInput(Number(f.creditorsPence)),
+      corporationTaxPayable: ct ? penceToInput(ct) : "",
       shareCapital: penceToInput(Number(f.calledUpShareCapitalPence)),
       retainedEarnings: penceToInput(Number(f.profitAndLossAccountPence)),
     },
   };
+}
+
+function penceField(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(n)) return "";
+  return penceToInput(n);
+}
+
+function comparativesToPlBs(c: PriorYearComparatives): { pl: YearPl; bs: YearBs } {
+  const currentAssets =
+    (c.cashAtBankPence ?? 0) + (c.otherDebtorsPence ?? 0);
+  return {
+    pl: {
+      ...BLANK_PL,
+      turnover: penceField(c.turnoverPence),
+      costOfMaterials: penceField(c.costOfSalesPence),
+      otherCharges: penceField(c.adminExpensesPence),
+      corporationTax: penceField(c.taxationPence),
+    },
+    bs: {
+      ...BLANK_BS,
+      fixedAssets: penceField(c.fixedAssetsPence),
+      totalCurrentAssets:
+        c.cashAtBankPence != null || c.otherDebtorsPence != null
+          ? penceToInput(currentAssets)
+          : "",
+      creditorsWithinOneYear: penceField(c.creditorsWithinOneYearPence),
+      creditorsAfterOneYear: penceField(c.creditorsAfterOneYearPence),
+      shareCapital: penceField(c.shareCapitalPence),
+      retainedEarnings: penceField(c.profitAndLossReservePence),
+    },
+  };
+}
+
+function yearHasAnyFigures(year: YearPl | YearBs) {
+  return Object.values(year).some((v) => {
+    const s = String(v).trim();
+    if (!s) return false;
+    // Treat 0 / 0.00 / (0.00) as blank so CH bring-forward can replace them.
+    const n = Number.parseFloat(s.replace(/[(),\s]/g, ""));
+    if (Number.isFinite(n) && n === 0) return false;
+    return true;
+  });
 }
 
 function formatPeriodLabel(iso: string) {
@@ -358,6 +413,9 @@ export function YearEndFilingForm({
   defaultPeriodStart: defaultPeriodStartProp,
   accountsCheckoutHref,
   lastFiledAccounts = null,
+  priorYearComparatives: priorYearComparativesProp = null,
+  priorYearSource: priorYearSourceProp = "none",
+  priorYearMadeUpTo: priorYearMadeUpToProp = null,
   signInHref = "/sign-in",
   postSignInPath,
   persistKey,
@@ -368,6 +426,13 @@ export function YearEndFilingForm({
   const router = useRouter();
   const searchParams = useSearchParams();
   const [pending, start] = useTransition();
+  const [priorYearComparatives, setPriorYearComparatives] = useState(
+    priorYearComparativesProp,
+  );
+  const [priorYearSource, setPriorYearSource] = useState(priorYearSourceProp);
+  const [priorYearMadeUpTo, setPriorYearMadeUpTo] = useState(
+    priorYearMadeUpToProp,
+  );
   const restored = useMemo(() => {
     if (!persistKey || typeof window === "undefined") return null;
     try {
@@ -377,6 +442,12 @@ export function YearEndFilingForm({
       return null;
     }
   }, [persistKey]);
+
+  useEffect(() => {
+    setPriorYearComparatives(priorYearComparativesProp);
+    setPriorYearSource(priorYearSourceProp);
+    setPriorYearMadeUpTo(priorYearMadeUpToProp);
+  }, [priorYearComparativesProp, priorYearSourceProp, priorYearMadeUpToProp]);
 
   const [phase, setPhase] = useState(() =>
     typeof restored?.phase === "number" ? (restored.phase as number) : 0,
@@ -439,21 +510,26 @@ export function YearEndFilingForm({
       ? { ...BLANK_PL, ...(restored.plCurrent as YearPl) }
       : { ...BLANK_PL },
   );
-  const [plPrevious, setPlPrevious] = useState<YearPl>(() =>
-    restored?.plPrevious && typeof restored.plPrevious === "object"
-      ? { ...BLANK_PL, ...(restored.plPrevious as YearPl) }
-      : { ...BLANK_PL },
-  );
+  const [plPrevious, setPlPrevious] = useState<YearPl>(() => {
+    // P&L prior year is not shown — Companies House micro accounts have no P&L tags.
+    if (restored?.plPrevious && typeof restored.plPrevious === "object") {
+      return { ...BLANK_PL, ...(restored.plPrevious as YearPl) };
+    }
+    return { ...BLANK_PL };
+  });
   const [bsCurrent, setBsCurrent] = useState<YearBs>(() =>
     restored?.bsCurrent && typeof restored.bsCurrent === "object"
       ? { ...BLANK_BS, ...(restored.bsCurrent as YearBs) }
       : { ...BLANK_BS },
   );
-  const [bsPrevious, setBsPrevious] = useState<YearBs>(() =>
-    restored?.bsPrevious && typeof restored.bsPrevious === "object"
-      ? { ...BLANK_BS, ...(restored.bsPrevious as YearBs) }
-      : { ...BLANK_BS },
-  );
+  const [bsPrevious, setBsPrevious] = useState<YearBs>(() => {
+    if (restored?.bsPrevious && typeof restored.bsPrevious === "object") {
+      const fromStore = { ...BLANK_BS, ...(restored.bsPrevious as YearBs) };
+      if (yearHasAnyFigures(fromStore)) return fromStore;
+    }
+    if (priorYearComparatives) return comparativesToPlBs(priorYearComparatives).bs;
+    return { ...BLANK_BS };
+  });
   const [plOpen, setPlOpen] = useState(true);
   const [bsOpen, setBsOpen] = useState(true);
   const [taxOpen, setTaxOpen] = useState(true);
@@ -480,6 +556,10 @@ export function YearEndFilingForm({
   );
   const [taxable, setTaxable] = useState<number | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [chPreviewHtml, setChPreviewHtml] = useState<string | null>(null);
+  const [chPreviewError, setChPreviewError] = useState<string | null>(null);
+  const [chPreviewLoading, setChPreviewLoading] = useState(false);
+  const [reviewedPack, setReviewedPack] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [companyAuthCode, setCompanyAuthCode] = useState("");
@@ -549,13 +629,103 @@ export function YearEndFilingForm({
       setPlCurrent({ ...BLANK_PL });
       setPlPrevious({ ...BLANK_PL });
       setBsCurrent({ ...BLANK_BS });
-      setBsPrevious({ ...BLANK_BS });
+      if (priorYearComparatives && priorHasFigures) {
+        setBsPrevious(comparativesToPlBs(priorYearComparatives).bs);
+      } else {
+        setBsPrevious({ ...BLANK_BS });
+      }
     }
   }
   const periodDays = daysBetween(periodStart, periodEnd);
   const extendedPeriod = periodDays > 365;
   const previousPeriodEnd = shiftYear(periodEnd, -1);
-  const showPriorYear = Boolean(lastFiledAccounts);
+  const priorHasFigures = comparativesHaveFigures(priorYearComparatives);
+
+  // Prior-year column is balance-sheet only (CH micro filings have no P&L figures).
+  const showPriorYear = Boolean(
+    lastFiledAccounts || priorHasFigures || yearHasAnyFigures(bsPrevious),
+  );
+
+  const canFetchPriorYear = Boolean(
+    clientId && (company.companyNumber || lastFiledAccounts),
+  );
+
+  async function loadAndApplyPriorYearFigures() {
+    setError(null);
+    let comps = priorYearComparatives;
+    let source = priorYearSource;
+    let madeUpTo = priorYearMadeUpTo;
+    if (!comparativesHaveFigures(comps) && clientId) {
+      try {
+        const loaded = await fetchPriorYearComparatives({
+          clientId,
+          companyNumber: company.companyNumber,
+          periodEnd,
+        });
+        setPriorYearComparatives(loaded.comparatives);
+        setPriorYearSource(loaded.source);
+        setPriorYearMadeUpTo(loaded.madeUpTo);
+        comps = loaded.comparatives;
+        source = loaded.source;
+        madeUpTo = loaded.madeUpTo;
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Could not load last year’s figures from Companies House",
+        );
+        return;
+      }
+    }
+    if (!comparativesHaveFigures(comps) || !comps) {
+      setError(
+        "No balance sheet figures found on the last filed Companies House accounts.",
+      );
+      return;
+    }
+    setBsPrevious(comparativesToPlBs(comps).bs);
+    setBsOpen(true);
+    setMessage(
+      source === "companies_house"
+        ? `Brought forward balance sheet figures from last filed Companies House accounts${madeUpTo ? ` (made up to ${formatPeriodLabel(madeUpTo)})` : ""}.`
+        : source === "ct600"
+          ? `Brought forward figures from the prior CT600 period${madeUpTo ? ` (${formatPeriodLabel(madeUpTo)})` : ""}.`
+          : "Brought forward saved prior-year comparative figures.",
+    );
+  }
+
+  // Seed prior-year BS when server props already have figures and the column is blank/zeros.
+  useEffect(() => {
+    if (!priorHasFigures || !priorYearComparatives) return;
+    if (yearHasAnyFigures(bsPrevious)) return;
+    setBsPrevious(comparativesToPlBs(priorYearComparatives).bs);
+  }, [priorHasFigures, priorYearComparatives, bsPrevious]);
+
+  // If SSR did not bring figures, fetch from CH once on mount.
+  useEffect(() => {
+    if (priorHasFigures || !canFetchPriorYear || !clientId) return;
+    if (yearHasAnyFigures(bsPrevious)) return;
+    let cancelled = false;
+    void fetchPriorYearComparatives({
+      clientId,
+      companyNumber: company.companyNumber,
+      periodEnd,
+    })
+      .then((loaded) => {
+        if (cancelled || !comparativesHaveFigures(loaded.comparatives)) return;
+        setPriorYearComparatives(loaded.comparatives);
+        setPriorYearSource(loaded.source);
+        setPriorYearMadeUpTo(loaded.madeUpTo);
+        setBsPrevious(comparativesToPlBs(loaded.comparatives).bs);
+      })
+      .catch(() => {
+        /* button still available */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot client fetch
+  }, [canFetchPriorYear, clientId, company.companyNumber]);
 
   const plCur = useMemo(() => derivePl(plCurrent), [plCurrent]);
   const plPrev = useMemo(() => derivePl(plPrevious), [plPrevious]);
@@ -677,7 +847,7 @@ export function YearEndFilingForm({
     return res.draft.id;
   }
 
-  async function downloadDraft(kind: "ct600" | "accounts") {
+  async function downloadDraft(kind: "ct600" | "accounts" | "computation") {
     if (!clientId) throw new Error("Client is required for downloads");
     const id = await ensureCtDraft();
     const pack = await downloadCt600Draft(id, clientId, kind, {
@@ -687,8 +857,83 @@ export function YearEndFilingForm({
     saveDownloadFiles(pack.files);
   }
 
+  async function loadChAccountsPreview() {
+    if (!needsAccounts || !company.companyNumber) {
+      setChPreviewHtml(null);
+      setChPreviewError(null);
+      return;
+    }
+    setChPreviewLoading(true);
+    setChPreviewError(null);
+    try {
+      const priorFromForm = yearHasAnyFigures(bsPrevious);
+      const res = await previewChAccountsHtml({
+        companyName: company.name,
+        companyNumber: company.companyNumber,
+        periodStart,
+        periodEnd,
+        dormant: isDormant,
+        directorName,
+        approvalDate,
+        averageEmployees: Math.max(0, Math.round(Number(avgEmployees) || 0)),
+        fixedAssetsPence: Math.round(bsCur.fixedAssets * 100),
+        currentAssetsPence: Math.round(bsCur.totalCurrentAssets * 100),
+        creditorsWithinPence: Math.round(bsCur.totalCreditorsWithin * 100),
+        creditorsAfterPence: Math.round(bsCur.creditorsAfter * 100),
+        shareCapitalPence: Math.round(bsCur.shareCapital * 100),
+        retainedEarningsPence: Math.round(bsCur.retainedEarnings * 100),
+        calledUpShareCapitalNotPaidPence: Math.round(bsCur.shareCapital * 100),
+        priorFixedAssetsPence: priorFromForm
+          ? Math.round(bsPrev.fixedAssets * 100)
+          : priorYearComparatives?.fixedAssetsPence ?? null,
+        priorCurrentAssetsPence: priorFromForm
+          ? Math.round(bsPrev.totalCurrentAssets * 100)
+          : priorYearComparatives
+            ? (priorYearComparatives.cashAtBankPence ?? 0) +
+              (priorYearComparatives.otherDebtorsPence ?? 0)
+            : null,
+        priorCreditorsWithinPence: priorFromForm
+          ? Math.round(bsPrev.totalCreditorsWithin * 100)
+          : priorYearComparatives?.creditorsWithinOneYearPence ?? null,
+        priorCreditorsAfterPence: priorFromForm
+          ? Math.round(bsPrev.creditorsAfter * 100)
+          : priorYearComparatives?.creditorsAfterOneYearPence ?? null,
+        priorShareCapitalPence: priorFromForm
+          ? Math.round(bsPrev.shareCapital * 100)
+          : priorYearComparatives?.shareCapitalPence ?? null,
+        priorRetainedEarningsPence: priorFromForm
+          ? Math.round(bsPrev.retainedEarnings * 100)
+          : priorYearComparatives?.profitAndLossReservePence ?? null,
+        priorCalledUpShareCapitalNotPaidPence: priorFromForm
+          ? Math.round(bsPrev.shareCapital * 100)
+          : priorYearComparatives?.shareCapitalPence ?? null,
+        priorPeriodEnd: priorYearMadeUpTo || previousPeriodEnd,
+        priorAverageEmployees: Math.max(
+          0,
+          Math.round(Number(avgEmployees) || 0),
+        ),
+        enforceDirectorMatch: true,
+      });
+      if (!res.ok) {
+        setChPreviewHtml(null);
+        setChPreviewError(res.error);
+        return;
+      }
+      setChPreviewHtml(res.html);
+      setDirectorName(res.directorName);
+    } catch (err) {
+      setChPreviewHtml(null);
+      setChPreviewError(
+        err instanceof Error ? err.message : "Could not build Companies House preview",
+      );
+    } finally {
+      setChPreviewLoading(false);
+    }
+  }
+
   function viewDraft() {
     setError(null);
+    setReviewedPack(false);
     if (!directorName.trim()) {
       setError("Select the director name for signing.");
       return;
@@ -698,19 +943,38 @@ export function YearEndFilingForm({
       return;
     }
     if (!needsCt) {
-      setPhase(1);
-      saveProgress({ phase: 1 });
+      start(async () => {
+        try {
+          await loadChAccountsPreview();
+          setPhase(1);
+          saveProgress({ phase: 1 });
+        } catch (err) {
+          setError(
+            err instanceof Error ? err.message : "Failed to build accounts preview",
+          );
+        }
+      });
       return;
     }
     if (!clientId) {
       // Public CH flow — review figures first; CT600 submit needs a practice client
-      setPhase(1);
-      saveProgress({ phase: 1 });
+      start(async () => {
+        try {
+          await loadChAccountsPreview();
+          setPhase(1);
+          saveProgress({ phase: 1 });
+        } catch (err) {
+          setError(
+            err instanceof Error ? err.message : "Failed to build accounts preview",
+          );
+        }
+      });
       return;
     }
     start(async () => {
       try {
         const id = await ensureCtDraft();
+        await loadChAccountsPreview();
         setPhase(1);
         saveProgress({ phase: 1, draftId: id });
         router.refresh();
@@ -975,7 +1239,7 @@ export function YearEndFilingForm({
               <TwoYearTable
                 currentLabel={yearToLabel(periodEnd)}
                 previousLabel={yearToLabel(previousPeriodEnd)}
-                showPrevious={showPriorYear}
+                showPrevious={false}
               >
                 <InputRow
                   label="Turnover"
@@ -1126,17 +1390,34 @@ export function YearEndFilingForm({
             open={bsOpen}
             onToggle={() => setBsOpen((v) => !v)}
             action={
-              <button
-                type="button"
-                className="rounded-lg border border-sea px-3 py-1.5 text-sm font-semibold text-sea hover:bg-sea/5"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setError(null);
-                  setImportOpen(true);
-                }}
-              >
-                Import
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {(priorHasFigures || canFetchPriorYear) && (
+                  <button
+                    type="button"
+                    className="rounded-lg border border-line px-3 py-1.5 text-sm font-semibold text-ink hover:bg-sand"
+                    disabled={pending}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      start(async () => {
+                        await loadAndApplyPriorYearFigures();
+                      });
+                    }}
+                  >
+                    {pending ? "Loading…" : "Bring forward last year"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="rounded-lg border border-sea px-3 py-1.5 text-sm font-semibold text-sea hover:bg-sea/5"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setError(null);
+                    setImportOpen(true);
+                  }}
+                >
+                  Import
+                </button>
+              </div>
             }
           >
             <LastFiledAccountsCard filing={lastFiledAccounts} />
@@ -1521,6 +1802,7 @@ export function YearEndFilingForm({
           bsPrev={bsPrev}
           showPl={showPl}
           showBalanceSheet={showBalanceSheet}
+          showBsPriorYear={showPriorYear}
           needsCt={needsCt}
           needsAccounts={needsAccounts}
           directorName={directorName}
@@ -1528,6 +1810,31 @@ export function YearEndFilingForm({
           avgEmployees={avgEmployees}
           error={error}
           downloadPending={pending}
+          chPreviewHtml={chPreviewHtml}
+          chPreviewError={chPreviewError}
+          chPreviewLoading={chPreviewLoading}
+          reviewedPack={reviewedPack}
+          onReviewedPackChange={setReviewedPack}
+          onReloadChPreview={() =>
+            start(async () => {
+              await loadChAccountsPreview();
+            })
+          }
+          onDownloadChHtml={
+            needsAccounts && chPreviewHtml
+              ? () => {
+                  const blob = new Blob([chPreviewHtml], {
+                    type: "application/xhtml+xml",
+                  });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `${(company.companyNumber || "accounts").replace(/[^A-Z0-9]/gi, "")}_CH_preview_${periodEnd}.xhtml`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }
+              : undefined
+          }
           onDownloadCt600={
             needsCt && clientId
               ? () =>
@@ -1535,6 +1842,21 @@ export function YearEndFilingForm({
                     setError(null);
                     try {
                       await downloadDraft("ct600");
+                    } catch (err) {
+                      setError(
+                        err instanceof Error ? err.message : "Download failed",
+                      );
+                    }
+                  })
+              : undefined
+          }
+          onDownloadComputation={
+            needsCt && clientId
+              ? () =>
+                  start(async () => {
+                    setError(null);
+                    try {
+                      await downloadDraft("computation");
                     } catch (err) {
                       setError(
                         err instanceof Error ? err.message : "Download failed",
@@ -1681,6 +2003,53 @@ export function YearEndFilingForm({
                         </span>
                         <span className="mt-0.5 block text-sm text-ink-soft">
                           Filled CT600 form with your return figures
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!clientId || pending}
+                      onClick={() =>
+                        start(async () => {
+                          if (!clientId) return;
+                          setError(null);
+                          setMessage(null);
+                          try {
+                            await downloadDraft("computation");
+                          } catch (err) {
+                            setError(
+                              err instanceof Error
+                                ? err.message
+                                : "Download failed",
+                            );
+                          }
+                        })
+                      }
+                      className="group flex items-start gap-3 rounded-2xl border border-line bg-white p-4 text-left transition hover:border-sea/40 hover:bg-sea/[0.03] disabled:opacity-50"
+                    >
+                      <span
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sea/10 text-sea"
+                        aria-hidden
+                      >
+                        <svg
+                          width="22"
+                          height="22"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                        >
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                          <path d="M14 2v6h6" />
+                          <path d="M8 13h8M8 17h8" />
+                        </svg>
+                      </span>
+                      <span>
+                        <span className="block font-semibold text-ink">
+                          CT computation
+                        </span>
+                        <span className="mt-0.5 block text-sm text-ink-soft">
+                          Taxable profits and corporation tax charge
                         </span>
                       </span>
                     </button>
@@ -1851,9 +2220,11 @@ export function YearEndFilingForm({
                           companyNumber: company.companyNumber,
                           periodStart,
                           periodEnd,
+                          previousPeriodEnd,
                           companyType,
                           pl: plCurrent,
                           bs: bsCurrent,
+                          bsPrevious,
                           directorName,
                         }),
                       );
@@ -1888,9 +2259,11 @@ export function YearEndFilingForm({
                           companyNumber: company.companyNumber,
                           periodStart,
                           periodEnd,
+                          previousPeriodEnd,
                           companyType,
                           pl: plCurrent,
                           bs: bsCurrent,
+                          bsPrevious,
                           directorName,
                         }),
                       );
@@ -2080,6 +2453,7 @@ function ReviewPhase({
   bsPrev,
   showPl,
   showBalanceSheet,
+  showBsPriorYear = false,
   needsCt,
   needsAccounts,
   directorName,
@@ -2087,7 +2461,15 @@ function ReviewPhase({
   avgEmployees,
   error,
   downloadPending,
+  chPreviewHtml,
+  chPreviewError,
+  chPreviewLoading,
+  reviewedPack,
+  onReviewedPackChange,
+  onReloadChPreview,
+  onDownloadChHtml,
   onDownloadCt600,
+  onDownloadComputation,
   onDownloadAccounts,
   onBack,
   onNext,
@@ -2103,6 +2485,7 @@ function ReviewPhase({
   bsPrev: ReturnType<typeof deriveBs>;
   showPl: boolean;
   showBalanceSheet: boolean;
+  showBsPriorYear?: boolean;
   needsCt: boolean;
   needsAccounts: boolean;
   directorName: string;
@@ -2110,11 +2493,25 @@ function ReviewPhase({
   avgEmployees: string;
   error: string | null;
   downloadPending: boolean;
+  chPreviewHtml: string | null;
+  chPreviewError: string | null;
+  chPreviewLoading: boolean;
+  reviewedPack: boolean;
+  onReviewedPackChange: (value: boolean) => void;
+  onReloadChPreview: () => void;
+  onDownloadChHtml?: () => void;
   onDownloadCt600?: () => void;
+  onDownloadComputation?: () => void;
   onDownloadAccounts?: () => void;
   onBack: () => void;
   onNext: () => void;
 }) {
+  const canProceed =
+    reviewedPack &&
+    (!needsAccounts || Boolean(chPreviewHtml)) &&
+    !chPreviewLoading &&
+    !chPreviewError;
+
   return (
     <div className="space-y-5">
       <header className="text-center">
@@ -2123,6 +2520,10 @@ function ReviewPhase({
           {companyName} · {formatPeriodLabel(periodStart)} →{" "}
           {formatPeriodLabel(periodEnd)} · {filingLabel}
         </p>
+        <p className="mt-2 text-sm text-ink-soft">
+          Check the Companies House preview and download the CT600 / computation
+          before you submit.
+        </p>
       </header>
 
       {showPl && (
@@ -2130,55 +2531,29 @@ function ReviewPhase({
           <p className="border-b border-line bg-sand/40 px-4 py-2 text-sm font-semibold text-ink">
             Profit &amp; Loss
           </p>
-          <table className="w-full min-w-[36rem] text-sm">
+          <table className="w-full min-w-[28rem] text-sm">
             <thead>
               <tr className="border-b border-line text-ink-soft">
                 <th className="px-4 py-2 text-left font-semibold">Category</th>
-                <th className="w-36 px-3 py-2 text-right font-semibold">
-                  {yearToLabel(periodEnd)}
-                </th>
                 <th className="w-36 px-4 py-2 text-right font-semibold">
-                  {yearToLabel(previousPeriodEnd)}
+                  {yearToLabel(periodEnd)}
                 </th>
               </tr>
             </thead>
             <tbody>
               {(
                 [
-                  ["Turnover", plCur.turnover, plPrev.turnover, false],
-                  [
-                    "Total income",
-                    plCur.totalIncome,
-                    plPrev.totalIncome,
-                    false,
-                  ],
-                  [
-                    "Total expenses",
-                    plCur.totalExpenses,
-                    plPrev.totalExpenses,
-                    true,
-                  ],
-                  [
-                    "Profit before tax",
-                    plCur.profitBeforeTax,
-                    plPrev.profitBeforeTax,
-                    false,
-                  ],
-                  [
-                    "Profit for the year",
-                    plCur.profitForYear,
-                    plPrev.profitForYear,
-                    false,
-                  ],
+                  ["Turnover", plCur.turnover, false],
+                  ["Total income", plCur.totalIncome, false],
+                  ["Total expenses", plCur.totalExpenses, true],
+                  ["Profit before tax", plCur.profitBeforeTax, false],
+                  ["Profit for the year", plCur.profitForYear, false],
                 ] as const
-              ).map(([label, c, p, brackets]) => (
+              ).map(([label, c, brackets]) => (
                 <tr key={label} className="border-b border-line/70">
                   <td className="px-4 py-2 font-medium text-ink">{label}</td>
-                  <td className="mono px-3 py-2 text-right">
-                    {fmtDisplay(c, brackets)}
-                  </td>
                   <td className="mono px-4 py-2 text-right">
-                    {fmtDisplay(p, brackets)}
+                    {fmtDisplay(c, brackets)}
                   </td>
                 </tr>
               ))}
@@ -2199,9 +2574,11 @@ function ReviewPhase({
                 <th className="w-36 px-3 py-2 text-right font-semibold">
                   {yearToLabel(periodEnd)}
                 </th>
-                <th className="w-36 px-4 py-2 text-right font-semibold">
-                  {yearToLabel(previousPeriodEnd)}
-                </th>
+                {showBsPriorYear ? (
+                  <th className="w-36 px-4 py-2 text-right font-semibold">
+                    {yearToLabel(previousPeriodEnd)}
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
@@ -2228,9 +2605,11 @@ function ReviewPhase({
                   <td className="mono px-3 py-2 text-right">
                     {fmtDisplay(c, brackets)}
                   </td>
-                  <td className="mono px-4 py-2 text-right">
-                    {fmtDisplay(p, brackets)}
-                  </td>
+                  {showBsPriorYear ? (
+                    <td className="mono px-4 py-2 text-right">
+                      {fmtDisplay(p, brackets)}
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -2244,27 +2623,72 @@ function ReviewPhase({
       ) : null}
 
       {needsAccounts && (
-        <article className="max-w-lg rounded-xl border border-line bg-white p-4">
-          <h3 className="font-semibold text-ink">Accounts</h3>
-          <p className="mt-1 text-sm text-ink-soft">
-            Signed by {directorName} · approved{" "}
-            {formatPeriodLabel(approvalDate)} · avg employees {avgEmployees}
-          </p>
-        </article>
+        <section className="space-y-3 rounded-2xl border border-sea/30 bg-sea/[0.03] p-4 sm:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-ink">
+                Companies House accounts preview
+              </h3>
+              <p className="mt-1 text-sm text-ink-soft">
+                Exact iXBRL document that will be filed — signed by{" "}
+                {directorName || "—"} · approved{" "}
+                {formatPeriodLabel(approvalDate)} · avg employees {avgEmployees}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary text-sm"
+                disabled={chPreviewLoading}
+                onClick={onReloadChPreview}
+              >
+                {chPreviewLoading ? "Building…" : "Refresh preview"}
+              </button>
+              {onDownloadChHtml && (
+                <button
+                  type="button"
+                  className="btn btn-secondary text-sm"
+                  onClick={onDownloadChHtml}
+                >
+                  Download CH HTML
+                </button>
+              )}
+            </div>
+          </div>
+          {chPreviewError && (
+            <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-ink">
+              {chPreviewError}
+            </p>
+          )}
+          {chPreviewLoading && !chPreviewHtml && (
+            <p className="py-10 text-center text-sm text-ink-soft">
+              Building Companies House preview…
+            </p>
+          )}
+          {chPreviewHtml && (
+            <iframe
+              title="Companies House accounts preview"
+              className="h-[32rem] w-full rounded-xl border border-line bg-white"
+              sandbox=""
+              srcDoc={chPreviewHtml}
+            />
+          )}
+        </section>
       )}
 
-      {(onDownloadCt600 || onDownloadAccounts) && (
+      {(onDownloadCt600 ||
+        onDownloadComputation ||
+        onDownloadAccounts ||
+        onDownloadChHtml) && (
         <div className="space-y-3">
           <div>
             <h3 className="font-semibold text-ink">Download before you submit</h3>
             <p className="mt-1 text-sm text-ink-soft">
-              Save and review the PDF{needsAccounts && needsCt ? "s" : ""} before
-              proceeding to submit.
+              Download and check every figure before Companies House or HMRC
+              submission.
             </p>
           </div>
-          <div
-            className={`grid gap-3 ${needsCt && needsAccounts ? "sm:grid-cols-2" : "max-w-md"}`}
-          >
+          <div className="grid gap-3 sm:grid-cols-2">
             {onDownloadCt600 && (
               <PdfDownloadCard
                 title="CT600 form"
@@ -2275,10 +2699,20 @@ function ReviewPhase({
                 variant="form"
               />
             )}
+            {onDownloadComputation && (
+              <PdfDownloadCard
+                title="CT computation"
+                description="Taxable profits and corporation tax charge for this period."
+                actionLabel="Download computation PDF"
+                pending={downloadPending}
+                onClick={onDownloadComputation}
+                variant="document"
+              />
+            )}
             {onDownloadAccounts && (
               <PdfDownloadCard
-                title="Year end accounts"
-                description="Accounts PDF prepared from your figures."
+                title="Year end accounts PDF"
+                description="Practice review pack from your figures (not the CH filing copy)."
                 actionLabel="Download accounts PDF"
                 pending={downloadPending}
                 onClick={onDownloadAccounts}
@@ -2289,16 +2723,45 @@ function ReviewPhase({
         </div>
       )}
 
+      <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-white px-4 py-3 text-sm text-ink">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={reviewedPack}
+          onChange={(e) => onReviewedPackChange(e.target.checked)}
+        />
+        <span>
+          I have checked the{" "}
+          {needsAccounts ? "Companies House preview" : "figures"}
+          {needsCt ? ", CT600 PDF, and CT computation" : ""} and the numbers are
+          correct.
+        </span>
+      </label>
+
       <FormErrorBanner error={error} />
 
       <div className="flex flex-wrap gap-2">
         <button type="button" className="btn btn-secondary" onClick={onBack}>
           Edit details
         </button>
-        <button type="button" className="btn btn-primary" onClick={onNext}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          disabled={!canProceed}
+          onClick={onNext}
+        >
           Proceed to submit
         </button>
       </div>
+      {!canProceed && (
+        <p className="text-sm text-ink-soft">
+          {chPreviewError
+            ? "Fix the Companies House preview error before submitting."
+            : needsAccounts && !chPreviewHtml
+              ? "Wait for the Companies House preview, then confirm you have reviewed it."
+              : "Tick the review confirmation above before submitting."}
+        </p>
+      )}
     </div>
   );
 }
@@ -2665,13 +3128,18 @@ function TwoYearTable({
             : "min-w-[20rem] [&_td:nth-child(3)]:hidden [&_th:nth-child(3)]:hidden"
         }`}
       >
+        <colgroup>
+          <col />
+          <col className="w-[9.5rem]" />
+          <col className="w-[9.5rem]" />
+        </colgroup>
         <thead>
           <tr className="border-b border-line text-left text-ink-soft">
             <th className="py-2 pr-3 font-semibold">Category</th>
-            <th className="w-36 py-2 px-2 text-right font-semibold">
+            <th className="w-[9.5rem] py-2 px-1 text-right font-semibold">
               {currentLabel}
             </th>
-            <th className="w-36 py-2 pl-2 text-right font-semibold">
+            <th className="w-[9.5rem] py-2 px-1 text-right font-semibold">
               {previousLabel}
             </th>
           </tr>
@@ -2699,11 +3167,11 @@ function InputRow({
 }) {
   return (
     <tr className="border-b border-line/60">
-      <td className="py-2.5 pr-3 text-ink">{label}</td>
-      <td className="px-2 py-2">
+      <td className="py-2 pr-3 text-ink">{label}</td>
+      <td className="w-[9.5rem] px-1 py-1.5">
         <MoneyInput value={current} onChange={onCurrent} brackets={brackets} />
       </td>
-      <td className="pl-2 py-2">
+      <td className="w-[9.5rem] px-1 py-1.5">
         <MoneyInput
           value={previous}
           onChange={onPrevious}
@@ -2728,21 +3196,35 @@ function ComputedRow({
   return (
     <tr className="border-b border-line/60 bg-sand/30">
       <td
-        className={`py-2.5 pr-3 ${emphasis ? "font-semibold text-ink" : "text-ink"}`}
+        className={`py-2 pr-3 ${emphasis ? "font-semibold text-ink" : "text-ink"}`}
       >
         {label}
       </td>
-      <td
-        className={`mono px-2 py-2.5 text-right ${emphasis ? "font-semibold" : ""}`}
-      >
-        {current}
+      <td className="w-[9.5rem] px-1 py-2">
+        <AmountText value={current} emphasis={emphasis} />
       </td>
-      <td
-        className={`mono pl-2 py-2.5 text-right ${emphasis ? "font-semibold" : ""}`}
-      >
-        {previous}
+      <td className="w-[9.5rem] px-1 py-2">
+        <AmountText value={previous} emphasis={emphasis} />
       </td>
     </tr>
+  );
+}
+
+function AmountText({
+  value,
+  emphasis,
+}: {
+  value: string;
+  emphasis?: boolean;
+}) {
+  return (
+    <div
+      className={`mono ml-auto w-full max-w-[8.75rem] px-2.5 text-right tabular-nums tracking-tight ${
+        emphasis ? "font-semibold text-ink" : "text-ink"
+      }`}
+    >
+      {value}
+    </div>
   );
 }
 
@@ -2756,29 +3238,37 @@ function MoneyInput({
   brackets?: boolean;
 }) {
   return (
-    <div
-      className={`flex items-center rounded-lg border border-line bg-white transition focus-within:border-sea focus-within:ring-2 focus-within:ring-sea/20 ${
-        brackets ? "gap-0.5 px-2" : "px-2"
-      }`}
-    >
-      {brackets && (
-        <span className="select-none font-medium text-ink-soft" aria-hidden>
-          (
-        </span>
-      )}
-      <input
-        className="min-w-0 flex-1 border-0 bg-transparent py-2.5 text-right font-mono text-sm text-ink outline-none placeholder:text-ink-soft/40"
-        inputMode="decimal"
-        value={value}
-        placeholder=""
-        onChange={(e) => onChange(e.target.value.replace(/[^\d.-]/g, ""))}
-        aria-label={brackets ? "Amount (shown as a deduction)" : undefined}
-      />
-      {brackets && (
-        <span className="select-none font-medium text-ink-soft" aria-hidden>
-          )
-        </span>
-      )}
+    <div className="ml-auto flex w-full max-w-[8.75rem] justify-end">
+      <div
+        className={`inline-flex items-center rounded-lg border border-line bg-white transition focus-within:border-sea focus-within:ring-2 focus-within:ring-sea/20 ${
+          brackets ? "pl-1.5 pr-1" : "px-2.5"
+        }`}
+      >
+        {brackets ? (
+          <span
+            className="select-none font-mono text-sm leading-none text-ink-soft"
+            aria-hidden
+          >
+            (
+          </span>
+        ) : null}
+        <input
+          className="w-[6.25rem] border-0 bg-transparent py-2 text-right font-mono text-sm tabular-nums tracking-tight text-ink outline-none placeholder:text-ink-soft/40"
+          inputMode="decimal"
+          value={value}
+          placeholder=""
+          onChange={(e) => onChange(e.target.value.replace(/[^\d.-]/g, ""))}
+          aria-label={brackets ? "Amount (shown as a deduction)" : undefined}
+        />
+        {brackets ? (
+          <span
+            className="select-none font-mono text-sm leading-none text-ink-soft"
+            aria-hidden
+          >
+            )
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }

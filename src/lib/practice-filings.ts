@@ -12,7 +12,12 @@ import {
 export type PracticeFilingKind =
   | "corporation_tax"
   | "confirmation_statement"
-  | "annual_accounts";
+  | "annual_accounts"
+  | "vat"
+  | "paye"
+  | "self_assessment"
+  | "itsa_quarterly"
+  | "aml_review";
 
 export type PracticeFilingRow = {
   id: string;
@@ -27,6 +32,7 @@ export type PracticeFilingRow = {
   urgency: FilingUrgency;
   daysLabel: string;
   href: string;
+  jobStatus?: import("@/lib/desk-profile").JobStatus | null;
 };
 
 function daysBetween(dueIso: string, now = new Date()) {
@@ -51,8 +57,61 @@ export type PracticeClientLite = {
   name: string;
   type: string;
   companyNumber: string | null;
+  isVatRegistered?: boolean;
+  isEmployer?: boolean;
+  amlNextReviewOn?: string | null;
   companiesHouse?: ClientCompaniesHouseSnapshot | null;
 };
+
+function isoDate(year: number, month: number, day: number) {
+  const m = String(month).padStart(2, "0");
+  const d = String(day).padStart(2, "0");
+  return `${year}-${m}-${d}`;
+}
+
+/** Next electronic PAYE payment date (22nd). */
+function nextPayeDeadline(now: Date) {
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  const thisMonth = isoDate(y, m, 22);
+  if (now.getDate() <= 22) return thisMonth;
+  const next = new Date(y, m, 22);
+  return isoDate(next.getFullYear(), next.getMonth() + 1, 22);
+}
+
+/** Next standard VAT stagger: 1 month and 7 days after Mar/Jun/Sep/Dec. */
+function nextVatDeadline(now: Date) {
+  const periodEndMonths = [2, 5, 8, 11];
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  for (let year = now.getFullYear() - 1; year <= now.getFullYear() + 1; year++) {
+    for (const endMonth of periodEndMonths) {
+      const due = new Date(year, endMonth + 2, 7);
+      if (due >= today) {
+        return isoDate(due.getFullYear(), due.getMonth() + 1, due.getDate());
+      }
+    }
+  }
+  return isoDate(now.getFullYear() + 1, 5, 7);
+}
+
+function nextSaDeadline(now: Date) {
+  const y = now.getFullYear();
+  const jan31 = new Date(y, 0, 31);
+  const year = now <= jan31 ? y : y + 1;
+  return isoDate(year, 1, 31);
+}
+
+function nextItsaDeadline(now: Date) {
+  const y = now.getFullYear();
+  const candidates = [
+    isoDate(y, 8, 7),
+    isoDate(y, 11, 7),
+    isoDate(y + 1, 2, 7),
+    isoDate(y + 1, 5, 7),
+  ];
+  const today = isoDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  return candidates.find((d) => d >= today) ?? isoDate(y + 1, 8, 7);
+}
 
 export function buildPracticeFilings(
   clients: PracticeClientLite[],
@@ -163,6 +222,98 @@ export function buildPracticeFilings(
     }
   }
 
+  for (const client of clients) {
+    const slug = client.id;
+    if (client.isVatRegistered) {
+      const due = nextVatDeadline(now);
+      const urgency = urgencyForDueDate(due, now);
+      rows.push({
+        id: `${client.id}:vat`,
+        clientId: client.id,
+        companyName: client.name,
+        companyNumber: client.companyNumber,
+        kind: "vat",
+        label: "VAT return",
+        periodLabel: "Next standard quarter",
+        deadlineIso: due,
+        deadlineLabel: formatDueShort(due) ?? "—",
+        urgency,
+        daysLabel: daysLabel(due, urgency),
+        href: `/clients/${slug}/vat`,
+      });
+    }
+    if (client.isEmployer) {
+      const due = nextPayeDeadline(now);
+      const urgency = urgencyForDueDate(due, now);
+      rows.push({
+        id: `${client.id}:paye`,
+        clientId: client.id,
+        companyName: client.name,
+        companyNumber: client.companyNumber,
+        kind: "paye",
+        label: "PAYE payment",
+        periodLabel: "Electronic payment to HMRC",
+        deadlineIso: due,
+        deadlineLabel: formatDueShort(due) ?? "—",
+        urgency,
+        daysLabel: daysLabel(due, urgency),
+        href: `/clients/${slug}/payroll`,
+      });
+    }
+    const amlDue = client.amlNextReviewOn?.slice(0, 10) || null;
+    if (amlDue) {
+      const urgency = urgencyForDueDate(amlDue, now);
+      rows.push({
+        id: `${client.id}:aml`,
+        clientId: client.id,
+        companyName: client.name,
+        companyNumber: client.companyNumber,
+        kind: "aml_review",
+        label: "AML review",
+        periodLabel: "Customer due diligence",
+        deadlineIso: amlDue,
+        deadlineLabel: formatDueShort(amlDue) ?? "—",
+        urgency,
+        daysLabel: daysLabel(amlDue, urgency),
+        href: `/clients/${slug}/aml`,
+      });
+    }
+    if (client.type === "sole_trader" || client.type === "partnership") {
+      const sa = nextSaDeadline(now);
+      const saUrgency = urgencyForDueDate(sa, now);
+      rows.push({
+        id: `${client.id}:sa`,
+        clientId: client.id,
+        companyName: client.name,
+        companyNumber: client.companyNumber,
+        kind: "self_assessment",
+        label: "Self Assessment",
+        periodLabel: "Online filing deadline",
+        deadlineIso: sa,
+        deadlineLabel: formatDueShort(sa) ?? "—",
+        urgency: saUrgency,
+        daysLabel: daysLabel(sa, saUrgency),
+        href: `/clients/${slug}/self-assessment`,
+      });
+      const itsa = nextItsaDeadline(now);
+      const itsaUrgency = urgencyForDueDate(itsa, now);
+      rows.push({
+        id: `${client.id}:itsa`,
+        clientId: client.id,
+        companyName: client.name,
+        companyNumber: client.companyNumber,
+        kind: "itsa_quarterly",
+        label: "MTD quarterly update",
+        periodLabel: "Income Tax quarterly update",
+        deadlineIso: itsa,
+        deadlineLabel: formatDueShort(itsa) ?? "—",
+        urgency: itsaUrgency,
+        daysLabel: daysLabel(itsa, itsaUrgency),
+        href: `/clients/${slug}/self-assessment`,
+      });
+    }
+  }
+
   const rank: Record<FilingUrgency, number> = {
     overdue: 0,
     due_soon: 1,
@@ -182,5 +333,10 @@ export function buildPracticeFilings(
 export function filingKindLabel(kind: PracticeFilingKind) {
   if (kind === "corporation_tax") return "Corporation Tax";
   if (kind === "confirmation_statement") return "Confirmation Statement";
+  if (kind === "vat") return "VAT";
+  if (kind === "paye") return "PAYE";
+  if (kind === "self_assessment") return "Self Assessment";
+  if (kind === "itsa_quarterly") return "MTD quarterly update";
+  if (kind === "aml_review") return "AML review";
   return "Annual accounts";
 }

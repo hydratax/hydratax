@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/env";
+import { PendingLink } from "@/components/pending-link";
 
 /**
  * Public header auth links — show desk link when signed in instead of always Sign in.
@@ -57,20 +58,21 @@ export function PublicAuthLinks({
 
   if (signedIn) {
     return (
-      <Link
+      <PendingLink
         href="/dashboard"
         className={deskClass ?? signUpClass}
+        pendingLabel="Opening desk…"
       >
         Open desk
-      </Link>
+      </PendingLink>
     );
   }
 
   return (
     <>
-      <Link href="/sign-in" className={signInClass}>
+      <PendingLink href="/sign-in" className={signInClass} pendingLabel="Opening…">
         Sign in
-      </Link>
+      </PendingLink>
       <Link href="/create-account" className={signUpClass}>
         Sign up
       </Link>

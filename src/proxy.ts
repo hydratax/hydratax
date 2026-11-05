@@ -28,6 +28,7 @@ const PUBLIC_PREFIXES = [
   "/api/unsubscribe",
   "/unsubscribe",
   "/api/companies-house",
+  "/portal",
 ];
 
 function isPublicPath(pathname: string) {

@@ -3,31 +3,20 @@ import { ct600FiguresSchema } from "@/server/money/schemas";
 import type { Ct600Figures, Ct600PrincipalContact } from "@/server/hmrc/ct600/types";
 import { attachmentsXml, buildCt600Attachments } from "@/server/hmrc/ct600/attachments";
 import { ctTag } from "@/server/hmrc/ct600/ct-xml";
+import {
+  computeTaxChargePence,
+  ctRateLabelForProfitPence,
+} from "@/server/hmrc/ct600/tax-charge";
 import { escapeXml, penceToPoundsDisplay } from "@/server/hmrc/ct600/xml-utils";
 import type { YearEndAccountsDraft } from "@/server/accounts/year-end-from-bank";
 
-const CT_RATE_LEGACY = "19.00";
-const CT_RATE_MAIN = "25.00";
-
-function ctRateForFinancialYear(fy: number): string {
-  return fy >= 2023 ? CT_RATE_MAIN : CT_RATE_LEGACY;
-}
-
-function computeTaxForSlice(profitPence: number, fy: number): number {
-  if (profitPence <= 0) return 0;
-  const rate = fy >= 2023 ? 0.25 : 0.19;
-  return Math.round(profitPence * rate);
-}
+export { computeTaxChargePence } from "@/server/hmrc/ct600/tax-charge";
 
 export function computeTaxableProfit(figures: Ct600Figures): Pence {
   const f = ct600FiguresSchema.parse(figures);
   const costs = Number(f.costOfSalesPence) + Number(f.administrativeExpensesPence);
   const income = Number(f.turnoverPence) + Number(f.otherIncomePence);
   return subtractPence(income, costs);
-}
-
-export function computeTaxChargePence(taxableProfitPence: number): number {
-  return Math.round(taxableProfitPence * 0.25);
 }
 
 function poundsFromPence(pence: number): string {
@@ -110,12 +99,13 @@ function financialYearXml(
   fy: number,
   profitPence: number,
   taxPence: number,
+  rateLabel: string,
 ): string {
   return `<${ctTag(tag)}>
           <${ctTag("Year")}>${fy}</${ctTag("Year")}>
           <${ctTag("Details")}>
             <${ctTag("Profit")}>${poundsFromPence(profitPence)}</${ctTag("Profit")}>
-            <${ctTag("TaxRate")}>${ctRateForFinancialYear(fy)}</${ctTag("TaxRate")}>
+            <${ctTag("TaxRate")}>${rateLabel}</${ctTag("TaxRate")}>
             <${ctTag("Tax")}>${moneyFromPence(taxPence)}</${ctTag("Tax")}>
           </${ctTag("Details")}>
         </${ctTag(tag)}>`;
@@ -141,8 +131,9 @@ export function buildCt600BodyInner(opts: {
   const figures = ct600FiguresSchema.parse(opts.figures);
   const utr = String(opts.utr).replace(/\s+/g, "");
   const taxable = computeTaxableProfit(figures);
-  const taxCharge = computeTaxChargePence(Number(taxable));
   const taxablePence = Number(taxable);
+  const taxCharge = computeTaxChargePence(taxablePence);
+  const rateLabel = ctRateLabelForProfitPence(taxablePence);
   const tradingPence = Math.max(
     0,
     Number(figures.turnoverPence) -
@@ -177,6 +168,8 @@ export function buildCt600BodyInner(opts: {
     figures.periodEnd,
     taxablePence,
   );
+  // Apportion the single correctly-rated charge across FY slices (do not
+  // re-apply 25% per slice — that ignored the small profits rate).
   const taxSlices = apportionByFinancialYear(
     figures.periodStart,
     figures.periodEnd,
@@ -184,19 +177,27 @@ export function buildCt600BodyInner(opts: {
   );
   const fyOne = profitSlices[0];
   const fyTwo = profitSlices[1];
-  const taxOne = fyOne
-    ? computeTaxForSlice(fyOne.pence, fyOne.fy)
-    : 0;
-  const taxTwo = fyTwo
-    ? computeTaxForSlice(fyTwo.pence, fyTwo.fy)
-    : 0;
+  const taxOne = taxSlices[0]?.pence ?? 0;
+  const taxTwo = taxSlices[1]?.pence ?? 0;
 
   const fyXml = [
     fyOne
-      ? financialYearXml("FinancialYearOne", fyOne.fy, fyOne.pence, taxOne)
+      ? financialYearXml(
+          "FinancialYearOne",
+          fyOne.fy,
+          fyOne.pence,
+          taxOne,
+          rateLabel,
+        )
       : "",
     fyTwo
-      ? financialYearXml("FinancialYearTwo", fyTwo.fy, fyTwo.pence, taxTwo)
+      ? financialYearXml(
+          "FinancialYearTwo",
+          fyTwo.fy,
+          fyTwo.pence,
+          taxTwo,
+          rateLabel,
+        )
       : "",
   ].join("");
 

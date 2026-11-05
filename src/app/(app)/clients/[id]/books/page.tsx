@@ -2,6 +2,7 @@ import { listLedgerEntries } from "@/server/actions/ledger";
 import { LedgerForm } from "@/components/forms/ledger-form";
 import { money } from "@/lib/format";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
+import Link from "next/link";
 
 export default async function BooksPage({
   params,
@@ -21,7 +22,37 @@ export default async function BooksPage({
 
   return (
     <div>
-      <p className="mb-4 text-sm text-ink-soft">Digital books in integer pence</p>
+      <p className="mb-4 text-sm text-ink-soft">
+        Digital books in integer pence. Income and expenses here are the source
+        for VAT, Self Assessment, Corporation Tax, and the year-end accounts.
+        Do not retype them into another package.
+      </p>
+      <p className="mb-6 text-sm">
+        <Link className="font-semibold text-sea" href={`/clients/${slug}/vat`}>
+          VAT
+        </Link>
+        {" · "}
+        <Link
+          className="font-semibold text-sea"
+          href={`/clients/${slug}/corporation-tax`}
+        >
+          Corporation Tax
+        </Link>
+        {" · "}
+        <Link
+          className="font-semibold text-sea"
+          href={`/clients/${slug}/self-assessment`}
+        >
+          Self Assessment
+        </Link>
+        {" · "}
+        <Link
+          className="font-semibold text-sea"
+          href={`/clients/${slug}/accounts-pack`}
+        >
+          Accounts pack
+        </Link>
+      </p>
 
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
         <div className="panel p-4">

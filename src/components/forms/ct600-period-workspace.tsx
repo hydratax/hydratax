@@ -12,6 +12,7 @@ import {
   paymentDueFromPeriodEnd,
   addCalendarYear,
   type CtAccountingPeriod,
+  type PriorYearComparatives,
 } from "@/lib/accounting-periods";
 
 type FiledReturn = {
@@ -122,6 +123,9 @@ export function Ct600PeriodWorkspace({
   company,
   accountsCheckoutHref,
   lastFiledAccounts = null,
+  priorYearComparatives = null,
+  priorYearSource = "none",
+  priorYearMadeUpTo = null,
 }: {
   clientId: string;
   clientSlug: string;
@@ -142,6 +146,9 @@ export function Ct600PeriodWorkspace({
   };
   accountsCheckoutHref: string;
   lastFiledAccounts?: LastFiledAccounts | null;
+  priorYearComparatives?: PriorYearComparatives | null;
+  priorYearSource?: "saved" | "ct600" | "companies_house" | "none";
+  priorYearMadeUpTo?: string | null;
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<"pick" | "file">(
@@ -326,6 +333,9 @@ export function Ct600PeriodWorkspace({
           company={company}
           accountsCheckoutHref={accountsCheckoutHref}
           lastFiledAccounts={lastFiledAccounts}
+          priorYearComparatives={priorYearComparatives}
+          priorYearSource={priorYearSource}
+          priorYearMadeUpTo={priorYearMadeUpTo}
           persistKey={`hydratax_ct600_${clientId}_${selected.start}_${selected.end}`}
           postSignInPath={`/clients/${clientSlug}/corporation-tax?start=${encodeURIComponent(selected.start)}&end=${encodeURIComponent(selected.end)}`}
         />

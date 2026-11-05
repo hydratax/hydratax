@@ -572,6 +572,13 @@ async function submitAccounts(
     };
   }
 
+  const clientId = str(payload, "clientId");
+  if (clientId) {
+    const { portalApprovalError } = await import("@/server/actions/desk");
+    const approval = await portalApprovalError(clientId, "accounts");
+    if (approval) return { ok: false, error: approval };
+  }
+
   const result = await submitAccountsFromPayload({
     companyNumber,
     companyName,

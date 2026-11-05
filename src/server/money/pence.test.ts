@@ -122,6 +122,7 @@ describe("ct600 + payroll builders", () => {
         creditorsPence: pence(0),
         calledUpShareCapitalPence: pence(10000),
         profitAndLossAccountPence: pence(0),
+        corporationTaxPence: pence(0),
       },
     });
     expect(built.xml).toContain("HMRC-CT-CT600");

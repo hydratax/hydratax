@@ -63,6 +63,8 @@ export const ct600FiguresSchema = z.object({
   creditorsPence: penceSchema.default(pence(0)),
   calledUpShareCapitalPence: penceSchema.default(pence(0)),
   profitAndLossAccountPence: penceSchema.default(pence(0)),
+  /** CT charge / payable from TB — used for accounts pack, not CT600 box maths. */
+  corporationTaxPence: penceSchema.default(pence(0)),
 });
 
 export const employeeInputSchema = z.object({

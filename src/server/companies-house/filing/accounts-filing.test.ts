@@ -9,7 +9,7 @@ import {
 } from "./ch-micro-ixbrl";
 
 describe("deriveMicroBalanceSheet", () => {
-  it("keeps net assets equal to equity", () => {
+  it("keeps net assets equal to equity including unpaid share capital", () => {
     const lines = deriveMicroBalanceSheet({
       fixedAssetsPence: 50_000,
       currentAssetsPence: 10_000,
@@ -20,15 +20,17 @@ describe("deriveMicroBalanceSheet", () => {
     });
     expect(lines.equity).toBe(55_000);
     expect(lines.netAssets).toBe(55_000);
+    expect(lines.notPaid).toBe(100);
     expect(
-      lines.fixedAssets +
+      lines.notPaid +
+        lines.fixedAssets +
         lines.currentAssets -
         lines.creditorsWithin -
         lines.creditorsAfter,
     ).toBe(lines.netAssets);
   });
 
-  it("absorbs residual into current assets when inputs drift", () => {
+  it("places unpaid share capital on its own line when that is the only asset", () => {
     const lines = deriveMicroBalanceSheet({
       fixedAssetsPence: 0,
       currentAssetsPence: 0,
@@ -37,8 +39,36 @@ describe("deriveMicroBalanceSheet", () => {
       shareCapitalPence: 100,
       retainedEarningsPence: 0,
     });
-    expect(lines.currentAssets).toBe(100);
+    expect(lines.notPaid).toBe(100);
+    expect(lines.currentAssets).toBe(0);
     expect(lines.netAssets).toBe(100);
+  });
+
+  it("rounds every line to whole pounds", () => {
+    const lines = deriveMicroBalanceSheet({
+      fixedAssetsPence: 6879, // £68.79 → £69
+      currentAssetsPence: 194_949,
+      creditorsWithinPence: 125_528, // £1,255.28 → £1,255
+      creditorsAfterPence: 0,
+      shareCapitalPence: 10_000,
+      retainedEarningsPence: 76_318, // £763.18 → £763
+      calledUpShareCapitalNotPaidPence: 10_000,
+    });
+    expect(lines.fixedAssets).toBe(6900);
+    expect(lines.creditorsWithin).toBe(125_500);
+    expect(lines.shareCapital).toBe(10_000);
+    expect(lines.retainedEarnings).toBe(76_300);
+    expect(lines.fixedAssets % 100).toBe(0);
+    expect(lines.currentAssets % 100).toBe(0);
+    expect(lines.netCurrent % 100).toBe(0);
+    expect(lines.netAssets % 100).toBe(0);
+    expect(
+      lines.notPaid +
+        lines.fixedAssets +
+        lines.currentAssets -
+        lines.creditorsWithin -
+        lines.creditorsAfter,
+    ).toBe(lines.netAssets);
   });
 });
 
@@ -94,6 +124,10 @@ describe("buildChMicroAccountsIxbrl", () => {
     expect(html).toContain("uk-core:CurrentAssets");
     expect(html).toContain("uk-core:NetAssetsLiabilities");
     expect(html).toContain("uk-core:Equity");
+    expect(html).toContain(
+      "uk-core:CalledUpShareCapitalNotPaidNotExpressedAsCurrentAsset",
+    );
+    expect(html).toContain("Micro-entity Balance Sheet as at");
     expect(html).toContain("uk-direp:StatementThatCompanyEntitledToExemption");
     expect(html).toContain("uk-bus:Micro-entities");
     expect(html).toContain("12357645");

@@ -35,14 +35,14 @@ function authHeader() {
   return `Basic ${token}`;
 }
 
-async function chFetch<T>(path: string): Promise<T> {
+async function chFetch<T>(path: string, revalidate = 0): Promise<T> {
   const base = getCompaniesHouseApiBase();
   const res = await fetch(`${base}${path}`, {
     headers: {
       Authorization: authHeader(),
       Accept: "application/json",
     },
-    next: { revalidate: 0 },
+    next: { revalidate },
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -132,9 +132,13 @@ export async function searchCompanies(query: string, itemsPerPage = 10) {
   return data.items ?? [];
 }
 
-export async function getCompanyProfile(companyNumber: string) {
+export async function getCompanyProfile(
+  companyNumber: string,
+  revalidate = 0,
+) {
   return chFetch<ChCompanyProfile>(
     `/company/${encodeURIComponent(companyNumber)}`,
+    revalidate,
   );
 }
 
@@ -247,6 +251,32 @@ function normalizeDocumentApiUrl(url: string) {
     );
 }
 
+function mapAccountsFilingItem(
+  companyNumber: string,
+  preferred: ChFilingHistoryItem,
+): LastAccountsFiling {
+  const registerBase =
+    "https://find-and-update.company-information.service.gov.uk";
+  const meta = preferred.links?.document_metadata
+    ? normalizeDocumentApiUrl(preferred.links.document_metadata)
+    : null;
+  return {
+    transactionId: preferred.transaction_id,
+    type: preferred.type ?? null,
+    description: humanizeFilingDescription(preferred.description),
+    filedOn: preferred.date ?? null,
+    madeUpTo: preferred.description_values?.made_up_date ?? null,
+    pages: preferred.pages ?? null,
+    registerUrl: `${registerBase}/company/${encodeURIComponent(companyNumber)}/filing-history/${encodeURIComponent(preferred.transaction_id)}`,
+    companyFilingHistoryUrl: `${registerBase}/company/${encodeURIComponent(companyNumber)}/filing-history?category=accounts`,
+    documentMetadataUrl: meta,
+  };
+}
+
+function isAccountsAaType(type: string | undefined) {
+  return /^(AA|AAMD|AA01|AA02|AA03|AA04|AA05|AA06)/i.test(type ?? "");
+}
+
 /** Most recent accounts filing from the public register (AA / micro / etc.). */
 export async function getLastAccountsFiling(
   companyNumber: string,
@@ -257,26 +287,50 @@ export async function getLastAccountsFiling(
     );
     const items = data.items ?? [];
     const preferred =
-      items.find((i) =>
-        /^(AA|AAMD|AA01|AA02|AA03|AA04|AA05|AA06)/i.test(i.type ?? ""),
-      ) ?? items[0];
+      items.find((i) => isAccountsAaType(i.type)) ?? items[0];
     if (!preferred) return null;
-    const registerBase =
-      "https://find-and-update.company-information.service.gov.uk";
-    const meta = preferred.links?.document_metadata
-      ? normalizeDocumentApiUrl(preferred.links.document_metadata)
-      : null;
-    return {
-      transactionId: preferred.transaction_id,
-      type: preferred.type ?? null,
-      description: humanizeFilingDescription(preferred.description),
-      filedOn: preferred.date ?? null,
-      madeUpTo: preferred.description_values?.made_up_date ?? null,
-      pages: preferred.pages ?? null,
-      registerUrl: `${registerBase}/company/${encodeURIComponent(companyNumber)}/filing-history/${encodeURIComponent(preferred.transaction_id)}`,
-      companyFilingHistoryUrl: `${registerBase}/company/${encodeURIComponent(companyNumber)}/filing-history?category=accounts`,
-      documentMetadataUrl: meta,
-    };
+    return mapAccountsFilingItem(companyNumber, preferred);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Accounts filing to use as the comparative year:
+ * - exact made-up-to match for `targetMadeUpTo` when present
+ * - else the latest AA filing with made-up-to strictly before `currentPeriodEnd`
+ * - else the latest AA filing
+ */
+export async function getAccountsFilingForComparatives(
+  companyNumber: string,
+  opts?: { targetMadeUpTo?: string | null; currentPeriodEnd?: string | null },
+): Promise<LastAccountsFiling | null> {
+  try {
+    const data = await chFetch<{ items?: ChFilingHistoryItem[] }>(
+      `/company/${encodeURIComponent(companyNumber)}/filing-history?category=accounts&items_per_page=25`,
+    );
+    const items = (data.items ?? []).filter((i) => isAccountsAaType(i.type));
+    const pool = items.length ? items : (data.items ?? []);
+    if (!pool.length) return null;
+
+    const target = opts?.targetMadeUpTo;
+    if (target) {
+      const exact = pool.find(
+        (i) => i.description_values?.made_up_date === target,
+      );
+      if (exact) return mapAccountsFilingItem(companyNumber, exact);
+    }
+
+    const currentEnd = opts?.currentPeriodEnd;
+    if (currentEnd) {
+      const earlier = pool.find((i) => {
+        const made = i.description_values?.made_up_date;
+        return Boolean(made && made < currentEnd);
+      });
+      if (earlier) return mapAccountsFilingItem(companyNumber, earlier);
+    }
+
+    return mapAccountsFilingItem(companyNumber, pool[0]!);
   } catch {
     return null;
   }
@@ -309,8 +363,16 @@ async function fetchDocumentMetadata(documentMetadataUrl: string) {
   return (await metaRes.json()) as ChDocumentMetadata;
 }
 
-function pickDocumentContentType(meta: ChDocumentMetadata) {
+function pickDocumentContentType(
+  meta: ChDocumentMetadata,
+  preferIxbrl = false,
+) {
   const resources = meta.resources ?? {};
+  if (preferIxbrl) {
+    if (resources["application/xhtml+xml"]) return "application/xhtml+xml";
+    if (resources["application/xml"]) return "application/xml";
+    if (resources["text/html"]) return "text/html";
+  }
   if (resources["application/pdf"]) return "application/pdf";
   if (resources["application/xhtml+xml"]) return "application/xhtml+xml";
   return Object.keys(resources)[0] ?? null;
@@ -331,11 +393,12 @@ export async function peekFilingDocument(documentMetadataUrl: string) {
 }
 
 /**
- * Download a filing document (PDF preferred) via the Companies House Document API.
+ * Download a filing document via the Companies House Document API.
  * Content requests return a 302 to S3 — follow without the API key.
  */
 export async function downloadFilingDocument(
   documentMetadataUrl: string,
+  opts?: { preferIxbrl?: boolean },
 ): Promise<{
   bytes: ArrayBuffer;
   contentType: string;
@@ -344,7 +407,7 @@ export async function downloadFilingDocument(
 }> {
   const auth = authHeader();
   const meta = await fetchDocumentMetadata(documentMetadataUrl);
-  const contentType = pickDocumentContentType(meta);
+  const contentType = pickDocumentContentType(meta, opts?.preferIxbrl === true);
   if (!contentType || !meta.links?.document) {
     throw new Error("No downloadable document content on this filing");
   }
@@ -392,6 +455,13 @@ export async function downloadFilingDocument(
     filename,
     pages: meta.pages ?? null,
   };
+}
+
+/** Prefer iXBRL/XHTML so we can extract comparative figures. */
+export async function downloadFilingDocumentPreferringIxbrl(
+  documentMetadataUrl: string,
+) {
+  return downloadFilingDocument(documentMetadataUrl, { preferIxbrl: true });
 }
 
 /** Offline sample when API key missing — never claim it is live register data */

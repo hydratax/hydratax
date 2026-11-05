@@ -224,6 +224,10 @@ export async function submitPreparedVatReturn(
   const data = submitSchema.parse(input);
   const client = await getClient(data.clientId);
   if (!client.vrn) throw new Error("Missing VRN");
+  const approval = await import("@/server/actions/desk").then((m) =>
+    m.portalApprovalError(data.clientId, "vat"),
+  );
+  if (approval) throw new Error(approval);
 
   const fraudHeaders = buildFraudPreventionHeaders(data.fraudMetadata);
   const draft =

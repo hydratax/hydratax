@@ -223,7 +223,7 @@ export function SiteHeader({
                 {l.label}
               </Link>
             ))}
-            <div className="mt-3 flex flex-col gap-2" onClick={closeMobile}>
+            <div className="mt-3 flex flex-col gap-2">
               <PublicAuthLinks
                 signInClass={`${signIn} w-full justify-center`}
                 signUpClass={`${signUp} w-full justify-center`}

@@ -22,6 +22,7 @@ const hydraDormant: Ct600PackageInput = {
     creditorsPence: pence(0),
     calledUpShareCapitalPence: pence(0),
     profitAndLossAccountPence: pence(0),
+        corporationTaxPence: pence(0),
   },
   questionnaire: {
     period_dates: true,

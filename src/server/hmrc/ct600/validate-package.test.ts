@@ -21,6 +21,7 @@ const baseInput: Ct600PackageInput = {
     creditorsPence: pence(30_000),
     calledUpShareCapitalPence: pence(100),
     profitAndLossAccountPence: pence(500_000),
+        corporationTaxPence: pence(0),
   },
   questionnaire: {
     period_dates: true,

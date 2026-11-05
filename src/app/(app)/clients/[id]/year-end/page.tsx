@@ -13,6 +13,8 @@ import {
   type YearEndFilingMode,
 } from "@/components/forms/year-end-filing-form";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
+import { EMPTY_COMPARATIVES } from "@/lib/accounting-periods";
+import { loadPriorYearComparatives } from "@/server/accounts/load-prior-year-comparatives";
 
 function parseMode(raw: string | undefined): YearEndFilingMode {
   if (raw === "accounts" || raw === "both" || raw === "ct600") return raw;
@@ -47,11 +49,34 @@ export default async function YearEndFilingPage({
     client.companyNumber ||
     null;
 
-  const [chFiling, documents] = await Promise.all([
+  // Prefer next accounts period end; else one year after last filed made-up-to.
+  const periodEndHint =
+    ch?.accountsPeriodEnd ??
+    (ch?.lastAccountsMadeUpTo &&
+    /^\d{4}-\d{2}-\d{2}$/.test(ch.lastAccountsMadeUpTo)
+      ? (() => {
+          const d = new Date(`${ch.lastAccountsMadeUpTo}T12:00:00Z`);
+          d.setUTCFullYear(d.getUTCFullYear() + 1);
+          return d.toISOString().slice(0, 10);
+        })()
+      : null);
+
+  const [chFiling, documents, priorYear] = await Promise.all([
     companyNumber && isCompaniesHouseApiConfigured()
       ? getLastAccountsFiling(companyNumber).catch(() => null)
       : Promise.resolve(null),
     listClientDocuments(clientId).catch(() => []),
+    loadPriorYearComparatives({
+      clientId,
+      companyNumber,
+      periodEnd: periodEndHint,
+      savedComparatives:
+        "accountsComparatives" in client ? client.accountsComparatives : null,
+    }).catch(() => ({
+      comparatives: { ...EMPTY_COMPARATIVES },
+      source: "none" as const,
+      madeUpTo: null as string | null,
+    })),
   ]);
 
   const localAccounts = documents.find((d) => {
@@ -159,6 +184,9 @@ export default async function YearEndFilingPage({
               : `/companies-house/accounts-ixbrl?clientId=${encodeURIComponent(clientId)}&pay=1`
           }
           lastFiledAccounts={lastFiledAccounts}
+          priorYearComparatives={priorYear.comparatives}
+          priorYearSource={priorYear.source}
+          priorYearMadeUpTo={priorYear.madeUpTo}
         />
       </Suspense>
     </div>

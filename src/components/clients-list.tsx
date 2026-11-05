@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import { PendingLink } from "@/components/pending-link";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import {
   filingStatusFromSnapshot,
@@ -224,17 +224,20 @@ export function ClientsList({ clients }: { clients: ClientListItem[] }) {
                 : "";
 
           return (
-            <Link
+            <PendingLink
               key={c.id}
               href={`/clients/${c.slug}`}
               className={`panel panel-interactive client-card flex h-full flex-col p-5 ${highlight}`}
+              pendingLabel="Opening client…"
             >
+              {(pending) => (
+                <>
               <div className="flex items-start justify-between gap-3">
                 <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
                   {c.name}
                 </h2>
-                <span className="shrink-0 pt-1 text-sm font-semibold text-sea">
-                  Open →
+                <span className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}>
+                  {pending ? "Opening…" : "Open"}
                 </span>
               </div>
 
@@ -279,7 +282,9 @@ export function ClientsList({ clients }: { clients: ClientListItem[] }) {
                   .filter(Boolean)
                   .join(" · ") || "No identifiers yet"}
               </p>
-            </Link>
+                </>
+              )}
+            </PendingLink>
           );
         })}
       </div>

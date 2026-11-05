@@ -73,8 +73,10 @@ function normaliseCompanyNumber(raw: string) {
 type YearEndPayload = {
   pl?: Record<string, string>;
   bs?: Record<string, string>;
+  bsPrevious?: Record<string, string>;
   periodStart?: string;
   periodEnd?: string;
+  previousPeriodEnd?: string;
   companyType?: string;
   directorName?: string;
   companyNumber?: string;
@@ -109,6 +111,7 @@ export function balanceSheetFromYearEndPayload(
       retainedEarningsPence: 0,
     };
   }
+  const shareCapitalPence = poundsToPence(bs.shareCapital) || 100;
   return {
     fixedAssetsPence: poundsToPence(bs.fixedAssets),
     currentAssetsPence: poundsToPence(bs.totalCurrentAssets),
@@ -116,8 +119,31 @@ export function balanceSheetFromYearEndPayload(
       poundsToPence(bs.creditorsWithinOneYear) +
       poundsToPence(bs.corporationTaxPayable),
     creditorsAfterPence: poundsToPence(bs.creditorsAfterOneYear),
-    shareCapitalPence: poundsToPence(bs.shareCapital) || 100,
+    shareCapitalPence,
     retainedEarningsPence: poundsToPence(bs.retainedEarnings),
+    calledUpShareCapitalNotPaidPence: shareCapitalPence,
+  };
+}
+
+export function priorBalanceSheetFromYearEndPayload(
+  raw: unknown,
+): ChMicroBalanceSheet | null {
+  const data = parseYearEndFiguresField(raw);
+  const bs = data?.bsPrevious;
+  if (!bs || typeof bs !== "object") return null;
+  const hasAny = Object.values(bs).some((v) => String(v ?? "").trim() !== "");
+  if (!hasAny) return null;
+  const shareCapitalPence = poundsToPence(bs.shareCapital) || 100;
+  return {
+    fixedAssetsPence: poundsToPence(bs.fixedAssets),
+    currentAssetsPence: poundsToPence(bs.totalCurrentAssets),
+    creditorsWithinPence:
+      poundsToPence(bs.creditorsWithinOneYear) +
+      poundsToPence(bs.corporationTaxPayable),
+    creditorsAfterPence: poundsToPence(bs.creditorsAfterOneYear),
+    shareCapitalPence,
+    retainedEarningsPence: poundsToPence(bs.retainedEarnings),
+    calledUpShareCapitalNotPaidPence: shareCapitalPence,
   };
 }
 
@@ -323,15 +349,29 @@ export async function submitAccountsFromPayload(opts: {
     opts.yearEndFigures,
     opts.accountsType,
   );
+  const priorBalanceSheet = priorBalanceSheetFromYearEndPayload(
+    opts.yearEndFigures,
+  );
   const dormant = isDormantFromPayload(opts.yearEndFigures, opts.accountsType);
+  const periodEnd = parsed?.periodEnd || opts.periodEnd;
+  const periodStart = parsed?.periodStart || opts.periodStart;
+  const priorPeriodEnd =
+    parsed?.previousPeriodEnd ||
+    (() => {
+      const d = new Date(`${periodEnd}T12:00:00Z`);
+      d.setUTCFullYear(d.getUTCFullYear() - 1);
+      return d.toISOString().slice(0, 10);
+    })();
 
   const ixbrl = buildChMicroAccountsIxbrl({
     companyName: identity.registerName,
     companyNumber,
-    periodStart: parsed?.periodStart || opts.periodStart,
-    periodEnd: parsed?.periodEnd || opts.periodEnd,
+    periodStart,
+    periodEnd,
     dormant,
     balanceSheet,
+    priorBalanceSheet,
+    priorPeriodEnd,
     directorName: director.directorName,
     averageEmployees: dormant ? 0 : 1,
     approvalDate: new Date().toISOString().slice(0, 10),

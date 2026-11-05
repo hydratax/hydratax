@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
+import { PendingLink } from "@/components/pending-link";
 import { ClearCs01DraftOnSuccess } from "@/components/checkout/clear-cs01-draft";
 import { isStripeConfigured } from "@/lib/env";
 import { getChService } from "@/lib/ch-services";
@@ -205,9 +206,9 @@ export default async function CheckoutSuccessPage({
               <Link href={fileAnotherHref} className="btn btn-secondary">
                 File another
               </Link>
-              <Link href="/dashboard" className="btn btn-primary">
+              <PendingLink href="/dashboard" className="btn btn-primary" pendingLabel="Opening desk…">
                 Open desk
-              </Link>
+              </PendingLink>
             </div>
           </>
         ) : (
@@ -231,9 +232,9 @@ export default async function CheckoutSuccessPage({
               {activated ? "." : "."}
             </p>
             <div className="mt-8 flex flex-wrap justify-center gap-3">
-              <Link href="/dashboard" className="btn btn-primary">
+              <PendingLink href="/dashboard" className="btn btn-primary" pendingLabel="Opening desk…">
                 Open desk
-              </Link>
+              </PendingLink>
             </div>
           </>
         )}

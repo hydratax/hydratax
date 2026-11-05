@@ -10,7 +10,11 @@ import {
   getLastAccountsFiling,
   isCompaniesHouseApiConfigured,
 } from "@/server/companies-house/api";
-import { listCorporationTaxPeriodsSinceIncorporation } from "@/lib/accounting-periods";
+import {
+  EMPTY_COMPARATIVES,
+  listCorporationTaxPeriodsSinceIncorporation,
+} from "@/lib/accounting-periods";
+import { loadPriorYearComparatives } from "@/server/accounts/load-prior-year-comparatives";
 
 export default async function CorporationTaxPage({
   params,
@@ -56,11 +60,25 @@ export default async function CorporationTaxPage({
   const initialEnd =
     query.end && /^\d{4}-\d{2}-\d{2}$/.test(query.end) ? query.end : undefined;
 
-  const [chFiling, documents] = await Promise.all([
+  const periodEndHint =
+    initialEnd ?? ch?.accountsPeriodEnd ?? ch?.lastAccountsMadeUpTo ?? null;
+
+  const [chFiling, documents, priorYear] = await Promise.all([
     companyNumber && isCompaniesHouseApiConfigured()
       ? getLastAccountsFiling(companyNumber).catch(() => null)
       : Promise.resolve(null),
     listClientDocuments(clientId).catch(() => []),
+    loadPriorYearComparatives({
+      clientId,
+      companyNumber,
+      periodEnd: periodEndHint,
+      savedComparatives:
+        "accountsComparatives" in client ? client.accountsComparatives : null,
+    }).catch(() => ({
+      comparatives: { ...EMPTY_COMPARATIVES },
+      source: "none" as const,
+      madeUpTo: null as string | null,
+    })),
   ]);
 
   const localAccounts = documents.find((d) => {
@@ -129,6 +147,13 @@ export default async function CorporationTaxPage({
         {client.companyNumber ?? "not set"}
         {incorporatedOn ? ` · Incorporated ${incorporatedOn}` : ""}
       </p>
+      {client.deskProfile?.portal ? (
+        <p className="mb-4 text-sm text-ink-soft">
+          {client.deskProfile.portal.approveCt600
+            ? "The client has approved the Company Tax Return on their link."
+            : "The client link is active. The Company Tax Return waits until they approve it."}
+        </p>
+      ) : null}
 
       {filedElsewhere && (
         <div className="mb-4 rounded-xl border border-sea/30 bg-sea/5 px-4 py-3 text-sm text-ink">
@@ -162,6 +187,9 @@ export default async function CorporationTaxPage({
             company={company}
             accountsCheckoutHref={accountsCheckoutHref}
             lastFiledAccounts={lastFiledAccounts}
+            priorYearComparatives={priorYear.comparatives}
+            priorYearSource={priorYear.source}
+            priorYearMadeUpTo={priorYear.madeUpTo}
           />
         </Suspense>
       )}

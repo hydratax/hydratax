@@ -23,6 +23,7 @@ export type TbMapTarget =
   | "cash"
   | "debtors"
   | "creditors"
+  | "corporation_tax"
   | "share_capital"
   | "retained_earnings"
   | "vat_output"
@@ -46,15 +47,38 @@ export type TrialBalance = {
 
 const MAP_RULES: Array<{ re: RegExp; target: TbMapTarget }> = [
   { re: /turnover|sales|revenue|income(?! tax)/i, target: "turnover" },
-  { re: /cost of sales|direct cost|purchases(?!.*vat)/i, target: "cost_of_sales" },
-  { re: /admin|overhead|wages|salary|rent|office|expense/i, target: "admin_expenses" },
+  { re: /cost of sales|direct cost|purchases(?!.*vat)|opening stocks|closing stocks/i, target: "cost_of_sales" },
+  // Expenses before cash/bank so "Bank Charges" is not treated as cash.
+  {
+    re: /admin|overhead|wages|salar|director.?s?\s+salar|rent|office|expense|accountanc|legal|professional|consultanc|management|advertis|insurance|telephone|travel|postage|stationer|entertainment|donation|depreciation charge|bank charges|bank fees|rates|water|heat|power|repairs|renewals|petrol|fuel/i,
+    target: "admin_expenses",
+  },
   { re: /other income|interest received|bank interest/i, target: "other_income" },
-  { re: /tangible|plant|equipment|fixture|property|fixed asset/i, target: "tangible_assets" },
-  { re: /cash|bank(?! interest)|petty cash/i, target: "cash" },
+  // Unpaid called-up capital is a debtor (asset), not equity.
+  {
+    re: /called up share capital not paid|unpaid share|share capital not paid/i,
+    target: "debtors",
+  },
+  {
+    re: /tangible|plant|machinery|equipment|fixture|fittings|property|freehold|motor vehicles?|fixed asset/i,
+    target: "tangible_assets",
+  },
+  { re: /cash at bank|petty cash|^cash$|bank account/i, target: "cash" },
   { re: /debtor|receivable|trade debtors/i, target: "debtors" },
-  { re: /creditor|payable|trade creditors/i, target: "creditors" },
-  { re: /share capital|called up/i, target: "share_capital" },
-  { re: /profit and loss|retained|reserves|p&l/i, target: "retained_earnings" },
+  // CT charge / liability before generic "payable" / expense rules.
+  {
+    re: /corporation tax|tax on (profit|ordinary)|taxation charge|^taxation$|ct payable|tax payable/i,
+    target: "corporation_tax",
+  },
+  { re: /creditor|payable|trade creditors|paye|social security/i, target: "creditors" },
+  {
+    re: /equity share capital|share capital(?! not paid)|called up share capital(?! not paid)/i,
+    target: "share_capital",
+  },
+  {
+    re: /profit\s*&\s*loss|profit and loss|retained|reserves|p\s*&\s*l/i,
+    target: "retained_earnings",
+  },
   { re: /vat (on )?sales|vat output|output vat/i, target: "vat_output" },
   { re: /vat (on )?purchases|vat input|input vat/i, target: "vat_input" },
 ];
@@ -73,8 +97,13 @@ function toPenceAmount(raw: unknown): number {
     // Excel often stores pounds as numbers
     return Math.round(raw * 100);
   }
-  const s = String(raw).trim().replace(/£/g, "").replace(/,/g, "");
-  if (!s) return 0;
+  const s = String(raw)
+    .trim()
+    .replace(/£/g, "")
+    .replace(/,/g, "")
+    .replace(/\u00a0/g, " ");
+  // Spreadsheet placeholders: "-", " - ", blank-ish tokens.
+  if (!s || /^[-–—]+$/.test(s) || /^-\s*$/.test(s)) return 0;
   try {
     return Number(poundsToPence(s));
   } catch {
@@ -103,10 +132,24 @@ export function parseTrialBalanceRows(
   const lines: TrialBalanceLine[] = [];
   for (const row of rows) {
     const accountCode = String(
-      cell(row, "account_code", "code", "a/c", "ac", "account") ?? "",
+      cell(
+        row,
+        "account_code",
+        "account code",
+        "code",
+        "a/c",
+        "ac",
+        "account",
+      ) ?? "",
     ).trim();
     const accountName = String(
-      cell(row, "account_name", "name", "description", "account name") ?? "",
+      cell(
+        row,
+        "account_name",
+        "account name",
+        "name",
+        "description",
+      ) ?? "",
     ).trim();
     if (!accountCode && !accountName) continue;
 
@@ -213,6 +256,10 @@ export function trialBalanceToCt600Figures(
   const cash = sumMapped(tb, "cash", "debit");
   const debtors = sumMapped(tb, "debtors", "debit");
   const creditors = sumMapped(tb, "creditors", "credit");
+  // Balanced CT journals are Dr charge + Cr payable — do not abs-sum both.
+  const ctCharge = sumMapped(tb, "corporation_tax", "debit");
+  const ctPayable = sumMapped(tb, "corporation_tax", "credit");
+  const corporationTax = Math.max(ctCharge, ctPayable);
   const share = sumMapped(tb, "share_capital", "credit");
   const retained = sumMapped(tb, "retained_earnings", "credit");
 
@@ -227,11 +274,13 @@ export function trialBalanceToCt600Figures(
     tangibleAssetsPence: pence(tangible),
     cashAtBankPence: pence(cash),
     debtorsPence: pence(debtors),
+    // Trade creditors only — CT payable is applied separately on the form.
     creditorsPence: pence(creditors),
     calledUpShareCapitalPence: pence(share),
     profitAndLossAccountPence: pence(
-      retained || turnover + otherIncome - cos - admin,
+      retained || turnover + otherIncome - cos - admin - corporationTax,
     ),
+    corporationTaxPence: pence(corporationTax),
   });
 }
 

@@ -25,6 +25,7 @@ const MAP_OPTIONS: { value: TbMapTarget; label: string }[] = [
   { value: "cash", label: "Cash at bank" },
   { value: "debtors", label: "Debtors" },
   { value: "creditors", label: "Creditors" },
+  { value: "corporation_tax", label: "Corporation tax (charge / payable)" },
   { value: "share_capital", label: "Share capital" },
   { value: "retained_earnings", label: "Retained earnings / P&L" },
   { value: "vat_output", label: "VAT on sales (Box 1)" },
@@ -253,7 +254,39 @@ export function TrialBalanceUpload({
             </div>
           </div>
 
-          <div className="max-h-72 overflow-auto rounded-lg border border-line">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-ink-soft">
+              Edit debit/credit or remapping below, then apply again. Changes stay
+              on this screen until you re-upload.
+            </p>
+            <button
+              type="button"
+              className="rounded-lg border border-sea px-3 py-1.5 text-sm font-semibold text-sea hover:bg-sea/5"
+              onClick={() => {
+                setTb((prev) => {
+                  if (!prev) return prev;
+                  let n = prev.lines.length + 1;
+                  let accountCode = `ADJ${n}`;
+                  while (prev.lines.some((l) => l.accountCode === accountCode)) {
+                    n += 1;
+                    accountCode = `ADJ${n}`;
+                  }
+                  const line = {
+                    accountCode,
+                    accountName: "Corporation tax",
+                    debitPence: 0,
+                    creditPence: 0,
+                    suggestedMap: "corporation_tax" as TbMapTarget,
+                  };
+                  setMaps((m) => ({ ...m, [accountCode]: "corporation_tax" }));
+                  return { ...prev, lines: [...prev.lines, line] };
+                });
+              }}
+            >
+              Add debit / credit line
+            </button>
+          </div>
+          <div className="max-h-80 overflow-auto rounded-lg border border-line">
             <table className="w-full text-left text-sm">
               <thead className="sticky top-0 bg-sand text-xs uppercase text-ink-soft">
                 <tr>
@@ -262,18 +295,104 @@ export function TrialBalanceUpload({
                   <th className="px-3 py-2">Debit</th>
                   <th className="px-3 py-2">Credit</th>
                   <th className="px-3 py-2">Map to</th>
+                  <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {tb.lines.map((line) => (
-                  <tr key={line.accountCode}>
-                    <td className="mono px-3 py-2">{line.accountCode}</td>
-                    <td className="px-3 py-2">{line.accountName}</td>
-                    <td className="mono px-3 py-2">
-                      {line.debitPence ? moneyPence(line.debitPence) : "—"}
+                {tb.lines.map((line, index) => (
+                  <tr key={`${line.accountCode}-${index}`}>
+                    <td className="px-3 py-2">
+                      <input
+                        className="input mono w-20 py-1 text-xs"
+                        value={line.accountCode}
+                        onChange={(e) => {
+                          const accountCode =
+                            e.target.value.trim() || line.accountCode;
+                          setTb((prev) => {
+                            if (!prev) return prev;
+                            const lines = prev.lines.map((l, i) =>
+                              i === index ? { ...l, accountCode } : l,
+                            );
+                            return { ...prev, lines };
+                          });
+                          setMaps((m) => {
+                            const prevCode = line.accountCode;
+                            if (prevCode === accountCode) return m;
+                            const next = { ...m };
+                            const mapped =
+                              next[prevCode] ?? line.suggestedMap ?? "ignore";
+                            delete next[prevCode];
+                            next[accountCode] = mapped;
+                            return next;
+                          });
+                        }}
+                      />
                     </td>
-                    <td className="mono px-3 py-2">
-                      {line.creditPence ? moneyPence(line.creditPence) : "—"}
+                    <td className="px-3 py-2">
+                      <input
+                        className="input w-full min-w-[8rem] py-1 text-xs"
+                        value={line.accountName}
+                        onChange={(e) => {
+                          const accountName = e.target.value;
+                          setTb((prev) => {
+                            if (!prev) return prev;
+                            const lines = prev.lines.map((l, i) =>
+                              i === index ? { ...l, accountName } : l,
+                            );
+                            return { ...prev, lines };
+                          });
+                        }}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        className="input mono w-28 py-1 text-xs"
+                        inputMode="decimal"
+                        value={
+                          line.debitPence
+                            ? (line.debitPence / 100).toFixed(2)
+                            : ""
+                        }
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/,/g, "").trim();
+                          const pounds = raw === "" ? 0 : Number.parseFloat(raw);
+                          const debitPence = Number.isFinite(pounds)
+                            ? Math.round(pounds * 100)
+                            : 0;
+                          setTb((prev) => {
+                            if (!prev) return prev;
+                            const lines = prev.lines.map((l, i) =>
+                              i === index ? { ...l, debitPence } : l,
+                            );
+                            return { ...prev, lines };
+                          });
+                        }}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        className="input mono w-28 py-1 text-xs"
+                        inputMode="decimal"
+                        value={
+                          line.creditPence
+                            ? (line.creditPence / 100).toFixed(2)
+                            : ""
+                        }
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(/,/g, "").trim();
+                          const pounds = raw === "" ? 0 : Number.parseFloat(raw);
+                          const creditPence = Number.isFinite(pounds)
+                            ? Math.round(pounds * 100)
+                            : 0;
+                          setTb((prev) => {
+                            if (!prev) return prev;
+                            const lines = prev.lines.map((l, i) =>
+                              i === index ? { ...l, creditPence } : l,
+                            );
+                            return { ...prev, lines };
+                          });
+                        }}
+                      />
                     </td>
                     <td className="px-3 py-2">
                       <select
@@ -292,6 +411,29 @@ export function TrialBalanceUpload({
                           </option>
                         ))}
                       </select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-ink-soft hover:text-ink"
+                        aria-label={`Remove ${line.accountName || line.accountCode}`}
+                        onClick={() => {
+                          setTb((prev) => {
+                            if (!prev) return prev;
+                            return {
+                              ...prev,
+                              lines: prev.lines.filter((_, i) => i !== index),
+                            };
+                          });
+                          setMaps((m) => {
+                            const next = { ...m };
+                            delete next[line.accountCode];
+                            return next;
+                          });
+                        }}
+                      >
+                        Remove
+                      </button>
                     </td>
                   </tr>
                 ))}

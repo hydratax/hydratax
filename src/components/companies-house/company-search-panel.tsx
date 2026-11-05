@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { companyProfilePath } from "@/lib/company-slug";
 
 type SearchItem = {
   company_number: string;
@@ -19,7 +20,7 @@ export function CompanySearchPanel({
   variant = "card",
   /**
    * Where selecting a company goes.
-   * - `hub` (default): /companies-house/company/[number]
+   * - `hub` (default): /company/[name-number]
    * - `accounts`: /companies-house/accounts-ixbrl?company=[number]
    */
   selectTarget = "hub",
@@ -99,14 +100,15 @@ export function CompanySearchPanel({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
-  function openCompany(number: string) {
+  function openCompany(item: SearchItem) {
     setOpen(false);
     setNavigating(true);
     setError(null);
+    const number = item.company_number;
     const href =
       selectTarget === "accounts"
         ? `/companies-house/accounts-ixbrl?company=${encodeURIComponent(number)}`
-        : `/companies-house/company/${encodeURIComponent(number)}`;
+        : companyProfilePath(item.title, number);
     router.push(href);
   }
 
@@ -160,7 +162,7 @@ export function CompanySearchPanel({
             if (e.key === "Escape") setOpen(false);
             if (e.key === "Enter" && items[0]) {
               e.preventDefault();
-              openCompany(items[0].company_number);
+              openCompany(items[0]);
             }
           }}
           placeholder="Company name or number…"
@@ -198,7 +200,7 @@ export function CompanySearchPanel({
                 <button
                   type="button"
                   className="flex w-full flex-col gap-0.5 px-4 py-2.5 text-left hover:bg-sea/5"
-                  onClick={() => openCompany(item.company_number)}
+                  onClick={() => openCompany(item)}
                 >
                   <span className="font-semibold text-ink">{item.title}</span>
                   <span className="mono text-xs text-ink-soft">
