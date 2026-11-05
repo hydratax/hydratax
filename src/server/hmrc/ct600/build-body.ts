@@ -30,13 +30,13 @@ function financialYearXml(
   fy: number,
   profitPounds: number,
   taxPence: number,
-  rateLabel: string,
+  rateXml: string,
 ): string {
   return `<${ctTag(tag)}>
           <${ctTag("Year")}>${fy}</${ctTag("Year")}>
           <${ctTag("Details")}>
             <${ctTag("Profit")}>${poundsWhole(profitPounds)}</${ctTag("Profit")}>
-            <${ctTag("TaxRate")}>${escapeXml(rateLabel)}</${ctTag("TaxRate")}>
+            <${ctTag("TaxRate")}>${escapeXml(rateXml)}</${ctTag("TaxRate")}>
             <${ctTag("Tax")}>${moneyFromPence(taxPence)}</${ctTag("Tax")}>
           </${ctTag("Details")}>
         </${ctTag(tag)}>`;
@@ -110,7 +110,7 @@ export function buildCt600BodyInner(opts: {
           fyOne.fy,
           fyOne.profitPounds,
           fyOne.taxPence,
-          fyOne.rateLabel,
+          fyOne.rateXml,
         )
       : "",
     fyTwo
@@ -119,22 +119,24 @@ export function buildCt600BodyInner(opts: {
           fyTwo.fy,
           fyTwo.profitPounds,
           fyTwo.taxPence,
-          fyTwo.rateLabel,
+          fyTwo.rateXml,
         )
       : "",
   ].join("");
 
-  // Gross CT (box 430) then optional marginal relief (box 435) → net (box 440).
+  // Live CT XSD (HMRC-CT-2014-v1-994): box 435 is MarginalReliefForRingFenceTrades
+  // (used for ordinary marginal relief as well — Schematron F220.3).
   const marginalXml =
     schedule.marginalReliefPence > 0
-      ? `<${ctTag("MarginalRateRelief")}>${moneyFromPence(schedule.marginalReliefPence)}</${ctTag("MarginalRateRelief")}>`
+      ? `<${ctTag("MarginalReliefForRingFenceTrades")}>${moneyFromPence(schedule.marginalReliefPence)}</${ctTag("MarginalReliefForRingFenceTrades")}>`
       : "";
 
-  // Box 329 — required when using small profits rate or claiming marginal relief.
-  const box329Xml = schedule.claimSmallProfitsOrMarginalRelief
-    ? `<${ctTag("Indicator")}>
-            <${ctTag("SmallProfitsRateOrMarginalRelief")}>yes</${ctTag("SmallProfitsRateOrMarginalRelief")}>
-          </${ctTag("Indicator")}>`
+  // Box 329 — CT XSD path:
+  // CorporationTaxChargeable/AssociatedCompanies/StartingOrSmallCompaniesRate
+  const associatedCompaniesXml = schedule.claimSmallProfitsOrMarginalRelief
+    ? `<${ctTag("AssociatedCompanies")}>
+              <${ctTag("StartingOrSmallCompaniesRate")}>yes</${ctTag("StartingOrSmallCompaniesRate")}>
+            </${ctTag("AssociatedCompanies")}>`
     : "";
 
   const t = ctTag;
@@ -181,8 +183,8 @@ export function buildCt600BodyInner(opts: {
             <${t("ProfitsBeforeDonationsAndGroupRelief")}>${poundsWhole(chargeablePounds)}</${t("ProfitsBeforeDonationsAndGroupRelief")}>
           </${t("ChargesAndReliefs")}>
           <${t("ChargeableProfits")}>${poundsWhole(chargeablePounds)}</${t("ChargeableProfits")}>
-          ${box329Xml}
           <${t("CorporationTaxChargeable")}>
+            ${associatedCompaniesXml}
             ${fyXml}
           </${t("CorporationTaxChargeable")}>
           <${t("CorporationTax")}>${moneyFromPence(schedule.grossTaxPence)}</${t("CorporationTax")}>

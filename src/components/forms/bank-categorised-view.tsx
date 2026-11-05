@@ -28,6 +28,15 @@ type Tx = {
 
 const PREVIEW_LIMIT = 25;
 const ALL_CATEGORIES = "__all__";
+const NEEDS_CONFIRM = "__needs_confirm__";
+
+function needsClientConfirm(tx: Tx) {
+  return (
+    tx.confidence === "low" ||
+    tx.category === "expense_queries" ||
+    tx.category === "uncategorised"
+  );
+}
 
 function gbp(pence: number) {
   return new Intl.NumberFormat("en-GB", {
@@ -168,7 +177,8 @@ export function BankCategorisedView({
     const expenses = transactions
       .filter((t) => t.amountPence < 0)
       .reduce((s, t) => s + Math.abs(t.amountPence), 0);
-    return { income, expenses, count: transactions.length };
+    const needsConfirm = transactions.filter(needsClientConfirm).length;
+    return { income, expenses, count: transactions.length, needsConfirm };
   }, [transactions]);
 
   useEffect(() => {
@@ -176,7 +186,9 @@ export function BankCategorisedView({
   }, [initialCustom]);
 
   useEffect(() => {
-    if (filterCategory === ALL_CATEGORIES) return;
+    if (filterCategory === ALL_CATEGORIES || filterCategory === NEEDS_CONFIRM) {
+      return;
+    }
     setOpenSections((prev) => ({ ...prev, [filterCategory]: true }));
     sectionRefs.current[filterCategory]?.scrollIntoView({
       behavior: "smooth",
@@ -186,8 +198,20 @@ export function BankCategorisedView({
 
   const visibleSections = useMemo(() => {
     if (filterCategory === ALL_CATEGORIES) return sections;
+    if (filterCategory === NEEDS_CONFIRM) {
+      return sections.filter((c) =>
+        (grouped.get(c) ?? []).some(needsClientConfirm),
+      );
+    }
     return sections.filter((c) => c === filterCategory);
-  }, [sections, filterCategory]);
+  }, [sections, filterCategory, grouped]);
+
+  const rowsForSection = (category: string, rows: Tx[]) => {
+    if (filterCategory === NEEDS_CONFIRM) {
+      return rows.filter(needsClientConfirm);
+    }
+    return rows;
+  };
 
   const searchSelectedCount = searchMatches.filter((t) =>
     selectedIds.has(t.id),
@@ -281,15 +305,15 @@ export function BankCategorisedView({
   if (!transactions.length) {
     return (
       <p className="p-6 text-sm text-ink-soft">
-        No bank lines yet. Upload a CSV or Excel export — transactions will appear
-        here grouped by category (fuel, insurance, salaries, etc.).
+        No bank lines yet. Upload a CSV, Excel, PDF, or photo of a UK statement —
+        transactions appear here grouped by category (fuel, insurance, salaries…).
       </p>
     );
   }
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 border-b border-line bg-sand/40 px-4 py-4 sm:grid-cols-3">
+      <div className="grid gap-3 border-b border-line bg-sand/40 px-4 py-4 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <p className="text-xs font-bold uppercase text-ink-soft">Lines</p>
           <p className="figures text-lg font-semibold text-ink">
@@ -306,6 +330,14 @@ export function BankCategorisedView({
           <p className="text-xs font-bold uppercase text-ink-soft">Money out</p>
           <p className="figures text-lg font-semibold text-ink">
             {gbp(summary.expenses)}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs font-bold uppercase text-ink-soft">
+            Needs confirmation
+          </p>
+          <p className="figures text-lg font-semibold text-ink">
+            {summary.needsConfirm}
           </p>
         </div>
       </div>
@@ -335,6 +367,9 @@ export function BankCategorisedView({
             onChange={(e) => setFilterCategory(e.target.value)}
           >
             <option value={ALL_CATEGORIES}>All categories</option>
+            <option value={NEEDS_CONFIRM}>
+              Needs client confirmation ({summary.needsConfirm})
+            </option>
             {sections.map((category) => {
               const count = grouped.get(category)?.length ?? 0;
               if (!count && !isCustomCategoryId(category)) return null;
@@ -475,7 +510,11 @@ export function BankCategorisedView({
       ) : (
         <div className="space-y-2 px-4 pb-6 pt-2">
           {visibleSections.map((category) => {
-            const rows = grouped.get(category) ?? [];
+            const rows = rowsForSection(
+              category,
+              grouped.get(category) ?? [],
+            );
+            if (!rows.length) return null;
             const total = rows.reduce((s, t) => s + t.amountPence, 0);
             const isOpen = openSections[category] ?? false;
             const showAll = expanded[category] ?? false;

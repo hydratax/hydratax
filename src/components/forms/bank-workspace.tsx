@@ -123,10 +123,10 @@ export function BankWorkspace({
         >
           <h3 className="display text-xl text-ink">Upload bank statement</h3>
           <p className="text-sm text-ink-soft">
-            Prefer CSV or Excel from the bank app — we categorise into fuel,
-            insurance, salaries, subcontractors, finance, and other heads.
-            A PDF is kept on the client file for review but is not converted
-            into lines. Re-uploading a CSV/Excel replaces the previous lines.
+            CSV, Excel, PDF, or a photo of a UK statement. We extract lines,
+            auto-allocate known merchants to heads (fuel, insurance, salaries…),
+            and leave unknowns under Expense queries for client confirmation.
+            Re-uploading replaces the previous lines.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <input
@@ -134,7 +134,8 @@ export function BankWorkspace({
               type="file"
               name="file"
               required
-              accept=".csv,.xlsx,.xls,.pdf,text/csv,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,text/csv,application/pdf,image/png,image/jpeg,image/webp,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              capture="environment"
               className="sr-only"
               onChange={(e) => {
                 const file = e.target.files?.[0];
@@ -146,7 +147,7 @@ export function BankWorkspace({
               className="btn btn-secondary px-3 py-1.5 text-sm"
               onClick={() => fileInputRef.current?.click()}
             >
-              Choose file
+              Choose file / photo
             </button>
             <span className="text-sm text-ink-soft">
               {fileName ?? "No file chosen"}
@@ -155,7 +156,7 @@ export function BankWorkspace({
           <FormErrorBanner error={err} />
           {msg && <p className="text-sm text-ok">{msg}</p>}
           <button type="submit" disabled={pending} className="btn btn-primary">
-            {pending ? "Importing…" : "Import & categorise"}
+            {pending ? "Scanning & categorising…" : "Import & categorise"}
           </button>
         </form>
 
@@ -258,13 +259,10 @@ export function BankWorkspace({
             ))}
           </ul>
         )}
-        {!hasTransactions && statements.some((d) =>
-          d.contentType.includes("pdf") || d.filename.toLowerCase().endsWith(".pdf"),
-        ) ? (
+        {!hasTransactions && statements.length > 0 ? (
           <p className="mt-3 text-sm text-ink-soft">
-            Your PDF is saved above. To get a categorised CSV/Excel download,
-            upload the bank’s CSV or Excel export (Monzo, Starling, Barclays,
-            etc.) — we cannot read transaction lines from a PDF statement yet.
+            Source file saved above. If no lines appeared, re-upload a clearer
+            photo/PDF or the bank’s CSV/Excel export.
           </p>
         ) : null}
       </div>

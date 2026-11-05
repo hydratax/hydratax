@@ -1,6 +1,6 @@
 /**
  * CT600 tax schedule that satisfies HMRC gateway maths:
- * - TaxRate must be an allowed label (not a bare "19.00")
+ * - TaxRate in XML is a numeric percentage string ("19.00" / "25.00") — not a label
  * - Tax for each FY row = whole-pound profit × rate% (2dp)
  * - Marginal relief is a separate deduction (not baked into the rate rows)
  * - FY profit slices sum exactly to chargeable profits (box 315)
@@ -19,9 +19,8 @@ import {
   ctThresholdsPence,
 } from "@/server/hmrc/ct600/tax-charge";
 
-export type CtTaxRateLabel =
-  | "FULL RATE OF CT"
-  | "SMALL CO RATE OF CT";
+/** CT600 XML `TaxRate` / PDF box 340·390 — two-decimal percentage. */
+export type CtTaxRateXml = "19.00" | "25.00";
 
 export type CtFinancialYearSlice = {
   fy: number;
@@ -29,8 +28,8 @@ export type CtFinancialYearSlice = {
   profitPounds: number;
   /** Numeric % shown in PDF box 340/390 */
   ratePercent: 19 | 25;
-  /** XML TaxRate enumeration */
-  rateLabel: CtTaxRateLabel;
+  /** XML TaxRate value (must validate as a decimal percentage) */
+  rateXml: CtTaxRateXml;
   /** Tax in pence = profitPounds × ratePercent (exact) */
   taxPence: number;
 };
@@ -161,7 +160,7 @@ export function computeCt600TaxSchedule(opts: {
         fy: s.fy,
         profitPounds: 0,
         ratePercent: 19,
-        rateLabel: "SMALL CO RATE OF CT",
+        rateXml: "19.00",
         taxPence: 0,
       })),
       grossTaxPence: 0,
@@ -181,11 +180,10 @@ export function computeCt600TaxSchedule(opts: {
   const claimSmallProfitsOrMarginalRelief =
     band === "small" || band === "marginal";
 
-  // Rate rows: small → 19% SMALL CO; main or marginal → 25% FULL RATE
+  // Rate rows: small → 19.00; main or marginal → 25.00
   // (marginal relief is deducted separately so Tax = Profit × Rate holds).
   const ratePercent: 19 | 25 = band === "small" ? 19 : 25;
-  const rateLabel: CtTaxRateLabel =
-    band === "small" ? "SMALL CO RATE OF CT" : "FULL RATE OF CT";
+  const rateXml: CtTaxRateXml = band === "small" ? "19.00" : "25.00";
 
   const slices: CtFinancialYearSlice[] = daySlices.map((s, i) => {
     const profitPounds = profitParts[i] ?? 0;
@@ -194,7 +192,7 @@ export function computeCt600TaxSchedule(opts: {
       fy: s.fy,
       profitPounds,
       ratePercent,
-      rateLabel,
+      rateXml,
       taxPence,
     };
   });

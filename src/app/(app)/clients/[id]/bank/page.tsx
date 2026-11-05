@@ -16,10 +16,12 @@ function isBankStatementDoc(doc: {
     type.includes("csv") ||
     type.includes("sheet") ||
     type.includes("excel") ||
+    type.startsWith("image/") ||
     name.endsWith(".pdf") ||
     name.endsWith(".csv") ||
     name.endsWith(".xls") ||
-    name.endsWith(".xlsx");
+    name.endsWith(".xlsx") ||
+    /\.(png|jpe?g|webp|tif{1,2})$/i.test(name);
   return bankLike && (doc.category === "accounts" || doc.category === "general");
 }
 

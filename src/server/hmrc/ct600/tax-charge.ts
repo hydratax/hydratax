@@ -53,19 +53,29 @@ export function computeTaxChargePence(
 }
 
 /**
- * HMRC CT600 XML TaxRate enumeration (not a bare percentage like "19.00").
- * Company type 00 must use one of these labels or gateway error 9209 fires.
+ * HMRC CT600 XML `TaxRate` is a two-decimal percentage ("19.00" / "25.00").
+ * Narrative labels like "SMALL CO RATE OF CT" fail live schema validation.
  */
+export function ctRateXmlForProfitPence(
+  taxableProfitPence: number,
+  opts?: { associatedCompanies?: number; financialYear?: number },
+): "19.00" | "25.00" {
+  const profit = Math.round(taxableProfitPence);
+  if (opts?.financialYear != null && opts.financialYear < 2023) {
+    return "19.00";
+  }
+  const { lower } = ctThresholdsPence(opts?.associatedCompanies ?? 0);
+  if (profit <= lower) return "19.00";
+  // Marginal band uses 25% rows + separate marginal relief
+  return "25.00";
+}
+
+/** @deprecated Use ctRateXmlForProfitPence — kept for narrative UI only. */
 export function ctRateLabelForProfitPence(
   taxableProfitPence: number,
   opts?: { associatedCompanies?: number; financialYear?: number },
-): "FULL RATE OF CT" | "SMALL CO RATE OF CT" {
-  const profit = Math.round(taxableProfitPence);
-  if (opts?.financialYear != null && opts.financialYear < 2023) {
-    return "SMALL CO RATE OF CT";
-  }
-  const { lower } = ctThresholdsPence(opts?.associatedCompanies ?? 0);
-  if (profit <= lower) return "SMALL CO RATE OF CT";
-  // Marginal band uses full-rate rows + separate marginal relief
-  return "FULL RATE OF CT";
+): string {
+  return ctRateXmlForProfitPence(taxableProfitPence, opts) === "19.00"
+    ? "19% small profits rate"
+    : "25% main rate";
 }

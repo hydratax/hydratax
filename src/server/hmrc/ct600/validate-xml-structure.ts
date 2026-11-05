@@ -30,6 +30,13 @@ export function validateCt600XmlStructure(xml: string): {
     "TradingProfits>",
     "TangibleAssets>",
     "<Principal>",
+    // Live CT-2014-v1-994 rejects these (schema / Schematron).
+    "SMALL CO RATE OF CT",
+    "FULL RATE OF CT",
+    "<ct:Indicator>",
+    "<Indicator>",
+    "SmallProfitsRateOrMarginalRelief",
+    "MarginalRateRelief>",
   ];
 
   const missing = required.filter((frag) => !xml.includes(frag));

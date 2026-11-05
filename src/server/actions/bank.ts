@@ -7,13 +7,12 @@ import { getClient } from "@/server/actions/clients";
 import { isMemoryStore } from "@/lib/env";
 import { memoryStore } from "@/server/demo/store";
 import {
-  parseBankCsv,
-  parseBankSpreadsheet,
   summariseForCorporationTax,
   summariseForSelfAssessment,
   type CategorisedLine,
   type BankCategory,
 } from "@/server/bank/categorise";
+import { parseBankStatementFile } from "@/server/bank/parse-statement-file";
 import { summariseForYearEndAccounts } from "@/server/accounts/year-end-from-bank";
 import { parseComparatives, companiesHouseAccountsPeriod } from "@/lib/accounting-periods";
 import { buildCategoryLabelMap } from "@/lib/bank-categories";
@@ -126,69 +125,41 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
 
     const name = file.name.toLowerCase();
     let lines: CategorisedLine[] = [];
+    let parseSource: "csv" | "spreadsheet" | "pdf" | "ocr" = "csv";
+    let bankHint: string | null = null;
+    let parseWarning: string | undefined;
 
-    if (
-      name.endsWith(".csv") ||
-      name.endsWith(".xlsx") ||
-      name.endsWith(".xls") ||
-      file.type.includes("csv") ||
-      file.type === "text/plain" ||
-      file.type.includes("spreadsheet") ||
-      file.type.includes("excel")
-    ) {
-      if (
-        name.endsWith(".csv") ||
-        file.type.includes("csv") ||
-        file.type === "text/plain"
-      ) {
-        const text = await file.text();
-        lines = parseBankCsv(text);
-      } else {
-        const buffer = await file.arrayBuffer();
-        lines = parseBankSpreadsheet(buffer, file.name);
-      }
-    } else if (name.endsWith(".pdf") || file.type === "application/pdf") {
-      // PDFs are archived on the client file; line extraction needs a CSV/Excel
-      // bank export (or Open Banking). We do not invent transactions from PDF.
-      const document = await storeBankSourceFile(clientId, file);
-      if (!document) {
-        return {
-          ok: false,
-          error:
-            "Could not store the PDF. Check Documents storage is configured, or upload a CSV/Excel export from the bank instead.",
-        };
-      }
-      await appendAuditEvent({
-        practiceId: session.practiceId,
-        clientId,
-        actorId: session.userId,
-        action: "bank.statement.pdf_uploaded",
-        entityType: "bank_statement",
-        entityId: clientId,
-        detail: {
-          filename: file.name,
-          documentId: document.id,
-          note: "PDF stored — use CSV for auto-categorisation, or connect Open Banking",
-        },
-      });
-      revalidatePath(`/clients/${clientId}/bank`);
-      revalidatePath(`/clients/${clientId}/documents`);
-      return {
-        ok: true,
-        lines: [] as CategorisedLine[],
-        pdfStored: true,
-        document,
-        message:
-          "PDF saved on the client file (open it below). PDFs are not auto-converted — upload the bank’s CSV or Excel export to categorise lines, then download CSV/XLS from the categorised table.",
-      };
-    } else {
-      return {
-        ok: false,
-        error: "Upload a CSV or Excel bank export (or PDF to store for review).",
-      };
+    try {
+      const parsed = await parseBankStatementFile(file);
+      lines = parsed.lines;
+      parseSource = parsed.source;
+      bankHint = parsed.bankHint;
+      parseWarning = parsed.warning;
+    } catch (parseErr) {
+      const message =
+        parseErr instanceof Error
+          ? parseErr.message
+          : "Could not read that statement file.";
+      return { ok: false, error: message };
     }
 
   if (!lines.length) {
+    if (
+      parseSource === "pdf" ||
+      parseSource === "ocr" ||
+      name.endsWith(".pdf") ||
+      file.type.startsWith("image/")
+    ) {
+      await storeBankSourceFile(clientId, file);
+      revalidatePath(`/clients/${clientId}/bank`);
+      revalidatePath(`/clients/${clientId}/documents`);
+      return {
+        ok: false,
+        error:
+          parseWarning ||
+          "No transactions could be read from that statement. Try a clearer photo, a text-based PDF, or the bank’s CSV/Excel export.",
+      };
+    }
     return {
       ok: false,
       error:
@@ -212,7 +183,7 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
         clientId,
         practiceId: session.practiceId,
         ...line,
-        source: name.endsWith(".csv") ? "csv" : "spreadsheet",
+        source: parseSource,
         createdAt: new Date().toISOString(),
       });
     }
@@ -256,7 +227,7 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
       amountPence: line.amountPence,
       category: line.category,
       confidence: line.confidence,
-      source: name.endsWith(".csv") ? "csv" : "spreadsheet",
+      source: parseSource,
     }));
     for (let i = 0; i < mapped.length; i += chunkSize) {
       await getDb()
@@ -267,17 +238,27 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
 
   const document = await storeBankSourceFile(clientId, file);
 
+  const needsConfirm = lines.filter(
+    (l) =>
+      l.confidence === "low" ||
+      l.category === "expense_queries" ||
+      l.category === "uncategorised",
+  ).length;
+
   await appendAuditEvent({
     practiceId: session.practiceId,
     clientId,
     actorId: session.userId,
-    action: "bank.statement.csv_imported",
+    action: "bank.statement.imported",
     entityType: "bank_transaction",
     entityId: clientId,
     detail: {
       count: lines.length,
       filename: file.name,
       documentId: document?.id,
+      source: parseSource,
+      bankHint,
+      needsConfirm,
     },
   });
 
@@ -287,12 +268,19 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
   revalidatePath(`/clients/${clientId}/corporation-tax`);
   revalidatePath(`/clients/${clientId}/accounts-pack`);
 
+  const bankBit = bankHint ? ` (${bankHint})` : "";
+  const confirmBit =
+    needsConfirm > 0
+      ? ` ${needsConfirm} line${needsConfirm === 1 ? "" : "s"} need review / client confirmation.`
+      : "";
+  const warnBit = parseWarning ? ` ${parseWarning}` : "";
+
   return {
     ok: true,
     lines,
-    pdfStored: false,
+    pdfStored: parseSource === "pdf" || parseSource === "ocr",
     document: document ?? undefined,
-    message: `Replaced bank data with ${lines.length} lines from ${file.name}. Download the categorised CSV or Excel below.`,
+    message: `Imported ${lines.length} transactions from ${file.name}${bankBit}.${confirmBit}${warnBit} Download categorised CSV or Excel below.`,
   };
   } catch (err) {
     const message =

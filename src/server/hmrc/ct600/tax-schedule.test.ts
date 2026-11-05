@@ -21,7 +21,7 @@ describe("computeCt600TaxSchedule", () => {
     expect(s.band).toBe("small");
     expect(s.chargeableProfitPounds).toBe(50_000);
     expect(s.slices).toHaveLength(1);
-    expect(s.slices[0]!.rateLabel).toBe("SMALL CO RATE OF CT");
+    expect(s.slices[0]!.rateXml).toBe("19.00");
     expect(s.slices[0]!.ratePercent).toBe(19);
     expect(s.slices[0]!.taxPence).toBe(50_000 * 19);
     expect(s.netTaxPence).toBe(50_000 * 19);
@@ -42,7 +42,7 @@ describe("computeCt600TaxSchedule", () => {
     ).toBe(s.chargeableProfitPounds);
     for (const slice of s.slices) {
       expect(slice.taxPence).toBe(slice.profitPounds * slice.ratePercent);
-      expect(slice.rateLabel).toBe("SMALL CO RATE OF CT");
+      expect(slice.rateXml).toBe("19.00");
     }
   });
 
@@ -53,7 +53,7 @@ describe("computeCt600TaxSchedule", () => {
       taxableProfitPence: 10_000_000, // £100,000
     });
     expect(s.band).toBe("marginal");
-    expect(s.slices[0]!.rateLabel).toBe("FULL RATE OF CT");
+    expect(s.slices[0]!.rateXml).toBe("25.00");
     expect(s.slices[0]!.ratePercent).toBe(25);
     expect(s.grossTaxPence).toBe(100_000 * 25);
     expect(s.marginalReliefPence).toBeGreaterThan(0);

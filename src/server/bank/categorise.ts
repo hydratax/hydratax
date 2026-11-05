@@ -283,7 +283,7 @@ function splitCsvRow(row: string): string[] {
   return result;
 }
 
-function parseMoneyToPence(raw: string): number {
+export function parseMoneyToPence(raw: string): number {
   const trimmed = raw.trim();
   if (!trimmed || trimmed === "-") return 0;
   const neg = trimmed.startsWith("-") || trimmed.startsWith("−");
@@ -339,7 +339,7 @@ export function resolveAmountPence(
   return amount;
 }
 
-function normaliseDate(raw: string): string {
+export function normaliseDate(raw: string): string {
   const dmy = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
   if (dmy) {
     const y = dmy[3].length === 2 ? `20${dmy[3]}` : dmy[3];
