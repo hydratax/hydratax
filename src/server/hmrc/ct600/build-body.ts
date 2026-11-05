@@ -131,10 +131,11 @@ export function buildCt600BodyInner(opts: {
       ? `<${ctTag("MarginalReliefForRingFenceTrades")}>${moneyFromPence(schedule.marginalReliefPence)}</${ctTag("MarginalReliefForRingFenceTrades")}>`
       : "";
 
-  // Box 329 — CT XSD path:
-  // CorporationTaxChargeable/AssociatedCompanies/StartingOrSmallCompaniesRate
+  // Boxes 326 + 329 — CT XSD / Schematron N049 (error 9240):
+  // if AssociatedCompanies is present, ThisPeriod (326) OR FY pair (327/328) is required.
   const associatedCompaniesXml = schedule.claimSmallProfitsOrMarginalRelief
     ? `<${ctTag("AssociatedCompanies")}>
+              <${ctTag("ThisPeriod")}>0</${ctTag("ThisPeriod")}>
               <${ctTag("StartingOrSmallCompaniesRate")}>yes</${ctTag("StartingOrSmallCompaniesRate")}>
             </${ctTag("AssociatedCompanies")}>`
     : "";

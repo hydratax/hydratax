@@ -95,9 +95,15 @@ export function financialYearDaySlices(
   return out;
 }
 
+/** Half-up round (HMRC F032.4: x.5 up, below x.5 down). */
+export function hmrcRound(n: number): number {
+  return Math.round(n);
+}
+
 /**
- * Apportion whole pounds across day-weighted slices so the parts sum exactly
- * to `totalPounds` (avoids HMRC 9186 profit-sum mismatches).
+ * Apportion whole pounds across day-weighted FY slices.
+ * HMRC 9198 / F032.4: FY1 profit = round(box315 × fy1Days / periodDays).
+ * Remaining slices take the residual so the parts always sum to `totalPounds`.
  */
 export function apportionWholePounds(
   totalPounds: number,
@@ -109,20 +115,15 @@ export function apportionWholePounds(
   const totalDays = dayWeights.reduce((a, b) => a + b, 0);
   if (totalDays <= 0) return dayWeights.map(() => 0);
 
-  const parts = dayWeights.map((d) =>
-    Math.floor((totalPounds * d) / totalDays),
-  );
-  let remainder = totalPounds - parts.reduce((a, b) => a + b, 0);
-  // Give leftover pounds to the largest day-weight slices first
-  const order = dayWeights
-    .map((d, i) => ({ d, i }))
-    .sort((a, b) => b.d - a.d || a.i - b.i);
-  let k = 0;
-  while (remainder > 0 && order.length > 0) {
-    parts[order[k % order.length]!.i]! += 1;
-    remainder -= 1;
-    k += 1;
-  }
+  if (dayWeights.length === 1) return [totalPounds];
+
+  const parts = dayWeights.map((d, i) => {
+    // Last slice gets residual so Σ parts === total (and earlier slices match HMRC round).
+    if (i === dayWeights.length - 1) return 0;
+    return hmrcRound((totalPounds * d) / totalDays);
+  });
+  const headSum = parts.reduce((a, b) => a + b, 0);
+  parts[parts.length - 1] = totalPounds - headSum;
   return parts;
 }
 

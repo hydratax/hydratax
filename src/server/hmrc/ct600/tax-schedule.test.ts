@@ -9,6 +9,14 @@ describe("apportionWholePounds", () => {
     const parts = apportionWholePounds(10_000, [31, 334]);
     expect(parts.reduce((a, b) => a + b, 0)).toBe(10_000);
   });
+
+  it("matches HMRC F032.4 half-up round for FY1 (error 9198)", () => {
+    // 2025-03-01 → 2026-02-28: 31 + 334 days; £208 chargeable
+    const parts = apportionWholePounds(208, [31, 334]);
+    expect(parts[0]).toBe(Math.round((208 * 31) / 365)); // 18
+    expect(parts[1]).toBe(208 - parts[0]!);
+    expect(parts.reduce((a, b) => a + b, 0)).toBe(208);
+  });
 });
 
 describe("computeCt600TaxSchedule", () => {

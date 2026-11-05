@@ -39,6 +39,7 @@ describe("CT600 TaxRate / box 329 XML (live schema)", () => {
     expect(xml).toContain(
       "<ct:StartingOrSmallCompaniesRate>yes</ct:StartingOrSmallCompaniesRate>",
     );
+    expect(xml).toContain("<ct:ThisPeriod>0</ct:ThisPeriod>");
     expect(xml).toContain("<ct:AssociatedCompanies>");
     expect(xml).toContain("<ct:FinancialYearOne>");
     expect(xml).toContain("<ct:FinancialYearTwo>");
@@ -47,6 +48,14 @@ describe("CT600 TaxRate / box 329 XML (live schema)", () => {
     );
     expect(rates.length).toBeGreaterThanOrEqual(2);
     expect(rates.every((r) => r === "19.00")).toBe(true);
+    // FY1 profit must be HMRC half-up round of 315 × days (error 9198)
+    const fy1Profit = xml.match(
+      /<ct:FinancialYearOne>[\s\S]*?<ct:Profit>([^<]+)<\/ct:Profit>/,
+    )?.[1];
+    const chargeable = Number(
+      xml.match(/<ct:ChargeableProfits>([^<]+)<\/ct:ChargeableProfits>/)?.[1],
+    );
+    expect(fy1Profit).toBe(Math.round((chargeable * 31) / 365).toFixed(2));
   });
 
   it("emits 25.00 TaxRate and MarginalReliefForRingFenceTrades in marginal band", () => {
