@@ -7,7 +7,7 @@ import { getPracticeEntitlements } from "@/server/actions/account";
 import { getPracticeTrialStatus } from "@/server/billing/trial-status";
 import { DashboardClientFilters } from "@/components/dashboard-client-filters";
 import { ClaimFreeTrialButton } from "@/components/claim-free-trial-button";
-import { PendingLink } from "@/components/pending-link";
+import { DashboardServiceCard } from "@/components/dashboard-service-card";
 import { moduleLabel, type ServiceModule } from "@/lib/entitlements";
 import { displayPracticeName } from "@/lib/practice-name";
 import { PRACTICE_TRIAL_DAYS } from "@/lib/trial";
@@ -205,64 +205,19 @@ export default async function DashboardPage() {
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {RAIL_LINKS.map((rail) => {
             const open = unlocked.has(rail.module);
-            if (open) {
-              return (
-                <PendingLink
-                  key={rail.module}
-                  href={rail.href}
-                  className="panel panel-interactive relative block p-4"
-                  pendingLabel={`Opening ${rail.title}…`}
-                >
-                  {(pending) => (
-                    <>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-bold uppercase tracking-wide text-ink-soft">
-                            {moduleLabel(rail.module)}
-                          </p>
-                          <p className="display mt-1 text-xl text-ink">
-                            {rail.title}
-                          </p>
-                          <p className="mt-1 text-sm text-ink-soft">
-                            {rail.blurb}
-                          </p>
-                        </div>
-                        <span
-                          className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}
-                        >
-                          {pending ? "Opening…" : "Open"}
-                        </span>
-                      </div>
-                    </>
-                  )}
-                </PendingLink>
-              );
-            }
             return (
-              <PendingLink
+              <DashboardServiceCard
                 key={rail.module}
-                href="/pricing#practice"
-                className="panel panel-interactive relative block p-4 opacity-90"
-                pendingLabel="Opening plans…"
-              >
-                {(pending) => (
-                  <>
-                    <span className="badge badge-muted absolute right-3 top-3">
-                      Locked
-                    </span>
-                    <p className="text-xs font-bold uppercase tracking-wide text-ink-soft">
-                      {moduleLabel(rail.module)}
-                    </p>
-                    <p className="display mt-1 text-xl text-ink">{rail.title}</p>
-                    <p className="mt-1 text-sm text-ink-soft">{rail.blurb}</p>
-                    <span
-                      className={`mt-3 inline-flex open-chip ${pending ? "is-pending" : ""}`}
-                    >
-                      {pending ? "Opening…" : "Try Practice free →"}
-                    </span>
-                  </>
-                )}
-              </PendingLink>
+                href={open ? rail.href : "/pricing#practice"}
+                moduleLabel={moduleLabel(rail.module)}
+                title={rail.title}
+                blurb={rail.blurb}
+                locked={!open}
+                cta={open ? "Open" : "Try Practice free →"}
+                pendingLabel={
+                  open ? `Opening ${rail.title}…` : "Opening plans…"
+                }
+              />
             );
           })}
         </div>
