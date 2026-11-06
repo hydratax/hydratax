@@ -14,6 +14,8 @@ import {
 } from "@/server/bank/categorise";
 import { parseBankStatementFile } from "@/server/bank/parse-statement-file";
 import { summariseForYearEndAccounts } from "@/server/accounts/year-end-from-bank";
+import { enrichAccountsDraftFromLedger } from "@/server/accounts/enrich-accounts-from-ledger";
+import { emptyBankLedger } from "@/lib/bank-ledger";
 import { parseComparatives, companiesHouseAccountsPeriod } from "@/lib/accounting-periods";
 import { buildCategoryLabelMap } from "@/lib/bank-categories";
 import { deskListCustomBankCategories } from "@/server/db/desk-store";
@@ -551,7 +553,24 @@ export async function getYearEndAccountsDraftFromBank(
     "accountsComparatives" in client ? client.accountsComparatives : null,
   );
   const firstYear = poa.firstYear;
-  return summariseForYearEndAccounts(lines, {
+  const rawLedger = client.deskProfile?.bankLedger;
+  const ledger = rawLedger
+    ? {
+        ...emptyBankLedger(),
+        ...rawLedger,
+        loans: Array.isArray(rawLedger.loans) ? rawLedger.loans : [],
+        assets: Array.isArray(rawLedger.assets) ? rawLedger.assets : [],
+        properties: Array.isArray(rawLedger.properties)
+          ? rawLedger.properties
+          : [],
+        debtors: Array.isArray(rawLedger.debtors) ? rawLedger.debtors : [],
+        creditors: Array.isArray(rawLedger.creditors)
+          ? rawLedger.creditors
+          : [],
+      }
+    : emptyBankLedger();
+
+  const draft = summariseForYearEndAccounts(lines, {
     periodStart,
     periodEnd,
     customCategoryLabels,
@@ -561,7 +580,19 @@ export async function getYearEndAccountsDraftFromBank(
     retainedBroughtForwardPence: firstYear
       ? 0
       : (comps.profitAndLossReservePence ?? undefined),
+    shareCapitalPence: comps.shareCapitalPence ?? undefined,
   });
+
+  return enrichAccountsDraftFromLedger(
+    draft,
+    ledger,
+    lines.map((l) => ({
+      category: l.category,
+      amountPence: l.amountPence,
+      dated: l.dated,
+    })),
+    { shareCapitalPence: comps.shareCapitalPence ?? undefined },
+  );
 }
 
 const connectSchema = z.object({

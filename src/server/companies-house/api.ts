@@ -132,6 +132,69 @@ export async function searchCompanies(query: string, itemsPerPage = 10) {
   return data.items ?? [];
 }
 
+export type AdvancedCompanySearchOpts = {
+  sicCodes?: string[];
+  location?: string;
+  companyStatus?: string[];
+  size?: number;
+  startIndex?: number;
+  revalidate?: number;
+};
+
+/**
+ * Advanced register search — filter by SIC and/or registered-office location.
+ * CH caps results (typically 5,000 per request / 10,000 per query).
+ */
+export async function advancedSearchCompanies(
+  opts: AdvancedCompanySearchOpts,
+): Promise<ChSearchItem[]> {
+  const params = new URLSearchParams();
+  const size = Math.min(Math.max(opts.size ?? 20, 1), 100);
+  params.set("size", String(size));
+  params.set("start_index", String(Math.max(0, opts.startIndex ?? 0)));
+  for (const sic of opts.sicCodes ?? []) {
+    const code = sic.replace(/\D/g, "").slice(0, 5);
+    if (code) params.append("sic_codes", code);
+  }
+  if (opts.location?.trim()) {
+    params.set("location", opts.location.trim());
+  }
+  for (const status of opts.companyStatus ?? ["active"]) {
+    if (status) params.append("company_status", status);
+  }
+  const data = await chFetch<{
+    items?: Array<
+      ChSearchItem & {
+        company_name?: string;
+        registered_office_address?: {
+          address_line_1?: string;
+          locality?: string;
+          postal_code?: string;
+        };
+      }
+    >;
+  }>(`/advanced-search/companies?${params.toString()}`, opts.revalidate ?? 86_400);
+
+  // Advanced search uses company_name; normalise to search-item shape (title).
+  return (data.items ?? []).map((item) => {
+    const addr = item.registered_office_address;
+    const snippet =
+      item.address_snippet ||
+      [addr?.address_line_1, addr?.locality, addr?.postal_code]
+        .filter(Boolean)
+        .join(", ") ||
+      undefined;
+    return {
+      company_number: item.company_number,
+      title: item.title || item.company_name || item.company_number,
+      company_status: item.company_status,
+      company_type: item.company_type,
+      date_of_creation: item.date_of_creation,
+      address_snippet: snippet,
+    } satisfies ChSearchItem;
+  });
+}
+
 export async function getCompanyProfile(
   companyNumber: string,
   revalidate = 0,

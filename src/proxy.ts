@@ -6,6 +6,8 @@ import { isClientUuid } from "@/lib/client-slug";
 const PUBLIC_PREFIXES = [
   "/",
   "/pricing",
+  "/companies",
+  "/company",
   "/companies-house",
   "/support",
   "/feature-requests",

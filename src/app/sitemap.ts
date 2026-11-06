@@ -2,6 +2,12 @@ import type { MetadataRoute } from "next";
 import { SUPPORT_ARTICLES, SUPPORT_CATEGORIES } from "@/lib/support-content";
 import { BLOG_POSTS } from "@/lib/blog";
 import { CH_SERVICE_DETAILS } from "@/lib/ch-services";
+import {
+  industryHubPath,
+  locationHubPath,
+  SEO_INDUSTRY_HUBS,
+  SEO_LOCATION_HUBS,
+} from "@/lib/company-directory";
 import { siteUrl } from "@/lib/site";
 
 const SITE = siteUrl();
@@ -10,6 +16,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const weekly: Array<{ path: string; priority: number }> = [
     { path: "", priority: 1 },
     { path: "/pricing", priority: 0.95 },
+    { path: "/companies", priority: 0.96 },
     { path: "/companies-house", priority: 0.95 },
     { path: "/blog", priority: 0.9 },
     { path: "/companies-house/incorporation", priority: 0.85 },
@@ -35,6 +42,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
     ...SUPPORT_ARTICLES.map((a) => `/support/${a.slug}`),
   ];
 
+  const directoryHubs = [
+    ...SEO_INDUSTRY_HUBS.map((h) => industryHubPath(h.sic)),
+    ...SEO_LOCATION_HUBS.map((place) => locationHubPath(place)),
+  ];
+
   const now = new Date();
 
   return [
@@ -43,6 +55,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: now,
       changeFrequency: "weekly" as const,
       priority,
+    })),
+    ...directoryHubs.map((path) => ({
+      url: `${SITE}${path}`,
+      lastModified: now,
+      changeFrequency: "daily" as const,
+      priority: 0.8,
     })),
     ...BLOG_POSTS.map((post) => ({
       url: `${SITE}/blog/${post.slug}`,

@@ -1,5 +1,6 @@
 import type { OnboardingFormRecord } from "@/lib/onboarding-forms";
 import type { LetterTemplateKey } from "@/lib/letter-templates";
+import type { BankLedger } from "@/lib/bank-ledger";
 
 export type AmlRisk = "low" | "medium" | "high";
 
@@ -105,6 +106,8 @@ export type DeskProfile = {
    * Full address: `{documentInboxKey}@{DOCUMENT_INBOUND_DOMAIN}`.
    */
   documentInboxKey?: string;
+  /** Bank year-end desk: loans, assets, properties & mortgages. */
+  bankLedger?: BankLedger;
 };
 
 export type PracticeLetterhead = {

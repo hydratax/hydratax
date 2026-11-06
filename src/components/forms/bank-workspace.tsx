@@ -12,8 +12,10 @@ import Link from "next/link";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { messageFromUnknown } from "@/lib/action-error";
 import { BankCategorisedView } from "@/components/forms/bank-categorised-view";
+import { BankYearEndDesk } from "@/components/forms/bank-year-end-desk";
 import { recategoriseBankTransactions } from "@/server/actions/bank-recategorise";
 import { downloadBankCsv, downloadBankXlsx } from "@/lib/bank-export";
+import type { BankLedger, LivePlSummary } from "@/lib/bank-ledger";
 
 type Tx = {
   id: string;
@@ -48,6 +50,7 @@ export function BankWorkspace({
   draft,
   customCategories,
   statements,
+  yearEndDesk,
 }: {
   clientId: string;
   clientSlug: string;
@@ -70,6 +73,12 @@ export function BankWorkspace({
     };
     lineCount: number;
     clientType?: "sole_trader" | "limited_company" | "partnership";
+  };
+  yearEndDesk?: {
+    ledger: BankLedger;
+    pl: LivePlSummary;
+    periodStart: string;
+    periodEnd: string;
   };
 }) {
   const formRef = useRef<HTMLFormElement>(null);
@@ -274,8 +283,8 @@ export function BankWorkspace({
               <h3 className="display text-xl text-ink">Ready for accounts</h3>
               <p className="mt-1 text-sm text-ink-soft">
                 {draft.lineCount} categorised lines — review sections below, then
-                build the year-end pack. Use Download CSV / Excel above for the
-                converted file.
+                use the year-end desk for a live P&amp;L, loans, assets and
+                mortgages. Download CSV / Excel above for the converted file.
               </p>
             </div>
             <Link
@@ -286,6 +295,22 @@ export function BankWorkspace({
             </Link>
           </div>
         </div>
+      ) : null}
+
+      {yearEndDesk ? (
+        <BankYearEndDesk
+          clientId={clientId}
+          clientSlug={clientSlug}
+          initialLedger={yearEndDesk.ledger}
+          initialPl={yearEndDesk.pl}
+          periodStart={yearEndDesk.periodStart}
+          periodEnd={yearEndDesk.periodEnd}
+          transactions={transactions.map((t) => ({
+            category: t.category,
+            amountPence: t.amountPence,
+            dated: t.dated,
+          }))}
+        />
       ) : null}
 
       <div className="panel p-5">

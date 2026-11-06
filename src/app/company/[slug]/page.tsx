@@ -17,6 +17,7 @@ import {
   getCompanyProfile,
   isCompaniesHouseApiConfigured,
 } from "@/server/companies-house/api";
+import { findSimilarCompanies } from "@/server/companies-house/similar-companies";
 
 export const revalidate = 86_400;
 
@@ -75,12 +76,21 @@ export default async function PublicCompanyPage({
   }
 
   const facts = companyProfileFacts(profile);
+  const similar = await findSimilarCompanies({
+    companyNumber: profile.company_number,
+    sicCode: profile.sic_codes?.[0] ?? null,
+    location: facts.location,
+  });
 
   return (
     <div className="min-h-screen bg-paper">
       <SiteHeader />
-      <main className="mx-auto max-w-5xl px-4 py-8 md:px-6 md:py-12">
-        <PublicCompanyProfile profile={profile} />
+      <main>
+        <PublicCompanyProfile
+          profile={profile}
+          similarByIndustry={similar.byIndustry}
+          similarByLocation={similar.byLocation}
+        />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
@@ -102,6 +112,14 @@ export default async function PublicCompanyPage({
                   acceptedAnswer: {
                     "@type": "Answer",
                     text: `${facts.companyName} is ${facts.statusLabel.toLowerCase()} on the Companies House register.`,
+                  },
+                },
+                {
+                  "@type": "Question",
+                  name: `Can I file ${facts.companyName}'s confirmation statement or accounts online?`,
+                  acceptedAnswer: {
+                    "@type": "Answer",
+                    text: `Yes. HydraTax lets you file ${facts.companyName}'s confirmation statement, annual accounts and CT600 from this company profile.`,
                   },
                 },
               ],

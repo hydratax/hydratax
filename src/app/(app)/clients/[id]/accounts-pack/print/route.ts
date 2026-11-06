@@ -1,5 +1,6 @@
 import { getYearEndAccountsDraftFromBank } from "@/server/actions/bank";
 import { requireSession } from "@/server/auth/session";
+import { getPracticeLetterhead } from "@/server/actions/letterhead";
 import { renderYearEndAccountsHtml } from "@/server/accounts/render-pack-html";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
@@ -66,6 +67,7 @@ export async function GET(
     ? `activities under SIC ${sic}`
     : "business support services";
 
+  const letterhead = await getPracticeLetterhead();
   const html = renderYearEndAccountsHtml(
     {
       name: client.name,
@@ -73,8 +75,9 @@ export async function GET(
       registeredOffice: officeLines,
       directors: directors.length ? directors : ["Director"],
       principalActivity,
-      accountantsName: "HydraTax",
-      bankers: "Monzo Bank",
+      accountantsName: letterhead.practiceName || "HydraTax",
+      accountantsAddress: letterhead.addressLines ?? [],
+      bankers: "—",
       approvalDate: new Date().toISOString().slice(0, 10),
     },
     draft,

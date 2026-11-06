@@ -4,13 +4,10 @@ import { requireSession } from "@/server/auth/session";
 import { isPlatformAdmin } from "@/server/auth/admin";
 import { getHmrcEnvInfo } from "@/server/actions/hmrc-connect";
 import { getPracticeEntitlements } from "@/server/actions/account";
-import { getPracticeTrialStatus } from "@/server/billing/trial-status";
 import { DashboardClientFilters } from "@/components/dashboard-client-filters";
-import { ClaimFreeTrialButton } from "@/components/claim-free-trial-button";
 import { DashboardServiceCard } from "@/components/dashboard-service-card";
 import { moduleLabel, type ServiceModule } from "@/lib/entitlements";
 import { displayPracticeName } from "@/lib/practice-name";
-import { PRACTICE_TRIAL_DAYS } from "@/lib/trial";
 import { clientSlugFor } from "@/lib/client-slug";
 
 const RAIL_LINKS: {
@@ -63,16 +60,7 @@ export default async function DashboardPage() {
   const peers = clients.map((c) => ({ id: c.id, name: c.name }));
   const hmrc = await getHmrcEnvInfo();
   const entitlements = await getPracticeEntitlements();
-  const trial = await getPracticeTrialStatus(session.practiceId);
   const unlocked = new Set(entitlements.modules);
-
-  const trialEndsLabel = trial.trialEndsAt
-    ? new Date(trial.trialEndsAt).toLocaleDateString("en-GB", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      })
-    : null;
 
   const stats = [
     {
@@ -139,59 +127,6 @@ export default async function DashboardPage() {
           </Link>
         </div>
       </div>
-
-      {trial.onTrial && entitlements.hasAnyPaid && (
-        <aside className="panel border-sea/40 bg-sea/5 p-5">
-          <p className="font-semibold text-ink">
-            {entitlements.plans[0]?.label ?? "Your plan"} —{" "}
-            {PRACTICE_TRIAL_DAYS}-day trial
-          </p>
-          <p className="mt-1 text-sm text-ink-soft">
-            You&apos;re already on this plan. No Hydra fees and free submissions
-            until
-            {trialEndsLabel ? ` ${trialEndsLabel}` : " your trial ends"}
-            ; billing continues automatically after that. Companies House
-            statutory fees still apply where charged.
-          </p>
-          <Link href="/settings/account" className="btn btn-secondary mt-4 text-sm">
-            Manage billing
-          </Link>
-        </aside>
-      )}
-
-      {trial.onTrial && !entitlements.hasAnyPaid && (
-        <aside className="panel border-sea/40 bg-sea/5 p-5">
-          <p className="font-semibold text-ink">
-            {PRACTICE_TRIAL_DAYS}-day free trial active
-          </p>
-          <p className="mt-1 text-sm text-ink-soft">
-            No Hydra fees and free submissions until
-            {trialEndsLabel ? ` ${trialEndsLabel}` : " your trial ends"}.
-            Companies House statutory fees still apply where charged. Choose a
-            plan before the trial ends to keep filing without interruption.
-          </p>
-          <Link href="/pricing" className="btn btn-secondary mt-4 text-sm">
-            Choose a plan
-          </Link>
-        </aside>
-      )}
-
-      {!entitlements.hasAnyPaid && !trial.onTrial && (
-        <aside className="panel border-accent/40 bg-accent/5 p-5">
-          <p className="font-semibold text-ink">Unlock Practice or Custom features</p>
-          <p className="mt-1 text-sm text-ink-soft">
-            Multi-client desk, CT600, VAT, PAYE and more unlock with a Practice
-            or Custom plan. Start a 7-day free trial (card saved now — first
-            charge on day 8), or choose Solo / other modules on pricing.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <ClaimFreeTrialButton />
-            <Link href="/pricing" className="btn btn-secondary text-sm">
-              View all plans
-            </Link>
-          </div>
-        </aside>
-      )}
 
       <section>
         <h2 className="display text-2xl text-ink">Your services</h2>

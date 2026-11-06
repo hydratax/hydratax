@@ -7,6 +7,10 @@ import {
   type BankCategory,
   type Note8Key,
 } from "@/lib/bank-categories";
+import type {
+  DebtorCreditorNoteTotals,
+  Note1Schedule,
+} from "@/lib/bank-ledger";
 import {
   EMPTY_COMPARATIVES,
   parseComparatives,
@@ -19,6 +23,13 @@ import type { CategorisedLine } from "@/server/bank/categorise";
 
 /** null = not provided — show blank on statements. */
 export type StatementAmount = number | null;
+
+export type TrialBalanceLine = {
+  code: string;
+  name: string;
+  debitPence: number;
+  creditPence: number;
+};
 
 export type YearEndAccountsDraft = {
   periodStart: string;
@@ -50,6 +61,12 @@ export type YearEndAccountsDraft = {
     netCurrentAssetsPence: StatementAmount;
     totalNetAssetsPence: StatementAmount;
   };
+  /** Digitus Notes1 tangible assets schedule (optional until ledger applied). */
+  note1?: Note1Schedule | null;
+  /** Digitus Notes2 debtors & creditors breakdown. */
+  note2?: DebtorCreditorNoteTotals | null;
+  /** Digitus-style trial balance lines. */
+  trialBalance?: TrialBalanceLine[];
   lineCount: number;
   uncategorisedCount: number;
 };

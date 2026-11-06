@@ -66,6 +66,7 @@ export const SIC_CODES: SicCode[] = [
   { code: "81221", description: "Window cleaning services", keywords: ["cleaning", "windows"] },
   { code: "82990", description: "Other business support service activities n.e.c.", keywords: ["business", "support", "admin", "services"] },
   { code: "85590", description: "Other education n.e.c.", keywords: ["education", "training", "tuition", "coaching"] },
+  { code: "86101", description: "Hospital activities", keywords: ["hospital", "healthcare", "health", "medical"] },
   { code: "86210", description: "General medical practice activities", keywords: ["gp", "medical", "clinic", "health"] },
   { code: "86230", description: "Dental practice activities", keywords: ["dentist", "dental"] },
   { code: "86900", description: "Other human health activities", keywords: ["health", "wellbeing", "clinic"] },

@@ -1,8 +1,13 @@
 import { getTaxDraftFromBank, listBankTransactions } from "@/server/actions/bank";
+import {
+  getBankLedger,
+  getLivePlFromBank,
+} from "@/server/actions/bank-ledger";
 import { listCustomBankCategories } from "@/server/actions/custom-categories";
 import { listClientDocuments } from "@/server/actions/documents";
 import { BankWorkspace } from "@/components/forms/bank-workspace";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
+import { emptyBankLedger } from "@/lib/bank-ledger";
 
 function isBankStatementDoc(doc: {
   filename: string;
@@ -36,6 +41,8 @@ export default async function ClientBankPage({
   const draft = await getTaxDraftFromBank(clientId);
   const customCategories = await listCustomBankCategories().catch(() => []);
   const documents = await listClientDocuments(clientId).catch(() => []);
+  const live = await getLivePlFromBank(clientId).catch(() => null);
+  const ledger = live?.ledger ?? (await getBankLedger(clientId).catch(() => emptyBankLedger()));
   const statements = documents
     .filter(isBankStatementDoc)
     .slice(0, 12)
@@ -70,6 +77,37 @@ export default async function ClientBankPage({
         draft={draft}
         customCategories={customCategories}
         statements={statements}
+        yearEndDesk={
+          live
+            ? {
+                ledger,
+                pl: live.pl,
+                periodStart: live.periodStart,
+                periodEnd: live.periodEnd,
+              }
+            : {
+                ledger,
+                pl: {
+                  turnoverPence: 0,
+                  costOfSalesPence: 0,
+                  grossProfitPence: 0,
+                  expensesPence: 0,
+                  depreciationPence: 0,
+                  financeCostsPence: 0,
+                  mortgageInterestPaidPence: 0,
+                  mortgageInterestDuePence: 0,
+                  profitBeforeTaxPence: 0,
+                  fixedAssetsNbvPence: 0,
+                  propertyCostPence: 0,
+                  loansClosingPence: 0,
+                  mortgagesClosingPence: 0,
+                  lineCount: 0,
+                  uncategorisedCount: 0,
+                },
+                periodStart: ledger.periodStart ?? "",
+                periodEnd: ledger.periodEnd ?? "",
+              }
+        }
       />
     </div>
   );

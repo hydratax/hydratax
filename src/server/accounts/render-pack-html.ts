@@ -96,6 +96,11 @@ export function renderYearEndAccountsHtml(
   const office = company.registeredOffice.filter(Boolean);
   const note8 = draft.note8;
   const priorNote8 = prior?.note8;
+  const note1 = draft.note1;
+  const note2 = draft.note2;
+  const tb = draft.trialBalance ?? [];
+
+  const n1Cell = (pence: number) => gbp(pence, true);
 
   const plRow = (
     label: string,
@@ -228,6 +233,7 @@ export function renderYearEndAccountsHtml(
       <tr><td>Balance Sheet</td><td class="num">5</td></tr>
       <tr><td>Profit and Loss Account</td><td class="num">6</td></tr>
       <tr><td>Notes to the Accounts</td><td class="num">7-9</td></tr>
+      <tr><td>Trial Balance</td><td class="num">10</td></tr>
     </table>
   </section>
 
@@ -368,11 +374,88 @@ export function renderYearEndAccountsHtml(
     <div class="subnote">
       <h3>1.) TANGIBLE ASSETS</h3>
       <table class="fin small">
-        <tr><th></th><th class="num">Fixtures, Fittings &amp; Equipment</th><th class="num">Motor Vehicle</th><th class="num">Plant &amp; Machinery</th><th class="num">Total</th></tr>
-        <tr><td>Cost at start of period</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td></tr>
-        <tr><td>Additions</td><td class="num">-</td><td class="num">-</td><td class="num">-</td><td class="num">-</td></tr>
-        <tr><td>Cost at end of period</td><td class="num">${gbpOrDash(draft.balanceSheet.fixedAssetsPence)}</td><td class="num">-</td><td class="num">-</td><td class="num">${gbpOrDash(draft.balanceSheet.fixedAssetsPence)}</td></tr>
-        <tr><td>Net book value at period end</td><td class="num">${gbpOrDash(draft.balanceSheet.fixedAssetsPence)}</td><td class="num">-</td><td class="num">-</td><td class="num">${gbpOrDash(draft.balanceSheet.fixedAssetsPence)}</td></tr>
+        <tr>
+          <th></th>
+          <th class="num">Fixtures, Fittings &amp; Equipment</th>
+          <th class="num">Motor Vehicle</th>
+          <th class="num">Plant &amp; Machinery</th>
+          <th class="num">Freehold Premises</th>
+          <th class="num">Total</th>
+        </tr>
+        <tr class="group-head"><td colspan="6">Cost</td></tr>
+        <tr>
+          <td>As at ${escapeHtml(startLabel)}</td>
+          <td class="num">${n1Cell(note1?.fixtures.costBroughtForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.motor.costBroughtForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.plant.costBroughtForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.freehold.costBroughtForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.total.costBroughtForwardPence ?? 0)}</td>
+        </tr>
+        <tr>
+          <td>Additions</td>
+          <td class="num">${n1Cell(note1?.fixtures.additionsPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.motor.additionsPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.plant.additionsPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.freehold.additionsPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.total.additionsPence ?? 0)}</td>
+        </tr>
+        <tr>
+          <td>Disposals</td>
+          <td class="num">${n1Cell(note1?.fixtures.disposalsPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.motor.disposalsPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.plant.disposalsPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.freehold.disposalsPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.total.disposalsPence ?? 0)}</td>
+        </tr>
+        <tr>
+          <td>As at ${escapeHtml(endLabel)}</td>
+          <td class="num">${n1Cell(note1?.fixtures.costCarriedForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.motor.costCarriedForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.plant.costCarriedForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.freehold.costCarriedForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.total.costCarriedForwardPence ?? (draft.balanceSheet.fixedAssetsPence ?? 0))}</td>
+        </tr>
+        <tr class="group-head"><td colspan="6">Accumulated Depreciation</td></tr>
+        <tr>
+          <td>As at ${escapeHtml(startLabel)}</td>
+          <td class="num">${n1Cell(note1?.fixtures.depBroughtForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.motor.depBroughtForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.plant.depBroughtForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.freehold.depBroughtForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.total.depBroughtForwardPence ?? 0)}</td>
+        </tr>
+        <tr>
+          <td>Depreciation for the Year</td>
+          <td class="num">${n1Cell(note1?.fixtures.depChargePence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.motor.depChargePence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.plant.depChargePence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.freehold.depChargePence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.total.depChargePence ?? draft.note8.depreciation)}</td>
+        </tr>
+        <tr>
+          <td>As at ${escapeHtml(endLabel)}</td>
+          <td class="num">${n1Cell(note1?.fixtures.depCarriedForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.motor.depCarriedForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.plant.depCarriedForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.freehold.depCarriedForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.total.depCarriedForwardPence ?? 0)}</td>
+        </tr>
+        <tr>
+          <td>Net Book Value at ${escapeHtml(startLabel)}</td>
+          <td class="num">${n1Cell(note1?.fixtures.nbvBroughtForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.motor.nbvBroughtForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.plant.nbvBroughtForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.freehold.nbvBroughtForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.total.nbvBroughtForwardPence ?? 0)}</td>
+        </tr>
+        <tr>
+          <td>Net Book Value at ${escapeHtml(endLabel)}</td>
+          <td class="num">${n1Cell(note1?.fixtures.nbvCarriedForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.motor.nbvCarriedForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.plant.nbvCarriedForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.freehold.nbvCarriedForwardPence ?? 0)}</td>
+          <td class="num">${n1Cell(note1?.total.nbvCarriedForwardPence ?? (draft.balanceSheet.fixedAssetsPence ?? 0))}</td>
+        </tr>
       </table>
     </div>
   </section>
@@ -383,14 +466,31 @@ export function renderYearEndAccountsHtml(
     <p class="center muted">FOR THE PERIOD ${escapeHtml(startLabel.toUpperCase())} TO ${escapeHtml(endLabel.toUpperCase())}</p>
     <div class="subnote">
       <h3>2.) OTHER DEBTORS</h3>
-      <table class="fin"><tr><th></th><th class="num">${escapeHtml(y)} £</th>${showPrior ? `<th class="num">${escapeHtml(py)} £</th>` : ""}</tr>
-      <tr><td>Trade debtors</td><td class="num">${gbp(draft.balanceSheet.otherDebtorsPence)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-      <tr><td>Unpaid share capital</td><td class="num">-</td>${showPrior ? `<td class="num">-</td>` : ""}</tr></table>
+      <table class="fin">
+        <tr><th></th><th class="num">${escapeHtml(y)} £</th>${showPrior ? `<th class="num">${escapeHtml(py)} £</th>` : ""}</tr>
+        <tr><td>Trade Debtors</td><td class="num">${gbp(note2?.debtors.trade ?? draft.balanceSheet.otherDebtorsPence)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td>VAT</td><td class="num">${gbp(note2?.debtors.vat ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td>PAYE</td><td class="num">${gbp(note2?.debtors.paye ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td>Tax Debtors</td><td class="num">${gbp(note2?.debtors.tax ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td>Unpaid Share Capital</td><td class="num">${gbp(note2?.debtors.unpaid_share_capital ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td>Other Debtors</td><td class="num">${gbp(note2?.debtors.other ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td><strong>Total</strong></td><td class="num"><strong>${gbp(note2?.debtorsTotalPence ?? draft.balanceSheet.otherDebtorsPence)}</strong></td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+      </table>
     </div>
     <div class="subnote">
       <h3>3.) CREDITORS — due within one year</h3>
-      <table class="fin"><tr><th></th><th class="num">${escapeHtml(y)} £</th>${showPrior ? `<th class="num">${escapeHtml(py)} £</th>` : ""}</tr>
-      <tr><td>Corporation tax</td><td class="num">${gbp(draft.taxationPence)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr></table>
+      <table class="fin">
+        <tr><th></th><th class="num">${escapeHtml(y)} £</th>${showPrior ? `<th class="num">${escapeHtml(py)} £</th>` : ""}</tr>
+        <tr><td>Trade Creditors</td><td class="num">${gbp(note2?.creditorsWithin.trade ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td>Corporation Tax</td><td class="num">${gbp(note2?.creditorsWithin.corporation_tax ?? draft.taxationPence)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td>Accountancy</td><td class="num">${gbp(note2?.creditorsWithin.accountancy ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td>Accruals</td><td class="num">${gbp(note2?.creditorsWithin.accruals ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td>VAT</td><td class="num">${gbp(note2?.creditorsWithin.vat ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td>PAYE</td><td class="num">${gbp(note2?.creditorsWithin.paye ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td>Bank Overdraft</td><td class="num">${gbp(note2?.creditorsWithin.bank_overdraft ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td>Other Creditors</td><td class="num">${gbp(note2?.creditorsWithin.other ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td><strong>Total</strong></td><td class="num"><strong>${gbp(note2?.creditorsWithinTotalPence ?? draft.balanceSheet.creditorsWithinOneYearPence)}</strong></td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+      </table>
     </div>
     <div class="subnote">
       <h3>4.) CREDITORS — due after one year</h3>
@@ -400,7 +500,7 @@ export function renderYearEndAccountsHtml(
     <div class="subnote">
       <h3>5.) CALLED UP SHARE CAPITAL</h3>
       <table class="fin"><tr><th></th><th class="num">${escapeHtml(y)} £</th>${showPrior ? `<th class="num">${escapeHtml(py)} £</th>` : ""}</tr>
-      <tr><td>Issued and fully paid</td><td class="num">${gbpOrDash(draft.balanceSheet.shareCapitalPence, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr></table>
+      <tr><td>Authorised / Issued and fully paid</td><td class="num">${gbpOrDash(draft.balanceSheet.shareCapitalPence, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr></table>
     </div>
     <div class="subnote">
       <h3>6.) PROFIT AND LOSS ACCOUNT</h3>
@@ -414,13 +514,17 @@ export function renderYearEndAccountsHtml(
   <section class="page">
     <div class="company">${escapeHtml(company.name)}</div>
     <h2 class="section-title">Notes to the Accounts (continued)</h2>
+    <p class="center muted">FOR THE PERIOD ${escapeHtml(startLabel.toUpperCase())} TO ${escapeHtml(endLabel.toUpperCase())}</p>
+    <h3>7.) TURNOVER</h3>
+    <p>Turnover represents takings as ${escapeHtml(company.principalActivity)} and is exclusive of VAT.</p>
     <h3>8.) ADMINISTRATIVE EXPENSES</h3>
+    <p class="small">Profit/(Loss) on ordinary activities before taxation is stated after charging:</p>
     <table class="fin">
       <thead>
         <tr><th></th><th class="num">${escapeHtml(y)} £</th>${showPrior ? `<th class="num">${escapeHtml(py)} £</th>` : ""}</tr>
       </thead>
       <tbody>
-        ${note8Rows}${customNote8Rows ? `<tr class="group-head"><td colspan="3">Other</td></tr>${customNote8Rows}` : ""}
+        ${note8Rows}${customNote8Rows ? `<tr class="group-head"><td colspan="${showPrior ? 3 : 2}">Other</td></tr>${customNote8Rows}` : ""}
         <tr>
           <td><strong>TOTAL EXPENDITURE</strong></td>
           <td class="num"><strong>${gbp(draft.adminExpensesPence)}</strong></td>
@@ -428,12 +532,43 @@ export function renderYearEndAccountsHtml(
         </tr>
       </tbody>
     </table>
-    <h3 style="margin-top:12mm">7.) TURNOVER</h3>
-    <p>Turnover represents takings as ${escapeHtml(company.principalActivity)} and is exclusive of VAT.</p>
-    <h3>9.) TAXATION</h3>
+    <h3 style="margin-top:12mm">9.) TAXATION</h3>
     <p>The Corporation Tax Liability for the Year is ${gbp(draft.taxationPence)}.</p>
     <h3>10.) DIVIDENDS</h3>
     <p>Dividends Paid for the Year: ${gbp(draft.dividendsPence, true)}.</p>
+  </section>
+
+  <section class="page">
+    <div class="company">${escapeHtml(company.name)}</div>
+    <h2 class="section-title">Trial Balance</h2>
+    <p class="center muted">FOR THE PERIOD ${escapeHtml(startLabel.toUpperCase())} TO ${escapeHtml(endLabel.toUpperCase())}</p>
+    <table class="fin">
+      <thead>
+        <tr>
+          <th style="text-align:left">Code</th>
+          <th style="text-align:left">Account Name</th>
+          <th class="num">Debit £</th>
+          <th class="num">Credit £</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tb
+          .map(
+            (r) => `<tr>
+          <td>${escapeHtml(r.code)}</td>
+          <td>${escapeHtml(r.name)}</td>
+          <td class="num">${r.debitPence ? gbp(r.debitPence) : "-"}</td>
+          <td class="num">${r.creditPence ? gbp(r.creditPence) : "-"}</td>
+        </tr>`,
+          )
+          .join("")}
+        <tr>
+          <td colspan="2"><strong>Totals</strong></td>
+          <td class="num"><strong>${gbp(tb.reduce((s, r) => s + r.debitPence, 0))}</strong></td>
+          <td class="num"><strong>${gbp(tb.reduce((s, r) => s + r.creditPence, 0))}</strong></td>
+        </tr>
+      </tbody>
+    </table>
   </section>
 </body>
 </html>`;

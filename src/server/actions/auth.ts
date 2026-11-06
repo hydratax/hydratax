@@ -101,13 +101,28 @@ export async function signUpWithSupabase(
     }
 
     // Provision practice row; free trial only starts via Practice/Custom checkout
+    let practiceName: string | null = null;
     try {
       const { ensureSupabasePractice } = await import(
         "@/server/auth/ensure-practice"
       );
-      await ensureSupabasePractice(authData.user!);
+      const practice = await ensureSupabasePractice(authData.user!);
+      practiceName = practice.practiceName;
     } catch {
       /* practice seeded on first dashboard visit */
+    }
+
+    try {
+      const { sendAccountWelcomeEmail } = await import(
+        "@/server/email/account-welcome"
+      );
+      await sendAccountWelcomeEmail({
+        to: data.email,
+        firstName: data.firstName,
+        practiceName,
+      });
+    } catch (err) {
+      console.error("[auth.signUp] welcome email failed", err);
     }
 
     return { ok: true, redirectTo: "/dashboard" };
@@ -172,13 +187,28 @@ export async function quickSignUpWithSupabase(
       };
     }
 
+    let practiceName: string | null = null;
     try {
       const { ensureSupabasePractice } = await import(
         "@/server/auth/ensure-practice"
       );
-      await ensureSupabasePractice(authData.user!);
+      const practice = await ensureSupabasePractice(authData.user!);
+      practiceName = practice.practiceName;
     } catch {
       /* practice seeded on first desk visit */
+    }
+
+    try {
+      const { sendAccountWelcomeEmail } = await import(
+        "@/server/email/account-welcome"
+      );
+      await sendAccountWelcomeEmail({
+        to: data.email,
+        firstName: data.email.split("@")[0] || null,
+        practiceName,
+      });
+    } catch (err) {
+      console.error("[auth.quickSignUp] welcome email failed", err);
     }
 
     return { ok: true, redirectTo: continueTo };

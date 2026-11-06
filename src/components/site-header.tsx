@@ -9,6 +9,7 @@ import { PublicAuthLinks } from "@/components/public-auth-links";
 const SERVICES = [
   { label: "MTD VAT", href: "/pricing#vat" },
   { label: "Corporation Tax", href: "/pricing#ct600" },
+  { label: "Companies", href: "/companies" },
   { label: "Confirmation Statement", href: "/companies-house/confirmation-statement" },
   { label: "Annual accounts", href: "/companies-house/accounts-ixbrl" },
   { label: "PAYE / RTI", href: "/pricing#payroll" },

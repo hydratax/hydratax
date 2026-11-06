@@ -25,6 +25,12 @@ export async function sendTransactionalEmail(opts: {
     "HydraTax <onboarding@resend.dev>";
   const recipients = Array.isArray(opts.to) ? opts.to : [opts.to];
 
+  if (!process.env.EMAIL_FROM && !opts.from) {
+    console.warn(
+      "[email] EMAIL_FROM is unset — using onboarding@resend.dev (only delivers to the Resend account owner). Set EMAIL_FROM=HydraTax <info@hydratax.uk> after verifying the domain in Resend.",
+    );
+  }
+
   if (resendKey) {
     const headers: Record<string, string> = {};
     if (opts.listUnsubscribeUrl) {
@@ -63,13 +69,16 @@ export async function sendTransactionalEmail(opts: {
     return "resend";
   }
 
-  console.info("[email:logged]", {
-    to: opts.to,
-    subject: opts.subject,
-    replyTo: opts.replyTo,
-    text: opts.text.slice(0, 200),
-    attachments: opts.attachments?.map((a) => a.filename) ?? [],
-  });
+  console.warn(
+    "[email:logged] RESEND_API_KEY is unset — email was not sent. Set RESEND_API_KEY (and EMAIL_FROM) in Netlify/production env.",
+    {
+      to: opts.to,
+      subject: opts.subject,
+      replyTo: opts.replyTo,
+      text: opts.text.slice(0, 200),
+      attachments: opts.attachments?.map((a) => a.filename) ?? [],
+    },
+  );
   return "logged";
 }
 

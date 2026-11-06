@@ -1092,8 +1092,8 @@ html[data-nav-pending]::after {
 
 .gloss-badge {
   box-shadow:
-    0 20px 50px -18px rgba(0, 0, 0, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    0 12px 28px -16px rgba(15, 118, 110, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
   position: relative;
   overflow: hidden;
 }
@@ -1116,12 +1116,12 @@ html[data-nav-pending]::after {
   overflow: hidden;
   background: linear-gradient(
     165deg,
-    rgba(255, 255, 255, 0.95) 0%,
-    rgba(255, 255, 255, 0.72) 100%
+    rgba(255, 255, 255, 0.97) 0%,
+    rgba(255, 255, 255, 0.82) 100%
   );
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.9) inset,
-    0 18px 40px -28px rgba(10, 10, 10, 0.35);
+    0 1px 0 rgba(255, 255, 255, 0.95) inset,
+    0 18px 40px -28px rgba(15, 118, 110, 0.22);
 }
 
 .gloss-shine {
@@ -1221,5 +1221,60 @@ html[data-nav-pending]::after {
 .bank-tx-table td,
 .bank-tx-table th {
   vertical-align: middle;
+}
+
+/* Public company profile — light glossy filing layout */
+.company-profile {
+  background:
+    radial-gradient(ellipse 90% 40% at 50% 0%, rgba(15, 118, 110, 0.06), transparent 55%),
+    var(--paper);
+}
+
+.company-profile-hero-copy {
+  animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.company-profile-actions {
+  animation: rise 0.85s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+}
+
+.company-deadline-tile {
+  animation: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.company-related-link {
+  animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.company-profile-body {
+  animation: rise 0.65s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both;
+}
+
+.company-cta-primary {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 12px 28px -14px rgba(15, 118, 110, 0.65);
+}
+
+.company-cta-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 32px -12px rgba(15, 118, 110, 0.7);
+}
+
+.company-cta-primary:active {
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .company-profile-hero-copy,
+  .company-profile-actions,
+  .company-deadline-tile,
+  .company-related-link,
+  .company-profile-body {
+    animation: none;
+  }
+
+  .company-cta-primary:hover {
+    transform: none;
+  }
 }
 
