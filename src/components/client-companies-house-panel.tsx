@@ -50,9 +50,12 @@ function DueRow({
 export function ClientCompaniesHousePanel({
   clientId,
   snapshot,
+  filedYearEnd = null,
 }: {
   clientId: string;
   snapshot: ClientCompaniesHouseSnapshot | null | undefined;
+  /** When set, show downloads / amend instead of File Accounts */
+  filedYearEnd?: YearEndFiledContext | null;
 }) {
   async function refresh() {
     "use server";
