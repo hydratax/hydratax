@@ -121,6 +121,7 @@ export default async function proxy(request: NextRequest) {
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-pathname", pathname);
+  requestHeaders.set("x-search", request.nextUrl.search);
 
   // Public pages: skip Supabase round-trip (saves 5–20s locally on every navigation).
   if (isPublicPath(pathname)) {

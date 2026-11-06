@@ -209,7 +209,7 @@ export const SUPPORT_ARTICLES: SupportArticle[] = [
     category: "self-assessment",
     popular: true,
     body: [
-      "Self Assessment in Hydra is for sole traders and partnerships — limited companies use the Corporation Tax rail instead.",
+      "Self Assessment is for individuals. Sole traders and partners file on their own desk; limited-company clients use the SA tab for each director or shareholder (employment, dividends, etc.) while the company itself stays on Corporation Tax.",
       "Pick the tax year and period dates. Hydra totals turnover and expenses from books in that window, validates the payload, then submits with fraud-prevention headers.",
       "If the tax calculation looks higher than expected, check allowances (for example dividend nil-rate bands still consume basic-rate band) before amending figures.",
     ],

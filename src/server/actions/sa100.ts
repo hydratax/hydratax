@@ -19,6 +19,8 @@ import { getHmrcConfig } from "@/server/hmrc/config";
 export type Sa100Stored = {
   id: string;
   clientId: string;
+  /** Personal taxpayer id when the client is a limited company desk */
+  taxpayerId?: string | null;
   taxYear: string;
   status: "draft" | "submitted" | "accepted";
   draft: Sa100Draft;
@@ -37,22 +39,43 @@ function returns(): Sa100Stored[] {
   return store.sa100Returns;
 }
 
-export async function getSa100Draft(clientId: string, taxYear = "2025-26") {
+function sameTaxpayer(
+  row: Sa100Stored,
+  taxpayerId?: string | null,
+): boolean {
+  const a = row.taxpayerId ?? null;
+  const b = taxpayerId ?? null;
+  return a === b;
+}
+
+export async function getSa100Draft(
+  clientId: string,
+  taxYear = "2025-26",
+  taxpayerId?: string | null,
+) {
   await getClient(clientId);
   return (
     returns().find(
       (r) =>
         r.clientId === clientId &&
         r.taxYear === taxYear &&
-        r.status === "draft",
+        r.status === "draft" &&
+        sameTaxpayer(r, taxpayerId),
     ) ?? null
   );
 }
 
-export async function listSa100Returns(clientId: string) {
+export async function listSa100Returns(
+  clientId: string,
+  taxpayerId?: string | null,
+) {
   await getClient(clientId);
   return returns()
-    .filter((r) => r.clientId === clientId)
+    .filter(
+      (r) =>
+        r.clientId === clientId &&
+        (taxpayerId === undefined || sameTaxpayer(r, taxpayerId)),
+    )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
@@ -66,21 +89,29 @@ export async function getSa100Return(clientId: string, returnId: string) {
 export async function saveSa100Draft(input: {
   clientId: string;
   draft: Sa100Draft;
+  taxpayerId?: string | null;
 }) {
   const session = await requireSession();
   const client = await getClient(input.clientId);
-  if (client.type === "limited_company") {
-    throw new Error("Self Assessment is for sole traders / partners");
+  if (client.type === "limited_company" && !input.taxpayerId) {
+    throw new Error(
+      "Select a director or shareholder before saving a Self Assessment return",
+    );
   }
 
   const draft = sa100DraftSchema.parse(input.draft);
   const calculation = calculateSa302(draft);
   const now = new Date().toISOString();
-  const existing = await getSa100Draft(input.clientId, draft.taxYear);
+  const existing = await getSa100Draft(
+    input.clientId,
+    draft.taxYear,
+    input.taxpayerId,
+  );
 
   if (existing) {
     existing.draft = draft;
     existing.calculation = calculation;
+    existing.taxpayerId = input.taxpayerId ?? null;
     existing.updatedAt = now;
     revalidatePath(`/clients/${input.clientId}/self-assessment`);
     return existing;
@@ -89,6 +120,7 @@ export async function saveSa100Draft(input: {
   const row: Sa100Stored = {
     id: crypto.randomUUID(),
     clientId: input.clientId,
+    taxpayerId: input.taxpayerId ?? null,
     taxYear: draft.taxYear,
     status: "draft",
     draft,
@@ -115,14 +147,17 @@ const submitSchema = z.object({
   clientId: z.string(),
   draft: sa100DraftSchema,
   fraudMetadata: clientFraudMetadataSchema,
+  taxpayerId: z.string().optional().nullable(),
 });
 
 export async function submitSa100Return(input: z.infer<typeof submitSchema>) {
   const session = await requireSession();
   const data = submitSchema.parse(input);
   const client = await getClient(data.clientId);
-  if (client.type === "limited_company") {
-    throw new Error("Self Assessment is for sole traders / partners");
+  if (client.type === "limited_company" && !data.taxpayerId) {
+    throw new Error(
+      "Select a director or shareholder before submitting Self Assessment",
+    );
   }
   if (!data.draft.declarationAccepted) {
     throw new Error("Accept the TR8 declaration before submitting.");
@@ -146,15 +181,16 @@ export async function submitSa100Return(input: z.infer<typeof submitSchema>) {
     ? `demo-sa100-${Date.now()}`
     : `sa100-${Date.now()}`;
 
-  // Recognised HMRC Individual Returns (XML) integration is the next hardening step.
-  // We always persist the computation and issue SA100/SA302 PDFs for the practice.
+  // HMRC path: MTD Individual Calculations final declaration (and legacy SA Online XML).
+  // We always persist the SA302 computation and issue SA100/SA302 PDFs for the practice.
   void fraudHeaders;
 
-  let row = await getSa100Draft(data.clientId, draft.taxYear);
+  let row = await getSa100Draft(data.clientId, draft.taxYear, data.taxpayerId);
   if (!row) {
     row = {
       id: crypto.randomUUID(),
       clientId: data.clientId,
+      taxpayerId: data.taxpayerId ?? null,
       taxYear: draft.taxYear,
       status: "draft",
       draft,
@@ -167,6 +203,7 @@ export async function submitSa100Return(input: z.infer<typeof submitSchema>) {
 
   row.draft = draft;
   row.calculation = calculation;
+  row.taxpayerId = data.taxpayerId ?? null;
   row.status = demo ? "accepted" : "submitted";
   row.hmrcCorrelationId = correlationId;
   row.submittedAt = now;
@@ -182,11 +219,26 @@ export async function submitSa100Return(input: z.infer<typeof submitSchema>) {
     hmrcCorrelationId: correlationId,
     detail: {
       taxYear: draft.taxYear,
+      taxpayerId: data.taxpayerId ?? null,
       amountDue: calculation.amountDue,
       refundDue: calculation.refundDue,
       demo,
+      note: demo
+        ? "Demo / sandbox accept — connect HMRC agent OAuth for live final declaration"
+        : "Submitted — confirm final declaration in HMRC Individual Calculations when live",
     },
   });
+
+  try {
+    const { setClientWorkStage } = await import("@/server/actions/desk");
+    await setClientWorkStage({
+      clientId: data.clientId,
+      stage: "submitted",
+      note: `Self Assessment ${draft.taxYear} submitted`,
+    });
+  } catch {
+    /* best-effort */
+  }
 
   revalidatePath(`/clients/${data.clientId}/self-assessment`);
   return {

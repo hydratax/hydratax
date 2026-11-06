@@ -28,15 +28,22 @@ const allowedTypes = new Set([
   "application/vnd.ms-excel",
 ]);
 
-const categorySchema = z.enum([
-  "general",
-  "accounts",
-  "vat",
-  "payroll",
-  "corporation_tax",
-  "self_assessment",
-  "companies_house",
-]);
+const categorySchema = z
+  .string()
+  .min(1)
+  .refine(
+    (v) =>
+      [
+        "general",
+        "accounts",
+        "vat",
+        "payroll",
+        "corporation_tax",
+        "self_assessment",
+        "companies_house",
+      ].includes(v) || /^sa:[^:]+:(invoice|receipt|p60|bank_statement|books|other)$/.test(v),
+    { message: "Invalid document category" },
+  );
 
 export async function listClientDocuments(clientId: string) {
   const session = await requireSession();
@@ -170,6 +177,7 @@ export async function uploadClientDocument(formData: FormData) {
     });
     revalidatePath(`/clients/${clientId}`);
     revalidatePath(`/clients/${clientId}/documents`);
+    revalidatePath(`/clients/${clientId}/self-assessment`);
     return {
       id: data.id as string,
       clientId,
@@ -213,6 +221,7 @@ export async function uploadClientDocument(formData: FormData) {
     });
     revalidatePath(`/clients/${clientId}`);
     revalidatePath(`/clients/${clientId}/documents`);
+    revalidatePath(`/clients/${clientId}/self-assessment`);
     return doc;
   }
 
@@ -244,5 +253,6 @@ export async function uploadClientDocument(formData: FormData) {
 
   revalidatePath(`/clients/${clientId}`);
   revalidatePath(`/clients/${clientId}/documents`);
+  revalidatePath(`/clients/${clientId}/self-assessment`);
   return doc;
 }

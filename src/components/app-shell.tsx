@@ -23,13 +23,14 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
     ...(full ? [{ href: "/settings/hmrc-rules", label: "HMRC tax rules" }] : []),
     ...(full ? [{ href: "/settings/channels", label: "Channels" }] : []),
     ...(full ? [{ href: "/settings/account", label: "Account" }] : []),
-    ...(full ? [{ href: "/settings/letterhead", label: "Letterhead" }] : []),
+    ...(full
+      ? [{ href: "/settings/letterhead", label: "Practice branding" }]
+      : []),
     ...(full ? [{ href: "/settings/team", label: "Team" }] : []),
     ...(admin ? [{ href: "/admin", label: "Admin" }] : []),
   ];
 
   const links = [
-    { href: "/clients", label: "Clients" },
     { href: "/dashboard", label: "Dashboard" },
     ...(full ? [{ href: "/companies-house", label: "Companies House" }] : []),
     { href: "/support", label: "Support" },

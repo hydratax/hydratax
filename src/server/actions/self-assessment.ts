@@ -39,8 +39,12 @@ export async function prepareSaUpdate(input: z.infer<typeof draftSchema>) {
   const session = await requireSession();
   const data = draftSchema.parse(input);
   const client = await getClient(data.clientId);
+  // Quarterly ITSA updates are for sole-trader / partner trading businesses.
+  // Limited-company directors use the year-end SA100 flow instead.
   if (client.type === "limited_company") {
-    throw new Error("Self Assessment is for sole traders / partners");
+    throw new Error(
+      "MTD quarterly updates are for sole traders and partners. Use the SA100 year-end return for directors and shareholders.",
+    );
   }
 
   const ledger = await listLedgerEntries(data.clientId);

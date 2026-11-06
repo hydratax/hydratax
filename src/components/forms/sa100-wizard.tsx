@@ -37,8 +37,8 @@ function L({
   children: React.ReactNode;
 }) {
   return (
-    <label className="block space-y-1.5">
-      <span className="label">
+    <label className="block space-y-1">
+      <span className="label text-xs">
         {box ? <span className="font-mono text-ink-soft">{box} · </span> : null}
         {label}
       </span>
@@ -104,6 +104,9 @@ export function Sa100Wizard({
   contactEmail = null,
   utr,
   nino,
+  taxpayerId = null,
+  companyName = null,
+  taxYear = TAX_YEAR_LABEL,
   initial,
 }: {
   clientId: string;
@@ -111,18 +114,43 @@ export function Sa100Wizard({
   contactEmail?: string | null;
   utr?: string | null;
   nino?: string | null;
+  /** Director / shareholder id when filing personal SA from a company desk */
+  taxpayerId?: string | null;
+  /** Limited company name — pre-fills employment employer when empty */
+  companyName?: string | null;
+  /** e.g. 2025-26 */
+  taxYear?: string;
   initial?: Partial<Sa100Draft> | null;
 }) {
   const router = useRouter();
   const [i, setI] = useState(0);
-  const [draft, setDraft] = useState(() =>
-    emptySa100Draft({
-      taxYear: TAX_YEAR_LABEL,
+  const [draft, setDraft] = useState(() => {
+    const base = emptySa100Draft({
+      taxYear,
       utr: utr ?? "",
       nino: nino ?? "",
       ...(initial ?? {}),
-    }),
-  );
+      taxYear,
+    });
+    if (
+      companyName &&
+      base.hasEmployment &&
+      base.employments.length === 0
+    ) {
+      base.employments = [
+        {
+          employerName: companyName,
+          payeRef: "",
+          pay: 0,
+          taxTakenOff: 0,
+          tips: 0,
+          benefits: 0,
+        },
+      ];
+      base.employmentCount = 1;
+    }
+    return base;
+  });
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -135,12 +163,12 @@ export function Sa100Wizard({
   const last = i === STEPS.length - 1;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
-      <div className="panel p-5">
+    <div className="grid items-start gap-4 lg:grid-cols-[1fr_240px]">
+      <div className="panel p-4 sm:p-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
-          SA100 · {TAX_YEAR_LABEL} · step {i + 1}/{STEPS.length}
+          SA100 · {taxYear} · step {i + 1}/{STEPS.length}
         </p>
-        <h2 className="display mt-1 text-2xl text-ink">
+        <h2 className="display mt-1 text-xl text-ink sm:text-2xl">
           {step === "about" && "About you (TR1)"}
           {step === "pages" && "What makes up your return (TR2)"}
           {step === "work" && "Employment, self-employment & property"}
@@ -150,9 +178,9 @@ export function Sa100Wizard({
           {step === "preview" && "Tax due before you submit"}
         </h2>
 
-        <div className="mt-6 space-y-3">
+        <div className="mt-4 space-y-3">
           {step === "about" && (
-            <>
+            <div className="grid gap-3 sm:grid-cols-2">
               <L label="UTR" box="Front">
                 <input
                   className="input font-mono"
@@ -184,7 +212,15 @@ export function Sa100Wizard({
                   onChange={(e) => patch({ phone: e.target.value })}
                 />
               </L>
-            </>
+              <L label="Email">
+                <input
+                  className="input"
+                  type="email"
+                  value={draft.email}
+                  onChange={(e) => patch({ email: e.target.value })}
+                />
+              </L>
+            </div>
           )}
 
           {step === "pages" && (
@@ -483,7 +519,7 @@ export function Sa100Wizard({
         <FormErrorBanner error={error} />
         {ok && <p className="mt-3 text-sm font-semibold text-ok">{ok}</p>}
 
-        <div className="mt-6 flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
             className="btn btn-ghost"
@@ -510,7 +546,11 @@ export function Sa100Wizard({
                   setError(null);
                   start(async () => {
                     try {
-                      await saveSa100Draft({ clientId, draft });
+                      await saveSa100Draft({
+                        clientId,
+                        draft,
+                        taxpayerId,
+                      });
                       setOk("Draft saved.");
                       router.refresh();
                     } catch (e) {
@@ -532,12 +572,13 @@ export function Sa100Wizard({
                       const res = await submitSa100Return({
                         clientId,
                         draft,
+                        taxpayerId,
                         fraudMetadata: gatherFraudMetadata(),
                       });
                       setReturnId(res.id);
                       setOk(
                         res.demo
-                          ? `Demo accepted · ${res.correlationId}`
+                          ? `Demo accepted · ${res.correlationId} — SA100 & SA302 PDFs ready`
                           : `Submitted · ${res.correlationId}`,
                       );
                       router.refresh();
@@ -603,16 +644,16 @@ export function Sa100Wizard({
         )}
       </div>
 
-      <aside className="panel sticky top-24 h-fit p-5">
-        <h3 className="display text-xl">Tax estimate</h3>
-        <p className="display mt-3 text-3xl text-ink">
+      <aside className="panel sticky top-24 h-fit p-4">
+        <h3 className="display text-lg">Tax estimate</h3>
+        <p className="display mt-2 text-2xl text-ink">
           {calc.amountDue > 0
             ? gbp(calc.amountDue)
             : calc.refundDue > 0
               ? gbp(calc.refundDue)
               : gbp(0)}
         </p>
-        <p className="text-sm text-ink-soft">
+        <p className="text-xs text-ink-soft">
           {calc.amountDue > 0
             ? "to pay"
             : calc.refundDue > 0
@@ -620,20 +661,20 @@ export function Sa100Wizard({
               : "balanced"}{" "}
           · {clientName}
         </p>
-        <dl className="mt-4 space-y-2 text-sm">
-          <div className="flex justify-between">
+        <dl className="mt-3 space-y-1.5 text-sm">
+          <div className="flex justify-between gap-2">
             <dt className="text-ink-soft">Income</dt>
             <dd className="font-mono">{gbp(calc.totalIncome)}</dd>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-2">
             <dt className="text-ink-soft">Income Tax</dt>
             <dd className="font-mono">{gbp(calc.incomeTax)}</dd>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-2">
             <dt className="text-ink-soft">Class 4 NIC</dt>
             <dd className="font-mono">{gbp(calc.class4Nic)}</dd>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-2">
             <dt className="text-ink-soft">Paid already</dt>
             <dd className="font-mono">{gbp(calc.taxDeducted)}</dd>
           </div>

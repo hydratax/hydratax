@@ -7,7 +7,13 @@ import { OrgChTypeahead } from "@/components/forms/org-ch-typeahead";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { looksLikeCompanyNumber } from "@/lib/company-number";
 
-export function CreateClientForm() {
+export function CreateClientForm({
+  defaultVat = true,
+  defaultEmployer = false,
+}: {
+  defaultVat?: boolean;
+  defaultEmployer?: boolean;
+} = {}) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -162,11 +168,19 @@ export function CreateClientForm() {
       </div>
       <div className="flex gap-6 text-sm">
         <label className="flex items-center gap-2">
-          <input type="checkbox" name="isVatRegistered" defaultChecked />
+          <input
+            type="checkbox"
+            name="isVatRegistered"
+            defaultChecked={defaultVat}
+          />
           VAT registered
         </label>
         <label className="flex items-center gap-2">
-          <input type="checkbox" name="isEmployer" />
+          <input
+            type="checkbox"
+            name="isEmployer"
+            defaultChecked={defaultEmployer}
+          />
           Employer (PAYE)
         </label>
       </div>

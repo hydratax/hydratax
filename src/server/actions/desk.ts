@@ -14,6 +14,12 @@ import {
   type PortalRecord,
   type PortalUpload,
 } from "@/lib/desk-profile";
+import {
+  normalizeWorkStage,
+  WORK_STAGE_LABEL,
+  type ClientWorkLogEntry,
+  type ClientWorkStage,
+} from "@/lib/client-work-stage";
 import { requireSession } from "@/server/auth/session";
 import { demoStore } from "@/server/demo/store";
 import { getClient } from "@/server/actions/clients";
@@ -188,6 +194,88 @@ export async function setJobStatus(input: {
   await writeProfile(input.clientId, mergeProfile(client.deskProfile, { jobs }));
   revalidatePath("/filings");
   return { ok: true as const };
+}
+
+function pushWorkLog(
+  profile: DeskProfile | null | undefined,
+  entry: Omit<ClientWorkLogEntry, "id" | "at"> & { at?: string },
+): ClientWorkLogEntry[] {
+  const log = [...(profile?.workLog ?? [])];
+  log.push({
+    id: crypto.randomUUID(),
+    at: entry.at ?? new Date().toISOString(),
+    kind: entry.kind,
+    label: entry.label,
+    detail: entry.detail,
+    actorId: entry.actorId,
+  });
+  // Keep the last 200 entries
+  return log.slice(-200);
+}
+
+/** Append a timestamped line to the client working log (no stage change). */
+export async function appendClientWorkLog(input: {
+  clientId: string;
+  kind: ClientWorkLogEntry["kind"];
+  label: string;
+  detail?: string;
+}) {
+  const session = await requireSession();
+  const client = await getClient(input.clientId);
+  if (!client) throw new Error("Client not found");
+  const workLog = pushWorkLog(client.deskProfile, {
+    kind: input.kind,
+    label: input.label,
+    detail: input.detail,
+    actorId: session.userId,
+  });
+  await writeProfile(
+    input.clientId,
+    mergeProfile(client.deskProfile, { workLog }),
+  );
+  revalidateClient(input.clientId);
+  return { ok: true as const };
+}
+
+/** Move the client through the accounts / SA prep pipeline. */
+export async function setClientWorkStage(input: {
+  clientId: string;
+  stage: ClientWorkStage;
+  note?: string;
+}) {
+  const session = await requireSession();
+  if (session.role === "readonly") throw new Error("Forbidden");
+  const client = await getClient(input.clientId);
+  if (!client) throw new Error("Client not found");
+
+  const stage = normalizeWorkStage(input.stage);
+  const label = WORK_STAGE_LABEL[stage];
+  const workLog = pushWorkLog(client.deskProfile, {
+    kind: "stage",
+    label,
+    detail: input.note?.trim() || undefined,
+    actorId: session.userId,
+  });
+
+  await writeProfile(
+    input.clientId,
+    mergeProfile(client.deskProfile, { workStage: stage, workLog }),
+  );
+
+  const { appendAuditEvent } = await import("@/server/audit/log");
+  await appendAuditEvent({
+    practiceId: session.practiceId,
+    clientId: input.clientId,
+    actorId: session.userId,
+    action: "client.work_stage",
+    entityType: "client",
+    entityId: input.clientId,
+    detail: { stage, note: input.note?.trim() || null },
+  }).catch(() => undefined);
+
+  revalidateClient(input.clientId);
+  revalidatePath("/clients");
+  return { ok: true as const, stage, label };
 }
 
 export async function recordPortalOpened(token: string) {
@@ -568,9 +656,26 @@ export async function sendPortalApprovalPack(input: {
         : { approveVat: false, approveVatAt: undefined }),
   };
 
+  const session = await requireSession();
+  const accountsApproval =
+    input.kind === "accounts"
+      ? {
+          workStage: "sent_for_approval" as const,
+          workLog: pushWorkLog(client.deskProfile, {
+            kind: "stage",
+            label: WORK_STAGE_LABEL.sent_for_approval,
+            detail: pack.title,
+            actorId: session.userId,
+          }),
+        }
+      : {};
+
   await writeProfile(
     input.clientId,
-    mergeProfile(client.deskProfile, { portal: nextPortal }),
+    mergeProfile(client.deskProfile, {
+      portal: nextPortal,
+      ...accountsApproval,
+    }),
   );
   revalidateClient(input.clientId);
   revalidatePath(`/clients/${input.clientId}/accounts-pack`);

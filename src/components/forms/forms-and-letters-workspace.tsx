@@ -82,6 +82,11 @@ function LetterPreview({
           />
         ) : null}
         <p className="display text-xl text-ink">{letterhead.practiceName}</p>
+        {letterhead.qualification ? (
+          <p className="text-xs font-semibold text-sea">
+            {letterhead.qualification}
+          </p>
+        ) : null}
         {letterhead.addressLines.map((line) => (
           <p key={line} className="text-ink-soft">
             {line}
@@ -180,7 +185,7 @@ export function FormsAndLettersWorkspace({
           href="/settings/letterhead"
           className="btn btn-secondary text-sm"
         >
-          Edit letterhead
+          Practice branding
         </Link>
       </div>
 

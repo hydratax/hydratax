@@ -1,6 +1,11 @@
 import type { OnboardingFormRecord } from "@/lib/onboarding-forms";
 import type { LetterTemplateKey } from "@/lib/letter-templates";
 import type { BankLedger } from "@/lib/bank-ledger";
+import type { SaTaxpayer } from "@/lib/sa-taxpayer";
+import type {
+  ClientWorkLogEntry,
+  ClientWorkStage,
+} from "@/lib/client-work-stage";
 
 export type AmlRisk = "low" | "medium" | "high";
 
@@ -108,6 +113,16 @@ export type DeskProfile = {
   documentInboxKey?: string;
   /** Bank year-end desk: loans, assets, properties & mortgages. */
   bankLedger?: BankLedger;
+  /**
+   * Personal Self Assessment taxpayers for this client desk.
+   * Limited companies: directors / shareholders. Sole traders: usually one
+   * record matching the client.
+   */
+  saTaxpayers?: SaTaxpayer[];
+  /** Accounts / SA prep pipeline stage for filters and WIP. */
+  workStage?: ClientWorkStage;
+  /** Timestamped working log (stages, emails, notes). Newest last. */
+  workLog?: ClientWorkLogEntry[];
 };
 
 export type PracticeLetterhead = {
@@ -117,10 +132,32 @@ export type PracticeLetterhead = {
   email?: string;
   website?: string;
   footerLines: string[];
-  /** Optional public logo URL */
+  /** Optional public logo URL for letters, invoices and packs */
   logoUrl?: string;
+  /** e.g. ACCA, ATT, AAT, CTA — shown on letters / invoices */
+  qualification?: string;
+  /** Practice bank details for client invoices and letters */
+  bankName?: string;
+  accountName?: string;
+  sortCode?: string;
+  accountNumber?: string;
+  /** Default payment reference hint (e.g. “Quote invoice number”) */
+  paymentNote?: string;
   updatedAt?: string;
 };
+
+/** Bank block used on invoices when the desk has no per-invoice override. */
+export function formatPracticePaymentInstructions(
+  lh: PracticeLetterhead,
+): string {
+  const lines: string[] = [];
+  if (lh.bankName) lines.push(`Bank: ${lh.bankName}`);
+  if (lh.accountName) lines.push(`Account name: ${lh.accountName}`);
+  if (lh.sortCode) lines.push(`Sort code: ${lh.sortCode}`);
+  if (lh.accountNumber) lines.push(`Account number: ${lh.accountNumber}`);
+  if (lh.paymentNote) lines.push(lh.paymentNote);
+  return lines.join("\n");
+}
 
 export const DEFAULT_PORTAL_REQUESTS: PortalRequest[] = [
   { id: "bank", label: "Bank statements for the period", done: false },

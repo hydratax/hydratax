@@ -16,20 +16,31 @@ const letterheadSchema = z.object({
   website: z.string().max(200).optional(),
   footerLines: z.array(z.string().max(200)).max(6),
   logoUrl: z.string().max(500).optional(),
+  qualification: z.string().max(200).optional(),
+  bankName: z.string().max(120).optional(),
+  accountName: z.string().max(120).optional(),
+  sortCode: z.string().max(20).optional(),
+  accountNumber: z.string().max(20).optional(),
+  paymentNote: z.string().max(300).optional(),
 });
+
+function emptyLetterhead(practiceName: string): PracticeLetterhead {
+  return {
+    practiceName,
+    addressLines: [],
+    footerLines: [
+      "This firm is regulated for anti-money laundering purposes.",
+    ],
+  };
+}
 
 export async function getPracticeLetterhead(): Promise<PracticeLetterhead> {
   const session = await requireSession();
   if (isMemoryStore() || isDemoMode()) {
     memoryStore.letterheads ??= {};
     return (
-      memoryStore.letterheads[session.practiceId] ?? {
-        practiceName: session.practiceName,
-        addressLines: [],
-        footerLines: [
-          "This firm is regulated for anti-money laundering purposes.",
-        ],
-      }
+      memoryStore.letterheads[session.practiceId] ??
+      emptyLetterhead(session.practiceName)
     );
   }
 
@@ -43,20 +54,10 @@ export async function getPracticeLetterhead(): Promise<PracticeLetterhead> {
       .maybeSingle();
     const stored = (data?.letterhead as PracticeLetterhead | null) ?? null;
     if (stored?.practiceName) return stored;
-    return {
-      practiceName: (data?.name as string) ?? session.practiceName,
-      addressLines: [],
-      footerLines: [
-        "This firm is regulated for anti-money laundering purposes.",
-      ],
-    };
+    return emptyLetterhead((data?.name as string) ?? session.practiceName);
   }
 
-  return {
-    practiceName: session.practiceName,
-    addressLines: [],
-    footerLines: [],
-  };
+  return emptyLetterhead(session.practiceName);
 }
 
 export async function savePracticeLetterhead(
@@ -65,14 +66,21 @@ export async function savePracticeLetterhead(
   const session = await requireSession();
   if (session.role === "readonly") throw new Error("Forbidden");
   const data = letterheadSchema.parse(input);
+  const trim = (v?: string) => v?.trim() || undefined;
   const letterhead: PracticeLetterhead = {
-    ...data,
+    practiceName: data.practiceName.trim(),
     addressLines: data.addressLines.map((l) => l.trim()).filter(Boolean),
     footerLines: data.footerLines.map((l) => l.trim()).filter(Boolean),
-    phone: data.phone?.trim() || undefined,
-    email: data.email?.trim() || undefined,
-    website: data.website?.trim() || undefined,
-    logoUrl: data.logoUrl?.trim() || undefined,
+    phone: trim(data.phone),
+    email: trim(data.email),
+    website: trim(data.website),
+    logoUrl: trim(data.logoUrl),
+    qualification: trim(data.qualification),
+    bankName: trim(data.bankName),
+    accountName: trim(data.accountName),
+    sortCode: trim(data.sortCode),
+    accountNumber: trim(data.accountNumber),
+    paymentNote: trim(data.paymentNote),
     updatedAt: new Date().toISOString(),
   };
 
@@ -87,11 +95,12 @@ export async function savePracticeLetterhead(
       .update({ letterhead })
       .eq("id", session.practiceId);
     if (error) {
-      // Column may not exist yet — keep memory fallback for this session
+      memoryStore.letterheads ??= {};
       memoryStore.letterheads[session.practiceId] = letterhead;
       console.warn("[letterhead] practices.letterhead update failed", error.message);
     }
   } else {
+    memoryStore.letterheads ??= {};
     memoryStore.letterheads[session.practiceId] = letterhead;
   }
 
@@ -106,5 +115,6 @@ export async function savePracticeLetterhead(
 
   revalidatePath("/settings/account");
   revalidatePath("/settings/letterhead");
+  revalidatePath("/clients");
   return letterhead;
 }

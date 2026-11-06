@@ -39,8 +39,8 @@ export function EmailAdmin({
     <div className="space-y-8">
       {!initialStats.resendConfigured ? (
         <p className="rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger">
-          Add <code className="mono">RESEND_API_KEY</code> and{" "}
-          <code className="mono">EMAIL_FROM</code> to send emails.
+          Outbound email is not configured yet. Set the practice send address
+          and API key in the server environment before sending.
         </p>
       ) : null}
 

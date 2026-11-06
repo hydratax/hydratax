@@ -154,6 +154,7 @@ export function PublicCompanyProfile({
   const [spotlight, setSpotlight] = useState({ x: 58, y: 28 });
 
   useEffect(() => {
+    let raf = 0;
     const onMove = (e: PointerEvent) => {
       const el = heroRef.current;
       if (!el) return;
@@ -161,13 +162,19 @@ export function PublicCompanyProfile({
       if (e.clientY < r.top || e.clientY > r.bottom) return;
       const x = ((e.clientX - r.left) / r.width) * 100;
       const y = ((e.clientY - r.top) / r.height) * 100;
-      setSpotlight({
-        x: Math.max(0, Math.min(100, x)),
-        y: Math.max(0, Math.min(100, y)),
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        setSpotlight({
+          x: Math.max(0, Math.min(100, x)),
+          y: Math.max(0, Math.min(100, y)),
+        });
       });
     };
     window.addEventListener("pointermove", onMove, { passive: true });
-    return () => window.removeEventListener("pointermove", onMove);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("pointermove", onMove);
+    };
   }, []);
 
   return (

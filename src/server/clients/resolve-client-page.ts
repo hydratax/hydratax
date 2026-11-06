@@ -56,13 +56,14 @@ export async function loadClientPage(
   if (ref !== resolved.slug) {
     const h = await headers();
     const pathname = h.get("x-pathname");
+    const search = h.get("x-search") || "";
     if (pathname?.includes(`/clients/${ref}`)) {
       permanentRedirect(
-        pathname.replace(`/clients/${ref}`, `/clients/${resolved.slug}`),
+        `${pathname.replace(`/clients/${ref}`, `/clients/${resolved.slug}`)}${search}`,
       );
     }
     permanentRedirect(
-      `/clients/${resolved.slug}${subpath.startsWith("/") ? subpath : subpath ? `/${subpath}` : ""}`,
+      `/clients/${resolved.slug}${subpath.startsWith("/") ? subpath : subpath ? `/${subpath}` : ""}${search}`,
     );
   }
   return resolved;

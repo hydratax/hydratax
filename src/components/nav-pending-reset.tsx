@@ -1,16 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
-import { usePathname } from "next/navigation";
-import { clearNavPending } from "@/components/pending-link";
+import { Suspense } from "react";
+import { NavProgress } from "@/components/nav-progress";
 
-/** Drops the "Opening…" banner once the next page is on screen. */
+/** Top-of-app navigation progress (completes when the destination route is ready). */
 export function NavPendingReset() {
-  const pathname = usePathname();
-
-  useEffect(() => {
-    clearNavPending();
-  }, [pathname]);
-
-  return null;
+  return (
+    <Suspense fallback={null}>
+      <NavProgress />
+    </Suspense>
+  );
 }

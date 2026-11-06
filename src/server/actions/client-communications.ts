@@ -15,6 +15,8 @@ import {
   applyClientEmailTemplate,
   buildTemplateVars,
   defaultAccountsReminderTemplate,
+  defaultSaReminderTemplate,
+  defaultVatReminderTemplate,
   messagePreview,
   resolveClientEmailSender,
 } from "@/lib/client-email";
@@ -22,6 +24,9 @@ import { sendTransactionalEmail } from "@/server/email/transactional";
 import { appendAuditEvent } from "@/server/audit/log";
 import { isDemoMode, isMemoryStore, isSupabaseConfigured } from "@/lib/env";
 import { demoStore } from "@/server/demo/store";
+import { filingSaTaxYear } from "@/lib/sa-tax-year";
+import { listPracticeDirectors } from "@/server/actions/sa-directors";
+import { listSa100Returns } from "@/server/actions/sa100";
 
 export type ClientEmailLogRecord = {
   id: string;
@@ -45,6 +50,19 @@ export type BulkEmailCandidate = {
   contactEmail: string | null;
   accountsDue: string | null;
   dueWindow: AccountsDueMonthWindow;
+};
+
+export type BulkSaEmailCandidate = {
+  /** Stable selection key (client id or person key) */
+  id: string;
+  clientId: string;
+  slug: string;
+  name: string;
+  contactEmail: string | null;
+  taxYear: string;
+  filingDue: string;
+  status: "none" | "draft" | "submitted" | "accepted";
+  href: string;
 };
 
 export async function insertClientEmailLog(input: {
@@ -251,6 +269,84 @@ export async function listBulkEmailCandidates(): Promise<{
   };
 }
 
+export async function listBulkSaEmailCandidates(): Promise<{
+  candidates: BulkSaEmailCandidate[];
+  taxYear: string;
+  filingDue: string;
+}> {
+  const session = await requireSession();
+  if (session.role === "readonly") throw new Error("Forbidden");
+
+  const filingYear = filingSaTaxYear();
+  const clients = await listClients();
+  const peers = clients.map((c) => ({ id: c.id, name: c.name }));
+  const directors = await listPracticeDirectors().catch(() => []);
+  const seen = new Set<string>();
+  const candidates: BulkSaEmailCandidate[] = [];
+
+  for (const client of clients) {
+    if (client.type !== "sole_trader" && client.type !== "partnership") {
+      continue;
+    }
+    const slug = clientSlugFor({ id: client.id, name: client.name }, peers);
+    const returns = await listSa100Returns(client.id).catch(() => []);
+    const match =
+      returns.find((r) => r.taxYear === filingYear.label) ?? null;
+    const status = match
+      ? match.status === "accepted"
+        ? ("accepted" as const)
+        : match.status === "submitted"
+          ? ("submitted" as const)
+          : ("draft" as const)
+      : ("none" as const);
+
+    seen.add(client.id);
+    candidates.push({
+      id: client.id,
+      clientId: client.id,
+      slug,
+      name: client.name,
+      contactEmail: client.contactEmail ?? null,
+      taxYear: filingYear.label,
+      filingDue: filingYear.filingDue,
+      status,
+      href: `/clients/${slug}/self-assessment`,
+    });
+  }
+
+  for (const d of directors) {
+    if (seen.has(d.homeClientId) || seen.has(d.key)) continue;
+    const email =
+      d.taxpayer?.email?.trim() ||
+      clients.find((c) => c.id === d.homeClientId)?.contactEmail ||
+      null;
+    seen.add(d.key);
+    candidates.push({
+      id: d.key,
+      clientId: d.homeClientId,
+      slug: d.homeSlug,
+      name: d.fullName,
+      contactEmail: email,
+      taxYear: d.filing.taxYear || filingYear.label,
+      filingDue: d.filing.filingDue || filingYear.filingDue,
+      status: d.filing.status || "none",
+      href: `/self-assessment/${encodeURIComponent(d.key)}`,
+    });
+  }
+
+  candidates.sort((a, b) => {
+    const due = a.filingDue.localeCompare(b.filingDue);
+    if (due !== 0) return due;
+    return a.name.localeCompare(b.name);
+  });
+
+  return {
+    candidates,
+    taxYear: filingYear.label,
+    filingDue: filingYear.filingDue,
+  };
+}
+
 const sendOneSchema = z.object({
   clientId: z.string().min(1),
   toEmail: z.string().email(),
@@ -340,10 +436,69 @@ export async function sendClientCommunicationEmail(
     },
   });
 
+  try {
+    const { appendClientWorkLog } = await import("@/server/actions/desk");
+    await appendClientWorkLog({
+      clientId: data.clientId,
+      kind: "email",
+      label: `Email sent — ${data.subject}`,
+      detail: `To ${data.toEmail}`,
+    });
+  } catch {
+    /* work log is best-effort */
+  }
+
   revalidatePath(`/clients/${data.clientId}`);
   revalidatePath(`/clients/${data.clientId}/communications`);
 
   return { ok: true as const, delivery, logId };
+}
+
+/** Email send counts keyed by client id (for desk cards). */
+export async function countEmailsByClientIds(
+  clientIds: string[],
+): Promise<Record<string, number>> {
+  await requireSession();
+  const unique = [...new Set(clientIds.filter(Boolean))];
+  const counts: Record<string, number> = {};
+  for (const id of unique) counts[id] = 0;
+  if (!unique.length) return counts;
+
+  if (isMemoryStore() || isDemoMode()) {
+    for (const log of demoStore.emailLogs) {
+      if (counts[log.clientId] !== undefined) {
+        counts[log.clientId] += 1;
+      }
+    }
+    return counts;
+  }
+
+  if (isSupabaseConfigured()) {
+    const { createClient } = await import("@/lib/supabase/server");
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("client_email_logs")
+      .select("client_id")
+      .in("client_id", unique);
+    for (const row of data ?? []) {
+      const id = row.client_id as string;
+      if (counts[id] !== undefined) counts[id] += 1;
+    }
+    return counts;
+  }
+
+  const { getDb, hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) return counts;
+  const { clientEmailLogs } = await import("@/server/db/schema");
+  const { inArray } = await import("drizzle-orm");
+  const rows = await getDb()
+    .select({ clientId: clientEmailLogs.clientId })
+    .from(clientEmailLogs)
+    .where(inArray(clientEmailLogs.clientId, unique));
+  for (const row of rows) {
+    if (counts[row.clientId] !== undefined) counts[row.clientId] += 1;
+  }
+  return counts;
 }
 
 const bulkSchema = z.object({
@@ -442,3 +597,271 @@ export async function getDefaultBulkEmailDraft() {
     practiceName: session.practiceName,
   };
 }
+
+export async function getDefaultSaBulkEmailDraft() {
+  const session = await requireSession();
+  const sender = resolveClientEmailSender(session);
+  const filingYear = filingSaTaxYear();
+  return {
+    subject: `Self Assessment ${filingYear.label} — {{client_name}}`,
+    messageTemplate: defaultSaReminderTemplate(),
+    senderEmail: sender.senderEmail,
+    senderName: sender.senderName,
+    practiceName: session.practiceName,
+    taxYear: filingYear.label,
+    filingDue: filingYear.filingDue,
+  };
+}
+
+const saBulkSchema = z.object({
+  ids: z.array(z.string()).min(1).max(500),
+  subject: z.string().min(3).max(200),
+  messageTemplate: z.string().min(1).max(8000),
+});
+
+export async function sendBulkSaEmails(input: z.infer<typeof saBulkSchema>) {
+  const session = await requireSession();
+  if (session.role === "readonly") throw new Error("Forbidden");
+
+  const data = saBulkSchema.parse(input);
+  const { candidates } = await listBulkSaEmailCandidates();
+  const eligible = new Map(candidates.map((c) => [c.id, c]));
+  const sender = resolveClientEmailSender(session);
+
+  const results: Array<{
+    id: string;
+    name: string;
+    ok: boolean;
+    error?: string;
+  }> = [];
+
+  for (const id of data.ids) {
+    const row = eligible.get(id);
+    if (!row) {
+      results.push({
+        id,
+        name: id,
+        ok: false,
+        error: "Not on the Self Assessment list",
+      });
+      continue;
+    }
+    if (!row.contactEmail) {
+      results.push({
+        id,
+        name: row.name,
+        ok: false,
+        error: "No email on file",
+      });
+      continue;
+    }
+
+    const vars = buildTemplateVars({
+      clientName: row.name,
+      taxYear: row.taxYear,
+      filingDueIso: row.filingDue,
+      practiceName: session.practiceName,
+      senderName: sender.senderName,
+    });
+    const subject = applyClientEmailTemplate(data.subject, vars);
+    const message = applyClientEmailTemplate(data.messageTemplate, vars);
+
+    try {
+      await sendClientCommunicationEmail({
+        clientId: row.clientId,
+        toEmail: row.contactEmail,
+        subject,
+        message,
+        kind: "bulk_sa_reminder",
+        accountsDue: row.filingDue,
+        documentCount: 0,
+      });
+      results.push({ id, name: row.name, ok: true });
+    } catch (err) {
+      results.push({
+        id,
+        name: row.name,
+        ok: false,
+        error: err instanceof Error ? err.message : "Send failed",
+      });
+    }
+  }
+
+  revalidatePath("/clients/bulk-email");
+  revalidatePath("/clients");
+
+  return {
+    sent: results.filter((r) => r.ok).length,
+    failed: results.filter((r) => !r.ok).length,
+    results,
+    senderEmail: sender.senderEmail,
+  };
+}
+
+export type BulkVatEmailCandidate = {
+  clientId: string;
+  slug: string;
+  name: string;
+  vrn: string | null;
+  contactEmail: string | null;
+};
+
+export type VatReminderMonth = {
+  /** YYYY-MM */
+  key: string;
+  label: string;
+  /** ISO date used as period-end placeholder in templates */
+  periodEnd: string;
+};
+
+function vatReminderMonths(now = new Date()): VatReminderMonth[] {
+  const months: VatReminderMonth[] = [];
+  for (let i = 0; i < 6; i += 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const key = `${y}-${String(m + 1).padStart(2, "0")}`;
+    const lastDay = new Date(y, m + 1, 0).getDate();
+    const periodEnd = `${y}-${String(m + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+    const label = d.toLocaleDateString("en-GB", {
+      month: "long",
+      year: "numeric",
+    });
+    months.push({ key, label, periodEnd });
+  }
+  return months;
+}
+
+function isVatRegisteredClient(c: {
+  isVatRegistered: boolean;
+  vrn: string | null;
+}) {
+  return c.isVatRegistered || Boolean(c.vrn?.trim());
+}
+
+export async function listBulkVatEmailCandidates(): Promise<{
+  candidates: BulkVatEmailCandidate[];
+  months: VatReminderMonth[];
+}> {
+  const session = await requireSession();
+  if (session.role === "readonly") throw new Error("Forbidden");
+
+  const clients = await listClients();
+  const peers = clients.map((c) => ({ id: c.id, name: c.name }));
+  const candidates: BulkVatEmailCandidate[] = clients
+    .filter(isVatRegisteredClient)
+    .map((c) => ({
+      clientId: c.id,
+      slug: clientSlugFor({ id: c.id, name: c.name }, peers),
+      name: c.name,
+      vrn: c.vrn ?? null,
+      contactEmail: c.contactEmail ?? null,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "en-GB"));
+
+  return { candidates, months: vatReminderMonths() };
+}
+
+export async function getDefaultVatBulkEmailDraft(monthKey?: string) {
+  const session = await requireSession();
+  const sender = resolveClientEmailSender(session);
+  const months = vatReminderMonths();
+  const month = months.find((m) => m.key === monthKey) ?? months[0]!;
+  return {
+    subject: `VAT return — {{client_name}} · ${month.label}`,
+    messageTemplate: defaultVatReminderTemplate(),
+    senderEmail: sender.senderEmail,
+    senderName: sender.senderName,
+    practiceName: session.practiceName,
+    monthKey: month.key,
+    monthLabel: month.label,
+    periodEnd: month.periodEnd,
+  };
+}
+
+const vatBulkSchema = z.object({
+  clientIds: z.array(z.string()).min(1).max(500),
+  subject: z.string().min(3).max(200),
+  messageTemplate: z.string().min(1).max(8000),
+  periodEnd: z.string().min(8).max(12),
+});
+
+export async function sendBulkVatEmails(input: z.infer<typeof vatBulkSchema>) {
+  const session = await requireSession();
+  if (session.role === "readonly") throw new Error("Forbidden");
+
+  const data = vatBulkSchema.parse(input);
+  const { candidates } = await listBulkVatEmailCandidates();
+  const eligible = new Map(candidates.map((c) => [c.clientId, c]));
+  const sender = resolveClientEmailSender(session);
+
+  const results: Array<{
+    clientId: string;
+    name: string;
+    ok: boolean;
+    error?: string;
+  }> = [];
+
+  for (const clientId of data.clientIds) {
+    const row = eligible.get(clientId);
+    if (!row) {
+      results.push({
+        clientId,
+        name: clientId,
+        ok: false,
+        error: "Not on the VAT client list",
+      });
+      continue;
+    }
+    if (!row.contactEmail) {
+      results.push({
+        clientId,
+        name: row.name,
+        ok: false,
+        error: "No email on file",
+      });
+      continue;
+    }
+
+    const vars = buildTemplateVars({
+      clientName: row.name,
+      accountsDueIso: data.periodEnd,
+      companyNumber: null,
+      practiceName: session.practiceName,
+      senderName: sender.senderName,
+    });
+    const subject = applyClientEmailTemplate(data.subject, vars);
+    const message = applyClientEmailTemplate(data.messageTemplate, vars);
+
+    try {
+      await sendClientCommunicationEmail({
+        clientId,
+        toEmail: row.contactEmail,
+        subject,
+        message,
+        kind: "bulk_vat_reminder",
+        accountsDue: data.periodEnd,
+        documentCount: 0,
+      });
+      results.push({ clientId, name: row.name, ok: true });
+    } catch (err) {
+      results.push({
+        clientId,
+        name: row.name,
+        ok: false,
+        error: err instanceof Error ? err.message : "Send failed",
+      });
+    }
+  }
+
+  revalidatePath("/clients/bulk-email");
+  revalidatePath("/clients");
+
+  return {
+    sent: results.filter((r) => r.ok).length,
+    failed: results.filter((r) => !r.ok).length,
+    results,
+    senderEmail: sender.senderEmail,
+  };
+}
+

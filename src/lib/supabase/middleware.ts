@@ -8,6 +8,7 @@ export async function updateSession(request: NextRequest): Promise<{
 }> {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-pathname", request.nextUrl.pathname);
+  requestHeaders.set("x-search", request.nextUrl.search);
 
   let supabaseResponse = NextResponse.next({
     request: { headers: requestHeaders },

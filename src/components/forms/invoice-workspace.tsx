@@ -76,6 +76,7 @@ export function InvoiceWorkspace({
   invoices,
   templates,
   initialLine,
+  defaultPaymentInstructions = "",
 }: {
   clientId: string;
   clientName: string;
@@ -83,6 +84,8 @@ export function InvoiceWorkspace({
   invoices: MemoryInvoice[];
   templates: MemoryInvoiceLineTemplate[];
   initialLine?: LineDraft | null;
+  /** From Settings → Practice branding bank details */
+  defaultPaymentInstructions?: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -102,7 +105,9 @@ export function InvoiceWorkspace({
   const [status, setCreateStatus] = useState<"draft" | "sent" | "due">("due");
   const [notes, setNotes] = useState("");
   const [reference, setReference] = useState("");
-  const [paymentInstructions, setPaymentInstructions] = useState("");
+  const [paymentInstructions, setPaymentInstructions] = useState(
+    defaultPaymentInstructions,
+  );
   const totals = useMemo(() => lineTotals(lines), [lines]);
 
   function applyPreset(preset: "7" | "14" | "30" | "custom") {
@@ -155,6 +160,7 @@ export function InvoiceWorkspace({
     setLines([emptyLine()]);
     setNotes("");
     setReference("");
+    setPaymentInstructions(defaultPaymentInstructions);
     setCreateStatus("due");
     const today = new Date().toISOString().slice(0, 10);
     setIssueDate(today);

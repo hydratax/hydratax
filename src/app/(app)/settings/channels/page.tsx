@@ -20,8 +20,8 @@ export default async function ChannelsSettingsPage() {
             threads are filed on each company&apos;s Communications tab.
           </p>
         </div>
-        <Link href="/clients" className="btn btn-secondary">
-          Back to clients
+        <Link href="/dashboard" className="btn btn-secondary">
+          Back to dashboard
         </Link>
       </div>
 
@@ -44,14 +44,11 @@ export default async function ChannelsSettingsPage() {
           </li>
         </ul>
         <p className="mt-3">
-          Webhooks:{" "}
-          <code className="mono text-xs">/api/webhooks/whatsapp</code>,{" "}
-          <code className="mono text-xs">/api/webhooks/email</code>, and{" "}
-          <code className="mono text-xs">/api/webhooks/resend-inbound</code>{" "}
-          (Resend <code className="mono text-xs">email.received</code> → client
-          document inboxes like{" "}
-          <code className="mono text-xs">hydratax.uk.hydraretail@docs.hydratax.uk</code>
-          ).
+          Client document inboxes use addresses like{" "}
+          <code className="mono text-xs">
+            yourclient@docs.hydratax.uk
+          </code>
+          . Ask support if you need the inbound address for your practice.
         </p>
       </div>
     </div>

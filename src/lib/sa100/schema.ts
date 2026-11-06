@@ -22,6 +22,7 @@ export const sa100DraftSchema = z.object({
   dateOfBirth: z.string().default(""),
   addressCorrection: z.string().default(""),
   phone: z.string().default(""),
+  email: z.string().default(""),
 
   hasEmployment: yes,
   employmentCount: z.coerce.number().int().min(0).default(0),

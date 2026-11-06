@@ -16,6 +16,12 @@ import { refreshClientCompaniesHouse } from "@/server/actions/clients";
 import { listCt600Returns } from "@/server/actions/ct600";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 import { DeleteClientButton } from "@/components/forms/delete-client-button";
+import { listPracticeDirectors } from "@/server/actions/sa-directors";
+import { SaOverviewDirectorsCard } from "@/components/forms/sa-overview-directors-card";
+import { ClientWorkStagePanel } from "@/components/forms/client-work-stage-panel";
+import { ClientWorkingLogs } from "@/components/client-working-logs";
+import { listClientEmailLogs } from "@/server/actions/client-communications";
+import { normalizeWorkStage } from "@/lib/client-work-stage";
 
 function urgencyText(u: FilingUrgency) {
   if (u === "overdue") return "text-danger font-semibold";
@@ -44,10 +50,21 @@ export default async function ClientOverviewPage({
     ? await listClientInvoices(clientId).catch(() => [])
     : [];
   const ct600Returns = await listCt600Returns(clientId).catch(() => []);
+  const practiceDirectors = await listPracticeDirectors().catch(() => []);
+  const emailLogs = await listClientEmailLogs(clientId).catch(() => []);
+  const workStage = normalizeWorkStage(client.deskProfile?.workStage);
+  const workLog = client.deskProfile?.workLog ?? [];
   const ch =
     ("companiesHouse" in client
       ? (client.companiesHouse as ClientCompaniesHouseSnapshot | null)
       : null) ?? null;
+  const isLtd = client.type === "limited_company";
+  // Only people linked to THIS company — never the whole practice list.
+  const overviewDirectors = isLtd
+    ? practiceDirectors.filter((d) =>
+        d.companies.some((c) => c.clientId === clientId),
+      )
+    : practiceDirectors;
   const lastMadeUp = ch?.lastAccountsMadeUpTo ?? null;
   const filedReturn =
     lastMadeUp != null
@@ -60,7 +77,6 @@ export default async function ClientOverviewPage({
         null
       : null;
 
-  const isLtd = client.type === "limited_company";
   const identifiers: Array<{
     label: string;
     value: string | null | undefined;
@@ -83,6 +99,14 @@ export default async function ClientOverviewPage({
     {
       label: "Accounts Office",
       value: client.accountsOfficeRef,
+    },
+    { label: "Email", value: client.contactEmail },
+    {
+      label: "Phone",
+      value:
+        "contactPhone" in client
+          ? ((client as { contactPhone?: string | null }).contactPhone ?? null)
+          : null,
     },
   ];
 
@@ -114,43 +138,6 @@ export default async function ClientOverviewPage({
   return (
     <div>
       <div className="space-y-6">
-        <div className="panel p-5">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <h2 className="display text-2xl">Contact</h2>
-              <p className="mt-1 text-sm text-ink-soft">
-                Email and phone used for statements, payroll packs, and
-                correspondence.
-              </p>
-            </div>
-            {session.role !== "readonly" && (
-              <Link
-                href={`/clients/${slug}/edit`}
-                className="btn btn-secondary text-sm"
-              >
-                Edit
-              </Link>
-            )}
-          </div>
-          <dl className="mt-4 grid gap-3 sm:grid-cols-2 text-sm">
-            <div>
-              <dt className="text-ink-soft">Email</dt>
-              <dd className="mt-0.5 font-medium text-ink">
-                {client.contactEmail || "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-ink-soft">Phone</dt>
-              <dd className="mt-0.5 font-medium text-ink">
-                {"contactPhone" in client &&
-                (client as { contactPhone?: string | null }).contactPhone
-                  ? (client as { contactPhone?: string | null }).contactPhone
-                  : "—"}
-              </dd>
-            </div>
-          </dl>
-        </div>
-
         {/* Top: Identifiers + people */}
         <div
           className={
@@ -174,6 +161,8 @@ export default async function ClientOverviewPage({
             <dl className="mt-4 divide-y divide-line text-sm">
               {identifiers.map((row) => {
                 const empty = !row.value;
+                const mono =
+                  row.label !== "Email" && row.label !== "Phone";
                 return (
                   <div
                     key={row.label}
@@ -181,9 +170,9 @@ export default async function ClientOverviewPage({
                   >
                     <dt className="text-ink-soft">{row.label}</dt>
                     <dd
-                      className={`mono text-right font-medium ${
-                        empty ? "text-ink-soft" : "text-ink"
-                      }`}
+                      className={`text-right font-medium ${
+                        mono ? "mono" : ""
+                      } ${empty ? "text-ink-soft" : "text-ink"}`}
                     >
                       {row.value || "—"}
                     </dd>
@@ -299,18 +288,13 @@ export default async function ClientOverviewPage({
           </div>
         </div>
 
-        {/* Invoices due */}
-        {canAccessModule(session.moduleAccess, "invoices") && (
-          <InvoiceSummaryCards
-            clientId={clientId}
-            invoices={invoices}
-            title="Invoices due"
-          />
-        )}
-
-        {/* Confirmation statement + Accounts */}
+        {/* Confirmation statement + Accounts + Self Assessment */}
         {isLtd && session.moduleAccess === "full" && (
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-3 md:grid-cols-2">
+            <SaOverviewDirectorsCard
+              clientSlug={slug}
+              directors={overviewDirectors}
+            />
             <div
               className={`panel flex flex-col p-5 ${
                 csUrgency === "overdue"
@@ -425,6 +409,32 @@ export default async function ClientOverviewPage({
             </div>
           </div>
         )}
+
+        {canAccessModule(session.moduleAccess, "invoices") && (
+          <InvoiceSummaryCards
+            clientId={clientId}
+            invoices={invoices}
+            title="Invoices due"
+          />
+        )}
+
+        <ClientWorkStagePanel
+          clientId={clientId}
+          stage={workStage}
+          readOnly={session.role === "readonly"}
+        />
+
+        <ClientWorkingLogs
+          workLog={workLog}
+          emails={emailLogs.map((l) => ({
+            id: l.id,
+            subject: l.subject,
+            toEmail: l.toEmail,
+            createdAt: l.createdAt,
+            kind: l.kind,
+          }))}
+          stage={workStage}
+        />
 
         {session.role !== "readonly" && (
           <DeleteClientButton clientId={clientId} clientName={client.name} />

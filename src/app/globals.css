@@ -632,53 +632,6 @@ html[data-nav-pending] {
   cursor: progress;
 }
 
-html[data-nav-pending]::before {
-  content: "";
-  position: fixed;
-  z-index: 80;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: var(--sea);
-  transform-origin: left center;
-  animation: nav-pending-bar 0.9s ease-in-out infinite;
-  pointer-events: none;
-}
-
-html[data-nav-pending]::after {
-  content: attr(data-nav-pending);
-  position: fixed;
-  z-index: 80;
-  top: 0.75rem;
-  left: 50%;
-  transform: translateX(-50%);
-  border-radius: 999px;
-  background: var(--sea);
-  color: white;
-  padding: 0.45rem 0.95rem;
-  font-size: 0.875rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  box-shadow: 0 10px 28px -12px rgba(15, 118, 110, 0.9);
-  pointer-events: none;
-}
-
-@keyframes nav-pending-bar {
-  0% {
-    transform: scaleX(0.15);
-    opacity: 0.55;
-  }
-  50% {
-    transform: scaleX(1);
-    opacity: 1;
-  }
-  100% {
-    transform: scaleX(0.15);
-    opacity: 0.55;
-  }
-}
-
 .badge {
   display: inline-flex;
   align-items: center;
@@ -823,9 +776,19 @@ html[data-nav-pending]::after {
   min-height: 11.5rem;
 }
 
+/* SA people / compact desk cards — hug content, no empty pad */
+.client-card--compact {
+  min-height: 0;
+}
+
 .client-card--overdue {
   border-color: rgba(185, 28, 28, 0.45);
   box-shadow: inset 3px 0 0 var(--danger);
+}
+
+.client-card--submitted {
+  border-color: rgba(4, 120, 87, 0.4);
+  box-shadow: inset 3px 0 0 var(--ok, #047857);
 }
 
 /* Blocking form / action errors — high visibility */

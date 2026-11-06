@@ -361,6 +361,18 @@ export async function markDocumentRequestReceived(input: {
   }
 
   await setClientDocumentStatus(input.clientId, session.practiceId, status);
+  if (status === "received") {
+    try {
+      const { setClientWorkStage } = await import("@/server/actions/desk");
+      await setClientWorkStage({
+        clientId: input.clientId,
+        stage: "bank_statements_received",
+        note: "Marked bank statements received",
+      });
+    } catch {
+      /* best-effort */
+    }
+  }
   revalidatePath(`/clients/${input.clientId}`);
   revalidatePath(`/clients/${input.clientId}/communications`);
   revalidatePath("/clients");

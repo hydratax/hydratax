@@ -8,6 +8,7 @@ import {
   tabKeyToModule,
   type ModuleAccess,
 } from "@/lib/access";
+import { markNavPending } from "@/components/pending-link";
 
 const mainTabs = [
   { href: "", label: "Overview", key: "overview" },
@@ -107,10 +108,11 @@ export function ClientTabs({
     };
   }, [booksOpen]);
 
-  function markPending(href: string) {
+  function markPending(href: string, label: string) {
     if (href === pathname) return;
     setPendingHref(href);
     setPendingFromPath(pathname);
+    markNavPending(label);
   }
 
   function TabLink({ tab }: { tab: TabItem }) {
@@ -121,7 +123,7 @@ export function ClientTabs({
       <Link
         href={href}
         prefetch
-        onClick={() => markPending(href)}
+        onClick={() => markPending(href, `Opening ${tab.label}…`)}
         className={tabClass(isActive, isPending)}
         aria-current={isActive ? "page" : undefined}
       >
@@ -174,7 +176,7 @@ export function ClientTabs({
                         role="menuitem"
                         prefetch
                         onClick={() => {
-                          markPending(href);
+                          markPending(href, `Opening ${tab.label}…`);
                           setBooksOpen(false);
                         }}
                         className={`block px-4 py-2 text-sm font-semibold ${

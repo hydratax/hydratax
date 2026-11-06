@@ -6,6 +6,8 @@ import { requireModule } from "@/server/auth/session";
 import { InvoiceWorkspace } from "@/components/forms/invoice-workspace";
 import { redirect } from "next/navigation";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
+import { getPracticeLetterhead } from "@/server/actions/letterhead";
+import { formatPracticePaymentInstructions } from "@/lib/desk-profile";
 
 export default async function ClientInvoicesPage({
   params,
@@ -35,14 +37,20 @@ export default async function ClientInvoicesPage({
         }
       : null;
   const { client, clientId } = await loadClientPage(ref, "invoices");
-  const [invoices, templates] = await Promise.all([
+  const [invoices, templates, letterhead] = await Promise.all([
     listClientInvoices(clientId),
     listInvoiceLineTemplates(),
+    getPracticeLetterhead(),
   ]);
 
   return (
     <div>
-      <p className="mb-4 text-sm text-ink-soft">Invoices</p>
+      <p className="mb-4 text-sm text-ink-soft">
+        Invoices · payment details from{" "}
+        <a href="/settings/letterhead" className="font-semibold text-sea hover:underline">
+          Practice branding
+        </a>
+      </p>
       <InvoiceWorkspace
         clientId={clientId}
         clientName={client.name}
@@ -50,6 +58,9 @@ export default async function ClientInvoicesPage({
         invoices={invoices}
         templates={templates}
         initialLine={initialLine}
+        defaultPaymentInstructions={formatPracticePaymentInstructions(
+          letterhead,
+        )}
       />
     </div>
   );

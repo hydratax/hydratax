@@ -1,7 +1,7 @@
 import { LetterheadForm } from "@/components/forms/letterhead-form";
 import { getPracticeLetterhead } from "@/server/actions/letterhead";
 
-export const metadata = { title: "Letterhead — HydraTax" };
+export const metadata = { title: "Practice branding — HydraTax" };
 
 export default async function LetterheadSettingsPage() {
   const letterhead = await getPracticeLetterhead();
@@ -12,10 +12,10 @@ export default async function LetterheadSettingsPage() {
         <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
           Practice
         </p>
-        <h1 className="display mt-1 text-4xl text-ink">Letterhead</h1>
+        <h1 className="display mt-1 text-4xl text-ink">Practice branding</h1>
         <p className="mt-2 max-w-2xl text-ink-soft">
-          Tune the header and footer used on formal client letters — confirmation
-          of director, income, mortgage references, and more.
+          Logo, address, qualification, contact and bank details for letters,
+          forms and invoices to clients. This is your firm — not a client card.
         </p>
       </div>
       <LetterheadForm initial={letterhead} />
