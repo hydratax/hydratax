@@ -24,22 +24,38 @@ const createSchema = z.object({
 export async function createCustomBankCategory(
   input: z.infer<typeof createSchema>,
 ) {
-  const session = await requireSession();
-  if (session.role === "readonly") {
-    return { ok: false as const, error: "Read-only access." };
+  try {
+    const session = await requireSession();
+    if (session.role === "readonly") {
+      return { ok: false as const, error: "Read-only access." };
+    }
+    const parsed = createSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        ok: false as const,
+        error: parsed.error.issues[0]?.message ?? "Invalid category name.",
+      };
+    }
+    const data = parsed.data;
+    const row = await deskCreateCustomBankCategory(
+      session.practiceId,
+      data.label,
+    );
+    if (data.clientId) {
+      revalidatePath(`/clients/${data.clientId}/bank`);
+      revalidatePath(`/clients/${data.clientId}/accounts-pack`);
+    }
+    return {
+      ok: true as const,
+      id: customCategoryId(row.id),
+      label: row.label,
+    };
+  } catch (err) {
+    console.error("[custom-categories] create failed", err);
+    return {
+      ok: false as const,
+      error:
+        err instanceof Error ? err.message : "Could not save custom category.",
+    };
   }
-  const data = createSchema.parse(input);
-  const row = await deskCreateCustomBankCategory(
-    session.practiceId,
-    data.label,
-  );
-  if (data.clientId) {
-    revalidatePath(`/clients/${data.clientId}/bank`);
-    revalidatePath(`/clients/${data.clientId}/accounts-pack`);
-  }
-  return {
-    ok: true as const,
-    id: customCategoryId(row.id),
-    label: row.label,
-  };
 }
