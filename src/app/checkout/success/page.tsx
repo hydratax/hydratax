@@ -30,19 +30,45 @@ function filingLabel(serviceId: string | null | undefined, planKey: string) {
 export default async function CheckoutSuccessPage({
   searchParams,
 }: {
-  searchParams: Promise<{ session_id?: string; filing?: string }>;
+  searchParams: Promise<{
+    session_id?: string;
+    filing?: string;
+    free?: string;
+    service?: string;
+    ref?: string;
+  }>;
 }) {
-  const { session_id: sessionId, filing: filingFlag } = await searchParams;
+  const {
+    session_id: sessionId,
+    filing: filingFlag,
+    free: freeFlag,
+    service: freeService,
+    ref: freeRef,
+  } = await searchParams;
   let planKey = "";
   let email: string | null = null;
   let emailDelivery: "resend" | "logged" | "skipped" | null = null;
   let trialEndsAt: string | null = null;
   let chFulfillment: ChFulfillmentResult | null = null;
   const isFilingCheckout = filingFlag === "1";
+  const isFreeFiling = freeFlag === "1" && isFilingCheckout;
 
   let fulfillError: string | null = null;
 
-  if (sessionId && isStripeConfigured()) {
+  if (isFreeFiling) {
+    planKey = `companies-house:${freeService || "accounts-ixbrl"}`;
+    chFulfillment = {
+      ok: true,
+      requestId: "",
+      serviceId: freeService || "accounts-ixbrl",
+      companyNumber: null,
+      companyName: null,
+      paymentMarked: true,
+      submitted: true,
+      submissionNumber: freeRef || null,
+      emailDelivery: "skipped",
+    };
+  } else if (sessionId && isStripeConfigured()) {
     try {
       const session = await getStripe().checkout.sessions.retrieve(sessionId);
       planKey = session.metadata?.planKey ?? "";

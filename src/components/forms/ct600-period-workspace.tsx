@@ -6,6 +6,7 @@ import {
   YearEndFilingForm,
   type LastFiledAccounts,
 } from "@/components/forms/year-end-filing-form";
+import { YearEndFiledActionsMenu } from "@/components/year-end-actions-menu";
 import {
   daysInclusive,
   formatGbDate,
@@ -63,15 +64,22 @@ function writeJson(key: string, value: unknown) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function returnForPeriod(
+  period: Pick<PeriodCard, "start" | "end">,
+  returns: FiledReturn[],
+) {
+  return (
+    returns.find(
+      (r) => r.periodStart === period.start && r.periodEnd === period.end,
+    ) ?? null
+  );
+}
+
 function statusForPeriod(
   period: Pick<PeriodCard, "start" | "end">,
   returns: FiledReturn[],
 ) {
-  const match = returns.find(
-    (r) => r.periodStart === period.start && r.periodEnd === period.end,
-  );
-  if (!match) return null;
-  return match.status;
+  return returnForPeriod(period, returns)?.status ?? null;
 }
 
 function isSubmittedStatus(status: string | null) {
@@ -399,21 +407,32 @@ export function Ct600PeriodWorkspace({
 
         {hydrated &&
           ordered.map((p) => {
-            const filed = statusForPeriod(p, returns);
+            const match = returnForPeriod(p, returns);
+            const filed = match?.status ?? null;
             const submitted = isSubmittedStatus(filed);
             return (
               <div
                 key={periodKey(p.start, p.end)}
-                role="button"
-                tabIndex={0}
-                className="panel panel-interactive flex w-full flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6"
-                onClick={() => openPeriod(p.start, p.end)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    openPeriod(p.start, p.end);
-                  }
-                }}
+                role={submitted ? undefined : "button"}
+                tabIndex={submitted ? undefined : 0}
+                className={`panel flex w-full flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 ${
+                  submitted ? "" : "panel-interactive"
+                }`}
+                onClick={
+                  submitted
+                    ? undefined
+                    : () => openPeriod(p.start, p.end)
+                }
+                onKeyDown={
+                  submitted
+                    ? undefined
+                    : (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openPeriod(p.start, p.end);
+                        }
+                      }
+                }
               >
                 <div className="min-w-0 flex-1 text-left">
                   <div className="flex w-full flex-wrap items-center gap-2">
@@ -452,23 +471,33 @@ export function Ct600PeriodWorkspace({
                     </div>
                   </dl>
                 </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  <span className="open-chip">File CT600 →</span>
-                  {submitted ? (
-                    <span
-                      className="rounded-md border border-line px-3 py-2 text-xs text-ink-soft"
-                      title="Submitted periods cannot be removed"
-                    >
-                      Locked
-                    </span>
+                <div
+                  className="flex shrink-0 flex-wrap items-center gap-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {submitted && match ? (
+                    <YearEndFiledActionsMenu
+                      label="Filed actions"
+                      className="w-auto"
+                      filed={{
+                        clientId,
+                        returnId: match.id,
+                        periodStart: p.start,
+                        periodEnd: p.end,
+                        companyNumber: company.companyNumber,
+                      }}
+                    />
                   ) : (
-                    <button
-                      type="button"
-                      className="btn btn-secondary text-sm"
-                      onClick={(e) => deletePeriod(p, e)}
-                    >
-                      Delete
-                    </button>
+                    <>
+                      <span className="open-chip">File CT600 →</span>
+                      <button
+                        type="button"
+                        className="btn btn-secondary text-sm"
+                        onClick={(e) => deletePeriod(p, e)}
+                      >
+                        Delete
+                      </button>
+                    </>
                   )}
                 </div>
               </div>

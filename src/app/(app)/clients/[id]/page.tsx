@@ -10,8 +10,10 @@ import {
   type FilingUrgency,
 } from "@/lib/filing-due";
 import { FileAccountsMenu } from "@/components/file-accounts-menu";
+import { YearEndFiledActionsMenu } from "@/components/year-end-actions-menu";
 import { InvoiceSummaryCards } from "@/components/forms/invoice-workspace";
 import { refreshClientCompaniesHouse } from "@/server/actions/clients";
+import { listCt600Returns } from "@/server/actions/ct600";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 import { DeleteClientButton } from "@/components/forms/delete-client-button";
 
@@ -41,10 +43,22 @@ export default async function ClientOverviewPage({
   const invoices = canAccessModule(session.moduleAccess, "invoices")
     ? await listClientInvoices(clientId).catch(() => [])
     : [];
+  const ct600Returns = await listCt600Returns(clientId).catch(() => []);
   const ch =
     ("companiesHouse" in client
       ? (client.companiesHouse as ClientCompaniesHouseSnapshot | null)
       : null) ?? null;
+  const lastMadeUp = ch?.lastAccountsMadeUpTo ?? null;
+  const filedReturn =
+    lastMadeUp != null
+      ? ct600Returns.find(
+          (r) =>
+            r.periodEnd === lastMadeUp &&
+            ["submitted", "accepted", "ready"].includes(r.status),
+        ) ??
+        ct600Returns.find((r) => r.periodEnd === lastMadeUp) ??
+        null
+      : null;
 
   const isLtd = client.type === "limited_company";
   const identifiers: Array<{
@@ -342,21 +356,38 @@ export default async function ClientOverviewPage({
               }`}
             >
               <h2 className="display text-2xl">Year-end accounts</h2>
-              <p className={`mt-2 text-sm ${urgencyText(accountsUrgency)}`}>
-                Due {formatDate(ch?.accountsNextDue)}
-                {accountsUrgency === "overdue"
-                  ? " — overdue"
-                  : accountsUrgency === "due_soon"
-                    ? " — due within 30 days"
-                    : ""}
-              </p>
-              <p className="mt-2 text-sm text-ink-soft">
-                File accounts with Companies House
-                {ch?.accountsPeriodEnd
-                  ? ` · period end ${formatDate(ch.accountsPeriodEnd)}`
-                  : ""}
-                .
-              </p>
+              {filedReturn && lastMadeUp ? (
+                <>
+                  <p className="mt-2 text-sm font-semibold text-sea">
+                    Filed to {formatDate(lastMadeUp)}
+                  </p>
+                  <p className="mt-2 text-sm text-ink-soft">
+                    Next accounts due {formatDate(ch?.accountsNextDue)}
+                    {ch?.accountsPeriodEnd
+                      ? ` · period end ${formatDate(ch.accountsPeriodEnd)}`
+                      : ""}
+                    .
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className={`mt-2 text-sm ${urgencyText(accountsUrgency)}`}>
+                    Due {formatDate(ch?.accountsNextDue)}
+                    {accountsUrgency === "overdue"
+                      ? " — overdue"
+                      : accountsUrgency === "due_soon"
+                        ? " — due within 30 days"
+                        : ""}
+                  </p>
+                  <p className="mt-2 text-sm text-ink-soft">
+                    File accounts with Companies House
+                    {ch?.accountsPeriodEnd
+                      ? ` · period end ${formatDate(ch.accountsPeriodEnd)}`
+                      : ""}
+                    .
+                  </p>
+                </>
+              )}
               {!client.companyNumber && (
                 <p className="mt-3 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
                   Company number missing — add it under Identifiers before
@@ -364,7 +395,19 @@ export default async function ClientOverviewPage({
                 </p>
               )}
               <div className="mt-auto pt-4">
-                {client.companyNumber ? (
+                {client.companyNumber && filedReturn && lastMadeUp ? (
+                  <YearEndFiledActionsMenu
+                    label="Filed actions"
+                    className="w-full bg-sea text-white hover:bg-sea/90"
+                    filed={{
+                      clientId,
+                      returnId: filedReturn.id,
+                      periodStart: filedReturn.periodStart,
+                      periodEnd: filedReturn.periodEnd,
+                      companyNumber: client.companyNumber,
+                    }}
+                  />
+                ) : client.companyNumber ? (
                   <FileAccountsMenu
                     clientId={clientId}
                     companyNumber={client.companyNumber}

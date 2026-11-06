@@ -7,6 +7,10 @@ import {
   type FilingUrgency,
 } from "@/lib/filing-due";
 import { FileAccountsMenu } from "@/components/file-accounts-menu";
+import {
+  YearEndFiledActionsMenu,
+  type YearEndFiledContext,
+} from "@/components/year-end-actions-menu";
 
 function formatDate(iso: string | null | undefined) {
   return formatDueShort(iso) ?? "—";
@@ -187,12 +191,19 @@ export function ClientCompaniesHousePanel({
               Period end {formatDate(snapshot.accountsPeriodEnd)}
             </p>
             <div className="mt-auto pt-3">
-              <FileAccountsMenu
-                clientId={clientId}
-                companyNumber={snapshot.companyNumber}
-                companyName={snapshot.companyName}
-                periodEndLabel={formatDate(snapshot.accountsPeriodEnd)}
-              />
+              {filedYearEnd ? (
+                <YearEndFiledActionsMenu
+                  label="Filed actions"
+                  filed={filedYearEnd}
+                />
+              ) : (
+                <FileAccountsMenu
+                  clientId={clientId}
+                  companyNumber={snapshot.companyNumber}
+                  companyName={snapshot.companyName}
+                  periodEndLabel={formatDate(snapshot.accountsPeriodEnd)}
+                />
+              )}
             </div>
           </div>
         </div>

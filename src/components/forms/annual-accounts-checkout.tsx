@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { formatChFeeBreakdown, type ChServiceDetail } from "@/lib/ch-services";
-import { submitCompaniesHouseRequest } from "@/server/actions/ch-requests";
+import { formatChServicePrice, type ChServiceDetail } from "@/lib/ch-services";
+import {
+  fulfillFreeChRequest,
+  submitCompaniesHouseRequest,
+} from "@/server/actions/ch-requests";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 type CompanyView = {
@@ -59,7 +62,8 @@ export function AnnualAccountsCheckout({
   service: ChServiceDetail;
   defaults?: Record<string, string>;
 }) {
-  const fees = formatChFeeBreakdown(service);
+  // This checkout is only used when signed in from the desk.
+  const price = formatChServicePrice(service, "desk");
   const presetCompany =
     defaults?.companyNumber?.trim().toUpperCase() ||
     defaults?.company_number?.trim().toUpperCase() ||
@@ -171,6 +175,20 @@ export function AnnualAccountsCheckout({
         });
         if (!res.ok) {
           setError(res.error);
+          return;
+        }
+        if (res.freeCheckout || res.amountPence <= 0) {
+          const fulfilled = await fulfillFreeChRequest(res.requestId);
+          if (fulfilled.submitted) {
+            window.location.assign(
+              `/checkout/success?filing=1&free=1&service=accounts-ixbrl&ref=${encodeURIComponent(fulfilled.submissionNumber ?? "")}`,
+            );
+            return;
+          }
+          setError(
+            fulfilled.error ??
+              "Companies House did not accept the filing. Try again or contact support.",
+          );
           return;
         }
         const checkout = await fetch("/api/checkout", {
@@ -379,10 +397,12 @@ export function AnnualAccountsCheckout({
             onClick={pay}
           >
             {pending
-              ? "Opening checkout…"
+              ? "Submitting…"
               : !companyAuthCode.trim()
                 ? "Enter authentication code to pay"
-                : `Pay ${fees.total}`}
+                : price === "£0"
+                  ? "Submit accounts"
+                  : `Pay ${price}`}
           </button>
         </div>
       )}

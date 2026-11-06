@@ -7,6 +7,11 @@ import {
   chServiceTotal,
   serviceRequiresCompanyAuthCode,
 } from "@/lib/ch-services";
+import {
+  HYDRA_CH_DESK_FEES,
+  hydraFeeForChService,
+  type DeskPlanTier,
+} from "@/lib/pricing";
 import { isMemoryStore, isSupabaseConfigured } from "@/lib/env";
 import { getOptionalSession, requireSession } from "@/server/auth/session";
 import { accountRefFromUser, requireAdmin } from "@/server/auth/admin";
@@ -28,6 +33,8 @@ export type SubmitChRequestResult =
       requestId: string;
       checkoutPlanKey: string;
       amountPence: number;
+      /** Signed-in desk rate — no Stripe; caller should fulfill immediately. */
+      freeCheckout: boolean;
     }
   | { ok: false; error: string; needsAuth?: boolean };
 
@@ -88,18 +95,30 @@ export async function submitCompaniesHouseRequest(
         ? data.fields.companyNumber.trim().toUpperCase()
         : null;
 
+    // Signed-in desk users: included CH filings (accounts / CS) at £0 Hydra add-on.
+    const deskIncluded =
+      service.id in HYDRA_CH_DESK_FEES &&
+      hydraFeeForChService(service.id, "desk") === 0;
+    let tier: DeskPlanTier = deskIncluded ? "desk" : "solo";
     const amountStatutory = service.chFeePounds * 100;
-    let amountPence = chServiceTotal(service) * 100;
+    let amountPence = chServiceTotal(service, tier) * 100;
     try {
       const trial = await getPracticeTrialStatus(session.practiceId);
-      if (trial.onTrial) amountPence = amountStatutory;
+      if (trial.onTrial) {
+        tier = "desk";
+        amountPence = amountStatutory;
+      }
     } catch {
-      /* fee fall back to full total */
+      /* fee fall back to desk/solo total */
     }
 
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
-    const checkoutPlanKey = `companies-house:${service.id}`;
+    const checkoutPlanKey =
+      tier === "desk" && deskIncluded
+        ? `companies-house:${service.id}:desk`
+        : `companies-house:${service.id}`;
+    const freeCheckout = amountPence <= 0;
 
     const record: MemoryChRequest = {
       id,
@@ -157,6 +176,7 @@ export async function submitCompaniesHouseRequest(
       requestId: id,
       checkoutPlanKey,
       amountPence,
+      freeCheckout,
     };
   } catch (err) {
     const message =
@@ -360,4 +380,13 @@ export async function markChRequestPaid(requestId: string) {
 export async function getAdminAccountRef() {
   const session = await requireSession();
   return accountRefFromUser(session.userId);
+}
+
+/** Submit a £0 (desk-included) CH request without Stripe. */
+export async function fulfillFreeChRequest(requestId: string) {
+  await requireSession();
+  const { fulfillPaidChRequest } = await import(
+    "@/server/companies-house/fulfill-ch-request"
+  );
+  return fulfillPaidChRequest({ requestId });
 }

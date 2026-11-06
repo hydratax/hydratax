@@ -7,7 +7,10 @@ import {
   type ChServiceDetail,
 } from "@/lib/ch-services";
 import { formatDueLabel, filingUrgency } from "@/lib/ch-deadlines";
-import { submitCompaniesHouseRequest } from "@/server/actions/ch-requests";
+import {
+  fulfillFreeChRequest,
+  submitCompaniesHouseRequest,
+} from "@/server/actions/ch-requests";
 import { hasSignedInSession } from "@/server/actions/session-check";
 import { getPracticeCompanyAuthCode } from "@/server/actions/clients";
 import {
@@ -122,7 +125,13 @@ export function AnnualAccountsWizard({
   service: ChServiceDetail;
   defaults?: Record<string, string>;
 }) {
-  const price = formatChServicePrice(service);
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  // Signed-in desk: accounts are included (£0). Guests see the one-off fee.
+  const price = formatChServicePrice(
+    service,
+    signedIn ? "desk" : "solo",
+  );
+  const freeForSignedIn = signedIn === true;
   const presetCompanyRaw =
     defaults?.companyNumber?.trim().toUpperCase() ||
     defaults?.company_number?.trim().toUpperCase() ||
@@ -155,7 +164,6 @@ export function AnnualAccountsWizard({
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [hydrated, setHydrated] = useState(false);
-  const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [formPhase, setFormPhase] = useState(0);
 
   useEffect(() => {
@@ -469,6 +477,21 @@ export function AnnualAccountsWizard({
         });
         if (!res.ok) {
           setError(res.error);
+          return;
+        }
+        if (res.freeCheckout || res.amountPence <= 0) {
+          const fulfilled = await fulfillFreeChRequest(res.requestId);
+          clearAccountsDraft();
+          if (fulfilled.submitted) {
+            window.location.assign(
+              `/checkout/success?filing=1&free=1&service=accounts-ixbrl&ref=${encodeURIComponent(fulfilled.submissionNumber ?? "")}`,
+            );
+            return;
+          }
+          setError(
+            fulfilled.error ??
+              "Payment not required, but Companies House did not accept the filing. Try again or contact support.",
+          );
           return;
         }
         const checkout = await fetch("/api/checkout", {
@@ -839,8 +862,15 @@ export function AnnualAccountsWizard({
             <div className="rounded-xl border border-line bg-sand/40 px-4 py-3 text-sm">
               <div className="flex justify-between">
                 <span className="font-semibold text-ink">You pay</span>
-                <span className="price-amount text-2xl">{price}</span>
+                <span className="price-amount text-2xl">
+                  {freeForSignedIn ? "£0" : price}
+                </span>
               </div>
+              {freeForSignedIn ? (
+                <p className="mt-1 text-xs text-ink-soft">
+                  Included on your signed-in desk — no Hydra fee for accounts.
+                </p>
+              ) : null}
             </div>
 
             {signedIn === false ? (
@@ -901,10 +931,14 @@ export function AnnualAccountsWizard({
               onClick={pay}
             >
               {pending
-                ? "Starting checkout…"
+                ? freeForSignedIn
+                  ? "Submitting…"
+                  : "Starting checkout…"
                 : !companyAuthCode.trim()
                   ? "Enter authentication code to pay"
-                  : `Pay ${price} & submit`}
+                  : freeForSignedIn
+                    ? "Submit accounts"
+                    : `Pay ${price} & submit`}
             </button>
           </div>
         )}
