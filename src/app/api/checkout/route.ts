@@ -32,6 +32,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
   }
 
+  // One-off CH filings must carry the request id so success/webhook can submit.
+  if (
+    parsed.data.planKey.startsWith("companies-house:") &&
+    !parsed.data.chRequestId
+  ) {
+    return NextResponse.json(
+      { error: "Filing request id is required before payment." },
+      { status: 400 },
+    );
+  }
+
   let practiceId = "";
   let userId = "";
   let sessionEmail = parsed.data.email;

@@ -465,7 +465,7 @@ ${ixHtmlOpen(`xmlns:uk-core="${taxonomy.coreNs}"
       <h2 class="print">${escapeXml(companyName)}<span class="right">Registered Number ${escapeXml(companyNumber)}</span></h2>
     </div>
     <div id="balancesheet">
-      <h2 class="middle">Micro-entity Balance Sheet as at ${text("uk-bus:BalanceSheetDate", yearEndLong, "icur1")}</h2>
+      <h2 class="middle">Micro-entity Balance Sheet as at ${escapeXml(yearEndLong)}</h2>
       <table>
         <tr>
           <th/>
@@ -586,13 +586,9 @@ ${ixHtmlOpen(`xmlns:uk-core="${taxonomy.coreNs}"
         </ul>
       </div>
       <div id="approval">
-        <p>Approved by the Board on ${text(
-          "uk-core:DateAuthorisationFinancialStatementsForIssue",
-          formatLongDate(approval),
-          "icur1",
-        )}</p>
+        <p>Approved by the Board on ${escapeXml(formatLongDate(approval))}</p>
         <p>And signed on their behalf by:<br/>
-          <span class="officername">${text("uk-bus:NameEntityOfficer", director, "ctx-officer")}, Director</span>
+          <span class="officername">${escapeXml(director)}, Director</span>
         </p>
       </div>
     </div>

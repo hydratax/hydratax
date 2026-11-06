@@ -234,7 +234,10 @@ export function IncorporationForm({
         const checkout = await fetch("/api/checkout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ planKey: res.checkoutPlanKey }),
+          body: JSON.stringify({
+            planKey: res.checkoutPlanKey,
+            chRequestId: res.requestId,
+          }),
         });
         const data = (await checkout.json()) as {
           url?: string;
