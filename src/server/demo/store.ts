@@ -249,11 +249,17 @@ export type MemoryGatewayCredential = {
   updatedAt: string;
 };
 
+export type MemoryPracticeTask = import("@/lib/practice-tasks").PracticeTask;
+export type MemoryPracticeTaskComment =
+  import("@/lib/practice-tasks").PracticeTaskComment;
+
 type MemoryStore = {
   practice: {
     id: string;
     clerkOrgId: string;
     name: string;
+    /** Dedicated Tasks inbox local-part (hydratax.tasks.… ) */
+    taskInboxKey?: string | null;
   };
   accountProfile: MemoryAccountProfile | null;
   clients: MemoryClient[];
@@ -292,6 +298,8 @@ type MemoryStore = {
     string,
     import("@/lib/desk-profile").PracticeLetterhead
   >;
+  practiceTasks: MemoryPracticeTask[];
+  practiceTaskComments: MemoryPracticeTaskComment[];
 };
 
 function seedFeatureRequests(): MemoryFeatureRequest[] {
@@ -370,6 +378,8 @@ function emptyStore(): MemoryStore {
     hmrcConnections: [],
     auditEvents: [],
     letterheads: {},
+    practiceTasks: [],
+    practiceTaskComments: [],
   };
 }
 

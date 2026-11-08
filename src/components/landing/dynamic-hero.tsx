@@ -3,124 +3,87 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-const SLIDES = [
-  {
-    tag: "MTD VAT",
-    title: "Nine boxes from one ledger",
-    detail: "Prepare, review and submit — fraud headers locked in.",
-  },
-  {
-    tag: "CT600",
-    title: "Corporation Tax without portal-hopping",
-    detail: "Pence-perfect figures, XML built, acceptance on file.",
-  },
-  {
-    tag: "PAYE / RTI",
-    title: "FPS that ships on payday",
-    detail: "Employees, pay runs and RTI in the same client workspace.",
-  },
-  {
-    tag: "Self Assessment",
-    title: "Sole-trader updates that stay digital",
-    detail: "Quarterly records from the books — checked before HMRC.",
-  },
+const FILINGS = [
+  { name: "VAT return", period: "Q3 2025", state: "Ready to file" },
+  { name: "Corporation Tax", period: "Year ended 31 Mar 2025", state: "In progress" },
+  { name: "PAYE · FPS", period: "Due this Friday", state: "Queued" },
+  { name: "Self Assessment", period: "Tax year 2024–25", state: "Open" },
 ] as const;
 
 export function DynamicHero() {
-  const [index, setIndex] = useState(0);
+  const [active, setActive] = useState(0);
 
   useEffect(() => {
     const id = window.setInterval(() => {
-      setIndex((i) => (i + 1) % SLIDES.length);
-    }, 4200);
+      setActive((i) => (i + 1) % FILINGS.length);
+    }, 3200);
     return () => window.clearInterval(id);
   }, []);
 
-  const slide = SLIDES[index];
-
   return (
-    <section className="hero-hydra relative min-h-[100svh] overflow-hidden text-white">
-      <div className="hero-sheen" aria-hidden />
-      <div className="hero-orbs" aria-hidden>
-        <span />
-        <span />
-        <span />
-      </div>
+    <section className="hero-lumen relative overflow-x-hidden">
+      <div className="hero-lumen__grid" aria-hidden />
+      <div className="hero-lumen__aurora" aria-hidden />
+      <div className="hero-lumen__beam" aria-hidden />
 
-      <div className="relative z-10 mx-auto flex min-h-[100svh] max-w-6xl flex-col justify-center px-4 pb-16 pt-36 md:px-6 md:pt-32">
-        <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr]">
-          <div>
-            <h1 className="animate-rise display text-[clamp(2.5rem,7vw,4.5rem)] font-semibold leading-[1.02] tracking-tight">
-              Loved by UK accountants
-            </h1>
-            <p className="animate-rise-delay mt-5 max-w-lg text-lg leading-relaxed text-white/75 md:text-xl">
-              The practice desk that makes your job feel simple — built for how
-              firms actually work.
-            </p>
-            <div className="animate-rise-late mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-              <Link href="/create-account" className="btn btn-light w-full justify-center sm:w-auto">
-                Start your practice
-              </Link>
-              <Link href="/#reviews" className="btn btn-ghost-light w-full justify-center sm:w-auto">
-                Read reviews
-              </Link>
-            </div>
+      <div className="relative z-10 mx-auto grid min-h-[100svh] max-w-6xl items-center gap-14 px-4 pb-20 pt-36 md:px-6 md:pt-32 lg:grid-cols-[1fr_minmax(0,26rem)] lg:gap-16">
+        <div className="max-w-xl">
+          <p className="animate-rise hero-lumen__brand display text-[clamp(2.85rem,7.5vw,4.85rem)] font-semibold leading-[1.05] tracking-tight text-ink">
+            HydraTax
+          </p>
+          <h1 className="animate-rise-delay mt-5 text-[clamp(1.4rem,3.2vw,1.95rem)] font-semibold leading-snug tracking-tight text-ink">
+            File UK tax online —{" "}
+            <span className="text-sea">clear, calm, and easy</span>
+          </h1>
+          <p className="animate-rise-late mt-4 max-w-md text-base leading-relaxed text-ink-soft md:text-[1.05rem]">
+            Built for limited companies, sole traders, and anyone who wants
+            HMRC filing without the complexity. VAT, Corporation Tax, PAYE and
+            Self Assessment in one workspace.
+          </p>
+
+          <div className="animate-rise-late mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <Link
+              href="/create-account"
+              className="btn btn-primary w-full justify-center sm:w-auto"
+            >
+              Get started free
+            </Link>
+            <Link
+              href="/pricing"
+              className="btn btn-secondary w-full justify-center sm:w-auto"
+            >
+              See pricing
+            </Link>
           </div>
 
-          <div className="animate-fade relative w-full">
-            <div className="gloss-slider panel-dark relative flex h-[360px] w-full flex-col overflow-hidden rounded-2xl p-6 md:h-[380px] md:p-7">
-              <div className="flex shrink-0 items-center justify-between gap-3">
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/45">
-                  Filing desk
-                </p>
-                <div className="flex gap-1.5">
-                  {SLIDES.map((s, i) => (
-                    <button
-                      key={s.tag}
-                      type="button"
-                      aria-label={`Show ${s.tag}`}
-                      onClick={() => setIndex(i)}
-                      className={`h-2 rounded-full transition-all ${
-                        i === index ? "w-7 bg-teal-300" : "w-2 bg-white/30"
-                      }`}
-                    />
-                  ))}
-                </div>
-              </div>
+          <p className="animate-rise-late mt-8 text-sm text-ink-soft">
+            VAT · Corporation Tax · PAYE · Self Assessment
+          </p>
+        </div>
 
-              <div
-                key={slide.tag}
-                className="animate-slide-swap mt-6 flex min-h-0 flex-1 flex-col"
+        <div className="hero-lumen__preview animate-rise-late" aria-hidden>
+          <div className="hero-lumen__preview-bar">
+            <span className="hero-lumen__preview-dots" />
+            <span className="hero-lumen__preview-title">Your filings</span>
+          </div>
+          <ul className="hero-lumen__preview-list">
+            {FILINGS.map((row, i) => (
+              <li
+                key={row.name}
+                className={
+                  i === active
+                    ? "hero-lumen__preview-row is-active"
+                    : "hero-lumen__preview-row"
+                }
               >
-                <span className="inline-flex h-7 w-fit items-center rounded-md border border-white/15 bg-white/10 px-3 text-xs font-bold tracking-wide text-teal-200">
-                  {slide.tag}
-                </span>
-                <p className="display mt-4 line-clamp-3 min-h-[5.25rem] text-3xl leading-tight md:min-h-[6rem] md:text-4xl">
-                  {slide.title}
-                </p>
-                <p className="mt-3 line-clamp-2 min-h-[2.5rem] max-w-sm text-sm text-white/65">
-                  {slide.detail}
-                </p>
-              </div>
-
-              <div className="mt-auto grid shrink-0 grid-cols-2 gap-2 border-t border-white/10 pt-5 sm:grid-cols-4">
-                {SLIDES.map((s, i) => (
-                  <button
-                    key={s.tag}
-                    type="button"
-                    onClick={() => setIndex(i)}
-                    className={`flex h-9 w-full items-center justify-center rounded-md px-2 text-center text-[11px] font-semibold leading-tight transition ${
-                      i === index
-                        ? "bg-white/15 text-white"
-                        : "bg-white/5 text-white/45 hover:bg-white/10 hover:text-white/75"
-                    }`}
-                  >
-                    {s.tag}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
+                <div>
+                  <p className="hero-lumen__preview-name">{row.name}</p>
+                  <p className="hero-lumen__preview-period">{row.period}</p>
+                </div>
+                <span className="hero-lumen__preview-state">{row.state}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
     </section>

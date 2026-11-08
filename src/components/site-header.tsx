@@ -28,9 +28,12 @@ const NAV_LINKS = [
  */
 export function SiteHeader({
   dark = false,
+  overlay = false,
 }: {
   /** Absolute header over dark hero (landing / CH hub) */
   dark?: boolean;
+  /** Absolute frosted header over a light hero */
+  overlay?: boolean;
 }) {
   const [servicesOpen, setServicesOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -66,8 +69,15 @@ export function SiteHeader({
   }, [mobileOpen]);
 
   const shell = dark
-    ? "absolute inset-x-0 top-0 z-20"
-    : "sticky top-0 z-30 border-b border-line/80 bg-white/90 backdrop-blur-md";
+    ? mobileOpen
+      ? "fixed inset-x-0 top-0 z-50 bg-sea-deep"
+      : "absolute inset-x-0 top-0 z-20"
+    : overlay
+      ? mobileOpen
+        ? "fixed inset-x-0 top-0 z-50 bg-white shadow-md"
+        : "absolute inset-x-0 top-0 z-20 bg-white/55 backdrop-blur-xl"
+      : "sticky top-0 z-30 border-b border-line/80 bg-white/90 backdrop-blur-md";
+
   const brand = dark ? "text-white" : "text-ink";
   const navMuted = dark
     ? "text-white/80 hover:text-white"
@@ -75,8 +85,8 @@ export function SiteHeader({
   const signIn = dark ? "btn btn-ghost-light text-sm" : "btn btn-secondary text-sm";
   const signUp = dark ? "btn btn-light text-sm" : "btn btn-primary text-sm";
   const menuBtn = dark
-    ? "inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/25 text-white"
-    : "inline-flex h-10 w-10 items-center justify-center rounded-lg border border-line text-ink";
+    ? "inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/25 text-white"
+    : "inline-flex h-11 w-11 items-center justify-center rounded-lg border border-line bg-white text-ink";
 
   function closeMobile() {
     setMobileOpen(false);
@@ -157,7 +167,6 @@ export function SiteHeader({
           <PublicAuthLinks signInClass={signIn} signUpClass={signUp} dark={dark} />
         </nav>
 
-        {/* Mobile: hamburger only — auth + nav live inside the drawer */}
         <div className="flex items-center gap-2 lg:hidden">
           <button
             type="button"
@@ -168,73 +177,87 @@ export function SiteHeader({
             onClick={() => setMobileOpen((v) => !v)}
           >
             {mobileOpen ? (
-              <span className="text-lg leading-none" aria-hidden>
+              <span className="text-2xl leading-none" aria-hidden>
                 ×
               </span>
             ) : (
               <span className="flex flex-col gap-1.5" aria-hidden>
-                <span className="block h-0.5 w-4 bg-current" />
-                <span className="block h-0.5 w-4 bg-current" />
-                <span className="block h-0.5 w-4 bg-current" />
+                <span className="block h-0.5 w-5 bg-current" />
+                <span className="block h-0.5 w-5 bg-current" />
+                <span className="block h-0.5 w-5 bg-current" />
               </span>
             )}
           </button>
         </div>
       </div>
 
-      {mobileOpen && (
-        <div
-          id="mobile-nav"
-          className={
-            dark
-              ? "border-t border-white/10 bg-ink/95 px-4 py-4 backdrop-blur-md lg:hidden"
-              : "border-t border-line bg-white px-4 py-4 shadow-lg lg:hidden"
-          }
-        >
-          <nav className="flex flex-col gap-1 text-sm font-semibold">
-            <p
-              className={`px-2 pb-1 text-xs font-bold uppercase tracking-[0.14em] ${
-                dark ? "text-white/45" : "text-ink-soft"
-              }`}
-            >
-              Services
-            </p>
-            {SERVICES.map((p) => (
-              <Link
-                key={p.label}
-                href={p.href}
-                className={`rounded-lg px-3 py-2.5 ${
-                  dark ? "text-white/90 hover:bg-white/10" : "text-ink hover:bg-sand"
+      {mobileOpen ? (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-40 bg-ink/40 lg:hidden"
+            aria-label="Close menu"
+            onClick={closeMobile}
+          />
+          <div
+            id="mobile-nav"
+            className={
+              dark
+                ? "relative z-50 w-full max-h-[min(85dvh,calc(100dvh-5.5rem))] overflow-y-auto overscroll-contain border-t border-white/15 bg-sea-deep px-4 py-4 pb-8 lg:hidden"
+                : "relative z-50 w-full max-h-[min(85dvh,calc(100dvh-5.5rem))] overflow-y-auto overscroll-contain border-t border-line bg-white px-4 py-4 pb-8 shadow-lg lg:hidden"
+            }
+          >
+            <nav className="mx-auto flex w-full max-w-6xl flex-col gap-0.5 text-base font-semibold">
+              <p
+                className={`px-3 pb-2 pt-1 text-xs font-bold uppercase tracking-[0.14em] ${
+                  dark ? "text-white/55" : "text-ink-soft"
                 }`}
-                onClick={closeMobile}
               >
-                {p.label}
-              </Link>
-            ))}
-            <div className={`my-2 border-t ${dark ? "border-white/10" : "border-line"}`} />
-            {NAV_LINKS.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                className={`rounded-lg px-3 py-2.5 ${
-                  dark ? "text-white/90 hover:bg-white/10" : "text-ink hover:bg-sand"
-                }`}
-                onClick={closeMobile}
-              >
-                {l.label}
-              </Link>
-            ))}
-            <div className="mt-3 flex flex-col gap-2">
-              <PublicAuthLinks
-                signInClass={`${signIn} w-full justify-center`}
-                signUpClass={`${signUp} w-full justify-center`}
-                deskClass={`${signUp} w-full justify-center`}
-                dark={dark}
+                Services
+              </p>
+              {SERVICES.map((p) => (
+                <Link
+                  key={p.label}
+                  href={p.href}
+                  className={`rounded-lg px-3 py-3 ${
+                    dark
+                      ? "text-white hover:bg-white/10"
+                      : "text-ink hover:bg-sand"
+                  }`}
+                  onClick={closeMobile}
+                >
+                  {p.label}
+                </Link>
+              ))}
+              <div
+                className={`my-2 border-t ${dark ? "border-white/15" : "border-line"}`}
               />
-            </div>
-          </nav>
-        </div>
-      )}
+              {NAV_LINKS.map((l) => (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  className={`rounded-lg px-3 py-3 ${
+                    dark
+                      ? "text-white hover:bg-white/10"
+                      : "text-ink hover:bg-sand"
+                  }`}
+                  onClick={closeMobile}
+                >
+                  {l.label}
+                </Link>
+              ))}
+              <div className="mt-4 flex flex-col gap-2.5 pb-2">
+                <PublicAuthLinks
+                  signInClass={`${signIn} w-full justify-center`}
+                  signUpClass={`${signUp} w-full justify-center`}
+                  deskClass={`${signUp} w-full justify-center`}
+                  dark={dark}
+                />
+              </div>
+            </nav>
+          </div>
+        </>
+      ) : null}
     </header>
   );
 }

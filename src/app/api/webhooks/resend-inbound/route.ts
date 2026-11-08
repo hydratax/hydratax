@@ -4,6 +4,10 @@ import {
   resolveClientFromInboundAddresses,
   storeInboundEmailAttachments,
 } from "@/server/documents/inbound-email";
+import {
+  resolvePracticeFromTaskAddresses,
+  storeInboundTaskEmail,
+} from "@/server/tasks/inbox";
 
 const resendReceivedSchema = z.object({
   type: z.literal("email.received"),
@@ -27,8 +31,86 @@ const resendReceivedSchema = z.object({
   }),
 });
 
+async function fetchResendAttachments(
+  emailId: string,
+  resendKey: string,
+): Promise<
+  Array<{ filename: string; contentType: string; bytes: Uint8Array }>
+> {
+  const listRes = await fetch(
+    `https://api.resend.com/emails/receiving/${emailId}/attachments`,
+    { headers: { Authorization: `Bearer ${resendKey}` } },
+  );
+  if (!listRes.ok) {
+    const text = await listRes.text();
+    throw new Error(`Resend attachments list failed: ${listRes.status} ${text}`);
+  }
+  const listJson = (await listRes.json()) as {
+    data?: Array<{
+      filename?: string | null;
+      content_type?: string | null;
+      download_url?: string | null;
+    }>;
+  };
+
+  const attachments: Array<{
+    filename: string;
+    contentType: string;
+    bytes: Uint8Array;
+  }> = [];
+
+  for (const att of listJson.data ?? []) {
+    if (!att.download_url) continue;
+    const fileRes = await fetch(att.download_url);
+    if (!fileRes.ok) continue;
+    const buf = new Uint8Array(await fileRes.arrayBuffer());
+    attachments.push({
+      filename: att.filename || "attachment.bin",
+      contentType:
+        att.content_type ||
+        fileRes.headers.get("content-type") ||
+        "application/octet-stream",
+      bytes: buf,
+    });
+  }
+  return attachments;
+}
+
+async function fetchResendBodyText(
+  emailId: string,
+  resendKey: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://api.resend.com/emails/receiving/${emailId}`,
+      { headers: { Authorization: `Bearer ${resendKey}` } },
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      text?: string | null;
+      html?: string | null;
+      data?: { text?: string | null; html?: string | null };
+    };
+    const text = json.text ?? json.data?.text ?? null;
+    if (text?.trim()) return text.trim();
+    const html = json.html ?? json.data?.html ?? null;
+    if (!html) return null;
+    return html
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 12000);
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Resend inbound: email.received → match hydratax.uk.{client}@… → client documents.
+ * Resend inbound:
+ * 1) Practice Tasks inbox (hydratax.tasks.*) → Documents / Queries
+ * 2) Client document inbox (hydratax.uk.*) → client documents
+ *
  * Auth: Authorization: Bearer EMAIL_WEBHOOK_SECRET (or RESEND_WEBHOOK_SECRET).
  */
 export async function POST(request: Request) {
@@ -49,16 +131,6 @@ export async function POST(request: Request) {
       ...(event.data.received_for ?? []),
     ];
 
-    const client = await resolveClientFromInboundAddresses(toCandidates);
-    if (!client) {
-      return NextResponse.json({
-        ok: true,
-        matched: false,
-        reason: "No client document inbox matched the To address.",
-        to: toCandidates,
-      });
-    }
-
     const resendKey = process.env.RESEND_API_KEY;
     if (!resendKey) {
       return NextResponse.json(
@@ -67,47 +139,53 @@ export async function POST(request: Request) {
       );
     }
 
-    const listRes = await fetch(
-      `https://api.resend.com/emails/receiving/${event.data.email_id}/attachments`,
-      { headers: { Authorization: `Bearer ${resendKey}` } },
-    );
-    if (!listRes.ok) {
-      const text = await listRes.text();
-      throw new Error(`Resend attachments list failed: ${listRes.status} ${text}`);
-    }
-    const listJson = (await listRes.json()) as {
-      data?: Array<{
-        filename?: string | null;
-        content_type?: string | null;
-        download_url?: string | null;
-      }>;
-    };
-
-    const attachments: Array<{
-      filename: string;
-      contentType: string;
-      bytes: Uint8Array;
-    }> = [];
-
-    for (const att of listJson.data ?? []) {
-      if (!att.download_url) continue;
-      const fileRes = await fetch(att.download_url);
-      if (!fileRes.ok) continue;
-      const buf = new Uint8Array(await fileRes.arrayBuffer());
-      attachments.push({
-        filename: att.filename || "attachment.bin",
-        contentType:
-          att.content_type ||
-          fileRes.headers.get("content-type") ||
-          "application/octet-stream",
-        bytes: buf,
+    // Prefer practice Tasks inbox when the To address matches.
+    const practice = await resolvePracticeFromTaskAddresses(toCandidates);
+    if (practice) {
+      const attachments = await fetchResendAttachments(
+        event.data.email_id,
+        resendKey,
+      );
+      const bodyText = await fetchResendBodyText(event.data.email_id, resendKey);
+      const stored = await storeInboundTaskEmail({
+        practice,
+        fromAddress: event.data.from,
+        subject: event.data.subject,
+        bodyText,
+        sourceEmailId: event.data.email_id,
+        attachments,
+      });
+      return NextResponse.json({
+        ok: true,
+        matched: true,
+        route: "practice_tasks",
+        practiceId: practice.practiceId,
+        inboxEmail: practice.inboxEmail,
+        documents: stored.documents.length,
+        queries: stored.queries.length,
       });
     }
+
+    const client = await resolveClientFromInboundAddresses(toCandidates);
+    if (!client) {
+      return NextResponse.json({
+        ok: true,
+        matched: false,
+        reason: "No practice Tasks or client document inbox matched the To address.",
+        to: toCandidates,
+      });
+    }
+
+    const attachments = await fetchResendAttachments(
+      event.data.email_id,
+      resendKey,
+    );
 
     if (attachments.length === 0) {
       return NextResponse.json({
         ok: true,
         matched: true,
+        route: "client_documents",
         clientId: client.clientId,
         clientName: client.clientName,
         inboxEmail: client.inboxEmail,
@@ -126,6 +204,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       matched: true,
+      route: "client_documents",
       clientId: client.clientId,
       clientName: client.clientName,
       inboxEmail: client.inboxEmail,

@@ -51,6 +51,7 @@ export type AppModule =
   | "corporation_tax"
   | "payroll"
   | "documents"
+  | "tasks"
   | "communications"
   | "bank"
   | "invoices"
@@ -66,6 +67,7 @@ const FULL: AppModule[] = [
   "corporation_tax",
   "payroll",
   "documents",
+  "tasks",
   "bank",
   "invoices",
   "communications",
@@ -76,20 +78,36 @@ const FULL: AppModule[] = [
 
 const BY_ACCESS: Record<ModuleAccess, AppModule[]> = {
   full: FULL,
-  payroll: ["overview", "payroll", "documents", "communications", "clients"],
-  vat: ["overview", "vat", "documents", "communications", "clients"],
+  payroll: [
+    "overview",
+    "payroll",
+    "documents",
+    "tasks",
+    "communications",
+    "clients",
+  ],
+  vat: ["overview", "vat", "documents", "tasks", "communications", "clients"],
   corporation_tax: [
     "overview",
     "corporation_tax",
     "documents",
+    "tasks",
     "communications",
     "clients",
   ],
-  invoices: ["overview", "invoices", "documents", "communications", "clients"],
+  invoices: [
+    "overview",
+    "invoices",
+    "documents",
+    "tasks",
+    "communications",
+    "clients",
+  ],
   self_assessment: [
     "overview",
     "self_assessment",
     "documents",
+    "tasks",
     "communications",
     "clients",
   ],

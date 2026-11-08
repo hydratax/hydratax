@@ -29,6 +29,7 @@ export async function ensureSupabasePractice(user: {
     const practiceId = membership.practice_id as string;
     // Recover trial if signup raced ahead of seeding
     await seedTrialIfEligible(user, practiceId);
+    await seedTaskInbox(practiceId, row?.name ?? "Your practice");
     return {
       practiceId,
       practiceName: row?.name ?? "Your practice",
@@ -92,6 +93,7 @@ export async function ensureSupabasePractice(user: {
       const row = Array.isArray(practiceRel) ? practiceRel[0] : practiceRel;
       const practiceId = again.practice_id as string;
       await seedTrialIfEligible(user, practiceId);
+      await seedTaskInbox(practiceId, row?.name ?? practice.name);
       return {
         practiceId,
         practiceName: row?.name ?? practice.name,
@@ -113,12 +115,23 @@ export async function ensureSupabasePractice(user: {
   }
 
   await seedTrialIfEligible(user, practice.id as string);
+  await seedTaskInbox(practice.id as string, practice.name as string);
 
   return {
     practiceId: practice.id as string,
     practiceName: practice.name as string,
     role: "owner",
   };
+}
+
+/** Assign a dedicated Tasks email when the practice is first created. */
+async function seedTaskInbox(practiceId: string, practiceName: string) {
+  try {
+    const { ensurePracticeTaskInbox } = await import("@/server/tasks/inbox");
+    await ensurePracticeTaskInbox({ practiceId, practiceName });
+  } catch {
+    /* inbox seed is best-effort */
+  }
 }
 
 /** Idempotent: starts 7-day Practice desk trial when eligible (no Stripe / local only). */

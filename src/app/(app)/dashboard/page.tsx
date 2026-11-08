@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { listClients } from "@/server/actions/clients";
 import { requireSession } from "@/server/auth/session";
-import { isPlatformAdmin } from "@/server/auth/admin";
 import { getHmrcEnvInfo } from "@/server/actions/hmrc-connect";
 import { getPracticeEntitlements } from "@/server/actions/account";
 import { DashboardClientFilters } from "@/components/dashboard-client-filters";
@@ -114,16 +113,8 @@ export default async function DashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href="/pricing" className="btn btn-secondary text-sm">
-            Plans & billing
-          </Link>
-          {isPlatformAdmin(session.email) && (
-            <Link href="/admin" className="btn btn-secondary text-sm">
-              Admin
-            </Link>
-          )}
-          <Link href="/settings/hmrc" className="btn btn-secondary text-sm">
-            HMRC settings
+          <Link href="/tasks" className="btn btn-secondary text-sm">
+            Tasks
           </Link>
         </div>
       </div>
@@ -142,7 +133,7 @@ export default async function DashboardPage() {
             const open = unlocked.has(rail.module);
             return (
               <DashboardServiceCard
-                key={rail.module}
+                key={rail.href}
                 href={open ? rail.href : "/pricing#practice"}
                 moduleLabel={moduleLabel(rail.module)}
                 title={rail.title}

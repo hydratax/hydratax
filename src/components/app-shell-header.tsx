@@ -86,7 +86,13 @@ export function AppShellHeader({
   }
 
   return (
-    <header className="sticky top-0 z-30 border-b border-line/80 bg-white/90 backdrop-blur-md">
+    <header
+      className={
+        mobileOpen
+          ? "sticky top-0 z-50 border-b border-line/80 bg-white shadow-md"
+          : "sticky top-0 z-30 border-b border-line/80 bg-white/90 backdrop-blur-md"
+      }
+    >
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-6">
         <Link
           href="/dashboard"
@@ -250,77 +256,85 @@ export function AppShellHeader({
         </div>
       </div>
 
-      {mobileOpen && (
-        <div
-          id="app-mobile-nav"
-          className="border-t border-line bg-white px-4 py-4 shadow-lg md:hidden"
-        >
-          <nav className="flex flex-col gap-1 text-sm font-semibold">
-            {userEmail ? (
-              <p className="truncate px-3 pb-2 text-xs text-ink-soft">
-                {userEmail}
-              </p>
-            ) : null}
-
-            {serviceItems.length > 0 && (
-              <>
-                <p className="px-2 pb-1 text-xs font-bold uppercase tracking-[0.14em] text-ink-soft">
-                  Services
+      {mobileOpen ? (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-40 bg-ink/40 md:hidden"
+            aria-label="Close menu"
+            onClick={closeMobile}
+          />
+          <div
+            id="app-mobile-nav"
+            className="relative z-50 w-full max-h-[min(85dvh,calc(100dvh-5rem))] overflow-y-auto overscroll-contain border-t border-line bg-white px-4 py-4 pb-8 shadow-lg md:hidden"
+          >
+            <nav className="flex flex-col gap-0.5 text-base font-semibold">
+              {userEmail ? (
+                <p className="truncate px-3 pb-2 text-xs text-ink-soft">
+                  {userEmail}
                 </p>
-                {serviceItems.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className="rounded-lg px-3 py-2.5 text-ink hover:bg-sand"
-                    onClick={closeMobile}
-                  >
-                    {item.label}
-                  </Link>
-                ))}
-                <div className="my-2 border-t border-line" />
-              </>
-            )}
+              ) : null}
 
-            {links.map((item) => (
+              {serviceItems.length > 0 ? (
+                <>
+                  <p className="px-3 pb-2 pt-1 text-xs font-bold uppercase tracking-[0.14em] text-ink-soft">
+                    Services
+                  </p>
+                  {serviceItems.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className="rounded-lg px-3 py-3 text-ink hover:bg-sand"
+                      onClick={closeMobile}
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                  <div className="my-2 border-t border-line" />
+                </>
+              ) : null}
+
+              {links.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="rounded-lg px-3 py-3 text-ink hover:bg-sand"
+                  onClick={closeMobile}
+                >
+                  {item.label}
+                </Link>
+              ))}
+
+              <div className="my-2 border-t border-line" />
+
               <Link
-                key={item.href}
-                href={item.href}
-                className="rounded-lg px-3 py-2.5 text-ink hover:bg-sand"
+                href="/settings/account"
+                className="rounded-lg px-3 py-3 text-ink hover:bg-sand"
                 onClick={closeMobile}
               >
-                {item.label}
+                Account
               </Link>
-            ))}
-
-            <div className="my-2 border-t border-line" />
-
-            <Link
-              href="/settings/account"
-              className="rounded-lg px-3 py-2.5 text-ink hover:bg-sand"
-              onClick={closeMobile}
-            >
-              Account
-            </Link>
-            {canManageTeam ? (
-              <Link
-                href="/settings/team"
-                className="rounded-lg px-3 py-2.5 text-ink hover:bg-sand"
-                onClick={closeMobile}
+              {canManageTeam ? (
+                <Link
+                  href="/settings/team"
+                  className="rounded-lg px-3 py-3 text-ink hover:bg-sand"
+                  onClick={closeMobile}
+                >
+                  Team & roles
+                </Link>
+              ) : null}
+              <button
+                type="button"
+                disabled={pending}
+                className="rounded-lg px-3 py-3 text-left text-ink hover:bg-sand disabled:opacity-60"
+                onClick={signOut}
               >
-                Team & roles
-              </Link>
-            ) : null}
-            <button
-              type="button"
-              disabled={pending}
-              className="rounded-lg px-3 py-2.5 text-left text-ink hover:bg-sand disabled:opacity-60"
-              onClick={signOut}
-            >
-              {pending ? "Signing out…" : "Sign out"}
-            </button>
-          </nav>
-        </div>
-      )}
+                {pending ? "Signing out…" : "Sign out"}
+              </button>
+            </nav>
+          </div>
+        </>
+      ) : null}
     </header>
   );
 }
