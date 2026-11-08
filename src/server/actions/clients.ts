@@ -242,14 +242,71 @@ export async function fetchClientRecord(
   }
 }
 
-export async function listClients() {
+function mapMemoryClient(
+  c: (typeof demoStore.clients)[number],
+): ClientRecord {
+  return {
+    id: c.id,
+    practiceId: c.practiceId,
+    name: c.name,
+    type: c.type,
+    companyNumber: c.companyNumber,
+    utr: c.utr,
+    vrn: c.vrn,
+    nino: c.nino,
+    companyAuthCode: c.companyAuthCode,
+    payeRef: c.payeRef,
+    accountsOfficeRef: c.accountsOfficeRef,
+    contactEmail: c.contactEmail ?? null,
+    contactPhone: c.contactPhone ?? null,
+    isEmployer: c.isEmployer,
+    isVatRegistered: c.isVatRegistered,
+    companiesHouse: c.companiesHouse ?? null,
+    accountsComparatives: c.accountsComparatives ?? null,
+    deskProfile: c.deskProfile ?? null,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+  };
+}
+
+function mapDrizzleClient(row: Record<string, unknown>): ClientRecord {
+  return {
+    id: row.id as string,
+    practiceId: row.practiceId as string,
+    name: row.name as string,
+    type: row.type as ClientRecord["type"],
+    companyNumber: (row.companyNumber as string | null) ?? null,
+    utr: (row.utr as string | null) ?? null,
+    vrn: (row.vrn as string | null) ?? null,
+    nino: (row.nino as string | null) ?? null,
+    companyAuthCode: (row.companyAuthCode as string | null) ?? null,
+    payeRef: (row.payeRef as string | null) ?? null,
+    accountsOfficeRef: (row.accountsOfficeRef as string | null) ?? null,
+    contactEmail: (row.contactEmail as string | null) ?? null,
+    contactPhone: (row.contactPhone as string | null) ?? null,
+    isEmployer: Boolean(row.isEmployer),
+    isVatRegistered: Boolean(row.isVatRegistered),
+    companiesHouse:
+      (row.companiesHouse as ClientCompaniesHouseSnapshot | null) ?? null,
+    accountsComparatives:
+      (row.accountsComparatives as ClientRecord["accountsComparatives"]) ??
+      null,
+    deskProfile: (row.deskProfile as DeskProfile | null) ?? null,
+    createdAt: (row.createdAt as string | Date) ?? new Date().toISOString(),
+    updatedAt: (row.updatedAt as string | Date) ?? new Date().toISOString(),
+  };
+}
+
+export async function listClients(): Promise<ClientRecord[]> {
   const session = await requireSession();
   if (isDemoMode()) {
-    return demoStore.clients.filter(
-      (c) =>
-        c.practiceId === session.practiceId ||
-        c.practiceId === demoStore.practice.id,
-    );
+    return demoStore.clients
+      .filter(
+        (c) =>
+          c.practiceId === session.practiceId ||
+          c.practiceId === demoStore.practice.id,
+      )
+      .map(mapMemoryClient);
   }
 
   if (isSupabaseConfigured()) {
@@ -279,10 +336,11 @@ export async function listClients() {
   try {
     const { clients } = await import("@/server/db/schema");
     const { eq } = await import("drizzle-orm");
-    return getDb()
+    const rows = await getDb()
       .select()
       .from(clients)
       .where(eq(clients.practiceId, session.practiceId));
+    return rows.map((row) => mapDrizzleClient(row as Record<string, unknown>));
   } catch {
     return [];
   }

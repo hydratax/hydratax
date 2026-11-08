@@ -26,7 +26,7 @@ export default async function NewClientPage({ searchParams }: Props) {
       payeRef: c.payeRef,
       isVatRegistered: c.isVatRegistered,
       isEmployer: c.isEmployer,
-      contactEmail: c.contactEmail,
+      contactEmail: c.contactEmail ?? null,
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "en-GB"));
 

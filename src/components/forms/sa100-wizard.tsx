@@ -126,11 +126,10 @@ export function Sa100Wizard({
   const [i, setI] = useState(0);
   const [draft, setDraft] = useState(() => {
     const base = emptySa100Draft({
-      taxYear,
       utr: utr ?? "",
       nino: nino ?? "",
       ...(initial ?? {}),
-      taxYear,
+      ...(taxYear ? { taxYear } : {}),
     });
     if (
       companyName &&
