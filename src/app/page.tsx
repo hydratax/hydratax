@@ -55,17 +55,6 @@ export const metadata: Metadata = {
   },
 };
 
-const MARQUEE = [
-  "MTD VAT",
-  "CT600",
-  "Confirmation statement",
-  "PAYE · FPS",
-  "Self Assessment",
-  "Companies House accounts",
-  "Integer pence",
-  "Multi-client desk",
-];
-
 export default function HomePage() {
   return (
     <div className="min-h-screen">
@@ -96,17 +85,6 @@ export default function HomePage() {
 
       <LandingHeader />
       <DynamicHero />
-
-      <div className="marquee-rails" aria-hidden>
-        <div className="marquee-rails-inner">
-          {[...MARQUEE, ...MARQUEE].map((item, i) => (
-            <span key={`${item}-${i}`} className="inline-flex items-center gap-2.5">
-              <span className="text-sea">◆</span>
-              {item}
-            </span>
-          ))}
-        </div>
-      </div>
 
       <ServiceCards />
       <HowItWorks />
