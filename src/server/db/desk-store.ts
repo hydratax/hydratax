@@ -50,18 +50,20 @@ export async function deskInsertEmployee(row: Record<string, unknown>) {
   if (isD1Configured()) {
     await d1Execute(
       `INSERT INTO employees (
-        id, client_id, forename, surname, nino, tax_code, annual_salary_pence,
+        id, client_id, forename, surname, nino, date_of_birth, address, tax_code, annual_salary_pence,
         start_date, payroll_id, pay_frequency, ni_category, job_title, leave_date,
         starter_declaration, first_fps_sent, previous_payroll_id, hours_per_week,
         hourly_rate_pence, pay_basis, pension_opt_out, ssp_qualifying_days,
         bf_tax_year, bf_taxable_pence, bf_tax_pence, bf_employee_ni_pence, active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.id,
         row.client_id,
         row.forename,
         row.surname,
         row.nino,
+        row.date_of_birth ?? null,
+        row.address ?? null,
         row.tax_code,
         row.annual_salary_pence,
         row.start_date,

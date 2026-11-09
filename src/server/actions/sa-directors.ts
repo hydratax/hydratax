@@ -342,16 +342,27 @@ export async function getDirectorWorkspace(input: {
         hit.role = mappedRole;
         changed = true;
       }
+      if (!hit.companyName && c.companyName) {
+        hit.companyName = c.companyName;
+        changed = true;
+      }
+      if (!hit.payeRef) {
+        const companyClient = await getClient(c.clientId);
+        if (companyClient.payeRef) {
+          hit.payeRef = companyClient.payeRef;
+          changed = true;
+        }
+      }
       continue;
     }
-    const client = await getClient(c.clientId);
+    const companyClient = await getClient(c.clientId);
     existing.push(
       emptyCompanyIncome({
         clientId: c.clientId,
         companyName: c.companyName,
-        companyNumber: c.companyNumber || client.companyNumber || "",
+        companyNumber: c.companyNumber || companyClient.companyNumber || "",
         role: mappedRole,
-        payeRef: client.payeRef ?? "",
+        payeRef: companyClient.payeRef ?? "",
       }),
     );
     changed = true;
@@ -365,7 +376,72 @@ export async function getDirectorWorkspace(input: {
     });
   }
 
+  // Pull PAYE YTD onto company cards when NINO + DOB + address all match.
+  try {
+    const { pullPayeIntoCompanyIncomes } = await import(
+      "@/server/sa/pull-paye-into-company"
+    );
+    const { currentSaTaxYear } = await import("@/lib/sa-tax-year");
+    const payeYear = currentSaTaxYear().label;
+    const pulled = await pullPayeIntoCompanyIncomes({
+      taxpayer,
+      companyIncomes: taxpayer.companyIncomes ?? existing,
+      taxYear: payeYear,
+    });
+    if (pulled.changed) {
+      taxpayer = await saveTaxpayerIncomes({
+        clientId: person.homeClientId,
+        taxpayerId: taxpayer.id,
+        companyIncomes: pulled.companyIncomes,
+        otherIncomes: taxpayer.otherIncomes ?? dedupedOthers,
+        taxYear: payeYear,
+      });
+    } else {
+      taxpayer = {
+        ...taxpayer,
+        companyIncomes: pulled.companyIncomes,
+      };
+    }
+  } catch {
+    /* PAYE pull is best-effort — desk still opens without it */
+  }
+
   return { person, taxpayer };
+}
+
+/** Refresh company employment figures from PAYE for the active tax year. */
+export async function refreshCompanyPayeFromPayroll(input: {
+  clientId: string;
+  taxpayerId: string;
+  taxYear?: string;
+}) {
+  await requireSession();
+  const client = await getClient(input.clientId);
+  const taxpayer = (client.deskProfile?.saTaxpayers ?? []).find(
+    (t) => t.id === input.taxpayerId,
+  );
+  if (!taxpayer) throw new Error("Taxpayer not found");
+
+  const { pullPayeIntoCompanyIncomes } = await import(
+    "@/server/sa/pull-paye-into-company"
+  );
+  const { currentSaTaxYear } = await import("@/lib/sa-tax-year");
+  const taxYear = input.taxYear || currentSaTaxYear().label;
+  const pulled = await pullPayeIntoCompanyIncomes({
+    taxpayer,
+    companyIncomes: taxpayer.companyIncomes ?? [],
+    taxYear,
+  });
+
+  const saved = await saveTaxpayerIncomes({
+    clientId: input.clientId,
+    taxpayerId: input.taxpayerId,
+    companyIncomes: pulled.companyIncomes,
+    otherIncomes: taxpayer.otherIncomes ?? [],
+    taxYear,
+  });
+
+  return { taxpayer: saved, pulls: pulled.pulls };
 }
 
 const companyIncomeSchema = z.object({
@@ -442,6 +518,8 @@ export async function saveTaxpayerIncomes(input: {
   taxpayerId: string;
   companyIncomes: SaCompanyIncome[];
   otherIncomes: SaOtherIncome[];
+  /** Active SA tax year to refresh (defaults to current filing year). */
+  taxYear?: string;
 }) {
   const client = await getClient(input.clientId);
   const list = [...(client.deskProfile?.saTaxpayers ?? [])];
@@ -460,7 +538,43 @@ export async function saveTaxpayerIncomes(input: {
   // Persist via upsert fields — write full taxpayer through upsertSaTaxpayer path
   const { syncWriteTaxpayer } = await import("@/server/actions/sa-taxpayers");
   const saved = await syncWriteTaxpayer(input.clientId, row);
+
+  // Push company / other income onto the open SA100 draft so Employment (SA102)
+  // and related pages pick up employer name, PAYE ref, pay and tax immediately.
+  try {
+    const { accumulateSa100FromIncome } = await import("@/lib/sa-income");
+    const { filingSaTaxYear, parseSaTaxYearLabel } = await import(
+      "@/lib/sa-tax-year"
+    );
+    const { getSa100Draft, saveSa100Draft, listSa100Returns } = await import(
+      "@/server/actions/sa100"
+    );
+    const requested =
+      (input.taxYear && parseSaTaxYearLabel(input.taxYear)?.label) || null;
+    const returns = await listSa100Returns(input.clientId, input.taxpayerId);
+    const openDraft = returns.find((r) => r.status === "draft");
+    const taxYear =
+      requested || openDraft?.taxYear || filingSaTaxYear().label;
+    const existingDraft = await getSa100Draft(
+      input.clientId,
+      taxYear,
+      input.taxpayerId,
+    );
+    const merged = accumulateSa100FromIncome(saved, {
+      ...(existingDraft?.draft ?? {}),
+      taxYear,
+    });
+    await saveSa100Draft({
+      clientId: input.clientId,
+      taxpayerId: input.taxpayerId,
+      draft: merged,
+    });
+  } catch {
+    /* SA100 sync is best-effort — income save still succeeded */
+  }
+
   revalidatePath(`/clients/${input.clientId}/self-assessment`);
+  revalidatePath(`/self-assessment`, "layout");
   return saved;
 }
 

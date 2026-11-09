@@ -1,5 +1,13 @@
-import { RATES_2025_26 as R, TAX_YEAR_LABEL } from "./rates-2025-26";
-import type { Sa100Draft } from "./schema";
+import { ratesForTaxYear, TAX_YEAR_LABEL } from "./rates-by-year";
+import {
+  employmentBenefitsTotal,
+  employmentExpensesTotal,
+  propCapitalAllowancesTotal,
+  propExpensesBreakdownTotal,
+  seCapitalAllowancesBreakdownTotal,
+  seExpensesBreakdownTotal,
+  type Sa100Draft,
+} from "./schema";
 
 export type CalcLine = { label: string; amount: number };
 
@@ -34,22 +42,56 @@ const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const fmt = (n: number) =>
   n.toLocaleString("en-GB", { maximumFractionDigits: 0 });
 
-/** Approximate SA302-style calculation for SA100 2025–26 (estimate before submit). */
+/** Approximate SA302-style calculation (estimate before submit). Uses draft.taxYear rates. */
 export function calculateSa302(d: Sa100Draft): Sa302Result {
-  const employmentIncome = d.employments.reduce(
-    (s, e) => s + e.pay + e.tips + e.benefits,
-    0,
-  );
+  const R = ratesForTaxYear(d.taxYear);
+  const employmentIncome = d.employments.reduce((s, e) => {
+    const gross = e.pay + e.tips + employmentBenefitsTotal(e);
+    return s + Math.max(0, gross - employmentExpensesTotal(e));
+  }, 0);
   const employmentTax = d.employments.reduce((s, e) => s + e.taxTakenOff, 0);
 
+  const seExpenseTotal = (() => {
+    const broken = seExpensesBreakdownTotal(d);
+    return broken > 0 ? broken : d.seExpenses;
+  })();
+  const seCaTotal = (() => {
+    const broken = seCapitalAllowancesBreakdownTotal(d);
+    return broken > 0 ? broken : d.seCapitalAllowances;
+  })();
+  const seIncome =
+    d.seTurnover +
+    d.seOtherBusinessIncome +
+    d.seBalancingCharges +
+    d.seGoodsOwnUse;
   const seProfit = Math.max(
     0,
-    d.seTurnover - d.seExpenses - d.seCapitalAllowances,
+    seIncome -
+      Math.max(0, seExpenseTotal - d.seDisallowableTotal) -
+      seCaTotal -
+      d.seTradingAllowance,
   );
+  const propExpenseTotal = (() => {
+    const broken = propExpensesBreakdownTotal(d);
+    return broken > 0 ? broken : d.propExpenses;
+  })();
+  const propIncome =
+    d.propRents +
+    d.propOtherIncome +
+    d.propLeasePremiums +
+    d.propReversePremiums +
+    d.propBalancingCharges;
   const propertyProfit = Math.max(
     0,
-    d.propRents + d.propOtherIncome - d.propExpenses - d.propFinanceCosts,
+    propIncome -
+      d.propIncomeAllowance -
+      propExpenseTotal -
+      d.propPrivateUse -
+      propCapitalAllowancesTotal(d) -
+      d.propRentARoomExempt,
   );
+  // Residential finance costs (box 44) give tax reduction, not a profit deduction —
+  // kept on the draft for SA105; basic 20% relief approximated below after income tax.
 
   const savings =
     d.interestTaxedUk + d.interestUntaxedUk + d.interestUntaxedForeign;
@@ -222,8 +264,22 @@ export function calculateSa302(d: Sa100Draft): Sa302Result {
 
   incomeTax = r2(incomeTax);
 
+  const residentialFinanceRelief = r2(
+    Math.min(
+      incomeTax,
+      (d.propFinanceCosts + d.propFinanceCostsBroughtForward) * 0.2,
+    ),
+  );
+  if (residentialFinanceRelief > 0) {
+    incomeTax = r2(incomeTax - residentialFinanceRelief);
+    breakdown.push({
+      label: `Residential property finance costs relief (20%)`,
+      amount: -residentialFinanceRelief,
+    });
+  }
+
   let class4Nic = 0;
-  if (seProfit > R.class4Lower) {
+  if (!d.seClass4Exempt && seProfit > R.class4Lower) {
     class4Nic +=
       Math.max(0, Math.min(seProfit, R.class4Upper) - R.class4Lower) *
       R.class4Main;
@@ -270,6 +326,7 @@ export function calculateSa302(d: Sa100Draft): Sa302Result {
   const taxDeducted = r2(
     employmentTax +
       d.seTaxTakenOff +
+      d.seCisDeductions +
       d.propTaxTakenOff +
       d.dividendsForeignTax +
       d.statePensionLumpSumTax +

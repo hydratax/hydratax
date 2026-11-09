@@ -57,6 +57,8 @@ const addEmployeeForm = z.object({
   forename: z.string().min(1),
   surname: z.string().min(1),
   nino: z.string().min(1),
+  dateOfBirth: z.string().optional(),
+  address: z.string().optional(),
   taxCode: z.string().default("1257L"),
   annualSalaryPounds: z.string().optional(),
   startDate: z.string(),
@@ -93,6 +95,8 @@ function asEmployee(row: Record<string, unknown> | MemoryEmployee): PayrollEmplo
     forename: String(r.forename),
     surname: String(r.surname),
     nino: String(r.nino),
+    dateOfBirth: r.dateOfBirth ? String(r.dateOfBirth) : null,
+    address: r.address ? String(r.address) : null,
     taxCode: String(r.taxCode ?? "1257L"),
     annualSalaryPence: Number(r.annualSalaryPence ?? 0),
     startDate: String(r.startDate),
@@ -215,12 +219,17 @@ export async function addEmployee(input: z.input<typeof addEmployeeForm>) {
       ? (data.bfTaxYear?.trim() || taxYearFromDate(data.startDate))
       : null;
 
+  const dateOfBirth = data.dateOfBirth?.trim() || null;
+  const address = data.address?.trim() || null;
+
   const emp: PayrollEmployee = {
     id: crypto.randomUUID(),
     clientId: parsed.clientId,
     forename: parsed.forename,
     surname: parsed.surname,
     nino: parsed.nino,
+    dateOfBirth,
+    address,
     taxCode: parsed.taxCode,
     annualSalaryPence: Number(parsed.annualSalaryPence),
     startDate: parsed.startDate,
@@ -253,6 +262,8 @@ export async function addEmployee(input: z.input<typeof addEmployeeForm>) {
       forename: emp.forename,
       surname: emp.surname,
       nino: emp.nino,
+      date_of_birth: emp.dateOfBirth,
+      address: emp.address,
       tax_code: emp.taxCode,
       annual_salary_pence: emp.annualSalaryPence,
       start_date: emp.startDate,
@@ -284,6 +295,8 @@ export async function addEmployee(input: z.input<typeof addEmployeeForm>) {
       forename: emp.forename,
       surname: emp.surname,
       nino: emp.nino,
+      dateOfBirth: emp.dateOfBirth,
+      address: emp.address,
       taxCode: emp.taxCode,
       annualSalaryPence: emp.annualSalaryPence,
       startDate: emp.startDate,

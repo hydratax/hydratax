@@ -815,35 +815,66 @@ function isChSnapshotStale(
 /**
  * Refresh Companies House snapshots for limited companies with missing/stale
  * data so the clients dashboard matches the public register.
+ *
+ * One invocation processes a single batch only (default 25). The clients UI
+ * continues with a 2–3 minute gap until `nextOffset` is null (full sweep).
+ * Page-load callers use `force: false` and a small limit (stale only).
+ *
+ * Auth: owner/admin or Companies / Corporation Tax desk only.
  */
 export async function refreshStaleClientsCompaniesHouse(opts?: {
-  /** Refresh every limited company, not only stale ones */
+  /** Refresh matching companies even if snapshot is fresh */
   force?: boolean;
-  /** Cap CH API calls per request (Netlify time limits) */
+  /** Cap companies refreshed per invocation (Netlify time + CH rate limits) */
   limit?: number;
-}): Promise<{ refreshed: number; skipped: number }> {
+  /** Skip this many matching targets (continue a full sweep) */
+  offset?: number;
+  /** When true, require admin / companies-desk permission (manual button) */
+  requireCompaniesDesk?: boolean;
+}): Promise<{
+  refreshed: number;
+  failed: number;
+  attempted: number;
+  totalTargets: number;
+  /** Pass back as `offset` on the next call; null when the sweep is finished */
+  nextOffset: number | null;
+}> {
   const session = await requireSession();
   if (session.role === "readonly") throw new Error("Forbidden");
 
+  const { canRefreshCompaniesHouse } = await import("@/lib/access");
+  if (opts?.requireCompaniesDesk && !canRefreshCompaniesHouse(session)) {
+    throw new Error(
+      "Only practice admins and the Companies desk can refresh Companies House",
+    );
+  }
+
   const force = opts?.force ?? false;
-  const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 40);
+  const limit = Math.min(Math.max(opts?.limit ?? 25, 1), 40);
+  const offset = Math.max(0, opts?.offset ?? 0);
   const clients = await listClients();
-  const targets = clients.filter(
-    (c) =>
-      c.type === "limited_company" &&
-      Boolean(c.companyNumber) &&
-      (force ||
-        isChSnapshotStale(
-          ("companiesHouse" in c
-            ? (c.companiesHouse as ClientCompaniesHouseSnapshot | null)
-            : null) ?? null,
-        )),
-  );
+  const targets = clients
+    .filter(
+      (c) =>
+        c.type === "limited_company" &&
+        Boolean(c.companyNumber) &&
+        (force ||
+          isChSnapshotStale(
+            ("companiesHouse" in c
+              ? (c.companiesHouse as ClientCompaniesHouseSnapshot | null)
+              : null) ?? null,
+          )),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name, "en-GB"));
 
   let refreshed = 0;
-  const batch = targets.slice(0, limit);
-  const concurrency = 5;
+  let failed = 0;
+  const batch = targets.slice(offset, offset + limit);
+  const concurrency = 3;
   for (let i = 0; i < batch.length; i += concurrency) {
+    if (i > 0) {
+      await new Promise((r) => setTimeout(r, 400));
+    }
     const chunk = batch.slice(i, i + concurrency);
     const results = await Promise.allSettled(
       chunk.map((client) => refreshClientCompaniesHouse(client.id)),
@@ -853,6 +884,7 @@ export async function refreshStaleClientsCompaniesHouse(opts?: {
       if (result.status === "fulfilled") {
         refreshed += 1;
       } else {
+        failed += 1;
         console.warn(
           "[ch.refresh] client refresh failed",
           chunk[j]?.id,
@@ -861,9 +893,18 @@ export async function refreshStaleClientsCompaniesHouse(opts?: {
       }
     }
   }
-  const skipped = Math.max(0, targets.length - refreshed);
+
+  const nextOffset =
+    offset + batch.length < targets.length ? offset + batch.length : null;
+
   revalidatePath("/clients");
-  return { refreshed, skipped };
+  return {
+    refreshed,
+    failed,
+    attempted: batch.length,
+    totalTargets: targets.length,
+    nextOffset,
+  };
 }
 
 function purgeDemoClientData(clientId: string) {

@@ -11,7 +11,7 @@ import { urgencyForDueDate } from "@/lib/filing-due";
 import {
   WORK_STAGE_FILTERS,
   WORK_STAGE_LABEL,
-  normalizeWorkStage,
+  mergeSaWorkStage,
   type ClientWorkStage,
 } from "@/lib/client-work-stage";
 import type { PracticeDirector } from "@/server/actions/sa-directors";
@@ -45,10 +45,15 @@ export function SaDirectorsList({
     "all",
   );
 
+  const stageOf = (row: {
+    workStage?: ClientWorkStage;
+    filing?: { status?: string };
+  }) => mergeSaWorkStage(row.workStage, row.filing?.status);
+
   const filteredDirectors = useMemo(() => {
     const q = query.trim().toLowerCase();
     return directors.filter((d) => {
-      const stage = normalizeWorkStage(d.workStage);
+      const stage = stageOf(d);
       if (stageFilter !== "all" && stage !== stageFilter) return false;
       if (!q) return true;
       return (
@@ -65,7 +70,7 @@ export function SaDirectorsList({
   const filteredSole = useMemo(() => {
     const q = query.trim().toLowerCase();
     return soleTraders.filter((c) => {
-      const stage = normalizeWorkStage(c.workStage);
+      const stage = stageOf(c);
       if (stageFilter !== "all" && stage !== stageFilter) return false;
       if (!q) return true;
       return (
@@ -78,8 +83,8 @@ export function SaDirectorsList({
 
   const counts = useMemo(() => {
     const all = [
-      ...directors.map((d) => normalizeWorkStage(d.workStage)),
-      ...soleTraders.map((c) => normalizeWorkStage(c.workStage)),
+      ...directors.map((d) => stageOf(d)),
+      ...soleTraders.map((c) => stageOf(c)),
     ];
     const map: Record<string, number> = { all: all.length };
     for (const f of WORK_STAGE_FILTERS) {
@@ -140,7 +145,7 @@ export function SaDirectorsList({
                 d.filing.status === "accepted";
               const cardClass = saCardUrgencyClass(d.filing.urgency, submitted);
               const badge = saUrgencyLabel(d.filing.urgency, submitted);
-              const stage = normalizeWorkStage(d.workStage);
+              const stage = stageOf(d);
               const emails = d.emailCount ?? 0;
               return (
                 <li key={d.key}>
@@ -219,7 +224,7 @@ export function SaDirectorsList({
               const badge = filing
                 ? saUrgencyLabel(urgency, Boolean(submitted))
                 : null;
-              const stage = normalizeWorkStage(c.workStage);
+              const stage = stageOf(c);
               const emails = c.emailCount ?? 0;
               return (
                 <li key={c.id}>

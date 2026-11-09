@@ -220,6 +220,9 @@ export const employees = pgTable(
     forename: text("forename").notNull(),
     surname: text("surname").notNull(),
     nino: text("nino").notNull(),
+    /** Used with NINO + address to link PAYE employees to SA people */
+    dateOfBirth: text("date_of_birth"),
+    address: text("address"),
     taxCode: text("tax_code").notNull(),
     annualSalaryPence: integer("annual_salary_pence").notNull(),
     startDate: text("start_date").notNull(),
@@ -563,6 +566,31 @@ export const clientEmailLogs = pgTable(
   (t) => [
     index("email_logs_client_idx").on(t.clientId),
     index("email_logs_practice_idx").on(t.practiceId),
+  ],
+);
+
+/** Official HMRC SA stationery catalog — PDF files live in public/hmrc. */
+export const hmrcSaFormTemplates = pgTable(
+  "hmrc_sa_form_templates",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    formCode: text("form_code").notNull(),
+    taxYear: text("tax_year").notNull(),
+    title: text("title").notNull(),
+    filename: text("filename").notNull(),
+    kind: text("kind").notNull(),
+    attachRule: text("attach_rule"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("hmrc_sa_form_templates_uidx").on(
+      t.formCode,
+      t.taxYear,
+      t.filename,
+    ),
+    index("hmrc_sa_form_templates_year_idx").on(t.taxYear),
   ],
 );
 

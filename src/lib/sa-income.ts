@@ -1,5 +1,8 @@
-import type { Sa100Draft } from "@/lib/sa100/schema";
-import { emptySa100Draft } from "@/lib/sa100/schema";
+import {
+  emptySa100Draft,
+  employmentRowSchema,
+  type Sa100Draft,
+} from "@/lib/sa100/schema";
 import type { SaTaxpayer } from "@/lib/sa-taxpayer";
 
 /**
@@ -300,15 +303,33 @@ export function accumulateSa100FromIncome(
   const others = taxpayer.otherIncomes ?? [];
 
   const employments = companies
-    .filter((c) => c.payePay > 0 || c.payeTax > 0 || (c.tips ?? 0) > 0)
-    .map((c) => ({
-      employerName: c.companyName,
-      payeRef: c.payeRef,
-      pay: c.payePay,
-      taxTakenOff: c.payeTax,
-      tips: c.tips ?? 0,
-      benefits: c.benefits ?? 0,
-    }));
+    .filter(
+      (c) =>
+        c.payePay > 0 ||
+        c.payeTax > 0 ||
+        (c.tips ?? 0) > 0 ||
+        (c.benefits ?? 0) > 0 ||
+        (c.employmentExpenses ?? 0) > 0,
+    )
+    .map((c) =>
+      employmentRowSchema.parse({
+        employerName: c.companyName,
+        payeRef: c.payeRef,
+        pay: c.payePay,
+        taxTakenOff: c.payeTax,
+        tips: c.tips ?? 0,
+        benefits: c.benefits ?? 0,
+        expenseOther: c.employmentExpenses ?? 0,
+        wasDirector:
+          c.role === "director" || c.role === "director_shareholder",
+        wasCloseCompany:
+          c.role === "director" || c.role === "director_shareholder",
+        closeCompanyName: c.companyName,
+        closeCompanyNumber: c.companyNumber,
+        closeCompanyDividends: c.dividends,
+        closeCompanySharePct: c.shareholdingPct ?? 0,
+      }),
+    );
 
   const dividendsUk = companies.reduce((s, c) => s + c.dividends, 0);
   const cisGross = companies.reduce((s, c) => s + c.subcontractorGross, 0);
@@ -348,14 +369,13 @@ export function accumulateSa100FromIncome(
         seDescription = "Taxi / private hire";
       }
     } else if (o.kind === "payroll_other") {
-      employments.push({
-        employerName: o.label || "Other employer",
-        payeRef: "",
-        pay: o.amount,
-        taxTakenOff: o.taxTakenOff,
-        tips: 0,
-        benefits: 0,
-      });
+      employments.push(
+        employmentRowSchema.parse({
+          employerName: o.label || "Other employer",
+          pay: o.amount,
+          taxTakenOff: o.taxTakenOff,
+        }),
+      );
     } else {
       otherTaxable += Math.max(0, o.amount - o.expenses);
       otherTax += o.taxTakenOff;

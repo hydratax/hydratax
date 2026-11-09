@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { savePracticeLetterhead } from "@/server/actions/letterhead";
+import { useRef, useState, useTransition } from "react";
+import {
+  savePracticeLetterhead,
+  uploadPracticeLogo,
+} from "@/server/actions/letterhead";
 import type { PracticeLetterhead } from "@/lib/desk-profile";
 import { messageFromUnknown } from "@/lib/action-error";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 export function LetterheadForm({ initial }: { initial: PracticeLetterhead }) {
+  const fileRef = useRef<HTMLInputElement>(null);
   const [practiceName, setPracticeName] = useState(initial.practiceName);
   const [address, setAddress] = useState(initial.addressLines.join("\n"));
   const [phone, setPhone] = useState(initial.phone ?? "");
@@ -78,27 +82,74 @@ export function LetterheadForm({ initial }: { initial: PracticeLetterhead }) {
         />
       </label>
 
-      <label className="block">
-        <span className="label">Logo URL</span>
-        <input
-          className="input mt-1"
-          value={logoUrl}
-          onChange={(e) => setLogoUrl(e.target.value)}
-          placeholder="https://… (PNG or SVG recommended)"
-        />
-        <span className="mt-1 block text-xs text-ink-soft">
-          Shown on letterheads and invoice PDFs. Host the image publicly or on
-          your site.
-        </span>
+      <div className="space-y-2">
+        <span className="label">Firm logo</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+            className="sr-only"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              setErr(null);
+              setMsg(null);
+              start(async () => {
+                try {
+                  const fd = new FormData();
+                  fd.set("file", file);
+                  const { logoUrl: url } = await uploadPracticeLogo(fd);
+                  setLogoUrl(url);
+                  setMsg("Logo uploaded — shown on letters and PDFs.");
+                } catch (error) {
+                  setErr(messageFromUnknown(error, "Could not upload logo"));
+                }
+              });
+            }}
+          />
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={pending}
+            onClick={() => fileRef.current?.click()}
+          >
+            {pending ? "Uploading…" : "Upload logo"}
+          </button>
+          {logoUrl.trim() ? (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={pending}
+              onClick={() => setLogoUrl("")}
+            >
+              Remove logo
+            </button>
+          ) : null}
+        </div>
+        <p className="text-xs text-ink-soft">
+          PNG or SVG recommended · max 2 MB. Used on letterheads and invoice
+          PDFs.
+        </p>
         {logoUrl.trim() ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={logoUrl.trim()}
             alt="Practice logo preview"
-            className="mt-3 h-14 w-auto max-w-[220px] object-contain"
+            className="mt-2 h-14 w-auto max-w-[220px] object-contain"
           />
         ) : null}
-      </label>
+        <label className="block pt-2">
+          <span className="label">Or paste logo URL</span>
+          <input
+            className="input mt-1"
+            value={logoUrl.startsWith("data:") ? "" : logoUrl}
+            onChange={(e) => setLogoUrl(e.target.value)}
+            placeholder="https://… (optional if you uploaded a file)"
+          />
+        </label>
+      </div>
 
       <label className="block">
         <span className="label">Address (one line per row)</span>

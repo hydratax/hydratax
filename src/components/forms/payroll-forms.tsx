@@ -31,6 +31,8 @@ export function AddEmployeeForm({ clientId }: { clientId: string }) {
               forename: String(fd.get("forename") || ""),
               surname: String(fd.get("surname") || ""),
               nino: String(fd.get("nino") || ""),
+              dateOfBirth: String(fd.get("dateOfBirth") || ""),
+              address: String(fd.get("address") || ""),
               taxCode: String(fd.get("taxCode") || "1257L"),
               annualSalaryPounds: String(fd.get("annualSalaryPounds") || ""),
               startDate: String(fd.get("startDate") || ""),
@@ -63,6 +65,21 @@ export function AddEmployeeForm({ clientId }: { clientId: string }) {
           className="input mono"
           placeholder="AB123456C"
           required
+        />
+      </div>
+      <div>
+        <label className="label">Date of birth</label>
+        <input name="dateOfBirth" type="date" className="input" />
+        <p className="mt-1 text-[11px] text-ink-soft">
+          Needed to link this employee to Self Assessment.
+        </p>
+      </div>
+      <div className="sm:col-span-2">
+        <label className="label">Home address</label>
+        <textarea
+          name="address"
+          className="input min-h-[3.5rem]"
+          placeholder="As on the SA person record"
         />
       </div>
       <div>

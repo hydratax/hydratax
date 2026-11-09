@@ -49,6 +49,10 @@ export type MemoryEmployee = {
   forename: string;
   surname: string;
   nino: string;
+  /** ISO date — used to match SA person identity before pulling PAYE into SA */
+  dateOfBirth: string | null;
+  /** Home address — used with NINO + DOB to match SA person identity */
+  address: string | null;
   taxCode: string;
   annualSalaryPence: number;
   startDate: string;

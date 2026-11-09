@@ -740,6 +740,8 @@ function EmployeesPanel({
                   forename: String(fd.get("forename") || ""),
                   surname: String(fd.get("surname") || ""),
                   nino: String(fd.get("nino") || ""),
+                  dateOfBirth: String(fd.get("dateOfBirth") || ""),
+                  address: String(fd.get("address") || ""),
                   taxCode: String(fd.get("taxCode") || "1257L"),
                   annualSalaryPounds: String(fd.get("annualSalaryPounds") || ""),
                   startDate: String(fd.get("startDate") || ""),
@@ -782,6 +784,21 @@ function EmployeesPanel({
           <label className="text-sm font-semibold">
             National Insurance number
             <input name="nino" className="input mt-1.5 font-mono" placeholder="AB123456C" required />
+          </label>
+          <label className="text-sm font-semibold">
+            Date of birth
+            <input name="dateOfBirth" type="date" className="input mt-1.5" />
+            <span className="mt-1 block text-[11px] font-normal text-ink-soft">
+              Required to link this employee to Self Assessment.
+            </span>
+          </label>
+          <label className="text-sm font-semibold sm:col-span-2">
+            Home address
+            <textarea
+              name="address"
+              className="input mt-1.5 min-h-[3.5rem]"
+              placeholder="Must match the SA person record"
+            />
           </label>
           <label className="text-sm font-semibold">
             Tax code

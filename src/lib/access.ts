@@ -125,6 +125,22 @@ export function canAccessModule(
   return modulesForAccess(access).has(module);
 }
 
+/**
+ * Who may run a full Companies House refresh of the practice client list:
+ * practice admin/owner, or a team member on the Companies / Corporation Tax desk.
+ */
+export function canRefreshCompaniesHouse(session: {
+  role: "owner" | "admin" | "practitioner" | "readonly";
+  moduleAccess: ModuleAccess;
+}): boolean {
+  if (session.role === "readonly") return false;
+  if (session.role === "owner" || session.role === "admin") return true;
+  return (
+    session.moduleAccess === "full" ||
+    session.moduleAccess === "corporation_tax"
+  );
+}
+
 export function assertModuleAccess(
   access: ModuleAccess,
   module: AppModule,

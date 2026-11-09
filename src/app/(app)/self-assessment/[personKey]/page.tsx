@@ -15,8 +15,6 @@ import { SaPersonalBooks } from "@/components/forms/sa-personal-books";
 import { SaDirectorIncomeDesk } from "@/components/forms/sa-director-income-desk";
 import { SaPersonProfile } from "@/components/forms/sa-person-profile";
 import { SaTaxYearWorkspace } from "@/components/forms/sa-tax-year-workspace";
-import { EmailToClientButton } from "@/components/forms/email-to-client-button";
-import { money } from "@/lib/format";
 import {
   normalizePersonName,
   roleFromCompanyLinks,
@@ -109,23 +107,7 @@ export default async function PersonSelfAssessmentPage({
         homeClientId={workspace.person.homeClientId}
         person={workspace.person}
         initialTaxpayer={workspace.taxpayer}
-      />
-
-      <SaPersonalBooks
-        clientId={saClientId}
-        taxpayerId={selected.id}
-        taxpayerName={selected.fullName}
-        documents={documents.map((d) => ({
-          id: d.id,
-          filename: d.filename,
-          category: d.category,
-          sizeBytes: d.sizeBytes,
-          blobUrl: d.blobUrl,
-          createdAt:
-            typeof d.createdAt === "string"
-              ? d.createdAt
-              : new Date(d.createdAt).toISOString(),
-        }))}
+        taxYear={activeYear}
       />
 
       <SaTaxYearWorkspace
@@ -136,9 +118,11 @@ export default async function PersonSelfAssessmentPage({
           taxYear: r.taxYear,
           status: r.status,
         }))}
+        clientId={saClientId}
+        taxpayerId={selected.id}
       >
         <Sa100Wizard
-          key={`${selected.id}-sa100-${activeYear}`}
+          key={`${selected.id}-sa100-${activeYear}-${selected.updatedAt}-${sa100Draft?.updatedAt ?? "new"}`}
           clientId={saClientId}
           clientName={selected.fullName}
           contactEmail={selected.email || homeClient?.contactEmail || null}
@@ -156,83 +140,22 @@ export default async function PersonSelfAssessmentPage({
         />
       </SaTaxYearWorkspace>
 
-      {sa100Returns.length > 0 ? (
-        <section className="panel p-5">
-          <h2 className="display text-2xl">
-            Filed SA100 returns — {selected.fullName}
-          </h2>
-          <ul className="mt-3 divide-y divide-line text-sm">
-            {sa100Returns.map((r) => (
-              <li
-                key={r.id}
-                className="flex flex-wrap items-center justify-between gap-3 py-3"
-              >
-                <div>
-                  <p className="font-semibold">
-                    {r.taxYear}{" "}
-                    <span className="badge badge-ok">{r.status}</span>
-                  </p>
-                  <p className="font-mono text-ink-soft">
-                    {r.calculation.amountDue > 0
-                      ? `Due ${money(Math.round(r.calculation.amountDue * 100))}`
-                      : r.calculation.refundDue > 0
-                        ? `Refund ${money(Math.round(r.calculation.refundDue * 100))}`
-                        : "Nil"}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
-                  <a
-                    className="text-sea underline-offset-2 hover:underline"
-                    href={`/api/clients/${saClientId}/sa100/${r.id}/sa100.pdf`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    SA100 PDF
-                  </a>
-                  <EmailToClientButton
-                    clientId={saClientId}
-                    defaultEmail={
-                      selected.email || homeClient?.contactEmail || null
-                    }
-                    compact
-                    label="Email SA100"
-                    subject={`SA100 — ${selected.fullName}`}
-                    message={`Please find attached your Self Assessment return (SA100).\n\nKind regards`}
-                    artifact={{
-                      type: "sa_pdf",
-                      returnId: r.id,
-                      doc: "sa100",
-                    }}
-                  />
-                  <a
-                    className="text-sea underline-offset-2 hover:underline"
-                    href={`/api/clients/${saClientId}/sa100/${r.id}/sa302.pdf`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    SA302 PDF
-                  </a>
-                  <EmailToClientButton
-                    clientId={saClientId}
-                    defaultEmail={
-                      selected.email || homeClient?.contactEmail || null
-                    }
-                    compact
-                    label="Email SA302"
-                    subject={`SA302 tax calculation — ${selected.fullName}`}
-                    message={`Please find attached your SA302 tax calculation.\n\nKind regards`}
-                    artifact={{
-                      type: "sa_pdf",
-                      returnId: r.id,
-                      doc: "sa302",
-                    }}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      <SaPersonalBooks
+        clientId={saClientId}
+        taxpayerId={selected.id}
+        taxpayerName={selected.fullName}
+        documents={documents.map((d) => ({
+          id: d.id,
+          filename: d.filename,
+          category: d.category,
+          sizeBytes: d.sizeBytes,
+          blobUrl: d.blobUrl,
+          createdAt:
+            typeof d.createdAt === "string"
+              ? d.createdAt
+              : new Date(d.createdAt).toISOString(),
+        }))}
+      />
     </div>
   );
 }

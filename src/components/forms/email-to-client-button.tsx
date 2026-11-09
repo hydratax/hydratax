@@ -17,6 +17,7 @@ export function EmailToClientButton({
   label = "Email client",
   className = "btn btn-secondary text-xs",
   compact = false,
+  disabled = false,
 }: {
   clientId: string;
   defaultEmail?: string | null;
@@ -28,6 +29,7 @@ export function EmailToClientButton({
   label?: string;
   className?: string;
   compact?: boolean;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [toEmail, setToEmail] = useState(defaultEmail ?? "");
@@ -40,6 +42,7 @@ export function EmailToClientButton({
       <button
         type="button"
         className={className}
+        disabled={disabled}
         onClick={() => {
           setError(null);
           setOk(null);

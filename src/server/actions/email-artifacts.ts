@@ -21,7 +21,9 @@ const artifactSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("sa_pdf"),
     returnId: z.string().min(1),
-    doc: z.enum(["sa100", "sa302"]),
+    /** @deprecated prefer `docs` — kept for older call sites */
+    doc: z.enum(["sa100", "sa302"]).optional(),
+    docs: z.array(z.enum(["sa100", "sa302"])).min(1).optional(),
   }),
   z.object({
     type: z.literal("vat_summary"),
@@ -106,32 +108,57 @@ export async function emailClientArtifact(
     kind = `ct_${ctKind}`;
     body += `\n\n${documentCount} PDF attachment(s) for ${client.name} are included.`;
   } else if (data.artifact.type === "sa_pdf") {
-    const { returnId, doc } = data.artifact;
+    const { returnId } = data.artifact;
+    const docs = (
+      data.artifact.docs?.length
+        ? data.artifact.docs
+        : data.artifact.doc
+          ? [data.artifact.doc]
+          : []
+    ) as Array<"sa100" | "sa302">;
+    if (!docs.length) throw new Error("Select SA100 and/or SA302 to email.");
     const { getSa100Return } = await import("@/server/actions/sa100");
-    const { buildSa100Pdf, buildSa302Pdf } = await import("@/server/sa100/pdf");
+    const { buildSa302Pdf } = await import("@/server/sa100/pdf");
+    const { buildSa100PackPdf } = await import("@/server/sa100/pack");
     const row = await getSa100Return(data.clientId, returnId);
-    if (doc === "sa302") {
-      const bytes = await buildSa302Pdf(
-        row.calculation,
-        client.name,
-        row.draft.utr || client.utr || "",
-      );
-      attachments.push({
-        filename: `SA302-${row.taxYear}.pdf`,
-        content: Buffer.from(bytes).toString("base64"),
-        contentType: "application/pdf",
-      });
-    } else {
-      const bytes = await buildSa100Pdf(row.draft, client.name);
-      attachments.push({
-        filename: `SA100-${row.taxYear}.pdf`,
-        content: Buffer.from(bytes).toString("base64"),
-        contentType: "application/pdf",
-      });
+    const taxpayerName =
+      row.draft.declarationName?.trim() ||
+      (client.type === "limited_company" ? "" : client.name);
+    const meta = {
+      submissionRef: row.hmrcCorrelationId ?? null,
+      status: row.status,
+      taxYear: row.taxYear,
+    };
+    for (const doc of docs) {
+      if (doc === "sa302") {
+        const bytes = await buildSa302Pdf(
+          row.calculation,
+          taxpayerName,
+          row.draft.utr || client.utr || "",
+          meta,
+        );
+        attachments.push({
+          filename: `SA302-${row.taxYear}.pdf`,
+          content: Buffer.from(bytes).toString("base64"),
+          contentType: "application/pdf",
+        });
+      } else {
+        const { bytes, supplements } = await buildSa100PackPdf(
+          row.draft,
+          taxpayerName,
+          meta,
+        );
+        const suffix = supplements.length ? `+${supplements.join("+")}` : "";
+        attachments.push({
+          filename: `SA100-${row.taxYear}${suffix}.pdf`,
+          content: Buffer.from(bytes).toString("base64"),
+          contentType: "application/pdf",
+        });
+      }
     }
-    documentCount = 1;
-    kind = doc;
-    body += `\n\nPlease find the ${doc.toUpperCase()} PDF attached.`;
+    documentCount = attachments.length;
+    kind = docs.join("+");
+    body += `\n\nPlease find the attached ${docs.map((d) => d.toUpperCase()).join(" and ")} PDF${docs.length > 1 ? "s" : ""}.`;
   } else if (data.artifact.type === "vat_summary") {
     const { periodKey, status, boxes } = data.artifact;
     const label =

@@ -31,6 +31,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
   ];
 
   const links = [
+    { href: "/", label: "Home" },
     { href: "/dashboard", label: "Dashboard" },
     ...(full ? [{ href: "/companies-house", label: "Companies House" }] : []),
     { href: "/support", label: "Support" },

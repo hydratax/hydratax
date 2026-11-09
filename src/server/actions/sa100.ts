@@ -8,6 +8,7 @@ import { isDemoMode } from "@/lib/env";
 import { demoStore } from "@/server/demo/store";
 import { sa100DraftSchema, type Sa100Draft } from "@/lib/sa100/schema";
 import { calculateSa302 } from "@/lib/sa100/calculate";
+import { supplementCodesForDraft } from "@/lib/sa100/forms-catalog";
 import { appendAuditEvent } from "@/server/audit/log";
 import {
   buildFraudPreventionHeaders,
@@ -25,6 +26,8 @@ export type Sa100Stored = {
   status: "draft" | "submitted" | "accepted";
   draft: Sa100Draft;
   calculation: ReturnType<typeof calculateSa302>;
+  /** Supplementary form codes attached with this SA100 (e.g. SA102, SA103F). */
+  attachedSupplements: string[];
   hmrcCorrelationId?: string;
   submittedAt?: string;
   createdAt: string;
@@ -83,6 +86,9 @@ export async function getSa100Return(clientId: string, returnId: string) {
   await getClient(clientId);
   const row = returns().find((r) => r.id === returnId && r.clientId === clientId);
   if (!row) throw new Error("Self Assessment return not found");
+  if (!row.attachedSupplements) {
+    row.attachedSupplements = supplementCodesForDraft(row.draft);
+  }
   return row;
 }
 
@@ -101,6 +107,7 @@ export async function saveSa100Draft(input: {
 
   const draft = sa100DraftSchema.parse(input.draft);
   const calculation = calculateSa302(draft);
+  const attachedSupplements = supplementCodesForDraft(draft);
   const now = new Date().toISOString();
   const existing = await getSa100Draft(
     input.clientId,
@@ -108,38 +115,59 @@ export async function saveSa100Draft(input: {
     input.taxpayerId,
   );
 
-  if (existing) {
-    existing.draft = draft;
-    existing.calculation = calculation;
-    existing.taxpayerId = input.taxpayerId ?? null;
-    existing.updatedAt = now;
-    revalidatePath(`/clients/${input.clientId}/self-assessment`);
-    return existing;
+  let row = existing;
+  if (row) {
+    row.draft = draft;
+    row.calculation = calculation;
+    row.attachedSupplements = attachedSupplements;
+    row.taxpayerId = input.taxpayerId ?? null;
+    row.updatedAt = now;
+  } else {
+    row = {
+      id: crypto.randomUUID(),
+      clientId: input.clientId,
+      taxpayerId: input.taxpayerId ?? null,
+      taxYear: draft.taxYear,
+      status: "draft",
+      draft,
+      calculation,
+      attachedSupplements,
+      createdAt: now,
+      updatedAt: now,
+    };
+    returns().push(row);
+
+    await appendAuditEvent({
+      practiceId: session.practiceId,
+      clientId: input.clientId,
+      actorId: session.userId,
+      action: "sa100.draft.save",
+      entityType: "sa100_return",
+      entityId: row.id,
+    });
   }
 
-  const row: Sa100Stored = {
-    id: crypto.randomUUID(),
-    clientId: input.clientId,
-    taxpayerId: input.taxpayerId ?? null,
-    taxYear: draft.taxYear,
-    status: "draft",
-    draft,
-    calculation,
-    createdAt: now,
-    updatedAt: now,
-  };
-  returns().push(row);
-
-  await appendAuditEvent({
-    practiceId: session.practiceId,
-    clientId: input.clientId,
-    actorId: session.userId,
-    action: "sa100.draft.save",
-    entityType: "sa100_return",
-    entityId: row.id,
-  });
+  // People-list filter: saved SA100 → Drafted (do not downgrade later stages).
+  try {
+    const { normalizeWorkStage, mergeSaWorkStage } = await import(
+      "@/lib/client-work-stage"
+    );
+    const { setClientWorkStage } = await import("@/server/actions/desk");
+    const current = normalizeWorkStage(client.deskProfile?.workStage);
+    const next = mergeSaWorkStage(current, "draft");
+    if (next !== current) {
+      await setClientWorkStage({
+        clientId: input.clientId,
+        stage: next,
+        note: `Self Assessment ${draft.taxYear} draft saved`,
+      });
+    }
+  } catch {
+    /* best-effort */
+  }
 
   revalidatePath(`/clients/${input.clientId}/self-assessment`);
+  revalidatePath("/clients");
   return row;
 }
 
@@ -172,6 +200,7 @@ export async function submitSa100Return(input: z.infer<typeof submitSchema>) {
   if (!draft.nino) throw new Error("National Insurance number is required.");
 
   const calculation = calculateSa302(draft);
+  const attachedSupplements = supplementCodesForDraft(draft);
   const fraudHeaders = buildFraudPreventionHeaders(data.fraudMetadata);
   const accessToken = await getValidAccessToken(data.clientId);
   const cfg = getHmrcConfig();
@@ -195,6 +224,7 @@ export async function submitSa100Return(input: z.infer<typeof submitSchema>) {
       status: "draft",
       draft,
       calculation,
+      attachedSupplements,
       createdAt: now,
       updatedAt: now,
     };
@@ -203,6 +233,7 @@ export async function submitSa100Return(input: z.infer<typeof submitSchema>) {
 
   row.draft = draft;
   row.calculation = calculation;
+  row.attachedSupplements = attachedSupplements;
   row.taxpayerId = data.taxpayerId ?? null;
   row.status = demo ? "accepted" : "submitted";
   row.hmrcCorrelationId = correlationId;
@@ -222,6 +253,7 @@ export async function submitSa100Return(input: z.infer<typeof submitSchema>) {
       taxpayerId: data.taxpayerId ?? null,
       amountDue: calculation.amountDue,
       refundDue: calculation.refundDue,
+      attachedSupplements,
       demo,
       note: demo
         ? "Demo / sandbox accept — connect HMRC agent OAuth for live final declaration"
@@ -246,5 +278,140 @@ export async function submitSa100Return(input: z.infer<typeof submitSchema>) {
     correlationId,
     demo,
     calculation,
+    attachedSupplements,
   };
+}
+
+/** Delete the draft for a tax year (one draft per year). */
+export async function deleteSa100Draft(input: {
+  clientId: string;
+  taxYear: string;
+  taxpayerId?: string | null;
+}) {
+  return deleteSa100Return({
+    ...input,
+    statuses: ["draft"],
+  });
+}
+
+/** Delete an SA100 row for a tax year (draft and/or filed). */
+export async function deleteSa100Return(input: {
+  clientId: string;
+  taxYear: string;
+  taxpayerId?: string | null;
+  statuses?: Array<"draft" | "submitted" | "accepted">;
+}) {
+  const session = await requireSession();
+  await getClient(input.clientId);
+  const allowed = new Set(
+    input.statuses?.length
+      ? input.statuses
+      : (["draft", "submitted", "accepted"] as const),
+  );
+  const list = returns();
+  const idx = list.findIndex(
+    (r) =>
+      r.clientId === input.clientId &&
+      r.taxYear === input.taxYear &&
+      allowed.has(r.status) &&
+      sameTaxpayer(r, input.taxpayerId),
+  );
+  if (idx < 0) throw new Error("No Self Assessment return found for that year");
+  const [removed] = list.splice(idx, 1);
+  await appendAuditEvent({
+    practiceId: session.practiceId,
+    clientId: input.clientId,
+    actorId: session.userId,
+    action: "sa100.return.delete",
+    entityType: "sa100_return",
+    entityId: removed?.id,
+    detail: { taxYear: input.taxYear, status: removed?.status },
+  }).catch(() => undefined);
+  revalidatePath(`/clients/${input.clientId}/self-assessment`);
+  revalidatePath("/self-assessment", "layout");
+  return { ok: true as const };
+}
+
+/**
+ * Record a prior-year submitted return (upload supporting PDF) without
+ * opening a new draft for that year.
+ */
+export async function recordSubmittedSaReturn(input: {
+  clientId: string;
+  taxYear: string;
+  taxpayerId?: string | null;
+  documentId?: string | null;
+  filename?: string | null;
+}) {
+  const session = await requireSession();
+  const client = await getClient(input.clientId);
+  const { parseSaTaxYearLabel } = await import("@/lib/sa-tax-year");
+  const year = parseSaTaxYearLabel(input.taxYear);
+  if (!year) throw new Error("Invalid tax year");
+
+  const existingDraft = await getSa100Draft(
+    input.clientId,
+    year.label,
+    input.taxpayerId,
+  );
+  if (existingDraft) {
+    throw new Error(
+      `Delete the ${year.label} draft before recording a submitted return for that year`,
+    );
+  }
+
+  const already = returns().find(
+    (r) =>
+      r.clientId === input.clientId &&
+      r.taxYear === year.label &&
+      (r.status === "submitted" || r.status === "accepted") &&
+      sameTaxpayer(r, input.taxpayerId),
+  );
+  if (already) {
+    throw new Error(`A submitted return already exists for ${year.label}`);
+  }
+
+  const { emptySa100Draft } = await import("@/lib/sa100/schema");
+  const draft = emptySa100Draft({
+    taxYear: year.label,
+    utr: client.utr ?? "",
+    nino: client.nino ?? "",
+  });
+  const calculation = calculateSa302(draft);
+  const now = new Date().toISOString();
+  const row: Sa100Stored = {
+    id: crypto.randomUUID(),
+    clientId: input.clientId,
+    taxpayerId: input.taxpayerId ?? null,
+    taxYear: year.label,
+    status: "accepted",
+    draft,
+    calculation,
+    attachedSupplements: [],
+    hmrcCorrelationId: input.documentId
+      ? `upload-${input.documentId}`
+      : `upload-${Date.now()}`,
+    submittedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  };
+  returns().push(row);
+
+  await appendAuditEvent({
+    practiceId: session.practiceId,
+    clientId: input.clientId,
+    actorId: session.userId,
+    action: "sa100.submitted.upload",
+    entityType: "sa100_return",
+    entityId: row.id,
+    detail: {
+      taxYear: year.label,
+      documentId: input.documentId ?? null,
+      filename: input.filename ?? null,
+    },
+  }).catch(() => undefined);
+
+  revalidatePath(`/clients/${input.clientId}/self-assessment`);
+  revalidatePath("/self-assessment", "layout");
+  return row;
 }

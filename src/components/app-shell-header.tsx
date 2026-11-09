@@ -95,7 +95,7 @@ export function AppShellHeader({
     >
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-6">
         <Link
-          href="/dashboard"
+          href="/"
           className="inline-flex min-w-0 shrink-0 items-center gap-2.5"
           onClick={closeMobile}
         >

@@ -30,6 +30,8 @@ export async function ensurePayrollSchema() {
   await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS bf_taxable_pence integer NOT NULL DEFAULT 0`;
   await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS bf_tax_pence integer NOT NULL DEFAULT 0`;
   await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS bf_employee_ni_pence integer NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS date_of_birth text`;
+  await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS address text`;
 
   await sql`ALTER TABLE pay_runs ADD COLUMN IF NOT EXISTS pay_frequency text NOT NULL DEFAULT 'M1'`;
   await sql`ALTER TABLE pay_runs ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'FPS'`;

@@ -96,7 +96,7 @@ export const HMRC_FAQS: RuleFaq[] = [
     domain: "sa",
     question: "What are the Income Tax bands for England / NI / Wales?",
     answer:
-      "After the Personal Allowance (£12,570): basic 20% up to £37,700 of taxable income, higher 40% from £37,701 to £125,140, additional 45% above that (2025–26 and 2026–27). Scotland has different bands.",
+      "After the Personal Allowance (£12,570): basic 20% up to £37,700 of taxable income, higher 40% from £37,701 to £125,140, additional 45% above that — frozen for 2024–25, 2025–26 and 2026–27. Scotland has different bands.",
     sourceUrl:
       "https://www.gov.uk/government/publications/rates-and-allowances-income-tax/income-tax-rates-and-allowances-current-and-past",
   },
@@ -106,6 +106,42 @@ export const HMRC_FAQS: RuleFaq[] = [
     question: "When does the Personal Allowance start to reduce?",
     answer:
       "By £1 for every £2 of adjusted net income above £100,000, down to zero. At £125,140 there is no Personal Allowance left.",
+    sourceUrl:
+      "https://www.gov.uk/government/publications/rates-and-allowances-income-tax/income-tax-rates-and-allowances-current-and-past",
+  },
+  {
+    id: "sa-se-class4",
+    domain: "sa",
+    question: "What Class 4 National Insurance does a self-employed person pay?",
+    answer:
+      "On annual profits: 0% below £12,570; 6% from £12,570 to £50,270; 2% above £50,270 (2024–25, 2025–26 and 2026–27). In 2023–24 the main rate was 9%.",
+    sourceUrl:
+      "https://www.gov.uk/government/publications/rates-and-allowances-national-insurance-contributions/rates-and-allowances-national-insurance-contributions",
+  },
+  {
+    id: "sa-se-class2",
+    domain: "sa",
+    question: "Do self-employed people still pay Class 2 NI?",
+    answer:
+      "From 6 April 2024 Class 2 is no longer compulsory. People with profits at or above the Lower Profits Limit keep building entitlement. Voluntary Class 2 remains available (weekly: £3.45 in 2024–25, £3.50 in 2025–26, £3.65 in 2026–27).",
+    sourceUrl:
+      "https://www.gov.uk/government/publications/rates-and-allowances-national-insurance-contributions/rates-and-allowances-national-insurance-contributions",
+  },
+  {
+    id: "sa-trading-allowance",
+    domain: "sa",
+    question: "What is the trading income allowance?",
+    answer:
+      "Up to £1,000 a year can be deducted from self-employment / casual trading receipts instead of claiming expenses and capital allowances. It cannot be used with expenses on the same trade, and not against connected-party income.",
+    sourceUrl:
+      "https://www.gov.uk/guidance/tax-free-allowances-on-property-and-trading-income",
+  },
+  {
+    id: "sa-dividends",
+    domain: "sa",
+    question: "What are the dividend tax rates for a sole trader who also receives dividends?",
+    answer:
+      "Dividend allowance £500 (from 2024–25). Rates on the excess: 8.75% / 33.75% / 39.35% in 2024–25 and 2025–26; from 2026–27 basic and higher rise to 10.75% and 35.75% (additional stays 39.35%).",
     sourceUrl:
       "https://www.gov.uk/government/publications/rates-and-allowances-income-tax/income-tax-rates-and-allowances-current-and-past",
   },

@@ -9,6 +9,8 @@ import { SaDirectorsList } from "@/components/sa-directors-list";
 import { listPracticeDirectors } from "@/server/actions/sa-directors";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import { clientSlugFor } from "@/lib/client-slug";
+import { canRefreshCompaniesHouse } from "@/lib/access";
+import { requireSession } from "@/server/auth/session";
 
 type Desk = "all" | "sa" | "ct600" | "vat" | "payroll";
 
@@ -19,7 +21,7 @@ const DESK_META: Record<
   all: {
     title: "Clients",
     subtitle:
-      "Every entity your practice files for — companies and individuals.",
+      "Self Assessment people and limited company clients for this practice.",
     empty: "No clients yet.",
   },
   sa: {
@@ -67,14 +69,91 @@ function matchesDesk(
     case "ct600":
       return type === "limited_company";
     case "vat":
-      // Flag or VRN on file — every VAT-registered business on the practice.
       return isVatRegistered || Boolean(vrn?.trim());
     case "payroll":
-      // Employer flag or PAYE ref — every PAYE-registered business.
       return isEmployer || Boolean(payeRef?.trim());
+    case "all":
+      // People live in the SA section; this list is companies (and any leftover entities).
+      return type === "limited_company";
     default:
       return true;
   }
+}
+
+type ClientRow = Awaited<ReturnType<typeof listClients>>[number];
+
+async function loadSaDeskRows(clients: ClientRow[]) {
+  const { listSa100Returns } = await import("@/server/actions/sa100");
+  const { filingSaTaxYear, saFilingUrgency } = await import(
+    "@/lib/sa-tax-year"
+  );
+  const { countEmailsByClientIds } = await import(
+    "@/server/actions/client-communications"
+  );
+  const { normalizeWorkStage } = await import("@/lib/client-work-stage");
+  const peers = clients.map((c) => ({ id: c.id, name: c.name }));
+  const filingYear = filingSaTaxYear();
+
+  const [directorsRaw, soleBase] = await Promise.all([
+    listPracticeDirectors().catch(() => []),
+    Promise.resolve(
+      clients
+        .filter((c) => c.type === "sole_trader" || c.type === "partnership")
+        .map((c) => ({
+          id: c.id,
+          slug: clientSlugFor({ id: c.id, name: c.name }, peers),
+          name: c.name,
+          type: c.type,
+          utr: c.utr,
+          nino: c.nino,
+          workStage: normalizeWorkStage(c.deskProfile?.workStage),
+        })),
+    ),
+  ]);
+
+  const emailClientIds = [
+    ...soleBase.map((c) => c.id),
+    ...directorsRaw.map((d) => d.homeClientId),
+  ];
+  const emailCounts = await countEmailsByClientIds(emailClientIds).catch(
+    () => ({} as Record<string, number>),
+  );
+
+  const directors = directorsRaw.map((d) => {
+    const home = clients.find((c) => c.id === d.homeClientId);
+    return {
+      ...d,
+      workStage: normalizeWorkStage(home?.deskProfile?.workStage),
+      emailCount: emailCounts[d.homeClientId] ?? 0,
+    };
+  });
+
+  const soleTraders = await Promise.all(
+    soleBase.map(async (c) => {
+      const returns = await listSa100Returns(c.id).catch(() => []);
+      const match =
+        returns.find((r) => r.taxYear === filingYear.label) ?? null;
+      const status = match
+        ? match.status === "accepted"
+          ? ("accepted" as const)
+          : match.status === "submitted"
+            ? ("submitted" as const)
+            : ("draft" as const)
+        : ("none" as const);
+      return {
+        ...c,
+        emailCount: emailCounts[c.id] ?? 0,
+        filing: {
+          taxYear: filingYear.label,
+          filingDue: filingYear.filingDue,
+          status,
+          urgency: saFilingUrgency(filingYear, status),
+        },
+      };
+    }),
+  );
+
+  return { directors, soleTraders };
 }
 
 type Props = {
@@ -86,16 +165,18 @@ type Props = {
 };
 
 export default async function ClientsPage({ searchParams }: Props) {
+  const session = await requireSession();
   const params = await searchParams;
   const imported = params.imported ? Number(params.imported) : 0;
   const skipped = params.skipped ? Number(params.skipped) : 0;
   const desk = parseDesk(params.desk);
   const meta = DESK_META[desk];
+  const showChRefreshButton = canRefreshCompaniesHouse(session);
 
-  // Skip live CH refresh on desks where Companies House is not the focus.
+  // Page load: only refresh *stale* CH snapshots (not force) — see refreshStaleClientsCompaniesHouse.
   if (desk === "all" || desk === "ct600") {
     try {
-      await refreshStaleClientsCompaniesHouse({ force: true, limit: 25 });
+      await refreshStaleClientsCompaniesHouse({ force: false, limit: 15 });
     } catch (err) {
       console.warn("[clients] CH refresh skipped", err);
     }
@@ -105,74 +186,7 @@ export default async function ClientsPage({ searchParams }: Props) {
   const peers = clients.map((c) => ({ id: c.id, name: c.name }));
 
   if (desk === "sa") {
-    const { listSa100Returns } = await import("@/server/actions/sa100");
-    const { filingSaTaxYear, saFilingUrgency } = await import(
-      "@/lib/sa-tax-year"
-    );
-    const { countEmailsByClientIds } = await import(
-      "@/server/actions/client-communications"
-    );
-    const { normalizeWorkStage } = await import("@/lib/client-work-stage");
-    const filingYear = filingSaTaxYear();
-    const [directorsRaw, soleBase] = await Promise.all([
-      listPracticeDirectors().catch(() => []),
-      Promise.resolve(
-        clients
-          .filter((c) => c.type === "sole_trader" || c.type === "partnership")
-          .map((c) => ({
-            id: c.id,
-            slug: clientSlugFor({ id: c.id, name: c.name }, peers),
-            name: c.name,
-            type: c.type,
-            utr: c.utr,
-            nino: c.nino,
-            workStage: normalizeWorkStage(c.deskProfile?.workStage),
-          })),
-      ),
-    ]);
-
-    const emailClientIds = [
-      ...soleBase.map((c) => c.id),
-      ...directorsRaw.map((d) => d.homeClientId),
-    ];
-    const emailCounts = await countEmailsByClientIds(emailClientIds).catch(
-      () => ({} as Record<string, number>),
-    );
-
-    const directors = directorsRaw.map((d) => {
-      const home = clients.find((c) => c.id === d.homeClientId);
-      return {
-        ...d,
-        workStage: normalizeWorkStage(home?.deskProfile?.workStage),
-        emailCount: emailCounts[d.homeClientId] ?? 0,
-      };
-    });
-
-    const soleTraders = await Promise.all(
-      soleBase.map(async (c) => {
-        const returns = await listSa100Returns(c.id).catch(() => []);
-        const match =
-          returns.find((r) => r.taxYear === filingYear.label) ?? null;
-        const status = match
-          ? match.status === "accepted"
-            ? ("accepted" as const)
-            : match.status === "submitted"
-              ? ("submitted" as const)
-              : ("draft" as const)
-          : ("none" as const);
-        return {
-          ...c,
-          emailCount: emailCounts[c.id] ?? 0,
-          filing: {
-            taxYear: filingYear.label,
-            filingDue: filingYear.filingDue,
-            status,
-            urgency: saFilingUrgency(filingYear, status),
-          },
-        };
-      }),
-    );
-
+    const { directors, soleTraders } = await loadSaDeskRows(clients);
     return (
       <div className="space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
@@ -184,6 +198,14 @@ export default async function ClientsPage({ searchParams }: Props) {
               {meta.title}
             </h1>
             <p className="mt-1 text-ink-soft">{meta.subtitle}</p>
+            <p className="mt-2 text-sm">
+              <Link
+                href="/clients"
+                className="font-semibold text-sea hover:underline"
+              >
+                ← All clients
+              </Link>
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link
@@ -233,13 +255,21 @@ export default async function ClientsPage({ searchParams }: Props) {
           : null) ?? null,
     }));
 
+  const saDesk =
+    desk === "all" ? await loadSaDeskRows(clients).catch(() => null) : null;
+
   const bulkEmailHref =
     desk === "vat" ? "/clients/bulk-email?desk=vat" : "/clients/bulk-email";
   const addClientHref =
     desk === "vat" || desk === "payroll"
       ? `/clients/new?desk=${desk}`
       : "/clients/new";
-  const showCompaniesHouseRefresh = desk === "all" || desk === "ct600";
+  const showCompaniesHouseRefresh =
+    showChRefreshButton && (desk === "all" || desk === "ct600");
+  const hasSaPeople =
+    Boolean(saDesk) &&
+    ((saDesk?.directors.length ?? 0) > 0 ||
+      (saDesk?.soleTraders.length ?? 0) > 0);
 
   return (
     <div className="space-y-6">
@@ -294,7 +324,74 @@ export default async function ClientsPage({ searchParams }: Props) {
         </div>
       )}
 
-      {items.length === 0 ? (
+      {desk === "all" ? (
+        <div className="space-y-10">
+          <section className="space-y-3">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="display text-2xl text-ink">Self Assessment</h2>
+                <p className="mt-1 text-sm text-ink-soft">
+                  People — directors, shareholders and sole traders.
+                </p>
+              </div>
+              <Link
+                href="/clients?desk=sa"
+                className="text-sm font-semibold text-sea hover:underline"
+              >
+                Open SA desk →
+              </Link>
+            </div>
+            {hasSaPeople && saDesk ? (
+              <SaDirectorsList
+                directors={saDesk.directors}
+                soleTraders={saDesk.soleTraders}
+              />
+            ) : (
+              <div className="panel px-5 py-8 text-center text-sm text-ink-soft">
+                No Self Assessment people yet.{" "}
+                <Link
+                  href="/clients/new?desk=sa"
+                  className="font-semibold text-sea hover:underline"
+                >
+                  Add a person
+                </Link>
+                .
+              </div>
+            )}
+          </section>
+
+          <section className="space-y-3">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h2 className="display text-2xl text-ink">Companies</h2>
+                <p className="mt-1 text-sm text-ink-soft">
+                  Limited companies — CT600, accounts and Companies House.
+                </p>
+              </div>
+              <Link
+                href="/clients?desk=ct600"
+                className="text-sm font-semibold text-sea hover:underline"
+              >
+                Open CT600 desk →
+              </Link>
+            </div>
+            {items.length === 0 ? (
+              <div className="panel px-5 py-8 text-center text-sm text-ink-soft">
+                No limited company clients yet.{" "}
+                <Link
+                  href="/clients/new"
+                  className="font-semibold text-sea hover:underline"
+                >
+                  Add a company
+                </Link>
+                .
+              </div>
+            ) : (
+              <ClientsList clients={items} />
+            )}
+          </section>
+        </div>
+      ) : items.length === 0 ? (
         <div className="panel px-5 py-10 text-center text-sm text-ink-soft">
           {meta.empty}{" "}
           <Link

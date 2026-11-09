@@ -28,6 +28,7 @@ import type { ClientLetterRecord, PracticeLetterhead } from "@/lib/desk-profile"
 import { messageFromUnknown } from "@/lib/action-error";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { EmailToClientButton } from "@/components/forms/email-to-client-button";
+import { renderClientLetterHtml } from "@/lib/letters/render-letter-html";
 
 const PALETTE: OnboardingFieldType[] = [
   "section",
@@ -783,7 +784,25 @@ export function FormsAndLettersWorkspace({
                   <button
                     type="button"
                     className="btn btn-secondary"
-                    onClick={() => window.print()}
+                    onClick={() => {
+                      // Finalised letter only (practice letterhead + body) — not the desk UI.
+                      const html = renderClientLetterHtml({
+                        letterhead,
+                        title: activeLetter.title,
+                        body: activeLetter.body,
+                        autoPrint: true,
+                      });
+                      const blob = new Blob([html], { type: "text/html" });
+                      const url = URL.createObjectURL(blob);
+                      const win = window.open(url, "_blank", "noopener,noreferrer");
+                      if (!win) {
+                        // Popup blocked — fall back to dedicated print route.
+                        window.location.assign(
+                          `/clients/${clientSlug}/forms/letters/${activeLetter.id}/print`,
+                        );
+                      }
+                      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                    }}
                   >
                     Print / PDF
                   </button>
