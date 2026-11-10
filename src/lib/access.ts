@@ -153,6 +153,7 @@ export function assertModuleAccess(
 /** Map client-tab keys → AppModule */
 export function tabKeyToModule(key: string): AppModule {
   if (key === "self-assessment") return "self_assessment";
+  if (key === "sa800") return "self_assessment";
   if (key === "corporation-tax") return "corporation_tax";
   if (key === "time-fees") return "invoices";
   if (

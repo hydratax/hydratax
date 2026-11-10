@@ -14,6 +14,7 @@ const mainTabs = [
   { href: "", label: "Overview", key: "overview" },
   { href: "/vat", label: "VAT", key: "vat" },
   { href: "/self-assessment", label: "Self Assessment", key: "self-assessment" },
+  { href: "/sa800", label: "Partnership return", key: "sa800" },
   { href: "/corporation-tax", label: "Corporation Tax", key: "corporation-tax" },
   { href: "/payroll", label: "Payroll", key: "payroll" },
   { href: "/invoices", label: "Invoices", key: "invoices" },
@@ -56,11 +57,13 @@ function tabClass(isActive: boolean, isPending: boolean) {
 export function ClientTabs({
   clientSlug,
   moduleAccess = "full",
+  clientType,
 }: {
   clientSlug: string;
   /** @deprecated Active tab is inferred from the URL */
   active?: string;
   moduleAccess?: ModuleAccess;
+  clientType?: string;
 }) {
   const pathname = usePathname();
   const active = activeTabFromPath(pathname, clientSlug);
@@ -72,9 +75,12 @@ export function ClientTabs({
   const showPending =
     pendingHref && pendingFromPath === pathname ? pendingHref : null;
 
-  const visibleMain = mainTabs.filter((tab) =>
-    canAccessModule(moduleAccess, tabKeyToModule(tab.key)),
-  );
+  const visibleMain = mainTabs.filter((tab) => {
+    if (tab.key === "sa800" && clientType && clientType !== "partnership") {
+      return false;
+    }
+    return canAccessModule(moduleAccess, tabKeyToModule(tab.key));
+  });
   const visibleBooks = booksItems.filter((tab) =>
     canAccessModule(moduleAccess, tabKeyToModule(tab.key)),
   );

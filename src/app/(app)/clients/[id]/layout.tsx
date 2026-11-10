@@ -20,6 +20,7 @@ export default async function ClientWorkspaceLayout({
       <ClientTabs
         clientSlug={slug}
         moduleAccess={session.moduleAccess}
+        clientType={client.type}
       />
       {children}
     </div>
