@@ -268,12 +268,14 @@ export async function unsubscribeByToken(token: string): Promise<{
     .update({
       filing_reminders: false,
       marketing_emails: false,
+      company_filing_reminders: false,
       unsubscribed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
     .eq("id", data.id);
   return {
     ok: true,
-    message: "You have been unsubscribed from HydraTax filing reminders and marketing emails.",
+    message:
+      "You have been unsubscribed from HydraTax filing reminders, company filing nudges, and marketing emails.",
   };
 }

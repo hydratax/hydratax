@@ -25,7 +25,8 @@ export function UnsubscribeForm({ token }: { token: string }) {
         <p className="text-ink-soft">{message}</p>
       ) : (
         <p className="text-ink-soft">
-          Stop receiving filing reminder summaries and marketing emails from
+          Stop receiving filing reminders, weekly company filing nudges
+          (confirmation statement, accounts, CT600), and marketing emails from
           HydraTax. Transactional account emails may still be sent.
         </p>
       )}

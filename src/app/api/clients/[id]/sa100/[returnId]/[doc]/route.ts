@@ -3,6 +3,40 @@ import { getClient } from "@/server/actions/clients";
 import { getSa100Return } from "@/server/actions/sa100";
 import { buildSa302Pdf } from "@/server/sa100/pdf";
 import { buildSa100PackPdf } from "@/server/sa100/pack";
+import { protectClientPdf } from "@/server/pdf/lock-for-client";
+
+async function lockedResponse(
+  clientId: string,
+  pdfBytes: Uint8Array,
+  pdfFilename: string,
+  dateOfBirth?: string | null,
+  extraHeaders?: Record<string, string>,
+) {
+  const result = await protectClientPdf({
+    clientId,
+    pdfBytes,
+    pdfFilename,
+    dateOfBirth,
+  });
+  if (result.locked) {
+    return new Response(new Uint8Array(result.pack.bytes), {
+      headers: {
+        "Content-Type": result.pack.contentType,
+        "Content-Disposition": `attachment; filename="${result.pack.filename}"`,
+        "X-HydraTax-Pdf-Lock": "dob",
+        "X-HydraTax-Pdf-Lock-Hint": result.pack.passwordHint,
+        ...extraHeaders,
+      },
+    });
+  }
+  return new Response(new Uint8Array(result.bytes), {
+    headers: {
+      "Content-Type": result.contentType,
+      "Content-Disposition": `attachment; filename="${result.filename}"`,
+      ...extraHeaders,
+    },
+  });
+}
 
 export async function GET(
   _request: Request,
@@ -33,12 +67,12 @@ export async function GET(
       row.draft.utr || client.utr || "",
       meta,
     );
-    return new Response(Buffer.from(bytes), {
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="SA302-${row.taxYear}.pdf"`,
-      },
-    });
+    return lockedResponse(
+      id,
+      bytes,
+      `SA302-${row.taxYear}.pdf`,
+      row.draft.dateOfBirth,
+    );
   }
 
   if (doc === "sa100.pdf") {
@@ -49,13 +83,13 @@ export async function GET(
       meta,
     );
     const suffix = supplements.length ? `+${supplements.join("+")}` : "";
-    return new Response(Buffer.from(bytes), {
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="SA100-${row.taxYear}${suffix}.pdf"`,
-        "X-HydraTax-SA-Supplements": supplements.join(","),
-      },
-    });
+    return lockedResponse(
+      id,
+      bytes,
+      `SA100-${row.taxYear}${suffix}.pdf`,
+      row.draft.dateOfBirth,
+      { "X-HydraTax-SA-Supplements": supplements.join(",") },
+    );
   }
 
   return new Response("Unknown document", { status: 404 });

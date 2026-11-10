@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sendFilingReminders } from "@/server/billing/filing-reminders";
+import { sendCompanyFilingReminders } from "@/server/billing/company-filing-reminders";
 import { checkR2StorageQuota } from "@/server/storage/r2-quota";
 
 function authorize(req: Request): boolean {
@@ -16,11 +17,18 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {
-    const [filingReminders, r2Quota] = await Promise.all([
-      sendFilingReminders(),
-      checkR2StorageQuota(),
-    ]);
-    return NextResponse.json({ ok: true, filingReminders, r2Quota });
+    const [filingReminders, companyFilingReminders, r2Quota] =
+      await Promise.all([
+        sendFilingReminders(),
+        sendCompanyFilingReminders(),
+        checkR2StorageQuota(),
+      ]);
+    return NextResponse.json({
+      ok: true,
+      filingReminders,
+      companyFilingReminders,
+      r2Quota,
+    });
   } catch (err) {
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : String(err) },

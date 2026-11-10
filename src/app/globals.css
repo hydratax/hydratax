@@ -42,6 +42,10 @@
   --font-mono: var(--font-ibm-plex);
 }
 
+html {
+  overflow-x: clip;
+}
+
 body {
   background:
     radial-gradient(1100px 520px at 12% -8%, var(--glow), transparent 58%),
@@ -52,6 +56,7 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   overflow-x: clip;
+  overflow-y: visible;
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
   -webkit-tap-highlight-color: transparent;
@@ -945,6 +950,9 @@ html[data-nav-pending] {
 .hero-lumen {
   position: relative;
   isolation: isolate;
+  /* clip (not hidden) so decorative overflow does not create a second scrollbar */
+  overflow-x: clip;
+  overflow-y: visible;
   background:
     radial-gradient(ellipse 90% 70% at 85% 20%, rgba(56, 189, 180, 0.18), transparent 55%),
     radial-gradient(ellipse 60% 50% at 10% 90%, rgba(14, 165, 233, 0.1), transparent 50%),

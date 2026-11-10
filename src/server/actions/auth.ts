@@ -108,6 +108,18 @@ export async function signUpWithSupabase(
       );
       const practice = await ensureSupabasePractice(authData.user!);
       practiceName = practice.practiceName;
+      // Single-company / company signups get weekly CS / accounts / CT600 nudges
+      if (data.orgType === "company" || data.orgType === "sole_trader") {
+        const { enrolCompanyFilingReminders } = await import(
+          "@/server/billing/company-filing-reminders"
+        );
+        await enrolCompanyFilingReminders({
+          userId: authData.user!.id,
+          practiceId: practice.practiceId,
+          email: data.email,
+          firstName: data.firstName,
+        });
+      }
     } catch {
       /* practice seeded on first dashboard visit */
     }
@@ -194,6 +206,14 @@ export async function quickSignUpWithSupabase(
       );
       const practice = await ensureSupabasePractice(authData.user!);
       practiceName = practice.practiceName;
+      const { enrolCompanyFilingReminders } = await import(
+        "@/server/billing/company-filing-reminders"
+      );
+      await enrolCompanyFilingReminders({
+        userId: authData.user!.id,
+        practiceId: practice.practiceId,
+        email: data.email,
+      });
     } catch {
       /* practice seeded on first desk visit */
     }

@@ -97,7 +97,25 @@ export async function emailClientArtifact(
       data.clientId,
       ctKind,
     );
+    const { protectClientPdf } = await import("@/server/pdf/lock-for-client");
+    let lockedAny = false;
     for (const file of pack.files) {
+      if (file.mimeType === "application/pdf") {
+        const protectedPdf = await protectClientPdf({
+          clientId: data.clientId,
+          pdfBytes: Buffer.from(file.base64, "base64"),
+          pdfFilename: file.filename,
+        });
+        if (protectedPdf.locked) {
+          lockedAny = true;
+          attachments.push({
+            filename: protectedPdf.pack.filename,
+            content: protectedPdf.pack.bytes.toString("base64"),
+            contentType: protectedPdf.pack.contentType,
+          });
+          continue;
+        }
+      }
       attachments.push({
         filename: file.filename,
         content: file.base64,
@@ -107,6 +125,9 @@ export async function emailClientArtifact(
     documentCount = attachments.length;
     kind = `ct_${ctKind}`;
     body += `\n\n${documentCount} PDF attachment(s) for ${client.name} are included.`;
+    if (lockedAny) {
+      body += `\n\nAttachments are password-protected. The password is the signing director’s date of birth as DDMMYYYY (eight digits, no slashes).`;
+    }
   } else if (data.artifact.type === "sa_pdf") {
     const { returnId } = data.artifact;
     const docs = (
@@ -129,6 +150,8 @@ export async function emailClientArtifact(
       status: row.status,
       taxYear: row.taxYear,
     };
+    const { protectClientPdf } = await import("@/server/pdf/lock-for-client");
+    let lockedAny = false;
     for (const doc of docs) {
       if (doc === "sa302") {
         const bytes = await buildSa302Pdf(
@@ -137,11 +160,26 @@ export async function emailClientArtifact(
           row.draft.utr || client.utr || "",
           meta,
         );
-        attachments.push({
-          filename: `SA302-${row.taxYear}.pdf`,
-          content: Buffer.from(bytes).toString("base64"),
-          contentType: "application/pdf",
+        const protectedPdf = await protectClientPdf({
+          clientId: data.clientId,
+          pdfBytes: bytes,
+          pdfFilename: `SA302-${row.taxYear}.pdf`,
+          dateOfBirth: row.draft.dateOfBirth,
         });
+        if (protectedPdf.locked) {
+          lockedAny = true;
+          attachments.push({
+            filename: protectedPdf.pack.filename,
+            content: protectedPdf.pack.bytes.toString("base64"),
+            contentType: protectedPdf.pack.contentType,
+          });
+        } else {
+          attachments.push({
+            filename: protectedPdf.filename,
+            content: protectedPdf.bytes.toString("base64"),
+            contentType: protectedPdf.contentType,
+          });
+        }
       } else {
         const { bytes, supplements } = await buildSa100PackPdf(
           row.draft,
@@ -149,16 +187,34 @@ export async function emailClientArtifact(
           meta,
         );
         const suffix = supplements.length ? `+${supplements.join("+")}` : "";
-        attachments.push({
-          filename: `SA100-${row.taxYear}${suffix}.pdf`,
-          content: Buffer.from(bytes).toString("base64"),
-          contentType: "application/pdf",
+        const protectedPdf = await protectClientPdf({
+          clientId: data.clientId,
+          pdfBytes: bytes,
+          pdfFilename: `SA100-${row.taxYear}${suffix}.pdf`,
+          dateOfBirth: row.draft.dateOfBirth,
         });
+        if (protectedPdf.locked) {
+          lockedAny = true;
+          attachments.push({
+            filename: protectedPdf.pack.filename,
+            content: protectedPdf.pack.bytes.toString("base64"),
+            contentType: protectedPdf.pack.contentType,
+          });
+        } else {
+          attachments.push({
+            filename: protectedPdf.filename,
+            content: protectedPdf.bytes.toString("base64"),
+            contentType: protectedPdf.contentType,
+          });
+        }
       }
     }
     documentCount = attachments.length;
     kind = docs.join("+");
     body += `\n\nPlease find the attached ${docs.map((d) => d.toUpperCase()).join(" and ")} PDF${docs.length > 1 ? "s" : ""}.`;
+    if (lockedAny) {
+      body += `\n\nAttachments are password-protected. The password is the taxpayer’s / director’s date of birth as DDMMYYYY (eight digits, no slashes).`;
+    }
   } else if (data.artifact.type === "vat_summary") {
     const { periodKey, status, boxes } = data.artifact;
     const label =

@@ -25,6 +25,11 @@ export type EmailPreferenceRow = {
   unsubscribe_token: string;
   filing_reminder_sent_at: string | null;
   unsubscribed_at: string | null;
+  company_filing_reminders?: boolean;
+  company_filing_reminder_weekday?: number | null;
+  company_filing_reminder_started_at?: string | null;
+  company_filing_reminder_sent_at?: string | null;
+  company_filing_reminder_ends_at?: string | null;
 };
 
 export function isSubscribedToFilingReminders(pref: EmailPreferenceRow | null): boolean {

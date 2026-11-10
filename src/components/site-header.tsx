@@ -19,7 +19,6 @@ const SERVICES = [
 
 const NAV_LINKS = [
   { href: "/pricing", label: "Pricing" },
-  { href: "/book-demo", label: "Book a demo" },
   { href: "/blog", label: "Guides" },
 ] as const;
 

@@ -21,7 +21,7 @@ export function DynamicHero() {
   }, []);
 
   return (
-    <section className="hero-lumen relative overflow-x-hidden">
+    <section className="hero-lumen relative overflow-x-clip">
       <div className="hero-lumen__grid" aria-hidden />
       <div className="hero-lumen__aurora" aria-hidden />
       <div className="hero-lumen__beam" aria-hidden />
