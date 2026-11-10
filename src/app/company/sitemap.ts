@@ -2,7 +2,6 @@ import type { MetadataRoute } from "next";
 import { cache } from "react";
 import {
   COMPANY_SITEMAP_HUB_SAMPLE,
-  COMPANY_SITEMAP_SHARD_SIZE,
   hubSeedQueries,
   toSitemapCompany,
   type SitemapCompany,
@@ -15,14 +14,15 @@ import {
 
 export const revalidate = 86_400;
 
+/**
+ * Single company sitemap at /company/sitemap.xml (seeded from industry/location hubs).
+ * When coverage grows past ~45k URLs, switch back to generateSitemaps shards + an index.
+ */
 const collectSeedCompanies = cache(async (): Promise<SitemapCompany[]> => {
   if (!isCompaniesHouseApiConfigured()) return [];
 
   const byNumber = new Map<string, SitemapCompany>();
-  const queries = hubSeedQueries();
-
-  // Sequential to stay polite with Companies House rate limits.
-  for (const q of queries) {
+  for (const q of hubSeedQueries()) {
     try {
       const items = await advancedSearchCompanies({
         sicCodes: q.sic ? [q.sic] : undefined,
@@ -48,26 +48,12 @@ const collectSeedCompanies = cache(async (): Promise<SitemapCompany[]> => {
   );
 });
 
-export async function generateSitemaps() {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const companies = await collectSeedCompanies();
-  const shardCount = Math.max(
-    1,
-    Math.ceil(companies.length / COMPANY_SITEMAP_SHARD_SIZE),
-  );
-  return Array.from({ length: shardCount }, (_, id) => ({ id }));
-}
-
-export default async function sitemap(props: {
-  id: Promise<number> | number;
-}): Promise<MetadataRoute.Sitemap> {
-  const id = Number(await props.id);
-  const companies = await collectSeedCompanies();
-  const start = id * COMPANY_SITEMAP_SHARD_SIZE;
-  const slice = companies.slice(start, start + COMPANY_SITEMAP_SHARD_SIZE);
   const SITE = siteUrl();
   const now = new Date();
 
-  return slice.map((c) => ({
+  return companies.map((c) => ({
     url: `${SITE}${c.href}`,
     lastModified: now,
     changeFrequency: "weekly" as const,
