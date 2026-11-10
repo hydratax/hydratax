@@ -145,6 +145,9 @@ export type DeskProfile = {
   workStage?: ClientWorkStage;
   /** Timestamped working log (stages, emails, notes). Newest last. */
   workLog?: ClientWorkLogEntry[];
+  /** Set when seeded for sales demos (Admin → Load presentation clients). */
+  presentationDemo?: string;
+  presentationPitch?: string;
 };
 
 export type PracticeLetterhead = {

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireAdmin } from "@/server/auth/admin";
+import { SeedPresentationDemoButton } from "@/components/admin/seed-presentation-demo-button";
 
 export const metadata = {
   title: "Admin — HydraTax",
@@ -19,6 +20,16 @@ export default async function AdminHomePage() {
           Operational boards for the practice — payment and status only, no
           personal filing data.
         </p>
+      </div>
+
+      <div className="panel space-y-3 p-6">
+        <h2 className="display text-2xl text-ink">Sales demo desk</h2>
+        <p className="text-sm text-ink-soft">
+          Before a Teams walkthrough, load fictional clients onto this practice
+          (Meridian Retail, sole traders, partnerships, etc.). Use your normal
+          sign-in — there is no separate demo login.
+        </p>
+        <SeedPresentationDemoButton />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

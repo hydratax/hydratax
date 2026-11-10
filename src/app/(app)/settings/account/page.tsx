@@ -4,6 +4,7 @@ import { getAccountProfile } from "@/server/actions/account";
 import { getAccountBillingSummary } from "@/server/actions/billing";
 import { AccountProfileForm } from "@/components/forms/account-profile-form";
 import { AccountSubscriptionPanel } from "@/components/settings/account-subscription-panel";
+import { SeedPresentationDemoButton } from "@/components/admin/seed-presentation-demo-button";
 
 export const metadata = { title: "Account — HydraTax" };
 
@@ -15,6 +16,8 @@ export default async function AccountSettingsPage() {
   ]);
   const canManageTeam = session.moduleAccess === "full";
   const isOwner = session.role === "owner";
+  const canSeedDemo =
+    session.role === "owner" || session.role === "admin";
 
   return (
     <div className="space-y-6">
@@ -34,6 +37,17 @@ export default async function AccountSettingsPage() {
       <AccountProfileForm profile={profile} />
 
       {isOwner ? <AccountSubscriptionPanel billing={billing} /> : null}
+
+      {canSeedDemo ? (
+        <div className="panel space-y-3 p-5">
+          <h2 className="display text-2xl text-ink">Sales demo clients</h2>
+          <p className="text-sm text-ink-soft">
+            Load fictional Ltd, sole trader and partnership clients onto this
+            practice for live walkthroughs with prospects.
+          </p>
+          <SeedPresentationDemoButton />
+        </div>
+      ) : null}
 
       {canManageTeam ? (
         <div className="panel p-5">

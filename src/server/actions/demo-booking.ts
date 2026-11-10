@@ -241,17 +241,29 @@ IP: ${ip}
   <div style="white-space:pre-wrap;border-top:1px solid #d0d7dd;padding-top:16px;margin-top:16px;">${escapeHtml(data.notes || "No additional notes.")}</div>
 </body></html>`;
 
+  const teamsUrl = (process.env.DEMO_TEAMS_MEETING_URL ?? "").trim();
+  const teamsLabel =
+    (process.env.DEMO_TEAMS_MEETING_LABEL ?? "").trim() ||
+    "Join Microsoft Teams meeting";
+  const joinBlockText = teamsUrl
+    ? `\nJoin the meeting:\n${teamsUrl}\n`
+    : `\nWe'll confirm the meeting link by reply to this email${
+        data.guestEmails.length ? " (and your guests)" : ""
+      }.\n`;
+  const joinBlockHtml = teamsUrl
+    ? `<p><a href="${escapeHtml(teamsUrl)}" style="display:inline-block;background:#0f766e;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">${escapeHtml(teamsLabel)}</a></p>
+  <p style="font-size:13px;color:#3a4248;word-break:break-all;">Or open: <a href="${escapeHtml(teamsUrl)}">${escapeHtml(teamsUrl)}</a></p>`
+    : `<p>We'll confirm the meeting link by reply to this email${
+        data.guestEmails.length ? " (and your guests)" : ""
+      }.</p>`;
+
   const confirmText = `Hi ${data.name.split(" ")[0]},
 
 Thanks for booking a HydraTax demo (${reference}).
 
 ${service.title}
 ${whenLabel}
-
-We'll confirm the meeting link by reply to this email${
-    data.guestEmails.length ? " (and your guests)" : ""
-  }.
-
+${joinBlockText}
 If you need to change the time, reply to this message.
 
 — HydraTax
@@ -264,18 +276,21 @@ If you need to change the time, reply to this message.
   <p>Hi ${escapeHtml(data.name.split(" ")[0])},</p>
   <p>Thanks for booking a HydraTax demo (<strong>${escapeHtml(reference)}</strong>).</p>
   <p><strong>${escapeHtml(service.title)}</strong><br/>${escapeHtml(whenLabel)}</p>
-  <p>We'll confirm the meeting link by reply to this email${
-    data.guestEmails.length ? " (and your guests)" : ""
-  }.</p>
+  ${joinBlockHtml}
   <p style="color:#3a4248;font-size:14px;">Need to change the time? Just reply to this message.</p>
 </body></html>`;
+
+  const staffJoinNote = teamsUrl
+    ? `\nTeams link included in guest email:\n${teamsUrl}\n`
+    : `\nNo DEMO_TEAMS_MEETING_URL set — guest email asks them to wait for a reply with the link.\n`;
+  const staffTextWithJoin = staffText + staffJoinNote;
 
   try {
     await sendTransactionalEmail({
       to: LEGAL_CONTACT_EMAIL,
       replyTo: data.email,
       subject: `[HydraTax demo ${reference}] ${service.title} — ${data.practiceName}`,
-      text: staffText,
+      text: staffTextWithJoin,
       html: staffHtml,
     });
 
