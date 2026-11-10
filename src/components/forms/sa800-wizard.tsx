@@ -66,9 +66,9 @@ export function Sa800Wizard({
       <section className="panel space-y-3 p-5">
         <h2 className="display text-xl text-ink">Partnership details</h2>
         <p className="text-sm text-ink-soft">
-          Tax year {draft.taxYear}. This desk prepares a practice SA800 working
-          paper and partner profit shares. Live HMRC partnership filing is not
-          enabled yet.
+          Tax year {draft.taxYear}. Save the draft, then download the filled
+          official SA800 stationery (same pattern as SA100). Live HMRC
+          partnership filing is not enabled yet.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block space-y-1">
@@ -112,6 +112,16 @@ export function Sa800Wizard({
               value={draft.booksTo}
               onChange={(e) => patch("booksTo", e.target.value)}
             />
+          </label>
+          <label className="flex items-center gap-2 text-sm sm:col-span-2">
+            <input
+              type="checkbox"
+              checked={draft.traditionalAccounting}
+              onChange={(e) =>
+                patch("traditionalAccounting", e.target.checked)
+              }
+            />
+            Traditional accounting (not cash basis) — SA800 box 3.9
           </label>
         </div>
       </section>
@@ -246,6 +256,15 @@ export function Sa800Wizard({
               onChange={(e) => patch("declarationCapacity", e.target.value)}
             />
           </label>
+          <label className="block space-y-1">
+            <span className="label">Declaration date</span>
+            <input
+              className="input"
+              type="date"
+              value={draft.declarationDate}
+              onChange={(e) => patch("declarationDate", e.target.value)}
+            />
+          </label>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -258,7 +277,7 @@ export function Sa800Wizard({
                 try {
                   const row = await saveSa800Draft({ clientId, draft });
                   setSaved(row);
-                  setMsg("Draft saved.");
+                  setMsg("Draft saved — download the filled SA800 below.");
                 } catch (err) {
                   setError(messageFromUnknown(err, "Could not save draft"));
                 }
@@ -282,7 +301,7 @@ export function Sa800Wizard({
                   });
                   setSaved(submitted);
                   setMsg(
-                    "Marked accepted in demo. Download the summary PDF for the file.",
+                    "Marked accepted in demo. Download the filled SA800 for the file.",
                   );
                 } catch (err) {
                   setError(messageFromUnknown(err, "Could not submit"));
@@ -293,14 +312,24 @@ export function Sa800Wizard({
             Accept (demo)
           </button>
           {saved ? (
-            <a
-              className="btn btn-secondary"
-              href={`/api/clients/${clientId}/sa800/${saved.id}/summary`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Download summary PDF
-            </a>
+            <>
+              <a
+                className="btn btn-primary"
+                href={`/api/clients/${clientId}/sa800/${saved.id}/sa800.pdf`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Download SA800 PDF
+              </a>
+              <a
+                className="btn btn-secondary"
+                href={`/api/clients/${clientId}/sa800/${saved.id}/summary.pdf`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Summary PDF
+              </a>
+            </>
           ) : null}
         </div>
         {saved ? (

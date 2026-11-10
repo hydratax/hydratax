@@ -19,6 +19,8 @@ export const sa800DraftSchema = z.object({
   tradeDescription: z.string().default(""),
   booksFrom: z.string().default(""),
   booksTo: z.string().default(""),
+  /** Traditional accruals accounting (box 3.9). Default cash basis = leave unticked. */
+  traditionalAccounting: z.boolean().default(false),
   turnover: money,
   otherIncome: money,
   costOfGoods: money,
@@ -28,6 +30,7 @@ export const sa800DraftSchema = z.object({
   partners: z.array(sa800PartnerSchema).default([]),
   declarationName: z.string().default(""),
   declarationCapacity: z.string().default("Partner"),
+  declarationDate: z.string().default(""),
 });
 
 export type Sa800Draft = z.infer<typeof sa800DraftSchema>;

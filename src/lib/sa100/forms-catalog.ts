@@ -25,10 +25,43 @@ export type SaFormTemplate = {
 
 /**
  * Official HMRC stationery held with the product (and mirrored in
- * hmrc_sa_form_templates). Personal SA packs never include SA800 manuals —
- * those are partnership return notes, stored for reference only.
+ * hmrc_sa_form_templates). Personal SA packs never include SA800 —
+ * partnership returns are filled from the partnership desk (`/sa800`).
+ * Filenames historically contain “man” but the 8-page PDFs are the return.
  */
 export const SA_FORM_CATALOG: readonly SaFormTemplate[] = [
+  {
+    formCode: "SA800",
+    taxYear: "2025-26",
+    title: "Partnership Tax Return 2026 (SA800)",
+    filename: "SA800man-2026.pdf",
+    kind: "main",
+    attachRule: null,
+  },
+  {
+    formCode: "SA800",
+    taxYear: "2024-25",
+    title: "Partnership Tax Return 2025 (SA800)",
+    filename: "SA800man_2025.pdf",
+    kind: "main",
+    attachRule: null,
+  },
+  {
+    formCode: "SA800",
+    taxYear: "2023-24",
+    title: "Partnership Tax Return 2024 (SA800)",
+    filename: "SA800man_2024.pdf",
+    kind: "main",
+    attachRule: null,
+  },
+  {
+    formCode: "SA800",
+    taxYear: "2022-23",
+    title: "Partnership Tax Return 2023 (SA800)",
+    filename: "sa800man_2023.pdf",
+    kind: "main",
+    attachRule: null,
+  },
   {
     formCode: "SA100",
     taxYear: "2025-26",
@@ -101,38 +134,6 @@ export const SA_FORM_CATALOG: readonly SaFormTemplate[] = [
     filename: "SA109-2026.pdf",
     kind: "supplement",
     attachRule: "residence",
-  },
-  {
-    formCode: "SA800MAN",
-    taxYear: "2022-23",
-    title: "Partnership tax return notes 2023",
-    filename: "sa800man_2023.pdf",
-    kind: "manual",
-    attachRule: null,
-  },
-  {
-    formCode: "SA800MAN",
-    taxYear: "2023-24",
-    title: "Partnership tax return notes 2024",
-    filename: "SA800man_2024.pdf",
-    kind: "manual",
-    attachRule: null,
-  },
-  {
-    formCode: "SA800MAN",
-    taxYear: "2024-25",
-    title: "Partnership tax return notes 2025",
-    filename: "SA800man_2025.pdf",
-    kind: "manual",
-    attachRule: null,
-  },
-  {
-    formCode: "SA800MAN",
-    taxYear: "2025-26",
-    title: "Partnership tax return notes 2026",
-    filename: "SA800man-2026.pdf",
-    kind: "manual",
-    attachRule: null,
   },
 ] as const;
 

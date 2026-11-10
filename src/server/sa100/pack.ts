@@ -67,7 +67,8 @@ async function appendOfficialForm(
 /**
  * SA100 return as filed: main TR pages plus only the supplementary forms
  * required by this person's income flags (e.g. employment → SA102,
- * self-employment → SA103F). Manuals (SA800) are never attached.
+ * self-employment → SA103F). Partnership SA800 returns are never attached
+ * here — they are produced from the partnership desk.
  */
 export async function buildSa100PackPdf(
   draft: Sa100Draft,
