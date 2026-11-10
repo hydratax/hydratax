@@ -17,6 +17,7 @@ const mainTabs = [
   { href: "/corporation-tax", label: "Corporation Tax", key: "corporation-tax" },
   { href: "/payroll", label: "Payroll", key: "payroll" },
   { href: "/invoices", label: "Invoices", key: "invoices" },
+  { href: "/time-fees", label: "Time & fees", key: "time-fees" },
   { href: "/engagement", label: "Engagement", key: "engagement" },
   { href: "/forms", label: "Forms and letters", key: "forms" },
   { href: "/communications", label: "Communications", key: "communications" },

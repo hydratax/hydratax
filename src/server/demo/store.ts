@@ -224,6 +224,24 @@ export type MemoryInvoiceLineTemplate = {
   updatedAt: string;
 };
 
+/** Practice time entry against a client (fee WIP). */
+export type MemoryTimeEntry = {
+  id: string;
+  practiceId: string;
+  clientId: string;
+  workDate: string;
+  description: string;
+  minutes: number;
+  ratePencePerHour: number;
+  amountPence: number;
+  staffName: string | null;
+  status: "wip" | "billed" | "written_off";
+  invoiceId: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type MemoryFeatureRequest = {
   id: string;
   title: string;
@@ -284,6 +302,7 @@ type MemoryStore = {
   teamMembers: MemoryTeamMember[];
   invoices: MemoryInvoice[];
   invoiceLineTemplates: MemoryInvoiceLineTemplate[];
+  timeEntries: MemoryTimeEntry[];
   featureRequests: MemoryFeatureRequest[];
   featureVotes: MemoryFeatureVote[];
   csFilings: import("@/server/companies-house/filing/types").CsFilingRecord[];
@@ -374,6 +393,7 @@ function emptyStore(): MemoryStore {
     teamMembers: [],
     invoices: [],
     invoiceLineTemplates: [],
+    timeEntries: [],
     featureRequests: seedFeatureRequests(),
     featureVotes: [],
     csFilings: [],
