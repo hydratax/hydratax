@@ -17,6 +17,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             label: "Confirmation Statement",
           },
           { href: "/filings/annual-accounts", label: "Annual accounts" },
+          { href: "/companies-house", label: "Companies House" },
         ]
       : []),
     ...(full ? [{ href: "/settings/hmrc", label: "HMRC connection" }] : []),
@@ -33,7 +34,6 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
   const links = [
     { href: "/", label: "Home" },
     { href: "/dashboard", label: "Dashboard" },
-    ...(full ? [{ href: "/companies-house", label: "Companies House" }] : []),
     { href: "/support", label: "Support" },
   ];
 

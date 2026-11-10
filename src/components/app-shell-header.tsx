@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { signOutSupabase } from "@/server/actions/auth";
+import { RaiseTicketButton } from "@/components/support/raise-ticket-button";
 
 type NavItem = { href: string; label: string };
 
@@ -164,6 +165,8 @@ export function AppShellHeader({
             </Link>
           ))}
 
+          <RaiseTicketButton />
+
           {accessBadge ? (
             <span className="badge badge-muted">{accessBadge}</span>
           ) : null}
@@ -306,6 +309,8 @@ export function AppShellHeader({
               ))}
 
               <div className="my-2 border-t border-line" />
+
+              <RaiseTicketButton variant="menu" />
 
               <Link
                 href="/settings/account"

@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ct-ets": "node scripts/ct600-ets-test.cjs",
+    "fix:mojibake": "node scripts/fix-mojibake.cjs",
     "mobile:sync": "npx cap sync",
     "mobile:ios": "npx cap open ios",
     "mobile:android": "npx cap open android"

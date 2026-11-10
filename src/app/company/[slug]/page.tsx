@@ -7,11 +7,13 @@ import {
   companyProfileFacts,
   formatUkDate,
 } from "@/lib/company-profile-facts";
+import { companyOrganizationJsonLd } from "@/lib/company-seo";
 import {
   companyNumberFromSlug,
   companyProfilePath,
   companyProfileSlug,
 } from "@/lib/company-slug";
+import { shortSicLabel } from "@/lib/company-directory";
 import { siteUrl } from "@/lib/site";
 import {
   getCompanyProfile,
@@ -39,11 +41,11 @@ export async function generateMetadata({
     const path = companyProfilePath(facts.companyName, facts.companyNumber);
     const description = `${facts.companyName} (${facts.companyNumber}) is ${facts.statusLabel.toLowerCase()}. Accounts due ${formatUkDate(facts.accountsDue) ?? "on the register"}. Confirmation statement ${formatUkDate(facts.confirmationDate) ?? "on the register"}. CT600 due ${formatUkDate(facts.ct600Due) ?? "12 months after the year end"}.`;
     return {
-      title: `${facts.companyName} | Company profile`,
+      title: `${facts.companyName} | Company Profile`,
       description,
       alternates: { canonical: `${siteUrl()}${path}` },
       openGraph: {
-        title: `${facts.companyName} | Company profile`,
+        title: `${facts.companyName} (${facts.companyNumber}) | Company Profile`,
         description,
         url: `${siteUrl()}${path}`,
       },
@@ -94,6 +96,22 @@ export default async function PublicCompanyPage({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
+            __html: JSON.stringify(
+              companyOrganizationJsonLd({
+                name: facts.companyName,
+                companyNumber: facts.companyNumber,
+                url: `${siteUrl()}${companyProfilePath(facts.companyName, facts.companyNumber)}`,
+                address: facts.address,
+                statusLabel: facts.statusLabel,
+                foundingDate: profile.date_of_creation ?? null,
+                industry: facts.sic ? shortSicLabel(facts.sic) : null,
+              }),
+            ),
+          }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
             __html: JSON.stringify({
               "@context": "https://schema.org",
               "@type": "FAQPage",
@@ -112,6 +130,16 @@ export default async function PublicCompanyPage({
                   acceptedAnswer: {
                     "@type": "Answer",
                     text: `${facts.companyName} is ${facts.statusLabel.toLowerCase()} on the Companies House register.`,
+                  },
+                },
+                {
+                  "@type": "Question",
+                  name: `What does ${facts.companyName} do?`,
+                  acceptedAnswer: {
+                    "@type": "Answer",
+                    text: facts.sic
+                      ? `${facts.companyName} is classified under ${shortSicLabel(facts.sic)} (SIC ${facts.sic}).`
+                      : `${facts.companyName} is a UK company on the Companies House register (${facts.companyNumber}).`,
                   },
                 },
                 {

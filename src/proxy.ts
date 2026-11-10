@@ -32,10 +32,22 @@ const PUBLIC_PREFIXES = [
   "/api/companies-house",
   "/portal",
   "/forms",
+  // Crawlers must reach these without auth (Search Console / Googlebot).
+  "/sitemap.xml",
+  "/robots.txt",
 ];
 
 function isPublicPath(pathname: string) {
   if (pathname === "/") return true;
+  // Nested Next.js sitemap shards: /company/sitemap.xml, /company/sitemap/0.xml
+  if (
+    pathname === "/sitemap.xml" ||
+    pathname === "/robots.txt" ||
+    pathname.endsWith("/sitemap.xml") ||
+    /\/sitemap\/\d+\.xml$/.test(pathname)
+  ) {
+    return true;
+  }
   return PUBLIC_PREFIXES.some(
     (p) => p !== "/" && (pathname === p || pathname.startsWith(`${p}/`)),
   );
@@ -211,7 +223,9 @@ export default async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
+    // Skip static assets AND xml metadata routes (sitemap/robots) so crawlers
+    // never hit the auth gate.
+    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest|xml)).*)",
     "/(api|trpc)(.*)",
   ],
 };

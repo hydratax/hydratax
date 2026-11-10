@@ -9,7 +9,8 @@ import { PublicAuthLinks } from "@/components/public-auth-links";
 const SERVICES = [
   { label: "MTD VAT", href: "/pricing#vat" },
   { label: "Corporation Tax", href: "/pricing#ct600" },
-  { label: "Companies", href: "/companies" },
+  { label: "Companies House", href: "/companies-house" },
+  { label: "Companies directory", href: "/companies" },
   { label: "Confirmation Statement", href: "/companies-house/confirmation-statement" },
   { label: "Annual accounts", href: "/companies-house/accounts-ixbrl" },
   { label: "PAYE / RTI", href: "/pricing#payroll" },
@@ -18,12 +19,11 @@ const SERVICES = [
 
 const NAV_LINKS = [
   { href: "/pricing", label: "Pricing" },
-  { href: "/companies-house", label: "Companies House" },
   { href: "/blog", label: "Guides" },
 ] as const;
 
 /**
- * Shared public header: Services dropdown · Pricing · Companies House · Sign in · Sign up.
+ * Shared public header: Services dropdown · Pricing · Guides · Sign in · Sign up.
  * Mobile: hamburger only (auth links live inside the menu).
  */
 export function SiteHeader({

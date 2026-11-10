@@ -144,7 +144,7 @@ export function SaDirectorIncomeDesk({
   homeClientId: string;
   person: PracticeDirector;
   initialTaxpayer: SaTaxpayer;
-  /** Active SA tax year â€” company save refreshes this draft. */
+  /** Active SA tax year — company save refreshes this draft. */
   taxYear?: string;
 }) {
   const router = useRouter();
@@ -188,8 +188,8 @@ export function SaDirectorIncomeDesk({
           : null;
         setOk(
           name
-            ? `${name} saved â€” current Self Assessment draft updated.`
-            : "Income saved â€” current Self Assessment draft updated.",
+            ? `${name} saved — current Self Assessment draft updated.`
+            : "Income saved — current Self Assessment draft updated.",
         );
         router.refresh();
       } catch (e) {
@@ -204,18 +204,18 @@ export function SaDirectorIncomeDesk({
   return (
     <div className="space-y-6">
       <section className="space-y-3">
-        <div className="flex flex-wrap items-end justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="display text-2xl text-ink">Income by company</h3>
             <p className="mt-1 max-w-2xl text-xs text-ink-soft">
-              PAYE pay and tax fill in automatically when this personâ€™s NINO,
-              date of birth and address match an employee on that companyâ€™s
+              PAYE pay and tax fill in automatically when this person’s NINO,
+              date of birth and address match an employee on that company’s
               payroll. If any check fails, PAYE figures are left blank.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <p className="mono text-sm font-semibold text-sea">
-              Total Â£
+              Total £
               {totals.all.toLocaleString("en-GB", {
                 maximumFractionDigits: 0,
               })}
@@ -239,7 +239,7 @@ export function SaDirectorIncomeDesk({
                     const matched = result.pulls.filter((p) => p.matched).length;
                     setOk(
                       matched
-                        ? `Pulled PAYE for ${matched} compan${matched === 1 ? "y" : "ies"} â€” Self Assessment draft updated.`
+                        ? `Pulled PAYE for ${matched} compan${matched === 1 ? "y" : "ies"} — Self Assessment draft updated.`
                         : "No PAYE match (need matching NINO, date of birth and address on the employee).",
                     );
                     router.refresh();
@@ -251,7 +251,7 @@ export function SaDirectorIncomeDesk({
                 });
               }}
             >
-              {pending ? "Refreshingâ€¦" : "Refresh from PAYE"}
+              {pending ? "Refreshing…" : "Refresh from PAYE"}
             </button>
           </div>
         </div>
@@ -261,17 +261,17 @@ export function SaDirectorIncomeDesk({
           <Accordion
             key={c.clientId}
             title={c.companyName}
-            subtitle={`${c.companyNumber || "No company number"} Â· ${companyRoleLabel(c.role)}${
+            subtitle={`${c.companyNumber || "No company number"} · ${companyRoleLabel(c.role)}${
               pull?.matched
-                ? " Â· From PAYE"
+                ? " · From PAYE"
                 : pull && !pull.matched
-                  ? " Â· PAYE not matched"
+                  ? " · PAYE not matched"
                   : ""
             }`}
             trailing={
               <span className="flex items-center gap-3">
                 <span className="text-sm font-semibold text-sea">
-                  Â£
+                  £
                   {companyIncomeTotal(c).toLocaleString("en-GB", {
                     maximumFractionDigits: 0,
                   })}
@@ -286,7 +286,7 @@ export function SaDirectorIncomeDesk({
                     save(c.clientId);
                   }}
                 >
-                  {pending ? "Savingâ€¦" : "Save"}
+                  {pending ? "Saving…" : "Save"}
                 </button>
               </span>
             }
@@ -299,7 +299,7 @@ export function SaDirectorIncomeDesk({
               ) : null}
               {pull?.matched ? (
                 <p className="rounded-lg border border-sea/20 bg-sea/5 px-3 py-2 text-xs text-ink-soft">
-                  Employment pay and tax taken from this companyâ€™s PAYE for the
+                  Employment pay and tax taken from this company’s PAYE for the
                   current tax year (identity matched on NINO, date of birth and
                   address).
                 </p>
@@ -344,7 +344,7 @@ export function SaDirectorIncomeDesk({
                   />
                   <MoneyInput
                     label="Employment expenses (travel, subs, etc.)"
-                    box="17â€“20"
+                    box="17–20"
                     value={c.employmentExpenses ?? 0}
                     onChange={(n) =>
                       patchCompany(c.clientId, { employmentExpenses: n })
@@ -353,7 +353,7 @@ export function SaDirectorIncomeDesk({
                 </div>
                 {!isDirectorRole(c.role) ? (
                   <p className="mt-2 text-xs text-ink-soft">
-                    Shareholder only â€” leave pay blank unless they also had PAYE
+                    Shareholder only — leave pay blank unless they also had PAYE
                     from this company. Dividends still apply.
                   </p>
                 ) : null}
@@ -435,7 +435,7 @@ export function SaDirectorIncomeDesk({
                   disabled={pending}
                   onClick={() => save(c.clientId)}
                 >
-                  {pending ? "Savingâ€¦" : "Save company income"}
+                  {pending ? "Saving…" : "Save company income"}
                 </button>
               </div>
             </div>
