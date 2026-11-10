@@ -36,6 +36,7 @@ const COLUMNS = [
       { href: "/blog/hmrc-ct600-regulation-changes", label: "CT600 changes" },
       { href: "/support", label: "Support centre" },
       { href: "/feature-requests", label: "Feature requests" },
+      { href: "/book-demo", label: "Book a demo" },
       { href: "/contact", label: "Contact us" },
     ],
   },

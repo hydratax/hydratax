@@ -4,6 +4,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { isClerkConfigured } from "@/lib/env";
 import { defaultMetadata } from "@/lib/seo";
 import { NavPendingReset } from "@/components/nav-pending-reset";
+import { BookDemoFab } from "@/components/demo/book-demo-fab";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -66,6 +67,7 @@ export default function RootLayout({
       >
         <NavPendingReset />
         {children}
+        <BookDemoFab />
       </body>
     </html>
   );

@@ -89,6 +89,14 @@ export function PricingExplorer({
             House — compare options and checkout in one step. Practice &amp;
             Custom include a {PRACTICE_TRIAL.days}-day free trial.
           </p>
+          <p className="mt-5">
+            <a
+              href="/book-demo"
+              className="inline-flex rounded-lg border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
+            >
+              Book a demo
+            </a>
+          </p>
         </div>
       </section>
 

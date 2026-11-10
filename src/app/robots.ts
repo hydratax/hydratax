@@ -48,6 +48,7 @@ export default function robots(): MetadataRoute.Robots {
         disallow: DIRECTORY_PATHS,
       })),
     ],
+    // Both must return application/xml without an auth redirect.
     sitemap: [`${SITE}/sitemap.xml`, `${SITE}/company/sitemap.xml`],
     host: SITE,
   };

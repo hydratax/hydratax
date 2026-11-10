@@ -11,6 +11,8 @@ const PUBLIC_PREFIXES = [
   "/companies-house",
   "/support",
   "/feature-requests",
+  "/book-demo",
+  "/contact",
   "/checkout",
   "/create-account",
   "/quick-signup",

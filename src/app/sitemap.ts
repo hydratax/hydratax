@@ -23,11 +23,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/companies-house/confirmation-statement", priority: 0.85 },
     { path: "/companies-house/accounts-ixbrl", priority: 0.85 },
     { path: "/support", priority: 0.75 },
+    { path: "/book-demo", priority: 0.88 },
   ];
 
   const monthly = [
     "/companies-house/personal-code",
     "/feature-requests",
+    "/contact",
     "/create-account",
     "/terms",
     "/privacy",
