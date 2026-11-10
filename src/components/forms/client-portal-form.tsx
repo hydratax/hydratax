@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { updatePortalFromClient, uploadPortalPaper } from "@/server/actions/desk";
 import type { PortalRecord } from "@/lib/desk-profile";
+import { PortalSignPanel } from "@/components/forms/portal-sign-panel";
 
 function canOpen(url?: string) {
   return Boolean(
@@ -36,6 +37,8 @@ export function ClientPortalForm({
 
   return (
     <div className="space-y-8">
+      <PortalSignPanel token={token} initial={portal.signRequests ?? []} />
+
       {(packs.accounts || packs.ct600 || packs.vat) && (
         <section className="space-y-4 rounded-xl border border-sea/30 bg-sea/5 p-5">
           <h2 className="text-lg font-semibold">Drafts to review</h2>

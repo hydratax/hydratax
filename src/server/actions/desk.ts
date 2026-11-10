@@ -12,6 +12,7 @@ import {
   type JobStatus,
   type PortalApprovalPack,
   type PortalRecord,
+  type PortalSignRequest,
   type PortalUpload,
 } from "@/lib/desk-profile";
 import {
@@ -704,4 +705,209 @@ export async function updatePortalRequests(input: {
   );
   revalidateClient(input.clientId);
   return portal;
+}
+
+async function persistPortalOnly(
+  client: { id: string; deskProfile?: DeskProfile | null; practiceId?: string },
+  portal: PortalRecord,
+) {
+  if (isDemoMode()) {
+    const row = demoStore.clients.find((c) => c.id === client.id);
+    if (row) row.deskProfile = { ...(row.deskProfile ?? {}), portal };
+    return;
+  }
+  if (isSupabaseConfigured()) {
+    const { getSupabaseAdmin } = await import("@/lib/supabase");
+    const supabase = getSupabaseAdmin();
+    const next = { ...(client.deskProfile ?? {}), portal };
+    const { error } = await supabase
+      .from("clients")
+      .update({ desk_profile: next, updated_at: new Date().toISOString() })
+      .eq("id", client.id);
+    if (error) throw new Error(error.message);
+    return;
+  }
+  const { getDb, hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) throw new Error("Portal storage is not configured");
+  const { clients } = await import("@/server/db/schema");
+  const { eq } = await import("drizzle-orm");
+  await getDb()
+    .update(clients)
+    .set({
+      deskProfile: { ...(client.deskProfile ?? {}), portal },
+      updatedAt: new Date(),
+    })
+    .where(eq(clients.id, client.id));
+}
+
+/** Accountant: send a HydraSign request to the client portal. */
+export async function createPortalSignRequest(input: {
+  clientId: string;
+  title: string;
+  message?: string;
+  documentId?: string;
+}) {
+  const session = await requireSession();
+  if (session.role === "readonly") throw new Error("Forbidden");
+  const client = await getClient(input.clientId);
+  if (!client) throw new Error("Client not found");
+  let portal = client.deskProfile?.portal;
+  if (!portal?.token) portal = await ensurePortal(input.clientId);
+
+  let documentUrl: string | undefined;
+  let filename: string | undefined;
+  if (input.documentId) {
+    const { listClientDocuments } = await import("@/server/actions/documents");
+    const docs = await listClientDocuments(input.clientId);
+    const doc = docs.find((d) => d.id === input.documentId);
+    if (!doc) throw new Error("Choose a document from this client’s file.");
+    documentUrl = doc.blobUrl;
+    filename = doc.filename;
+  }
+
+  const title = input.title.trim();
+  if (title.length < 3) throw new Error("Enter a title for the signature request");
+
+  const req: PortalSignRequest = {
+    id: crypto.randomUUID(),
+    title,
+    message:
+      input.message?.trim() ||
+      "Please review and sign below. Your signature is recorded on this client link.",
+    documentId: input.documentId,
+    documentUrl,
+    filename,
+    status: "pending",
+    createdAt: new Date().toISOString(),
+  };
+
+  const nextPortal: PortalRecord = {
+    ...portal,
+    signRequests: [...(portal.signRequests ?? []), req],
+  };
+
+  await writeProfile(
+    input.clientId,
+    mergeProfile(client.deskProfile, { portal: nextPortal }),
+  );
+
+  const { appendAuditEvent } = await import("@/server/audit/log");
+  await appendAuditEvent({
+    practiceId: session.practiceId,
+    clientId: input.clientId,
+    actorId: session.userId,
+    action: "portal.sign_request_created",
+    entityType: "portal_sign",
+    entityId: req.id,
+    detail: { title: req.title, filename },
+  }).catch(() => undefined);
+
+  // Best-effort email to client contact
+  const to = client.contactEmail?.trim();
+  if (to) {
+    try {
+      const { sendTransactionalEmail } = await import(
+        "@/server/email/transactional"
+      );
+      const { getEnv } = await import("@/lib/env");
+      const appUrl = getEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+      const link = `${appUrl}/portal/${nextPortal.token}`;
+      await sendTransactionalEmail({
+        to,
+        subject: `Please sign: ${req.title}`,
+        text: `Hi,\n\nYour accountant has asked you to sign “${req.title}” on HydraTax.\n\nOpen your client link to review and sign:\n${link}\n\n— HydraTax\n`,
+        html: `<p>Your accountant has asked you to sign <strong>${req.title}</strong>.</p><p><a href="${link}">Open your client link to sign</a></p>`,
+      });
+    } catch {
+      // non-fatal
+    }
+  }
+
+  revalidateClient(input.clientId);
+  return nextPortal;
+}
+
+/** Client: complete a HydraSign request from the public portal. */
+export async function completePortalSignRequest(input: {
+  token: string;
+  signRequestId: string;
+  typedName: string;
+  signatureDataUrl?: string;
+  decline?: boolean;
+}) {
+  const client = await findClientByPortalToken(input.token);
+  if (!client?.deskProfile?.portal) {
+    return { ok: false as const, error: "Link not found" };
+  }
+  const portal = { ...client.deskProfile.portal };
+  const list = [...(portal.signRequests ?? [])];
+  const idx = list.findIndex((r) => r.id === input.signRequestId);
+  if (idx < 0) return { ok: false as const, error: "Signature request not found" };
+  const current = list[idx]!;
+  if (current.status !== "pending") {
+    return { ok: false as const, error: "This request is already closed" };
+  }
+
+  const now = new Date().toISOString();
+  if (input.decline) {
+    list[idx] = {
+      ...current,
+      status: "declined",
+      declinedAt: now,
+      typedName: input.typedName.trim() || undefined,
+    };
+  } else {
+    const typed = input.typedName.trim();
+    if (typed.length < 2) {
+      return { ok: false as const, error: "Type your full name to sign" };
+    }
+    const sig = input.signatureDataUrl?.trim();
+    if (sig && !sig.startsWith("data:image/")) {
+      return { ok: false as const, error: "Invalid signature image" };
+    }
+    if (sig && sig.length > 400_000) {
+      return { ok: false as const, error: "Signature image is too large" };
+    }
+    const { headers } = await import("next/headers");
+    const h = await headers();
+    list[idx] = {
+      ...current,
+      status: "signed",
+      signedAt: now,
+      typedName: typed,
+      signerName: typed,
+      signatureDataUrl: sig || undefined,
+      ip:
+        h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+        h.get("x-real-ip") ||
+        undefined,
+      userAgent: h.get("user-agent")?.slice(0, 300) || undefined,
+    };
+  }
+
+  portal.signRequests = list;
+  try {
+    await persistPortalOnly(client, portal);
+  } catch (err) {
+    return {
+      ok: false as const,
+      error: err instanceof Error ? err.message : "Could not save signature",
+    };
+  }
+
+  const { appendAuditEvent } = await import("@/server/audit/log");
+  await appendAuditEvent({
+    practiceId:
+      "practiceId" in client && client.practiceId
+        ? String(client.practiceId)
+        : null,
+    clientId: client.id,
+    actorId: "client-portal",
+    action: input.decline ? "portal.sign_declined" : "portal.sign_completed",
+    entityType: "portal_sign",
+    entityId: input.signRequestId,
+    detail: { title: current.title },
+  }).catch(() => undefined);
+
+  return { ok: true as const, request: list[idx]! };
 }

@@ -67,6 +67,26 @@ export type PortalApprovalPack = {
   sentAt: string;
 };
 
+/** HydraSign — lightweight e-sign on the client portal (no third-party vendor). */
+export type PortalSignRequest = {
+  id: string;
+  title: string;
+  message?: string;
+  documentId?: string;
+  documentUrl?: string;
+  filename?: string;
+  status: "pending" | "signed" | "declined";
+  createdAt: string;
+  signedAt?: string;
+  declinedAt?: string;
+  signerName?: string;
+  /** Drawn signature as PNG data URL, or empty when typed-only */
+  signatureDataUrl?: string;
+  typedName?: string;
+  ip?: string;
+  userAgent?: string;
+};
+
 export type PortalRecord = {
   token: string;
   requests: PortalRequest[];
@@ -83,6 +103,8 @@ export type PortalRecord = {
     ct600?: PortalApprovalPack;
     vat?: PortalApprovalPack;
   };
+  /** Documents / engagement letters awaiting client signature */
+  signRequests?: PortalSignRequest[];
 };
 
 export function portalApprovalMissing(

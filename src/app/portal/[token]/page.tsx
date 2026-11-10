@@ -27,8 +27,8 @@ export default async function PublicPortalPage({
       <h1 className="display mt-2 text-3xl text-ink">{client.name}</h1>
       <p className="mt-2 text-sm text-ink-soft">
         Upload the papers your accountant asked for, open any drafts they have
-        shared, and approve filings when ready. This page does not submit
-        anything to HMRC or Companies House.
+        shared, sign with HydraSign when asked, and approve filings when ready.
+        This page does not submit anything to HMRC or Companies House.
       </p>
       <div className="mt-8">
         <ClientPortalForm
