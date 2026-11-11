@@ -13,6 +13,8 @@ import {
   type BankCategory,
 } from "@/server/bank/categorise";
 import { parseBankStatementFile } from "@/server/bank/parse-statement-file";
+import { parseUkStatementText } from "@/server/bank/parse-uk-statement-text";
+import { parseBankCsv } from "@/server/bank/categorise";
 import { summariseForYearEndAccounts } from "@/server/accounts/year-end-from-bank";
 import { enrichAccountsDraftFromLedger } from "@/server/accounts/enrich-accounts-from-ledger";
 import { emptyBankLedger } from "@/lib/bank-ledger";
@@ -108,6 +110,199 @@ function dedupeImportLines(lines: CategorisedLine[]): CategorisedLine[] {
     out.push(line);
   }
   return out;
+}
+
+export type ConvertedBankLine = {
+  dated: string;
+  description: string;
+  amountPence: number;
+  category: string;
+  confidence: "high" | "medium" | "low";
+};
+
+/**
+ * Convert extracted statement text → transaction rows (preview / CSV).
+ * Does not write to the client ledger unless the caller also saves.
+ */
+export async function convertBankStatementText(input: {
+  text: string;
+  source?: "pdf" | "ocr" | "csv";
+}): Promise<
+  | {
+      ok: true;
+      lines: ConvertedBankLine[];
+      bankHint: string | null;
+      message: string;
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    await requireSession();
+    const text = String(input.text ?? "").trim();
+    if (!text) {
+      return {
+        ok: false,
+        error:
+          "No text could be read from that statement. Try a clearer scan or the bank CSV/Excel export.",
+      };
+    }
+
+    let lines: CategorisedLine[];
+    let bankHint: string | null = null;
+    if (input.source === "csv") {
+      lines = parseBankCsv(text);
+    } else {
+      const parsed = parseUkStatementText(text);
+      lines = parsed.lines;
+      bankHint = parsed.meta.bankHint;
+    }
+
+    const session = await requireSession();
+    const { applyIdentifierRules } = await import(
+      "@/server/bank/merchant-identifiers"
+    );
+    lines = await applyIdentifierRules(lines, session.practiceId);
+    lines = dedupeImportLines(lines);
+
+    if (!lines.length) {
+      return {
+        ok: false,
+        error:
+          "No transactions could be read from that statement. Check the preview text, or use the bank’s CSV/Excel export.",
+      };
+    }
+
+    return {
+      ok: true,
+      lines,
+      bankHint,
+      message: `Converted ${lines.length} transaction${lines.length === 1 ? "" : "s"}${bankHint ? ` (${bankHint})` : ""}. Download CSV or save to this client’s books.`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error ? err.message : "Could not convert that statement.",
+    };
+  }
+}
+
+/** Persist already-converted lines (from the converter preview) onto the client. */
+export async function importBankConvertedLines(input: {
+  clientId: string;
+  lines: ConvertedBankLine[];
+  filename?: string;
+  source?: "pdf" | "ocr" | "csv" | "spreadsheet";
+}): Promise<BankImportResult> {
+  try {
+    const session = await requireSession();
+    if (session.role === "readonly") {
+      return { ok: false, error: "You do not have permission to import bank data." };
+    }
+    await getClient(input.clientId);
+    let lines = dedupeImportLines(input.lines as CategorisedLine[]);
+    if (!lines.length) {
+      return { ok: false, error: "No transactions to save." };
+    }
+    const { applyIdentifierRules } = await import(
+      "@/server/bank/merchant-identifiers"
+    );
+    lines = await applyIdentifierRules(lines, session.practiceId);
+    lines = dedupeImportLines(lines);
+
+    const parseSource = input.source ?? "pdf";
+    const clientId = input.clientId;
+
+    if (isMemoryStore()) {
+      memoryStore.bankTransactions = memoryStore.bankTransactions.filter(
+        (t) => t.clientId !== clientId,
+      );
+      for (const line of lines) {
+        memoryStore.bankTransactions.push({
+          id: crypto.randomUUID(),
+          clientId,
+          practiceId: session.practiceId,
+          ...line,
+          source: parseSource,
+          createdAt: new Date().toISOString(),
+        });
+      }
+    } else if (isDeskStoreConfigured()) {
+      await deskReplaceBankTransactions(
+        clientId,
+        lines.map((line) => ({
+          client_id: clientId,
+          dated: line.dated,
+          description: line.description,
+          amount_pence: line.amountPence,
+          category: line.category,
+        })),
+      );
+    } else {
+      const { getDb, hasDatabase } = await import("@/server/db");
+      if (!hasDatabase()) {
+        return {
+          ok: false,
+          error:
+            "Bank storage is not configured. Contact support if this persists.",
+        };
+      }
+      const { bankTransactions } = await import("@/server/db/schema");
+      const { eq } = await import("drizzle-orm");
+      await getDb()
+        .delete(bankTransactions)
+        .where(eq(bankTransactions.clientId, clientId));
+      const mapped = lines.map((line) => ({
+        practiceId: session.practiceId,
+        clientId,
+        dated: line.dated,
+        description: line.description,
+        amountPence: line.amountPence,
+        category: line.category,
+        confidence: line.confidence,
+        source: parseSource,
+      }));
+      for (let i = 0; i < mapped.length; i += 100) {
+        await getDb()
+          .insert(bankTransactions)
+          .values(mapped.slice(i, i + 100));
+      }
+    }
+
+    await appendAuditEvent({
+      practiceId: session.practiceId,
+      clientId,
+      actorId: session.userId,
+      action: "bank.statement.imported",
+      entityType: "bank_transaction",
+      entityId: clientId,
+      detail: {
+        count: lines.length,
+        filename: input.filename,
+        source: parseSource,
+        via: "converter",
+      },
+    });
+
+    revalidatePath(`/clients/${clientId}/bank`);
+    revalidatePath(`/clients/${clientId}/documents`);
+    revalidatePath(`/clients/${clientId}/self-assessment`);
+    revalidatePath(`/clients/${clientId}/corporation-tax`);
+    revalidatePath(`/clients/${clientId}/accounts-pack`);
+
+    return {
+      ok: true,
+      lines,
+      pdfStored: parseSource === "pdf" || parseSource === "ocr",
+      message: `Saved ${lines.length} transactions to this client’s books. Download CSV/Excel below, or continue to year-end.`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error ? err.message : "Could not save converted lines.",
+    };
+  }
 }
 
 export async function importBankCsv(formData: FormData): Promise<BankImportResult> {

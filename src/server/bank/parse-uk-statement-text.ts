@@ -26,9 +26,10 @@ export type ParseUkStatementResult = {
 const SKIP_LINE =
   /^(opening balance|closing balance|balance (brought|carried) forward|total|continued|page \d|statement (period|date)|account (number|name)|sort code|iban|bic|available balance|money in|money out|payments? (in|out)|transaction(s)?|date\s+description|your (transactions|statement))/i;
 
-const DATE_DMY = /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/;
+const DATE_DMY = /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/;
 const DATE_DMY_SPACE = /(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{2,4})/i;
-const MONEY = /£?\s*-?\(?\d{1,3}(?:,\d{3})*(?:\.\d{2})\)?|£?\s*-?\d+(?:\.\d{2})/;
+const MONEY =
+  /£?\s*-?\(?\d{1,3}(?:,\d{3})*(?:\.\d{2})\)?(?:\s*(?:CR|DR))?|£?\s*-?\d+(?:\.\d{2})(?:\s*(?:CR|DR))?/i;
 
 function detectBank(text: string): string | null {
   const head = text.slice(0, 2500);
@@ -79,7 +80,14 @@ function parseDatedLine(line: string): {
   description: string;
   amountPence: number;
 } | null {
-  const trimmed = line.replace(/\s+/g, " ").trim();
+  const hasCreditMarker = /\bCR\b/i.test(line);
+  const hasDebitMarker = /\bDR\b/i.test(line);
+  const trimmed = line
+    .replace(/\s+/g, " ")
+    // Strip markers after noting them; sign applied below.
+    .replace(/\b(\d+(?:\.\d{2})?)\s*CR\b/gi, "$1")
+    .replace(/\b(\d+(?:\.\d{2})?)\s*DR\b/gi, "$1")
+    .trim();
   if (!trimmed || SKIP_LINE.test(trimmed)) return null;
 
   let rest = trimmed;
@@ -87,13 +95,22 @@ function parseDatedLine(line: string): {
 
   const dmy = trimmed.match(new RegExp(`^${DATE_DMY.source}`));
   if (dmy) {
-    dated = toIsoDate(dmy[0]);
+    dated = toIsoDate(dmy[0].replace(/\./g, "/"));
     rest = trimmed.slice(dmy[0].length).trim();
   } else {
     const spaced = trimmed.match(new RegExp(`^${DATE_DMY_SPACE.source}`));
     if (spaced) {
       dated = toIsoDate(`${spaced[1]} ${spaced[2]} ${spaced[3]}`);
       rest = trimmed.slice(spaced[0].length).trim();
+    } else {
+      // Some PDF row rebuilds put a leading balance or code before the date.
+      const embDmy = trimmed.match(DATE_DMY);
+      const embSpaced = trimmed.match(DATE_DMY_SPACE);
+      const hit = embDmy ?? embSpaced;
+      if (hit && hit.index != null && hit.index < 24) {
+        dated = toIsoDate(hit[0].replace(/\./g, "/"));
+        rest = `${trimmed.slice(0, hit.index)} ${trimmed.slice(hit.index + hit[0].length)}`.trim();
+      }
     }
   }
   if (!dated) return null;
@@ -122,10 +139,13 @@ function parseDatedLine(line: string): {
 
   const money = moneyAtEnd(rest);
   if (!money || !money.description) return null;
+  let amountPence = money.amountPence;
+  if (hasCreditMarker && !hasDebitMarker) amountPence = Math.abs(amountPence);
+  else if (hasDebitMarker && !hasCreditMarker) amountPence = -Math.abs(amountPence);
   return {
     dated,
     description: money.description,
-    amountPence: money.amountPence,
+    amountPence,
   };
 }
 
@@ -158,14 +178,14 @@ function signFromContext(
 
   const d = description.toLowerCase();
   if (
-    /\b(deposit|credit|salary|wages|payroll|refund|interest received|faster payments?\s*in|fp in|money in|receipt|incoming)\b/.test(
+    /\b(deposit|credit|salary|wages|payroll|refund|interest received|faster payments?\s*(in|from)|fp in|money in|receipt|incoming|payment from)\b/.test(
       d,
     )
   ) {
     return Math.abs(amountPence);
   }
   if (
-    /\b(payment|card|dd|direct debit|standing order|withdrawal|fee|charge|purchase|pos|contactless|petrol|fuel|diesel)\b/.test(
+    /\b(payment(?!\s+from)|card|dd|direct debit|standing order|withdrawal|fee|charge|purchase|pos|contactless|petrol|fuel|diesel)\b/.test(
       d,
     )
   ) {

@@ -3,9 +3,12 @@
 import { useRef, useState, useTransition } from "react";
 import {
   clearBankTransactions,
+  convertBankStatementText,
   dedupeBankTransactions,
+  importBankConvertedLines,
   importBankCsv,
   requestBankConnect,
+  type ConvertedBankLine,
 } from "@/server/actions/bank";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -15,6 +18,7 @@ import { BankCategorisedView } from "@/components/forms/bank-categorised-view";
 import { BankYearEndDesk } from "@/components/forms/bank-year-end-desk";
 import { recategoriseBankTransactions } from "@/server/actions/bank-recategorise";
 import { downloadBankCsv, downloadBankXlsx } from "@/lib/bank-export";
+import { extractStatementInBrowser } from "@/lib/bank/extract-statement-browser";
 import type { BankLedger, LivePlSummary } from "@/lib/bank-ledger";
 
 type Tx = {
@@ -87,6 +91,11 @@ export function BankWorkspace({
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [chosenFile, setChosenFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<ConvertedBankLine[] | null>(null);
+  const [previewSource, setPreviewSource] = useState<
+    "pdf" | "ocr" | "csv" | "spreadsheet" | null
+  >(null);
   const [pending, start] = useTransition();
 
   function gbp(pence: number) {
@@ -98,6 +107,87 @@ export function BankWorkspace({
 
   const hasTransactions = transactions.length > 0;
 
+  function runConvert() {
+    setErr(null);
+    setMsg(null);
+    setPreview(null);
+    const file = chosenFile ?? fileInputRef.current?.files?.[0] ?? null;
+    if (!file) {
+      setErr("Choose a bank statement file to convert.");
+      return;
+    }
+    start(async () => {
+      try {
+        const name = file.name.toLowerCase();
+        const isSheet =
+          name.endsWith(".xlsx") ||
+          name.endsWith(".xls") ||
+          file.type.includes("spreadsheet") ||
+          file.type.includes("excel");
+
+        // Spreadsheets stay on the server parser (xlsx).
+        if (isSheet) {
+          const fd = new FormData();
+          fd.set("clientId", clientId);
+          fd.set("file", file);
+          const res = await importBankCsv(fd);
+          if (!res.ok) {
+            setErr(res.error);
+            return;
+          }
+          setMsg(res.message);
+          setChosenFile(null);
+          setFileName(null);
+          formRef.current?.reset();
+          router.refresh();
+          document
+            .getElementById("categorised-transactions")
+            ?.scrollIntoView({ behavior: "smooth" });
+          return;
+        }
+
+        const extracted = await extractStatementInBrowser(file);
+        if (extracted.method === "spreadsheet") {
+          setErr("Could not read that spreadsheet. Try CSV export from the bank.");
+          return;
+        }
+        const converted = await convertBankStatementText({
+          text: extracted.text,
+          source: extracted.method === "csv" ? "csv" : extracted.method,
+        });
+        if (!converted.ok) {
+          setErr(
+            extracted.warning
+              ? `${converted.error} ${extracted.warning}`
+              : converted.error,
+          );
+          return;
+        }
+        setPreview(converted.lines);
+        setPreviewSource(
+          extracted.method === "csv"
+            ? "csv"
+            : extracted.method === "ocr"
+              ? "ocr"
+              : "pdf",
+        );
+        setMsg(
+          extracted.warning
+            ? `${converted.message} ${extracted.warning}`
+            : converted.message,
+        );
+        // Preview mounts after this transition tick — scroll once it's in the DOM.
+        queuePromise.resolve().then(() => {
+          document
+            .getElementById("statement-convert-preview")
+            ?.scrollIntoView({ behavior: "smooth" });
+        });
+      } catch (error) {
+        setErr(messageFromUnknown(error, "Conversion failed"));
+      }
+    });
+  }
+
   return (
     <div className="space-y-6">
       <div className="grid gap-4 lg:grid-cols-2">
@@ -106,49 +196,28 @@ export function BankWorkspace({
           className="panel gloss-card space-y-3 p-5"
           onSubmit={(e) => {
             e.preventDefault();
-            setErr(null);
-            setMsg(null);
-            const fd = new FormData(e.currentTarget);
-            fd.set("clientId", clientId);
-            start(async () => {
-              try {
-                const res = await importBankCsv(fd);
-                if (!res.ok) {
-                  setErr(res.error);
-                  return;
-                }
-                setMsg(res.message);
-                setFileName(null);
-                formRef.current?.reset();
-                router.refresh();
-                document
-                  .getElementById("categorised-transactions")
-                  ?.scrollIntoView({ behavior: "smooth" });
-              } catch (error) {
-                setErr(messageFromUnknown(error, "Import failed"));
-              }
-            });
+            runConvert();
           }}
         >
-          <h3 className="display text-xl text-ink">Upload bank statement</h3>
+          <h3 className="display text-xl text-ink">Convert bank statement</h3>
           <p className="text-sm text-ink-soft">
-            CSV, Excel, PDF, or a photo of a UK statement. We extract lines,
-            auto-allocate known merchants to heads (fuel, insurance, salaries…),
-            and leave unknowns under Expense queries for client confirmation.
-            Re-uploading replaces the previous lines.
+            Like an online PDF→CSV converter: extract transactions from CSV,
+            Excel, PDF, or a photo. Preview and download CSV first — then save
+            to this client’s books if you want them for accounts.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <input
               ref={fileInputRef}
               type="file"
               name="file"
-              required
               accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,text/csv,application/pdf,image/png,image/jpeg,image/webp,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               capture="environment"
               className="sr-only"
               onChange={(e) => {
-                const file = e.target.files?.[0];
+                const file = e.target.files?.[0] ?? null;
+                setChosenFile(file);
                 setFileName(file?.name ?? null);
+                setPreview(null);
               }}
             />
             <button
@@ -165,7 +234,7 @@ export function BankWorkspace({
           <FormErrorBanner error={err} />
           {msg && <p className="text-sm text-ok">{msg}</p>}
           <button type="submit" disabled={pending} className="btn btn-primary">
-            {pending ? "Scanning & categorising…" : "Import & categorise"}
+            {pending ? "Converting…" : "Convert to transactions"}
           </button>
         </form>
 
@@ -193,6 +262,122 @@ export function BankWorkspace({
           </button>
         </div>
       </div>
+
+      {preview && preview.length > 0 ? (
+        <div
+          id="statement-convert-preview"
+          className="panel space-y-4 border-sea/30 p-5"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="display text-xl text-ink">Converted transactions</h3>
+              <p className="mt-1 text-sm text-ink-soft">
+                {preview.length} lines ready. Download CSV now, or save into this
+                client’s books for categorisation and year-end.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary text-sm"
+                onClick={() =>
+                  downloadBankCsv(
+                    preview,
+                    `${(fileName ?? "statement").replace(/\.[^.]+$/, "")}-converted.csv`,
+                  )
+                }
+              >
+                Download CSV
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary text-sm"
+                onClick={() =>
+                  downloadBankXlsx(
+                    preview,
+                    `${(fileName ?? "statement").replace(/\.[^.]+$/, "")}-converted.xlsx`,
+                  )
+                }
+              >
+                Download Excel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary text-sm"
+                disabled={pending}
+                onClick={() =>
+                  start(async () => {
+                    setErr(null);
+                    try {
+                      const res = await importBankConvertedLines({
+                        clientId,
+                        lines: preview,
+                        filename: fileName ?? undefined,
+                        source: previewSource ?? "pdf",
+                      });
+                      if (!res.ok) {
+                        setErr(res.error);
+                        return;
+                      }
+                      setMsg(res.message);
+                      setPreview(null);
+                      setChosenFile(null);
+                      setFileName(null);
+                      formRef.current?.reset();
+                      router.refresh();
+                      document
+                        .getElementById("categorised-transactions")
+                        ?.scrollIntoView({ behavior: "smooth" });
+                    } catch (error) {
+                      setErr(
+                        messageFromUnknown(error, "Could not save to books"),
+                      );
+                    }
+                  })
+                }
+              >
+                {pending ? "Saving…" : "Save to books"}
+              </button>
+            </div>
+          </div>
+          <div className="max-h-80 overflow-auto rounded-lg border border-line">
+            <table className="w-full min-w-[520px] text-left text-sm">
+              <thead className="sticky top-0 bg-sand/90 text-xs uppercase tracking-wide text-ink-soft">
+                <tr>
+                  <th className="px-3 py-2 font-semibold">Date</th>
+                  <th className="px-3 py-2 font-semibold">Description</th>
+                  <th className="px-3 py-2 text-right font-semibold">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.slice(0, 80).map((line, i) => (
+                  <tr
+                    key={`${line.dated}-${line.description}-${i}`}
+                    className="border-t border-line/70"
+                  >
+                    <td className="mono whitespace-nowrap px-3 py-1.5 text-ink-soft">
+                      {line.dated}
+                    </td>
+                    <td className="px-3 py-1.5 text-ink">{line.description}</td>
+                    <td
+                      className={`mono whitespace-nowrap px-3 py-1.5 text-right ${
+                        line.amountPence < 0 ? "text-danger" : "text-ok"
+                      }`}
+                    >
+                      {gbp(line.amountPence)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {preview.length > 80 ? (
+              <p className="border-t border-line px-3 py-2 text-xs text-ink-soft">
+                Showing first 80 of {preview.length} — full file in CSV download.
+              </p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <div className="panel p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">

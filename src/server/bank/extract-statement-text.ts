@@ -1,7 +1,10 @@
 /**
  * Extract plain text from UK bank statement PDFs (digital) or photos (OCR).
- * Digital PDFs use unpdf (PDF.js). Scanned PDFs/images fall back to Tesseract.js.
+ * Digital PDFs: prefer PDF.js text items rebuilt into rows (statement layout).
+ * Scanned PDFs: return a clear warning — browser OCR handles those for converters.
  */
+
+import { linesFromPdfTextItems } from "@/lib/bank/pdf-text-items-to-lines";
 
 export type ExtractedStatementText = {
   text: string;
@@ -12,9 +15,60 @@ export type ExtractedStatementText = {
 
 const MIN_USEFUL_CHARS = 80;
 
+function tidyExtractedText(raw: string): string {
+  return raw
+    .replace(/\r\n/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+async function extractWithPdfJs(data: Uint8Array): Promise<{
+  text: string;
+  pageCount: number;
+} | null> {
+  try {
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const doc = await pdfjs.getDocument({ data, useSystemFonts: true }).promise;
+    const pageCount = doc.numPages;
+    const chunks: string[] = [];
+    for (let i = 1; i <= pageCount; i += 1) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      const items = (
+        content.items as Array<{ str?: string; transform?: number[] }>
+      )
+        .filter((it) => typeof it.str === "string" && Array.isArray(it.transform))
+        .map((it) => ({
+          str: it.str!,
+          transform: it.transform as number[],
+        }));
+      const pageText = linesFromPdfTextItems(items);
+      if (pageText) chunks.push(pageText);
+    }
+    await doc.destroy();
+    return { text: tidyExtractedText(chunks.join("\n")), pageCount };
+  } catch {
+    return null;
+  }
+}
+
 export async function extractTextFromPdf(
   data: Uint8Array,
 ): Promise<ExtractedStatementText> {
+  const viaPdfJs = await extractWithPdfJs(data);
+  if (
+    viaPdfJs &&
+    viaPdfJs.text.replace(/\s+/g, "").length >= MIN_USEFUL_CHARS
+  ) {
+    return {
+      text: viaPdfJs.text,
+      method: "pdf_text",
+      pageCount: viaPdfJs.pageCount,
+    };
+  }
+
   const { extractText, getDocumentProxy } = await import("unpdf");
   const pdf = await getDocumentProxy(data);
   const { totalPages, text } = await extractText(pdf, { mergePages: true });
@@ -25,16 +79,19 @@ export async function extractTextFromPdf(
     return { text: cleaned, method: "pdf_text", pageCount: totalPages };
   }
 
-  // Likely a scan / image-only PDF — OCR each rendered page would need canvas.
-  // Fall through with a clear warning; caller may still try OCR on uploaded photos.
+  const best =
+    (viaPdfJs?.text.length ?? 0) >= cleaned.length
+      ? viaPdfJs?.text ?? cleaned
+      : cleaned;
+
   return {
-    text: cleaned,
+    text: best,
     method: "pdf_text",
-    pageCount: totalPages,
+    pageCount: viaPdfJs?.pageCount ?? totalPages,
     warning:
-      cleaned.trim().length === 0
-        ? "This PDF has little extractable text (likely a scan). Upload a photo/PNG of the pages, or the bank’s CSV/Excel export."
-        : "Only a small amount of text was found in the PDF. If lines are missing, try a clearer photo or the bank CSV export.",
+      best.trim().length === 0
+        ? "This PDF has little extractable text (likely a scan). Use Convert on the bank desk — the browser will OCR scanned pages — or upload the bank’s CSV/Excel export."
+        : "Only a small amount of text was found in the PDF. Use Convert for browser OCR, or the bank CSV export.",
   };
 }
 
@@ -46,7 +103,6 @@ export async function extractTextFromImage(
   const worker = await createWorker("eng");
   try {
     void mimeType;
-    // tesseract ImageLike expects Buffer — copy off the Uint8Array view.
     const result = await worker.recognize(Buffer.from(data));
     const cleaned = tidyExtractedText(result.data.text ?? "");
     return {
@@ -61,13 +117,4 @@ export async function extractTextFromImage(
   } finally {
     await worker.terminate();
   }
-}
-
-function tidyExtractedText(raw: string): string {
-  return raw
-    .replace(/\r\n/g, "\n")
-    .replace(/\u00a0/g, " ")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }

@@ -53,4 +53,15 @@ Page 1 of 2
     expect(lines).toHaveLength(1);
     expect(lines[0].description).toMatch(/pret/i);
   });
+
+  it("parses dotted dates and CR/DR markers", () => {
+    const text = `
+20.10.2023 CARD PAYMENT TESCO 12.40 DR
+21.10.2023 FASTER PAYMENT FROM CLIENT 500.00 CR
+`;
+    const { lines } = parseUkStatementText(text);
+    expect(lines.some((l) => l.dated === "2023-10-20")).toBe(true);
+    const credit = lines.find((l) => /client/i.test(l.description));
+    expect(credit?.amountPence).toBeGreaterThan(0);
+  });
 });

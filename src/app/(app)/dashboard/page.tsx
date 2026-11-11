@@ -9,57 +9,19 @@ import { moduleLabel, type ServiceModule } from "@/lib/entitlements";
 import { displayPracticeName } from "@/lib/practice-name";
 import { clientSlugFor } from "@/lib/client-slug";
 
-type ClientRow = Awaited<ReturnType<typeof listClients>>[number];
-
-function slugFor(
-  client: ClientRow,
-  peers: { id: string; name: string }[],
-) {
-  return clientSlugFor({ id: client.id, name: client.name }, peers);
-}
-
-function firstHref(
-  clients: ClientRow[],
-  peers: { id: string; name: string }[],
-  match: (c: ClientRow) => boolean,
-  path: string,
-  fallback: string,
-) {
-  const hit = clients.find(match);
-  if (!hit) return fallback;
-  return `/clients/${slugFor(hit, peers)}${path}`;
-}
-
-function buildRailLinks(
-  clients: ClientRow[],
-  peers: { id: string; name: string }[],
-): {
+function buildRailLinks(): {
   module: ServiceModule;
   title: string;
   href: string;
   blurb: string;
 }[] {
-  const firstVat = firstHref(
-    clients,
-    peers,
-    (c) => c.isVatRegistered || Boolean(c.vrn?.trim()),
-    "/vat",
-    "/clients?desk=vat",
-  );
-  const firstPayroll = firstHref(
-    clients,
-    peers,
-    (c) => c.isEmployer || Boolean(c.payeRef?.trim()),
-    "/payroll",
-    "/clients?desk=payroll",
-  );
-
+  /** Always the desk list — never deep-link into one client's return. */
   return [
     {
       module: "vat",
       title: "MTD VAT",
-      href: firstVat,
-      blurb: "Obligations & submit",
+      href: "/clients?desk=vat",
+      blurb: "VAT clients · then file",
     },
     {
       module: "corporation_tax",
@@ -76,8 +38,8 @@ function buildRailLinks(
     {
       module: "payroll",
       title: "PAYE / RTI",
-      href: firstPayroll,
-      blurb: "FPS & EPS",
+      href: "/clients?desk=payroll",
+      blurb: "Employers · FPS & EPS",
     },
   ];
 }
@@ -89,7 +51,7 @@ export default async function DashboardPage() {
   const hmrc = await getHmrcEnvInfo();
   const entitlements = await getPracticeEntitlements();
   const unlocked = new Set(entitlements.modules);
-  const railLinks = buildRailLinks(clients, peers);
+  const railLinks = buildRailLinks();
 
   const { listPracticeDirectors } = await import(
     "@/server/actions/sa-directors"
