@@ -3,9 +3,17 @@ import { listClients } from "@/server/actions/clients";
 import { requireSession } from "@/server/auth/session";
 import { buildPracticeFilings } from "@/lib/practice-filings";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
+import type { FilingUrgency } from "@/lib/filing-due";
 
 export const metadata = {
   title: "Corporation Tax — HydraTax",
+};
+
+const URGENCY_RANK: Record<FilingUrgency, number> = {
+  overdue: 0,
+  due_soon: 1,
+  upcoming: 2,
+  unknown: 3,
 };
 
 export default async function CorporationTaxListPage() {
@@ -24,6 +32,59 @@ export default async function CorporationTaxListPage() {
     })),
   ).filter((r) => r.kind === "corporation_tax");
 
+  /** One presentation card per company — periods live on the CT600 desk. */
+  const byCompany = new Map<
+    string,
+    {
+      clientId: string;
+      companyName: string;
+      companyNumber: string | null;
+      periodCount: number;
+      nextDueLabel: string;
+      daysLabel: string;
+      urgency: FilingUrgency;
+      href: string;
+    }
+  >();
+
+  for (const row of rows) {
+    const existing = byCompany.get(row.clientId);
+    if (!existing) {
+      byCompany.set(row.clientId, {
+        clientId: row.clientId,
+        companyName: row.companyName,
+        companyNumber: row.companyNumber,
+        periodCount: 1,
+        nextDueLabel: row.deadlineLabel,
+        daysLabel: row.daysLabel,
+        urgency: row.urgency,
+        href: `/clients/${row.clientId}/corporation-tax`,
+      });
+      continue;
+    }
+    existing.periodCount += 1;
+    if (URGENCY_RANK[row.urgency] < URGENCY_RANK[existing.urgency]) {
+      existing.urgency = row.urgency;
+      existing.nextDueLabel = row.deadlineLabel;
+      existing.daysLabel = row.daysLabel;
+    } else if (
+      row.urgency === existing.urgency &&
+      row.deadlineIso &&
+      (!existing.nextDueLabel ||
+        (row.deadlineLabel !== "—" &&
+          row.deadlineLabel < existing.nextDueLabel))
+    ) {
+      existing.nextDueLabel = row.deadlineLabel;
+      existing.daysLabel = row.daysLabel;
+    }
+  }
+
+  const companies = [...byCompany.values()].sort(
+    (a, b) =>
+      URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency] ||
+      a.companyName.localeCompare(b.companyName),
+  );
+
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -35,8 +96,7 @@ export default async function CorporationTaxListPage() {
             Corporation Tax
           </h1>
           <p className="mt-2 max-w-2xl text-ink-soft">
-            Enter details, review the CT600 package, then submit to HMRC CT
-            Online.
+            Choose a company, then open a CT600 accounting period.
           </p>
         </div>
         <Link href="/filings" className="btn btn-secondary text-sm">
@@ -44,7 +104,7 @@ export default async function CorporationTaxListPage() {
         </Link>
       </div>
 
-      {rows.length === 0 ? (
+      {companies.length === 0 ? (
         <div className="panel p-8 text-center text-ink-soft">
           No limited companies yet.{" "}
           <Link href="/clients/new" className="font-semibold text-sea">
@@ -53,10 +113,10 @@ export default async function CorporationTaxListPage() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {rows.map((row) => (
+          {companies.map((co) => (
             <Link
-              key={row.id}
-              href={row.href}
+              key={co.clientId}
+              href={co.href}
               className="company-deadline-tile gloss-card group relative flex flex-col overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-5 transition duration-300 hover:-translate-y-1.5 hover:border-sea/40 hover:shadow-[0_22px_44px_-22px_rgba(15,118,110,0.4)]"
             >
               <span className="gloss-shine" aria-hidden />
@@ -64,42 +124,42 @@ export default async function CorporationTaxListPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate font-semibold tracking-tight text-ink">
-                      {row.companyName}
+                      {co.companyName}
                     </p>
                     <p className="mono mt-0.5 text-xs text-ink-soft">
-                      {row.companyNumber ?? "—"}
+                      {co.companyNumber ?? "—"}
                     </p>
                   </div>
                   <span
                     className={
-                      row.urgency === "overdue"
+                      co.urgency === "overdue"
                         ? "shrink-0 rounded-md bg-danger/10 px-2 py-1 text-xs font-bold text-danger"
-                        : row.urgency === "due_soon"
+                        : co.urgency === "due_soon"
                           ? "badge badge-sea shrink-0"
                           : "badge badge-muted shrink-0"
                     }
                   >
-                    {row.daysLabel}
+                    {co.daysLabel}
                   </span>
                 </div>
                 <dl className="mt-auto space-y-1.5 text-sm">
                   <div className="flex justify-between gap-3">
-                    <dt className="text-ink-soft">Period</dt>
-                    <dd className="text-right text-ink">{row.periodLabel}</dd>
+                    <dt className="text-ink-soft">CT600 periods</dt>
+                    <dd className="text-right text-ink">{co.periodCount}</dd>
                   </div>
                   <div className="flex justify-between gap-3">
                     <dt className="text-ink-soft">Next due</dt>
                     <dd
                       className={`mono text-right ${
-                        row.urgency === "overdue" ? "text-danger" : "text-ink"
+                        co.urgency === "overdue" ? "text-danger" : "text-ink"
                       }`}
                     >
-                      {row.deadlineLabel}
+                      {co.nextDueLabel}
                     </dd>
                   </div>
                 </dl>
                 <span className="btn btn-primary mt-1 w-full justify-center px-3 py-2 text-sm">
-                  Start filing
+                  Open CT600 periods
                 </span>
               </div>
             </Link>
