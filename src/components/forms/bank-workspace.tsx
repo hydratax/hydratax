@@ -151,9 +151,15 @@ export function BankWorkspace({
           setErr("Could not read that spreadsheet. Try CSV export from the bank.");
           return;
         }
+        const convertSource =
+          extracted.method === "csv"
+            ? "csv"
+            : extracted.method === "ocr"
+              ? "ocr"
+              : "pdf";
         const converted = await convertBankStatementText({
           text: extracted.text,
-          source: extracted.method === "csv" ? "csv" : extracted.method,
+          source: convertSource,
         });
         if (!converted.ok) {
           setErr(
@@ -164,24 +170,18 @@ export function BankWorkspace({
           return;
         }
         setPreview(converted.lines);
-        setPreviewSource(
-          extracted.method === "csv"
-            ? "csv"
-            : extracted.method === "ocr"
-              ? "ocr"
-              : "pdf",
-        );
+        setPreviewSource(convertSource);
         setMsg(
           extracted.warning
             ? `${converted.message} ${extracted.warning}`
             : converted.message,
         );
         // Preview mounts after this transition tick — scroll once it's in the DOM.
-        queuePromise.resolve().then(() => {
+        setTimeout(() => {
           document
             .getElementById("statement-convert-preview")
             ?.scrollIntoView({ behavior: "smooth" });
-        });
+        }, 50);
       } catch (error) {
         setErr(messageFromUnknown(error, "Conversion failed"));
       }

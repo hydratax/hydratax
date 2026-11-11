@@ -12,7 +12,7 @@ export const metadata = {
 const URGENCY_RANK: Record<FilingUrgency, number> = {
   overdue: 0,
   due_soon: 1,
-  upcoming: 2,
+  ok: 2,
   unknown: 3,
 };
 
