@@ -111,6 +111,8 @@ export function CreateAccountForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnPath = safeReturnPath(searchParams.get("next"));
+  const inviteEmail = (searchParams.get("email") ?? "").trim();
+  const hasInvite = Boolean(searchParams.get("invite") || inviteEmail);
   const [orgType, setOrgType] = useState<(typeof ORG_TYPES)[number]["id"]>(
     "practice",
   );
@@ -137,8 +139,9 @@ export function CreateAccountForm() {
         </p>
         <h1 className="display mt-1 text-3xl md:text-4xl">Create your account</h1>
         <p className="mt-2 text-white/80">
-          Company, sole trader, partnership, or multi-client practice — then
-          choose the plan that fits when you need filing rails.
+          {hasInvite
+            ? "Finish creating your login to join the practice that invited you. You can set up two-factor authentication afterwards from Account settings."
+            : "Company, sole trader, partnership, or multi-client practice — then choose the plan that fits when you need filing rails."}
         </p>
       </div>
 
@@ -271,6 +274,8 @@ export function CreateAccountForm() {
               name="email"
               type="email"
               required
+              defaultValue={inviteEmail}
+              readOnly={Boolean(inviteEmail)}
               placeholder="you@example.com"
               className="mt-1.5 w-full rounded-lg border border-line px-3 py-2.5 font-normal"
             />

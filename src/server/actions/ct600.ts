@@ -638,6 +638,7 @@ export async function downloadCt600Draft(
       company,
       figures,
       dormant,
+      taxChargePence: built.taxChargePence,
     });
     files.push({
       filename: `${fileSlug}_Accounts_YE_${ye}.pdf`,

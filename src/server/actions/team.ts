@@ -66,7 +66,31 @@ export async function listTeamMembers(): Promise<MemoryTeamMember[]> {
         .select("id, email, display_name, role, module_access, created_at")
         .eq("practice_id", session.practiceId)
         .order("created_at", { ascending: true });
-      return (data ?? []).map((m) => toMember(session.practiceId, m));
+      const members = (data ?? []).map((m) => toMember(session.practiceId, m));
+
+      const { data: invites } = await supabase
+        .from("practice_team_invites")
+        .select("id, email, display_name, module_access, created_at, token")
+        .eq("practice_id", session.practiceId)
+        .is("accepted_at", null)
+        .order("created_at", { ascending: true });
+
+      const pending = (invites ?? []).map((inv) => {
+        const moduleAccess =
+          (inv.module_access as ModuleAccess) ?? "payroll";
+        return {
+          id: `invite:${inv.token ?? inv.id}`,
+          practiceId: session.practiceId,
+          email: inv.email ?? "",
+          name: inv.display_name ?? inv.email ?? "Invited",
+          role: (moduleAccess === "full" ? "admin" : "practitioner") as MemoryTeamMember["role"],
+          moduleAccess,
+          active: false,
+          createdAt: inv.created_at ?? new Date().toISOString(),
+        } satisfies MemoryTeamMember;
+      });
+
+      return [...members, ...pending];
     } catch {
       /* fall through to memory */
     }
@@ -95,49 +119,103 @@ export async function addTeamMember(input: z.infer<typeof addSchema>) {
       .ilike("email", email)
       .maybeSingle();
 
-    if (!profile?.id) {
-      throw new Error(
-        "That email is not registered yet. Ask them to create a HydraTax account with this email, then add them again.",
-      );
+    if (profile?.id) {
+      const { data: existing } = await supabase
+        .from("practice_members")
+        .select("id")
+        .eq("practice_id", session.practiceId)
+        .eq("user_id", profile.id)
+        .maybeSingle();
+      if (existing) {
+        throw new Error("A team member with this email already exists");
+      }
+
+      const { data: inserted, error } = await supabase
+        .from("practice_members")
+        .insert({
+          practice_id: session.practiceId,
+          user_id: profile.id,
+          role,
+          module_access: data.moduleAccess,
+          email,
+          display_name: name,
+        })
+        .select("id, email, display_name, role, module_access, created_at")
+        .single();
+      if (error) throw new Error(error.message);
+
+      const member = toMember(session.practiceId, inserted);
+      await appendAuditEvent({
+        practiceId: session.practiceId,
+        clientId: null,
+        actorId: session.userId,
+        action: "team.member_added",
+        entityType: "team_member",
+        entityId: member.id,
+        detail: { email: member.email, moduleAccess: member.moduleAccess },
+      });
+      revalidatePath("/settings/team");
+      revalidatePath("/settings/account");
+      return member;
     }
 
-    const { data: existing } = await supabase
-      .from("practice_members")
-      .select("id")
+    // Not registered yet — store invite and email a create-account link.
+    const token = crypto.randomUUID().replace(/-/g, "");
+    await supabase
+      .from("practice_team_invites")
+      .delete()
       .eq("practice_id", session.practiceId)
-      .eq("user_id", profile.id)
-      .maybeSingle();
-    if (existing) {
-      throw new Error("A team member with this email already exists");
-    }
-
-    const { data: inserted, error } = await supabase
-      .from("practice_members")
+      .ilike("email", email)
+      .is("accepted_at", null);
+    const { error: insertInviteError } = await supabase
+      .from("practice_team_invites")
       .insert({
         practice_id: session.practiceId,
-        user_id: profile.id,
-        role,
-        module_access: data.moduleAccess,
         email,
         display_name: name,
-      })
-      .select("id, email, display_name, role, module_access, created_at")
-      .single();
-    if (error) throw new Error(error.message);
+        module_access: data.moduleAccess,
+        invited_by: session.userId,
+        token,
+      });
+    if (insertInviteError) throw new Error(insertInviteError.message);
 
-    const member = toMember(session.practiceId, inserted);
+    const appUrl = (
+      process.env.NEXT_PUBLIC_APP_URL ?? "https://hydratax.uk"
+    ).replace(/\/$/, "");
+    const signupUrl = `${appUrl}/create-account?email=${encodeURIComponent(email)}&invite=${encodeURIComponent(token)}`;
+
+    const { sendTransactionalEmail } = await import(
+      "@/server/email/transactional"
+    );
+    await sendTransactionalEmail({
+      to: email,
+      subject: `${session.practiceName} invited you to HydraTax`,
+      text: `${name}, you have been invited to join ${session.practiceName} on HydraTax.\n\nCreate your account with this email address:\n${signupUrl}\n\nAfter you sign up you will join the practice automatically. You can then turn on two-factor authentication from Account settings.`,
+      html: `<p>Hi ${name},</p><p>You have been invited to join <strong>${session.practiceName}</strong> on HydraTax.</p><p><a href="${signupUrl}">Create your account</a> using <strong>${email}</strong>.</p><p>After you sign up you will join the practice automatically. You can then turn on two-factor authentication from Account settings.</p>`,
+    });
+
     await appendAuditEvent({
       practiceId: session.practiceId,
       clientId: null,
       actorId: session.userId,
-      action: "team.member_added",
-      entityType: "team_member",
-      entityId: member.id,
-      detail: { email: member.email, moduleAccess: member.moduleAccess },
+      action: "team.member_invited",
+      entityType: "team_invite",
+      entityId: token,
+      detail: { email, moduleAccess: data.moduleAccess },
     });
     revalidatePath("/settings/team");
     revalidatePath("/settings/account");
-    return member;
+
+    return {
+      id: `invite:${token}`,
+      practiceId: session.practiceId,
+      email,
+      name,
+      role,
+      moduleAccess: data.moduleAccess,
+      active: true,
+      createdAt: new Date().toISOString(),
+    } satisfies MemoryTeamMember;
   }
 
   if (

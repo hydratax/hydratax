@@ -569,6 +569,62 @@ export const clientEmailLogs = pgTable(
   ],
 );
 
+/** Practice activity trail — admin Logs desk */
+export const practiceActivityLogs = pgTable(
+  "practice_activity_logs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    practiceId: uuid("practice_id")
+      .notNull()
+      .references(() => practices.id),
+    actorUserId: uuid("actor_user_id"),
+    actorEmail: text("actor_email"),
+    action: text("action").notNull(),
+    summary: text("summary").notNull(),
+    entityType: text("entity_type"),
+    entityId: text("entity_id"),
+    clientId: uuid("client_id").references(() => clients.id),
+    meta: jsonb("meta").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("practice_activity_logs_practice_idx").on(t.practiceId),
+    index("practice_activity_logs_client_idx").on(t.clientId),
+  ],
+);
+
+/** In-app support tickets raised from the desk */
+export const supportTickets = pgTable(
+  "support_tickets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    practiceId: uuid("practice_id")
+      .notNull()
+      .references(() => practices.id),
+    raisedBy: uuid("raised_by"),
+    ticketRef: text("ticket_ref").notNull(),
+    subject: text("subject").notNull(),
+    message: text("message").notNull(),
+    helpTopic: text("help_topic"),
+    module: text("module"),
+    status: text("status").notNull().default("open"),
+    pageUrl: text("page_url"),
+    meta: jsonb("meta").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("support_tickets_ref_uidx").on(t.ticketRef),
+    index("support_tickets_practice_idx").on(t.practiceId),
+  ],
+);
+
 /** Official HMRC SA stationery catalog — PDF files live in public/hmrc. */
 export const hmrcSaFormTemplates = pgTable(
   "hmrc_sa_form_templates",

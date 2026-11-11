@@ -36,6 +36,11 @@ const artifactSchema = z.discriminatedUnion("type", [
     url: z.string().url(),
     label: z.string().min(1).max(120),
   }),
+  z.object({
+    type: z.literal("accounts_bank_pack"),
+    periodStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    periodEnd: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }),
 ]);
 
 const sendSchema = z.object({
@@ -225,6 +230,87 @@ export async function emailClientArtifact(
     const { label, url } = data.artifact;
     body += `\n\n${label}:\n${url}\n`;
     kind = "link";
+  } else if (data.artifact.type === "accounts_bank_pack") {
+    const { periodStart, periodEnd } = data.artifact;
+    const { getYearEndAccountsDraftFromBank } = await import(
+      "@/server/actions/bank"
+    );
+    const { buildDigitusAccountsPdf } = await import(
+      "@/server/accounts/build-digitus-accounts-pdf"
+    );
+    const draft = await getYearEndAccountsDraftFromBank(
+      data.clientId,
+      periodStart,
+      periodEnd,
+    );
+    const ch =
+      "companiesHouse" in client
+        ? (client.companiesHouse as {
+            registeredOffice?: string | null;
+            directors?: Array<{ name: string; resignedOn?: string | null }>;
+          } | null)
+        : null;
+    const directors =
+      ch?.directors
+        ?.filter((d) => !d.resignedOn)
+        .map((d) => d.name)
+        .filter(Boolean) ?? [];
+    const pdf = await buildDigitusAccountsPdf({
+      company: {
+        name: client.name,
+        companyNumber: client.companyNumber ?? "",
+        utr: client.utr ?? "",
+        registeredOffice: ch?.registeredOffice ?? null,
+        directors,
+        declarantName: directors[0] ?? null,
+      },
+      figures: {
+        periodStart,
+        periodEnd,
+        turnoverPence: draft.turnoverPence,
+        costOfSalesPence: draft.costOfSalesPence,
+        administrativeExpensesPence: draft.adminExpensesPence,
+        otherIncomePence: 0,
+        tangibleAssetsPence: Number(draft.balanceSheet.fixedAssetsPence ?? 0),
+        cashAtBankPence: Number(draft.balanceSheet.cashAtBankPence ?? 0),
+        debtorsPence: draft.balanceSheet.otherDebtorsPence,
+        creditorsPence: draft.balanceSheet.creditorsWithinOneYearPence,
+        calledUpShareCapitalPence: Number(
+          draft.balanceSheet.shareCapitalPence ?? 0,
+        ),
+        profitAndLossAccountPence: Number(
+          draft.balanceSheet.profitAndLossReservePence ?? 0,
+        ),
+      } as never,
+      taxChargePence: draft.taxationPence,
+    });
+    const ye = periodEnd.replace(/-/g, "");
+    const filename = `${(client.companyNumber || client.name)
+      .replace(/[^a-zA-Z0-9]+/g, "_")
+      .slice(0, 40)}_Accounts_YE_${ye}.pdf`;
+    const { protectClientPdf } = await import("@/server/pdf/lock-for-client");
+    const protectedPdf = await protectClientPdf({
+      clientId: data.clientId,
+      pdfBytes: Buffer.from(pdf),
+      pdfFilename: filename,
+    });
+    if (protectedPdf.locked) {
+      attachments.push({
+        filename: protectedPdf.pack.filename,
+        content: protectedPdf.pack.bytes.toString("base64"),
+        contentType: protectedPdf.pack.contentType,
+      });
+      body += `\n\nYear-end accounts PDF is attached (password-protected — director DOB as DDMMYYYY).`;
+    } else {
+      attachments.push({
+        filename: protectedPdf.filename,
+        content: protectedPdf.bytes.toString("base64"),
+        contentType: protectedPdf.contentType,
+      });
+      body += `\n\nYear-end accounts PDF is attached.`;
+    }
+    documentCount = 1;
+    kind = "accounts_pack";
   }
 
   const res = await sendClientCommunicationEmail({

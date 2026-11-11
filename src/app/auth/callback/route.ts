@@ -59,7 +59,12 @@ export async function GET(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-  let redirectResponse = NextResponse.redirect(`${origin}${next}`);
+  type CookieToSet = {
+    name: string;
+    value: string;
+    options?: Parameters<NextResponse["cookies"]["set"]>[2];
+  };
+  const pendingCookies: CookieToSet[] = [];
 
   const supabase = createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
@@ -67,9 +72,7 @@ export async function GET(request: NextRequest) {
         return request.cookies.getAll();
       },
       setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value, options }) => {
-          redirectResponse.cookies.set(name, value, options);
-        });
+        cookiesToSet.forEach((c) => pendingCookies.push(c));
       },
     },
   });
@@ -110,6 +113,8 @@ export async function GET(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  let mfaRequired = false;
+
   if (user) {
     const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
     const updates: Record<string, string> = {};
@@ -142,6 +147,53 @@ export async function GET(request: NextRequest) {
     } catch {
       /* practice seeded on first desk visit */
     }
+
+    try {
+      const { beginMfaIfRequired } = await import("@/server/actions/mfa");
+      const mfa = await beginMfaIfRequired(user.id);
+      mfaRequired = mfa.required;
+    } catch {
+      /* continue without MFA gate if settings table missing */
+    }
+  }
+
+  const destination = mfaRequired
+    ? `/verify-2fa?next=${encodeURIComponent(next)}`
+    : next;
+  const redirectResponse = NextResponse.redirect(`${origin}${destination}`);
+  for (const { name, value, options } of pendingCookies) {
+    redirectResponse.cookies.set(name, value, options);
+  }
+
+  try {
+    const { cookies: cookieStore } = await import("next/headers");
+    const { MFA_OK_COOKIE, MFA_PENDING_COOKIE } = await import(
+      "@/lib/mfa-cookies"
+    );
+    const jar = await cookieStore();
+    const secure = process.env.NODE_ENV === "production";
+    const pendingVal = jar.get(MFA_PENDING_COOKIE)?.value;
+    const okVal = jar.get(MFA_OK_COOKIE)?.value;
+    if (pendingVal) {
+      redirectResponse.cookies.set(MFA_PENDING_COOKIE, pendingVal, {
+        httpOnly: true,
+        sameSite: "lax",
+        secure,
+        path: "/",
+        maxAge: 60 * 15,
+      });
+    }
+    if (okVal) {
+      redirectResponse.cookies.set(MFA_OK_COOKIE, okVal, {
+        httpOnly: true,
+        sameSite: "lax",
+        secure,
+        path: "/",
+        maxAge: 60 * 60 * 12,
+      });
+    }
+  } catch {
+    /* MFA cookies already applied via cookies() when available */
   }
 
   redirectResponse.cookies.set("ht_auth_next", "", { path: "/", maxAge: 0 });

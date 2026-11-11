@@ -26,6 +26,7 @@ import {
   getLivePlFromBank,
   pullPriorYearIntoBankDesk,
   setBankLedgerPeriod,
+  setCapitalAllowances,
   setUnpaidShareCapital,
   snapshotBankLedgerClosing,
   upsertBankAsset,
@@ -259,6 +260,12 @@ export function BankYearEndDesk({
           Open accounts desk →
         </Link>
         <Link
+          href={`/clients/${clientSlug}/accounts-pack?start=${periodStart}&end=${periodEnd}`}
+          className="btn btn-secondary text-sm"
+        >
+          Email accounts →
+        </Link>
+        <Link
           href={`/clients/${clientSlug}/accounts-pack/print?start=${periodStart}&end=${periodEnd}`}
           className="btn btn-primary text-sm"
           target="_blank"
@@ -280,7 +287,7 @@ export function BankYearEndDesk({
             ["pl", "Live P&L"],
             ["parties", "Debtors & creditors"],
             ["loans", "Loan accounts"],
-            ["assets", "Vehicles & assets"],
+            ["assets", "Assets & capital allowances"],
             ["properties", "Properties & mortgages"],
           ] as const
         ).map(([id, label]) => (
@@ -636,8 +643,38 @@ function AssetsPanel({
     "reducing_balance",
   );
 
+  const ca = ledger.capitalAllowances;
+  const [aia, setAia] = useState(
+    ((ca?.aiaClaimPence ?? 0) / 100).toFixed(2),
+  );
+  const [mainWda, setMainWda] = useState(
+    ((ca?.mainPoolWdaPence ?? 0) / 100).toFixed(2),
+  );
+  const [specialWda, setSpecialWda] = useState(
+    ((ca?.specialRateWdaPence ?? 0) / 100).toFixed(2),
+  );
+  const [otherCa, setOtherCa] = useState(
+    ((ca?.otherAllowancesPence ?? 0) / 100).toFixed(2),
+  );
+  const totalDep = ledger.assets.reduce(
+    (s, a) => s + depreciationChargePence(a, periodStart, periodEnd),
+    0,
+  );
+  const totalCa =
+    poundsInputToPence(aia) +
+    poundsInputToPence(mainWda) +
+    poundsInputToPence(specialWda) +
+    poundsInputToPence(otherCa);
+
   return (
-    <div className="space-y-4">
+    <div id="year-end-assets" className="space-y-6">
+      <div>
+        <h3 className="font-semibold text-ink">Tangible assets &amp; depreciation</h3>
+        <p className="mt-1 text-sm text-ink-soft">
+          Add vehicles and equipment. Depreciation charges roll into Note 8 and
+          the live P&amp;L for Digitus accounts.
+        </p>
+      </div>
       <form
         className="grid gap-3 rounded-xl border border-line bg-sand/20 p-4 sm:grid-cols-3"
         onSubmit={(e) => {
@@ -806,6 +843,85 @@ function AssetsPanel({
           })
         )}
       </ul>
+
+      <div className="rounded-xl border border-line bg-white p-4">
+        <h3 className="font-semibold text-ink">
+          Capital allowances (corporation tax)
+        </h3>
+        <p className="mt-1 text-sm text-ink-soft">
+          Accounting depreciation this period: {gbp(totalDep)}. Claim AIA /
+          WDA for CT separately (GOV.UK rates — enter the claim the company will
+          use on the CT600).
+        </p>
+        <form
+          className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onError(null);
+            start(async () => {
+              try {
+                const next = await setCapitalAllowances({
+                  clientId,
+                  aiaClaimPence: poundsInputToPence(aia),
+                  mainPoolWdaPence: poundsInputToPence(mainWda),
+                  specialRateWdaPence: poundsInputToPence(specialWda),
+                  otherAllowancesPence: poundsInputToPence(otherCa),
+                });
+                onSaved(next);
+              } catch (err) {
+                onError(
+                  messageFromUnknown(err, "Could not save capital allowances"),
+                );
+              }
+            });
+          }}
+        >
+          <label className="label text-xs">
+            AIA claim £
+            <input
+              className="input mt-1 figures"
+              value={aia}
+              onChange={(e) => setAia(e.target.value)}
+            />
+          </label>
+          <label className="label text-xs">
+            Main pool WDA £
+            <input
+              className="input mt-1 figures"
+              value={mainWda}
+              onChange={(e) => setMainWda(e.target.value)}
+            />
+          </label>
+          <label className="label text-xs">
+            Special rate WDA £
+            <input
+              className="input mt-1 figures"
+              value={specialWda}
+              onChange={(e) => setSpecialWda(e.target.value)}
+            />
+          </label>
+          <label className="label text-xs">
+            Other allowances £
+            <input
+              className="input mt-1 figures"
+              value={otherCa}
+              onChange={(e) => setOtherCa(e.target.value)}
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-4">
+            <p className="text-sm font-semibold text-ink">
+              Total CA claim {gbp(totalCa)}
+            </p>
+            <button
+              type="submit"
+              className="btn btn-primary text-sm"
+              disabled={pending}
+            >
+              Save capital allowances
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

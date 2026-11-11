@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -8,6 +9,17 @@ import {
 } from "@/server/actions/support-ticket";
 
 const initial: SupportTicketState | null = null;
+
+const MODULES = [
+  "Corporation Tax",
+  "Accounts",
+  "VAT",
+  "Payroll",
+  "Self Assessment",
+  "Companies House",
+  "Bank",
+  "Other",
+];
 
 function TicketIcon({ className }: { className?: string }) {
   return (
@@ -33,9 +45,13 @@ function TicketIcon({ className }: { className?: string }) {
 function TicketDialogBody({
   pageUrl,
   onClose,
+  defaultName,
+  defaultEmail,
 }: {
   pageUrl: string;
   onClose: () => void;
+  defaultName?: string | null;
+  defaultEmail?: string | null;
 }) {
   const [preview, setPreview] = useState<string | null>(null);
   const [state, action, pending] = useActionState(submitSupportTicket, initial);
@@ -64,7 +80,7 @@ function TicketDialogBody({
       aria-modal="true"
       aria-labelledby={titleId}
       aria-describedby={descId}
-      className="max-h-[min(92dvh,40rem)] w-full max-w-md overflow-y-auto rounded-xl border border-line bg-white p-5 shadow-xl"
+      className="max-h-[min(92dvh,44rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-line bg-white p-5 shadow-xl"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -75,11 +91,11 @@ function TicketDialogBody({
             id={titleId}
             className="display mt-1 text-xl font-semibold text-ink"
           >
-            Raise a ticket
+            New ticket
           </h2>
           <p id={descId} className="mt-1 text-sm text-ink-soft">
-            Attach a screenshot of the issue screen and a short description. We
-            reply by email to you.
+            Brief description, error text, steps tried, and optional screenshot
+            or Loom link.
           </p>
         </div>
         <button
@@ -90,6 +106,11 @@ function TicketDialogBody({
         >
           ×
         </button>
+      </div>
+
+      <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-ink">
+        Include what you expected vs what happened, any error message, and how
+        urgent it is.
       </div>
 
       {state?.ok ? (
@@ -108,65 +129,118 @@ function TicketDialogBody({
       ) : (
         <form
           action={action}
-          className="mt-4 grid gap-3"
+          className="mt-4 grid gap-3 sm:grid-cols-2"
           encType="multipart/form-data"
         >
           <input type="hidden" name="pageUrl" value={pageUrl} />
 
-          <label className="block text-sm font-semibold text-ink">
-            What’s going wrong?
-            <textarea
-              name="description"
+          <label className="block text-sm font-semibold text-ink sm:col-span-2">
+            Subject*
+            <input
+              name="subject"
               required
-              minLength={10}
-              rows={4}
-              className="input mt-1.5 min-h-[6.5rem] w-full resize-y font-normal"
-              placeholder="e.g. Year-end save fails when I open the CT pack…"
+              minLength={3}
+              className="input mt-1.5 w-full font-normal"
+              placeholder="e.g. Cannot email year-end accounts"
             />
           </label>
 
           <label className="block text-sm font-semibold text-ink">
-            Screenshot
+            Name
+            <input
+              name="name"
+              className="input mt-1.5 w-full font-normal"
+              defaultValue={defaultName ?? ""}
+              readOnly={Boolean(defaultName)}
+            />
+          </label>
+          <label className="block text-sm font-semibold text-ink">
+            Email*
+            <input
+              name="email"
+              type="email"
+              className="input mt-1.5 w-full font-normal"
+              defaultValue={defaultEmail ?? ""}
+              readOnly={Boolean(defaultEmail)}
+            />
+          </label>
+
+          <label className="block text-sm font-semibold text-ink">
+            Help topic
+            <select name="helpTopic" className="input mt-1.5 w-full font-normal">
+              <option value="Support">Support</option>
+              <option value="Bug">Bug</option>
+              <option value="How-to">How-to</option>
+              <option value="Billing">Billing</option>
+            </select>
+          </label>
+          <label className="block text-sm font-semibold text-ink">
+            Module
+            <select name="module" className="input mt-1.5 w-full font-normal">
+              {MODULES.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-sm font-semibold text-ink sm:col-span-2">
+            Message*
+            <textarea
+              name="description"
+              required
+              minLength={10}
+              rows={5}
+              className="input mt-1.5 min-h-[7rem] w-full resize-y font-normal"
+              placeholder="What went wrong, steps to reproduce, and any error text…"
+            />
+          </label>
+
+          <label className="block text-sm font-semibold text-ink sm:col-span-2">
+            Attachments (optional)
             <input
               ref={fileRef}
               name="screenshot"
               type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif"
-              required
+              accept=".doc,.docx,.pdf,.jpg,.png,.jpeg,.txt,.xls,.xlsx,.csv,image/png,image/jpeg,image/webp,image/gif"
               className="mt-1.5 block w-full text-sm font-normal file:mr-3 file:rounded-md file:border file:border-line file:bg-sand file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-ink hover:file:border-sea"
               onChange={(e) => onFileChange(e.target.files?.[0] ?? null)}
             />
+            <span className="mt-1 block text-xs font-normal text-ink-soft">
+              .doc, .docx, .pdf, .jpg, .png, .jpeg, .txt, .xls, .xlsx, .csv
+            </span>
           </label>
 
           {preview ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={preview}
-              alt="Screenshot preview"
-              className="max-h-40 w-full rounded-lg border border-line bg-sand object-contain"
+              alt="Attachment preview"
+              className="max-h-40 w-full rounded-lg border border-line bg-sand object-contain sm:col-span-2"
             />
           ) : null}
 
           {state && !state.ok ? (
             <p
-              className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger"
+              className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger sm:col-span-2"
               role="alert"
             >
               {state.message}
             </p>
           ) : null}
 
-          <div className="flex flex-wrap items-center gap-2 pt-1">
+          <div className="flex flex-wrap items-center gap-2 pt-1 sm:col-span-2">
             <button
               type="submit"
               disabled={pending}
               className="btn btn-primary text-sm disabled:opacity-60"
             >
-              {pending ? "Sending…" : "Raise ticket"}
+              {pending ? "Sending…" : "Submit"}
             </button>
             <button
               type="button"
-              className="btn btn-ghost text-sm"
+              className="btn btn-secondary text-sm"
               onClick={onClose}
               disabled={pending}
             >
@@ -181,24 +255,45 @@ function TicketDialogBody({
 
 export function RaiseTicketButton({
   variant = "header",
+  userEmail,
+  userName,
 }: {
-  /** header = compact nav control; menu = full-width mobile row */
   variant?: "header" | "menu";
+  userEmail?: string | null;
+  userName?: string | null;
 }) {
-  const [open, setOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [dialogKey, setDialogKey] = useState(0);
   const [pageUrl, setPageUrl] = useState("");
+  const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
-    if (!open) return;
+    if (!menuOpen) return;
+    function onDoc(e: MouseEvent) {
+      if (!wrapRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (!dialogOpen) return;
     setPageUrl(window.location.href);
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") setDialogOpen(false);
     }
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -207,11 +302,12 @@ export function RaiseTicketButton({
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [open]);
+  }, [dialogOpen]);
 
   function openDialog() {
+    setMenuOpen(false);
     setDialogKey((k) => k + 1);
-    setOpen(true);
+    setDialogOpen(true);
   }
 
   const triggerClass =
@@ -220,18 +316,20 @@ export function RaiseTicketButton({
       : "inline-flex items-center gap-1.5 self-center rounded-lg border border-line bg-white px-2.5 py-1.5 text-sm font-semibold leading-none text-ink-soft hover:border-sea hover:text-sea";
 
   const modal =
-    open && mounted
+    dialogOpen && mounted
       ? createPortal(
           <div
             className="fixed inset-0 z-[120] flex items-end justify-center bg-ink/45 p-3 sm:items-center sm:p-6"
             onMouseDown={(e) => {
-              if (e.target === e.currentTarget) setOpen(false);
+              if (e.target === e.currentTarget) setDialogOpen(false);
             }}
           >
             <TicketDialogBody
               key={dialogKey}
               pageUrl={pageUrl}
-              onClose={() => setOpen(false)}
+              onClose={() => setDialogOpen(false)}
+              defaultEmail={userEmail}
+              defaultName={userName}
             />
           </div>,
           document.body,
@@ -239,17 +337,77 @@ export function RaiseTicketButton({
       : null;
 
   return (
-    <>
+    <div className="relative" ref={wrapRef}>
       <button
         type="button"
         className={triggerClass}
-        onClick={openDialog}
-        aria-haspopup="dialog"
+        onClick={() => setMenuOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
       >
         <TicketIcon className="h-4 w-4 shrink-0" />
-        Raise ticket
+        Tickets
+        <span className="opacity-60" aria-hidden>
+          ▾
+        </span>
       </button>
+      {menuOpen ? (
+        <div
+          role="menu"
+          className={
+            variant === "menu"
+              ? "mt-1 space-y-1 rounded-lg border border-line bg-white p-2 shadow-md"
+              : "absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-xl border border-line bg-white py-1 shadow-lg"
+          }
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="flex w-full items-start gap-3 px-3 py-2.5 text-left hover:bg-sand"
+            onClick={openDialog}
+          >
+            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sea text-white">
+              <TicketIcon className="h-4 w-4" />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold text-ink">
+                New ticket
+              </span>
+              <span className="block text-xs text-ink-soft">
+                Create new ticket
+              </span>
+            </span>
+          </button>
+          <Link
+            href="/settings/tickets"
+            role="menuitem"
+            className="flex w-full items-start gap-3 px-3 py-2.5 text-left hover:bg-sand"
+            onClick={() => setMenuOpen(false)}
+          >
+            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sea/15 text-sea">
+              <svg
+                className="h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                aria-hidden
+              >
+                <path d="M4 6h16M4 12h16M4 18h10" />
+              </svg>
+            </span>
+            <span>
+              <span className="block text-sm font-semibold text-ink">
+                View tickets
+              </span>
+              <span className="block text-xs text-ink-soft">
+                View all tickets
+              </span>
+            </span>
+          </Link>
+        </div>
+      ) : null}
       {modal}
-    </>
+    </div>
   );
 }

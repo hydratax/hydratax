@@ -46,13 +46,6 @@ function buildRailLinks(
     "/vat",
     "/clients?desk=vat",
   );
-  const firstCt = firstHref(
-    clients,
-    peers,
-    (c) => c.type === "limited_company",
-    "/corporation-tax",
-    "/filings/corporation-tax",
-  );
   const firstPayroll = firstHref(
     clients,
     peers,
@@ -71,8 +64,8 @@ function buildRailLinks(
     {
       module: "corporation_tax",
       title: "Companies · CT600",
-      href: firstCt,
-      blurb: "Company UTR & CT600 return",
+      href: "/filings/corporation-tax",
+      blurb: "All limited companies · CT600",
     },
     {
       module: "self_assessment",
@@ -111,12 +104,30 @@ export default async function DashboardPage() {
   const saSoleAndPartners = clients.filter(
     (c) => c.type === "sole_trader" || c.type === "partnership",
   );
-  /** SA desk = company directors/shareholders + sole traders + partnerships. */
+  /** People for SA — never count limited company entities as SA clients. */
   const saPeopleCount = directors.length + saSoleAndPartners.length;
-  const saClientIds = new Set([
-    ...directors.map((d) => d.homeClientId),
-    ...saSoleAndPartners.map((c) => c.id),
-  ]);
+  const saPeople = [
+    ...directors.map((d) => ({
+      key: `dir:${d.key}`,
+      fullName: d.fullName,
+      href: `/self-assessment/${encodeURIComponent(d.key)}`,
+      kind: "director" as const,
+      detail:
+        d.companies.length === 1
+          ? d.companies[0]!.companyName
+          : `${d.companies.length} companies`,
+    })),
+    ...saSoleAndPartners.map((c) => ({
+      key: `client:${c.id}`,
+      fullName: c.name,
+      href: `/clients/${clientSlugFor({ id: c.id, name: c.name }, peers)}/self-assessment`,
+      kind:
+        c.type === "partnership"
+          ? ("partnership" as const)
+          : ("sole_trader" as const),
+      detail: c.type === "partnership" ? "Partnership" : "Sole trader",
+    })),
+  ];
   const payeClients = clients.filter(
     (c) => c.isEmployer || Boolean(c.payeRef?.trim()),
   );
@@ -144,7 +155,7 @@ export default async function DashboardPage() {
       id: "sa" as const,
       label: "Self Assessment",
       value: String(saPeopleCount),
-      hint: "Directors, sole traders & partnerships",
+      hint: "Sole traders / directors",
     },
     {
       id: "ltd" as const,
@@ -206,6 +217,7 @@ export default async function DashboardPage() {
               <DashboardServiceCard
                 key={rail.title}
                 href={open ? rail.href : "/pricing#practice"}
+                module={rail.module}
                 moduleLabel={moduleLabel(rail.module)}
                 title={rail.title}
                 blurb={rail.blurb}
@@ -231,8 +243,8 @@ export default async function DashboardPage() {
           vrn: c.vrn,
           companyNumber: c.companyNumber,
           payeRef: c.payeRef,
-          hasSelfAssessment: saClientIds.has(c.id),
         }))}
+        saPeople={saPeople}
         unlockedModules={entitlements.modules}
         stats={stats}
         canAddClients={unlocked.has("clients")}

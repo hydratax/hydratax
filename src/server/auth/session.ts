@@ -161,6 +161,33 @@ export async function requireSession(
     }
     redirect(`/sign-in?next=${encodeURIComponent(path)}`);
   }
+
+  // Step-up MFA: password/OAuth succeeded but OTP not yet verified.
+  const h = await headers();
+  const pathname = h.get("x-pathname") || "";
+  if (
+    pathname !== "/verify-2fa" &&
+    !pathname.startsWith("/verify-2fa/") &&
+    !pathname.startsWith("/auth/") &&
+    isSupabaseConfigured()
+  ) {
+    let needsStepUp = false;
+    try {
+      const { userNeedsMfaStepUp } = await import("@/server/actions/mfa");
+      needsStepUp = await userNeedsMfaStepUp(session.userId);
+    } catch {
+      needsStepUp = false;
+    }
+    if (needsStepUp) {
+      const resume = nextPath || pathname || "/dashboard";
+      redirect(
+        `/verify-2fa?next=${encodeURIComponent(
+          resume.startsWith("/") ? resume : "/dashboard",
+        )}`,
+      );
+    }
+  }
+
   return session;
 }
 

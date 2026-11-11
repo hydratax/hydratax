@@ -18,12 +18,14 @@ export function AppShellHeader({
   accessBadge,
   userEmail,
   canManageTeam,
+  canViewLogs,
 }: {
   serviceItems: NavItem[];
   links: NavItem[];
   accessBadge?: string | null;
   userEmail?: string | null;
   canManageTeam?: boolean;
+  canViewLogs?: boolean;
 }) {
   const [servicesOpen, setServicesOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -165,7 +167,7 @@ export function AppShellHeader({
             </Link>
           ))}
 
-          <RaiseTicketButton />
+          <RaiseTicketButton userEmail={userEmail} />
 
           {accessBadge ? (
             <span className="badge badge-muted">{accessBadge}</span>
@@ -204,6 +206,31 @@ export function AppShellHeader({
                   >
                     Account
                   </Link>
+                  {canViewLogs ? (
+                    <Link
+                      href="/settings/logs"
+                      role="menuitem"
+                      className="flex items-center gap-2 px-4 py-2 text-ink-soft hover:bg-sand hover:text-ink"
+                      onClick={() => setAccountOpen(false)}
+                    >
+                      <svg
+                        className="h-4 w-4 shrink-0 text-ink-soft"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        aria-hidden
+                      >
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <path d="M14 2v6h6" />
+                        <path d="M8 13h8M8 17h6" />
+                      </svg>
+                      <span className="flex-1">Logs</span>
+                      <span className="text-ink-soft/70" aria-hidden>
+                        ›
+                      </span>
+                    </Link>
+                  ) : null}
                   {canManageTeam ? (
                     <Link
                       href="/settings/team"
@@ -310,7 +337,7 @@ export function AppShellHeader({
 
               <div className="my-2 border-t border-line" />
 
-              <RaiseTicketButton variant="menu" />
+              <RaiseTicketButton variant="menu" userEmail={userEmail} />
 
               <Link
                 href="/settings/account"
@@ -319,6 +346,28 @@ export function AppShellHeader({
               >
                 Account
               </Link>
+              {canViewLogs ? (
+                <Link
+                  href="/settings/logs"
+                  className="flex items-center gap-2 rounded-lg px-3 py-3 text-ink hover:bg-sand"
+                  onClick={closeMobile}
+                >
+                  <svg
+                    className="h-4 w-4 shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    aria-hidden
+                  >
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <path d="M14 2v6h6" />
+                    <path d="M8 13h8M8 17h6" />
+                  </svg>
+                  <span className="flex-1">Logs</span>
+                  <span aria-hidden>›</span>
+                </Link>
+              ) : null}
               {canManageTeam ? (
                 <Link
                   href="/settings/team"

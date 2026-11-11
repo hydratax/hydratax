@@ -4,6 +4,7 @@ import { listSaSubmissions } from "@/server/actions/self-assessment";
 import {
   getSa100Draft,
   listSa100Returns,
+  listSaFiledDocuments,
 } from "@/server/actions/sa100";
 import { listSaTaxpayers } from "@/server/actions/sa-taxpayers";
 import { listClientDocuments } from "@/server/actions/documents";
@@ -93,12 +94,17 @@ export default async function SelfAssessmentPage({
   const selectedId = selected?.id ?? null;
 
   const saClientId = workspace?.person.homeClientId ?? clientId;
-  const [sa100Draft, sa100Returns] = selected
+  const [sa100Draft, sa100Returns, saFiledDocs] = selected
     ? await Promise.all([
         getSa100Draft(saClientId, activeYear, selected.id).catch(() => null),
         listSa100Returns(saClientId, selected.id).catch(() => []),
+        listSaFiledDocuments(saClientId, selected.id).catch(() => []),
       ])
-    : [null, [] as Awaited<ReturnType<typeof listSa100Returns>>];
+    : [
+        null,
+        [] as Awaited<ReturnType<typeof listSa100Returns>>,
+        [] as Awaited<ReturnType<typeof listSaFiledDocuments>>,
+      ];
 
   const accumulated = selected
     ? accumulateSa100FromIncome(selected, {
@@ -220,6 +226,7 @@ export default async function SelfAssessmentPage({
               taxYear: r.taxYear,
               status: r.status,
             }))}
+            filedDocs={saFiledDocs}
             clientId={saClientId}
             taxpayerId={selected.id}
           >

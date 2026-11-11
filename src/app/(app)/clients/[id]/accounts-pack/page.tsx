@@ -4,6 +4,7 @@ import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enri
 import { AccountsPackPeriodForm } from "@/components/forms/accounts-pack-period-form";
 import { AccountsPackStatements } from "@/components/forms/accounts-pack-statements";
 import { AccountsComparativesForm } from "@/components/forms/accounts-comparatives-form";
+import { AccountsPackEmailButton } from "@/components/forms/accounts-pack-email-button";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 import { formatStatementAmount, priorFiguresForStatements } from "@/server/accounts/year-end-from-bank";
 import {
@@ -102,14 +103,29 @@ export default async function AccountsPackPage({
                 page, then refresh.
               </p>
             </div>
-            <a
-              href={`/clients/${slug}/accounts-pack/print?start=${periodStart}&end=${periodEnd}`}
-              target="_blank"
-              rel="noreferrer"
-              className="btn btn-primary"
-            >
-              Open printable pack
-            </a>
+            <div className="flex flex-wrap gap-2">
+              <AccountsPackEmailButton
+                clientId={clientId}
+                contactEmail={client.contactEmail}
+                companyName={client.name}
+                periodStart={periodStart}
+                periodEnd={periodEnd}
+              />
+              <Link
+                href={`/clients/${slug}/bank#year-end-assets`}
+                className="btn btn-secondary"
+              >
+                Assets &amp; capital allowances
+              </Link>
+              <a
+                href={`/clients/${slug}/accounts-pack/print?start=${periodStart}&end=${periodEnd}`}
+                target="_blank"
+                rel="noreferrer"
+                className="btn btn-primary"
+              >
+                Open printable pack
+              </a>
+            </div>
           </div>
 
           <dl className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

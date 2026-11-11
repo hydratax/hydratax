@@ -254,12 +254,20 @@ export async function signInWithSupabase(
 
   try {
     const supabase = await createClient();
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data: signedIn, error } = await supabase.auth.signInWithPassword({
       email: data.email,
       password: data.password,
     });
     if (error) {
       return { ok: false, error: friendlyAuthMessage(error.message) };
+    }
+    const userId = signedIn.user?.id;
+    if (userId) {
+      const { beginMfaIfRequired } = await import("@/server/actions/mfa");
+      const mfa = await beginMfaIfRequired(userId);
+      if (mfa.required) {
+        return { ok: true, redirectTo: "/verify-2fa" };
+      }
     }
     return { ok: true, redirectTo: "/dashboard" };
   } catch (err) {
@@ -389,6 +397,17 @@ export async function signOutSupabase() {
   if (isSupabaseConfigured()) {
     const supabase = await createClient();
     await supabase.auth.signOut();
+  }
+  try {
+    const { cookies } = await import("next/headers");
+    const { MFA_OK_COOKIE, MFA_PENDING_COOKIE } = await import(
+      "@/lib/mfa-cookies"
+    );
+    const jar = await cookies();
+    jar.delete(MFA_OK_COOKIE);
+    jar.delete(MFA_PENDING_COOKIE);
+  } catch {
+    /* ignore */
   }
   redirect("/");
 }

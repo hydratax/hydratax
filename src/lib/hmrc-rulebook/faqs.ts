@@ -81,6 +81,15 @@ export const HMRC_FAQS: RuleFaq[] = [
       "A simplified scheme where you pay a fixed percentage of turnover instead of calculating output minus input VAT. Eligibility and sector percentages are on GOV.UK; limited cost traders use a different percentage.",
     sourceUrl: "https://www.gov.uk/vat-flat-rate-scheme",
   },
+  {
+    id: "vat-einvoicing-dd",
+    domain: "vat",
+    question: "When do VAT e-invoicing and Direct Debit rules change?",
+    answer:
+      "VAT e-invoicing is required from April 2029 (government roadmap). From the same April 2029 date, employers must have a Direct Debit instruction in place for PAYE and VAT return liabilities (other payment methods remain available). Autumn Budget 2026.",
+    sourceUrl:
+      "https://www.gov.uk/government/publications/e-invoicing-implementation-roadmap",
+  },
 
   // —— Self Assessment ——
   {
@@ -132,9 +141,18 @@ export const HMRC_FAQS: RuleFaq[] = [
     domain: "sa",
     question: "What is the trading income allowance?",
     answer:
-      "Up to £1,000 a year can be deducted from self-employment / casual trading receipts instead of claiming expenses and capital allowances. It cannot be used with expenses on the same trade, and not against connected-party income.",
+      "Through 2026–27: up to £1,000 a year can be deducted from self-employment / casual trading receipts instead of claiming expenses and capital allowances. From 2027–28 (Autumn Budget 2026) the allowance rises to £3,000 and the SA reporting threshold for trading/miscellaneous income rises with it. It cannot be used with expenses on the same trade, and not against connected-party income.",
     sourceUrl:
-      "https://www.gov.uk/guidance/tax-free-allowances-on-property-and-trading-income",
+      "https://www.gov.uk/government/publications/budget-2026-overview-of-tax-legislation-and-rates-ootlar",
+  },
+  {
+    id: "sa-savings-property-2728",
+    domain: "sa",
+    question: "What happens to savings and property Income Tax rates from April 2027?",
+    answer:
+      "From 6 April 2027 (2027–28), savings Income Tax rates across the UK rise to 24% basic / 44% higher / 49% additional. Property Income Tax rates for England, Wales and Northern Ireland rise to the same 24% / 44% / 49%. These are separate from non-savings earned-income bands. Legislated in Finance Bill 2026–27 (Autumn Budget 2026).",
+    sourceUrl:
+      "https://www.gov.uk/government/publications/budget-2026-overview-of-tax-legislation-and-rates-ootlar",
   },
   {
     id: "sa-dividends",
@@ -150,11 +168,29 @@ export const HMRC_FAQS: RuleFaq[] = [
     domain: "sa",
     question: "What are payments on account?",
     answer:
-      "If your balancing payment is £1,000 or more and less than 80% of the previous year’s liability was collected at source, HMRC usually requires two payments on account (31 January and 31 July) towards the next year.",
-    sourceUrl: "https://www.gov.uk/understand-self-assessment-bill/payments-on-account",
+      "If your balancing payment is £1,000 or more and less than 80% of the previous year’s liability was collected at source, HMRC usually requires two payments on account (31 January and 31 July) towards the next year. From April 2029, ITSA Timely Payment will replace large infrequent instalments with smaller, more regular in-year payments (e.g. Direct Debit) for taxpayers who make payments on account.",
+    sourceUrl:
+      "https://www.gov.uk/government/consultations/timely-payments-in-income-tax-self-assessment/timely-payments-in-income-tax-self-assessment-itsa",
+  },
+  {
+    id: "sa-mtd-itsa-return",
+    domain: "sa",
+    question: "Do MTD for Income Tax quarterly updates replace the annual SA return?",
+    answer:
+      "No. Customers who started Making Tax Digital for Income Tax from 6 April 2026 still need to submit their 2025–26 Self Assessment return in the usual way by 31 January 2027. Quarterly updates during 2026–27 are summaries and do not replace that return (HMRC SA campaign, Nov 2026).",
+    sourceUrl: "https://www.gov.uk/self-assessment-tax-returns",
   },
 
   // —— PAYE / NI ——
+  {
+    id: "paye-mpbiks",
+    domain: "paye",
+    question: "When does mandatory payrolling of benefits in kind start?",
+    answer:
+      "From April 2027 employers must payroll most benefits in kind through RTI (MPBiKs). HMRC published further draft guidance on 9 November 2026. The P46(Car) reporting method is decommissioned from 6 April 2027 — do not build new product flows that rely on it.",
+    sourceUrl:
+      "https://www.gov.uk/guidance/draft-guidance-and-legislation-to-aid-preparation-for-reporting-benefits-in-kind-in-real-time",
+  },
   {
     id: "paye-codes",
     domain: "paye",

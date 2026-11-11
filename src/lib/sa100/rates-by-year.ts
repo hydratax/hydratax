@@ -134,10 +134,25 @@ export const RATES_2026_27: SaTaxYearRates = {
   studentLoanPlan2Threshold: 28_470,
 };
 
+/**
+ * Tax year 6 Apr 2027 – 5 Apr 2028.
+ * Autumn Budget 2026 confirmed trading allowance £3,000 from 2027–28.
+ * Savings / property Income Tax rates also change from 6 Apr 2027 (24/44/49%) —
+ * those are tracked in the HMRC rulebook until SA calc models them separately.
+ * Blind Person’s Allowance, Class 2 weekly, etc. not yet in GOV.UK 2027–28 tables —
+ * carry forward 2026–27 figures until published (do not invent).
+ */
+export const RATES_2027_28: SaTaxYearRates = {
+  ...RATES_2026_27,
+  taxYear: "2027-28",
+  tradingAllowance: 3_000,
+};
+
 export const SA_RATES_BY_YEAR: Record<string, SaTaxYearRates> = {
   "2024-25": RATES_2024_25,
   "2025-26": RATES_2025_26,
   "2026-27": RATES_2026_27,
+  "2027-28": RATES_2027_28,
 };
 
 /** Default desk year while SA100-2026 (2025–26) stationery is in use. */

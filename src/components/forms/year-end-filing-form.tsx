@@ -1956,7 +1956,8 @@ export function YearEndFilingForm({
                 clientId={clientId}
                 defaultEmail={contactEmail}
                 compact
-                label="Email to client"
+                className="btn btn-primary text-xs"
+                label="Email accounts"
                 subject={`Year end accounts — ${company.name}`}
                 message={`Please find attached the year end accounts for ${company.name}.\n\nKind regards`}
                 prepareArtifact={async () => {

@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   filingSaTaxYear,
   listSaTaxYears,
@@ -21,21 +22,34 @@ import {
 } from "@/lib/sa-tax-year";
 import type { Sa100Stored } from "@/server/actions/sa100";
 import {
+  assignSaFiledDocument,
   deleteSa100Return,
+  recordSa302Upload,
   recordSubmittedSaReturn,
 } from "@/server/actions/sa100";
 import { uploadClientDocument } from "@/server/actions/documents";
+import { saFiledCategory } from "@/lib/sa-filed-docs";
 import { messageFromUnknown } from "@/lib/action-error";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
+export type SaFiledDocRow = {
+  id: string;
+  filename: string;
+  blobUrl: string;
+  taxYear: string | null;
+  kind: "return" | "sa302" | "unassigned";
+  createdAt: string;
+};
+
 /**
- * One card per tax year — year + status + Edit / Delete.
- * Prior years can be added; submitted returns can be uploaded.
+ * One card per tax year — year + status + Edit / Delete / Upload SA100 & SA302.
+ * Prior-year uploads are stored as tagged client documents so they survive refresh.
  */
 export function SaTaxYearWorkspace({
   baseHref,
   activeYear,
   returns,
+  filedDocs = [],
   clientId,
   taxpayerId,
   children,
@@ -43,6 +57,7 @@ export function SaTaxYearWorkspace({
   baseHref: string;
   activeYear: string | null;
   returns: Array<Pick<Sa100Stored, "id" | "taxYear" | "status">>;
+  filedDocs?: SaFiledDocRow[];
   clientId: string;
   taxpayerId?: string | null;
   children?: ReactNode;
@@ -51,7 +66,10 @@ export function SaTaxYearWorkspace({
   const filingYear = useMemo(() => filingSaTaxYear(), []);
   const rootRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [uploadYear, setUploadYear] = useState<string | null>(null);
+  const [uploadTarget, setUploadTarget] = useState<{
+    year: string;
+    kind: "return" | "sa302";
+  } | null>(null);
   const [pending, start] = useTransition();
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -67,11 +85,40 @@ export function SaTaxYearWorkspace({
     return map;
   }, [returns]);
 
+  const docsByYear = useMemo(() => {
+    const map = new Map<
+      string,
+      { return?: SaFiledDocRow; sa302?: SaFiledDocRow }
+    >();
+    for (const d of filedDocs) {
+      if (!d.taxYear || d.kind === "unassigned") continue;
+      const slot = map.get(d.taxYear) ?? {};
+      if (d.kind === "return") slot.return = d;
+      if (d.kind === "sa302") slot.sa302 = d;
+      map.set(d.taxYear, slot);
+    }
+    return map;
+  }, [filedDocs]);
+
+  const unassigned = useMemo(
+    () => filedDocs.filter((d) => d.kind === "unassigned"),
+    [filedDocs],
+  );
+
   const yearCards = useMemo(() => {
     const defaults = listSaTaxYears(3).map((y) => y.label);
     const fromReturns = returns.map((r) => r.taxYear);
+    const fromDocs = filedDocs
+      .map((d) => d.taxYear)
+      .filter((y): y is string => Boolean(y));
     const labels = Array.from(
-      new Set([filingYear.label, ...defaults, ...fromReturns, ...extraYears]),
+      new Set([
+        filingYear.label,
+        ...defaults,
+        ...fromReturns,
+        ...fromDocs,
+        ...extraYears,
+      ]),
     ).filter((l) => !hiddenYears.includes(l));
     const years: SaTaxYear[] = [];
     for (const label of labels) {
@@ -80,7 +127,7 @@ export function SaTaxYearWorkspace({
     }
     years.sort((a, b) => b.label.localeCompare(a.label));
     return years;
-  }, [returns, extraYears, hiddenYears, filingYear.label]);
+  }, [returns, filedDocs, extraYears, hiddenYears, filingYear.label]);
 
   const active =
     (activeYear && parseSaTaxYearLabel(activeYear)) || null;
@@ -162,6 +209,11 @@ export function SaTaxYearWorkspace({
     });
   }
 
+  function pickUpload(year: string, kind: "return" | "sa302") {
+    setUploadTarget({ year, kind });
+    fileRef.current?.click();
+  }
+
   if (mode === "file" && active) {
     return (
       <div ref={rootRef} id="sa-tax-return" className="space-y-6 scroll-mt-24">
@@ -193,25 +245,138 @@ export function SaTaxYearWorkspace({
         <div>
           <h2 className="display text-2xl text-ink">Tax return</h2>
           <p className="mt-1 text-sm text-ink-soft">
-            One card per year · edit or delete
+            One card per year · edit or delete · upload prior SA100 / SA302
           </p>
         </div>
-        <button
-          type="button"
-          className="btn btn-secondary text-sm"
-          onClick={addPreviousYear}
-        >
-          Add previous year
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/self-assessment/bulk-prior-returns"
+            className="btn btn-secondary text-sm"
+          >
+            Bulk prior returns
+          </Link>
+          <button
+            type="button"
+            className="btn btn-secondary text-sm"
+            onClick={addPreviousYear}
+          >
+            Add previous year
+          </button>
+        </div>
       </div>
 
       <FormErrorBanner error={err} />
       {msg ? <p className="text-sm text-ok">{msg}</p> : null}
 
+      {unassigned.length > 0 ? (
+        <div className="panel space-y-3 border-amber-200 bg-amber-50/40 p-4">
+          <div>
+            <p className="font-semibold text-ink">Unassigned SA uploads</p>
+            <p className="text-sm text-ink-soft">
+              These files were uploaded before year tagging. Assign each to a
+              tax year as the submitted return or SA302.
+            </p>
+          </div>
+          <ul className="space-y-2">
+            {unassigned.map((d) => (
+              <li
+                key={d.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-white px-3 py-2 text-sm"
+              >
+                <a
+                  href={d.blobUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-sea hover:underline"
+                >
+                  {d.filename}
+                </a>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    className="input py-1 text-xs"
+                    id={`assign-year-${d.id}`}
+                    defaultValue={yearCards[yearCards.length - 1]?.label ?? ""}
+                  >
+                    {yearCards.map((y) => (
+                      <option key={y.label} value={y.label}>
+                        {y.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="btn btn-secondary text-xs"
+                    disabled={pending}
+                    onClick={() => {
+                      const sel = document.getElementById(
+                        `assign-year-${d.id}`,
+                      ) as HTMLSelectElement | null;
+                      const year = sel?.value;
+                      if (!year) return;
+                      setErr(null);
+                      start(async () => {
+                        try {
+                          await assignSaFiledDocument({
+                            clientId,
+                            documentId: d.id,
+                            taxYear: year,
+                            kind: "return",
+                            taxpayerId,
+                          });
+                          setMsg(`Assigned ${d.filename} as ${year} return`);
+                          router.refresh();
+                        } catch (e) {
+                          setErr(messageFromUnknown(e, "Could not assign"));
+                        }
+                      });
+                    }}
+                  >
+                    As return
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary text-xs"
+                    disabled={pending}
+                    onClick={() => {
+                      const sel = document.getElementById(
+                        `assign-year-${d.id}`,
+                      ) as HTMLSelectElement | null;
+                      const year = sel?.value;
+                      if (!year) return;
+                      setErr(null);
+                      start(async () => {
+                        try {
+                          await assignSaFiledDocument({
+                            clientId,
+                            documentId: d.id,
+                            taxYear: year,
+                            kind: "sa302",
+                            taxpayerId,
+                          });
+                          setMsg(`Assigned ${d.filename} as ${year} SA302`);
+                          router.refresh();
+                        } catch (e) {
+                          setErr(messageFromUnknown(e, "Could not assign"));
+                        }
+                      });
+                    }}
+                  >
+                    As SA302
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <ul className="space-y-3">
         {yearCards.map((year) => {
           const match = returnYears.get(year.label) ?? null;
-          const status = match?.status ?? "none";
+          const docs = docsByYear.get(year.label);
+          const status =
+            match?.status ??
+            (docs?.return ? "accepted" : "none");
           const submitted = status === "submitted" || status === "accepted";
           const isDraft = status === "draft";
           const urgency = saFilingUrgency(year, status);
@@ -224,7 +389,7 @@ export function SaTaxYearWorkspace({
               <div
                 className={`panel flex w-full flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between ${saCardUrgencyClass(urgency, submitted)}`}
               >
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 space-y-1.5">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="display text-xl text-ink">
                       {year.label}
@@ -249,6 +414,30 @@ export function SaTaxYearWorkspace({
                       </span>
                     )}
                   </div>
+                  {(docs?.return || docs?.sa302) && (
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-soft">
+                      {docs.return ? (
+                        <a
+                          href={docs.return.blobUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium text-sea hover:underline"
+                        >
+                          View return · {docs.return.filename}
+                        </a>
+                      ) : null}
+                      {docs.sa302 ? (
+                        <a
+                          href={docs.sa302.blobUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium text-sea hover:underline"
+                        >
+                          View SA302 · {docs.sa302.filename}
+                        </a>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -267,17 +456,24 @@ export function SaTaxYearWorkspace({
                   >
                     Delete
                   </button>
-                  {!isDraft && !submitted ? (
+                  {!isDraft && !docs?.return ? (
                     <button
                       type="button"
                       className="btn btn-secondary text-sm"
                       disabled={pending}
-                      onClick={() => {
-                        setUploadYear(year.label);
-                        fileRef.current?.click();
-                      }}
+                      onClick={() => pickUpload(year.label, "return")}
                     >
-                      Upload submitted
+                      Upload return
+                    </button>
+                  ) : null}
+                  {!docs?.sa302 ? (
+                    <button
+                      type="button"
+                      className="btn btn-secondary text-sm"
+                      disabled={pending}
+                      onClick={() => pickUpload(year.label, "sa302")}
+                    >
+                      Upload SA302
                     </button>
                   ) : null}
                 </div>
@@ -294,31 +490,47 @@ export function SaTaxYearWorkspace({
         className="sr-only"
         onChange={(e) => {
           const file = e.target.files?.[0];
-          const year = uploadYear;
+          const target = uploadTarget;
           e.target.value = "";
-          setUploadYear(null);
-          if (!file || !year) return;
+          setUploadTarget(null);
+          if (!file || !target) return;
           setErr(null);
           setMsg(null);
           start(async () => {
             try {
               const fd = new FormData();
               fd.set("clientId", clientId);
-              fd.set("category", "self_assessment");
+              fd.set(
+                "category",
+                saFiledCategory(target.year, target.kind, taxpayerId),
+              );
               fd.set("file", file);
               const doc = await uploadClientDocument(fd);
-              await recordSubmittedSaReturn({
-                clientId,
-                taxYear: year,
-                taxpayerId,
-                documentId: doc.id,
-                filename: doc.filename,
-              });
-              setMsg(`Submitted return for ${year} recorded (${doc.filename}).`);
+              if (target.kind === "sa302") {
+                await recordSa302Upload({
+                  clientId,
+                  taxYear: target.year,
+                  taxpayerId,
+                  documentId: doc.id,
+                  filename: doc.filename,
+                });
+                setMsg(`SA302 for ${target.year} saved (${doc.filename}).`);
+              } else {
+                await recordSubmittedSaReturn({
+                  clientId,
+                  taxYear: target.year,
+                  taxpayerId,
+                  documentId: doc.id,
+                  filename: doc.filename,
+                });
+                setMsg(
+                  `Submitted return for ${target.year} recorded (${doc.filename}).`,
+                );
+              }
               router.refresh();
             } catch (error) {
               setErr(
-                messageFromUnknown(error, "Could not upload submitted return"),
+                messageFromUnknown(error, "Could not upload document"),
               );
             }
           });

@@ -113,7 +113,11 @@ export function SignInForm() {
               setError(res.error);
               return;
             }
-            router.push(next);
+            const dest =
+              res.redirectTo === "/verify-2fa"
+                ? `/verify-2fa?next=${encodeURIComponent(next)}`
+                : next;
+            router.push(dest);
             router.refresh();
           } catch (err) {
             clearNavPending();

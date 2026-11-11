@@ -421,6 +421,34 @@ export async function setUnpaidShareCapital(input: {
   });
 }
 
+const capitalAllowancesSchema = z.object({
+  clientId: z.string().min(1),
+  aiaClaimPence: z.number().int().nonnegative(),
+  mainPoolWdaPence: z.number().int().nonnegative(),
+  specialRateWdaPence: z.number().int().nonnegative(),
+  otherAllowancesPence: z.number().int().nonnegative().default(0),
+  notes: z.string().max(500).optional(),
+});
+
+/** Save CT capital allowances claim for the bank year-end ledger period. */
+export async function setCapitalAllowances(
+  input: z.infer<typeof capitalAllowancesSchema>,
+) {
+  const data = capitalAllowancesSchema.parse(input);
+  const client = await getClient(data.clientId);
+  const ledger = readLedger(client);
+  return saveLedger(data.clientId, {
+    ...ledger,
+    capitalAllowances: {
+      aiaClaimPence: data.aiaClaimPence,
+      mainPoolWdaPence: data.mainPoolWdaPence,
+      specialRateWdaPence: data.specialRateWdaPence,
+      otherAllowancesPence: data.otherAllowancesPence,
+      notes: data.notes,
+    },
+  });
+}
+
 /** Copy priorClosing snapshot into brought-forward balances for this year. */
 export async function bringForwardBankLedger(clientId: string) {
   const client = await getClient(clientId);

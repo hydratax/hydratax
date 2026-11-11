@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { DashboardClientList } from "@/components/dashboard-client-list";
+import { PendingLink } from "@/components/pending-link";
 import type { ServiceModule } from "@/lib/entitlements";
 
 export type DashboardClientRow = {
@@ -15,8 +16,15 @@ export type DashboardClientRow = {
   vrn: string | null;
   companyNumber: string | null;
   payeRef?: string | null;
-  /** True for sole traders, partnerships, or Ltd homes that hold SA people. */
-  hasSelfAssessment?: boolean;
+};
+
+/** Natural persons / SA entities — never limited companies. */
+export type DashboardSaPersonRow = {
+  key: string;
+  fullName: string;
+  href: string;
+  kind: "director" | "sole_trader" | "partnership";
+  detail?: string;
 };
 
 export type DashboardFilter = "clients" | "vat" | "paye" | "sa" | "ltd";
@@ -42,11 +50,9 @@ function filterClients(
         (c) => c.isEmployer || Boolean(c.payeRef?.trim()),
       );
     case "sa":
+      // Limited companies belong on Ltd / CT600 — never on SA.
       return clients.filter(
-        (c) =>
-          c.hasSelfAssessment ||
-          c.type === "sole_trader" ||
-          c.type === "partnership",
+        (c) => c.type === "sole_trader" || c.type === "partnership",
       );
     case "ltd":
       return clients.filter((c) => c.type === "limited_company");
@@ -55,13 +61,22 @@ function filterClients(
   }
 }
 
+function kindLabel(kind: DashboardSaPersonRow["kind"]) {
+  if (kind === "director") return "Director / shareholder";
+  if (kind === "partnership") return "Partnership";
+  return "Sole trader";
+}
+
 export function DashboardClientFilters({
   clients,
+  saPeople = [],
   unlockedModules: _unlockedModules,
   stats,
   canAddClients,
 }: {
   clients: DashboardClientRow[];
+  /** People for the Self Assessment filter (directors + sole/partnership). */
+  saPeople?: DashboardSaPersonRow[];
   unlockedModules: ServiceModule[];
   stats: StatCard[];
   canAddClients: boolean;
@@ -69,14 +84,28 @@ export function DashboardClientFilters({
   const [activeFilter, setActiveFilter] = useState<DashboardFilter | null>(
     null,
   );
+  const [saQuery, setSaQuery] = useState("");
 
   const filtered = useMemo(() => {
-    if (!activeFilter) return [];
+    if (!activeFilter || activeFilter === "sa") return [];
     return filterClients(clients, activeFilter);
   }, [activeFilter, clients]);
 
+  const filteredSaPeople = useMemo(() => {
+    const q = saQuery.trim().toLowerCase();
+    if (!q) return saPeople;
+    return saPeople.filter(
+      (p) =>
+        p.fullName.toLowerCase().includes(q) ||
+        (p.detail ?? "").toLowerCase().includes(q) ||
+        kindLabel(p.kind).toLowerCase().includes(q),
+    );
+  }, [saPeople, saQuery]);
+
   const activeLabel =
     stats.find((s) => s.id === activeFilter)?.label ?? "Clients";
+
+  const saEmpty = activeFilter === "sa" && filteredSaPeople.length === 0;
 
   return (
     <div className="space-y-6">
@@ -133,6 +162,83 @@ export function DashboardClientFilters({
             </Link>
           )}
         </section>
+      ) : activeFilter === "sa" ? (
+        saEmpty && !saQuery.trim() ? (
+          <section className="service-tile px-5 py-10 text-center">
+            <p className="font-semibold text-ink">No Self Assessment people</p>
+            <p className="mt-1 text-sm text-ink-soft">
+              Add a sole trader or partnership, or open a limited company and
+              refresh Companies House officers.
+            </p>
+            <Link
+              href="/clients?desk=sa"
+              className="btn btn-primary mt-4 inline-flex text-sm"
+            >
+              Open Self Assessment desk
+            </Link>
+          </section>
+        ) : (
+          <section className="service-tile overflow-hidden p-5">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="display text-2xl text-ink">Self Assessment</h2>
+                <p className="mt-1 text-sm text-ink-soft">
+                  People only — personal UTR / NINO. Limited companies stay on
+                  Ltd companies / CT600.
+                </p>
+              </div>
+              <Link
+                href="/clients?desk=sa"
+                className="btn btn-secondary text-sm"
+              >
+                Full SA desk
+              </Link>
+            </div>
+            <input
+              type="search"
+              className="input mt-4 max-w-md"
+              placeholder="Search person…"
+              value={saQuery}
+              onChange={(e) => setSaQuery(e.target.value)}
+            />
+            {filteredSaPeople.length === 0 ? (
+              <p className="mt-6 text-center text-sm text-ink-soft">
+                No people match this search.
+              </p>
+            ) : (
+              <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+                {filteredSaPeople.map((p) => (
+                  <li key={p.key}>
+                    <PendingLink
+                      href={p.href}
+                      pendingLabel={`Opening ${p.fullName}…`}
+                      className="panel panel-interactive client-card client-card--compact block px-4 py-3"
+                    >
+                      {(pending) => (
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-ink">
+                              {p.fullName}
+                            </p>
+                            <p className="mt-1 text-xs text-ink-soft">
+                              {kindLabel(p.kind)}
+                              {p.detail ? ` · ${p.detail}` : ""}
+                            </p>
+                          </div>
+                          <span
+                            className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}
+                          >
+                            {pending ? "Opening…" : "Open SA"}
+                          </span>
+                        </div>
+                      )}
+                    </PendingLink>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )
       ) : filtered.length === 0 ? (
         <section className="service-tile px-5 py-10 text-center">
           <p className="font-semibold text-ink">
@@ -141,37 +247,16 @@ export function DashboardClientFilters({
           <p className="mt-1 text-sm text-ink-soft">
             Nothing in your practice matches this filter yet.
           </p>
-          {activeFilter === "sa" ? (
-            <Link
-              href="/clients?desk=sa"
-              className="btn btn-primary mt-4 inline-flex text-sm"
-            >
-              Open Self Assessment desk
-            </Link>
-          ) : (
-            <button
-              type="button"
-              className="btn btn-secondary mt-4 text-sm"
-              onClick={() => setActiveFilter(null)}
-            >
-              Clear filter
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn btn-secondary mt-4 text-sm"
+            onClick={() => setActiveFilter(null)}
+          >
+            Clear filter
+          </button>
         </section>
       ) : (
         <section className="service-tile overflow-hidden p-5">
-          {activeFilter === "sa" ? (
-            <p className="mb-3 text-sm text-ink-soft">
-              Showing client files linked to Self Assessment people. Open the{" "}
-              <Link
-                href="/clients?desk=sa"
-                className="font-semibold text-sea underline"
-              >
-                SA desk
-              </Link>{" "}
-              for the full people list.
-            </p>
-          ) : null}
           <DashboardClientList clients={filtered} />
         </section>
       )}

@@ -8,6 +8,7 @@ export {
   ratesForTaxYear,
   RATES_2024_25,
   RATES_2026_27,
+  RATES_2027_28,
   SA_RATES_BY_YEAR,
   type SaTaxYearRates,
 } from "./rates-by-year";

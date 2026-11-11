@@ -2,17 +2,20 @@ import Link from "next/link";
 import { requireSession } from "@/server/auth/session";
 import { getAccountProfile } from "@/server/actions/account";
 import { getAccountBillingSummary } from "@/server/actions/billing";
+import { getMfaSettings } from "@/server/actions/mfa";
 import { AccountProfileForm } from "@/components/forms/account-profile-form";
 import { AccountSubscriptionPanel } from "@/components/settings/account-subscription-panel";
+import { MfaSettingsPanel } from "@/components/settings/mfa-settings-panel";
 import { SeedPresentationDemoButton } from "@/components/admin/seed-presentation-demo-button";
 
 export const metadata = { title: "Account — HydraTax" };
 
 export default async function AccountSettingsPage() {
   const session = await requireSession();
-  const [profile, billing] = await Promise.all([
+  const [profile, billing, mfa] = await Promise.all([
     getAccountProfile(),
     getAccountBillingSummary(),
+    getMfaSettings(),
   ]);
   const canManageTeam = session.moduleAccess === "full";
   const isOwner = session.role === "owner";
@@ -35,6 +38,8 @@ export default async function AccountSettingsPage() {
       </div>
 
       <AccountProfileForm profile={profile} />
+
+      <MfaSettingsPanel initial={mfa} />
 
       {isOwner ? <AccountSubscriptionPanel billing={billing} /> : null}
 

@@ -148,6 +148,38 @@ export type DeskProfile = {
   /** Set when seeded for sales demos (Admin → Load presentation clients). */
   presentationDemo?: string;
   presentationPitch?: string;
+  /** Capium-parity PAYE / payroll desk settings for this employer. */
+  payrollSettings?: PayrollDeskSettings;
+};
+
+export type PayslipTemplateId =
+  | "hydra_a"
+  | "hydra_b"
+  | "hydra_c"
+  | "hydra_secure";
+
+export type PayrollPayRate = {
+  id: string;
+  name: string;
+  /** Pence per hour, or fixed amount depending on unit. */
+  ratePence: number;
+  unit: "hour" | "day" | "fixed";
+  isDefault?: boolean;
+  createdAt: string;
+};
+
+export type PayrollDeskSettings = {
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  payslipTemplate?: PayslipTemplateId;
+  /** PDF (merged) or ZIP of individual payslips for bulk download. */
+  bulkDownloadFormat?: "pdf" | "zip";
+  /** When false, packs download without ZipCrypto (not recommended). */
+  documentPasswordEnabled?: boolean;
+  payRates?: PayrollPayRate[];
+  /** Tax year label for history filter, e.g. 2025-26 */
+  activeTaxYear?: string;
 };
 
 export type PracticeLetterhead = {

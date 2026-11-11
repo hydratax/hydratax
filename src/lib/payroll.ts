@@ -238,6 +238,8 @@ export function renderPayslipHtml(opts: {
   periodEnd: string;
   frequency: string;
   line: PayLine;
+  /** Capium-style theme id from payroll settings. */
+  template?: string;
 }) {
   const gbp = (n: number) =>
     new Intl.NumberFormat("en-GB", {
@@ -245,6 +247,15 @@ export function renderPayslipHtml(opts: {
       currency: "GBP",
     }).format(n / 100);
   const freq = opts.frequency === "W1" ? "Weekly" : "Monthly";
+  const theme = opts.template ?? "hydra_a";
+  const themeCss =
+    theme === "hydra_b"
+      ? "body{font-family:Georgia,serif} table th{background:#f3faf9} .net{letter-spacing:0.02em}"
+      : theme === "hydra_c"
+        ? "th.num,td.num{min-width:7rem} h1{font-size:20px}"
+        : theme === "hydra_secure"
+          ? "body{margin:24px} .muted{font-size:11px} h1{font-size:18px}"
+          : "";
   const extra: string[] = [];
   if ((opts.line.ordinaryPence ?? 0) > 0 && (opts.line.ordinaryPence ?? 0) !== opts.line.grossPence) {
     extra.push(
@@ -290,10 +301,11 @@ export function renderPayslipHtml(opts: {
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
     .net { font-size: 20px; font-weight: 700; color: #0f766e; }
     @media print { body { margin: 12mm; } }
+    ${themeCss}
   </style>
 </head>
-<body>
-  <p class="muted">HydraTax payroll · ${freq} payslip</p>
+<body data-template="${escapeHtml(theme)}">
+  <p class="muted">HydraTax payroll · ${freq} payslip · ${escapeHtml(theme.replace(/_/g, " "))}</p>
   <h1>${escapeHtml(opts.employerName)}</h1>
   <p class="muted">PAYE ${escapeHtml(opts.payeRef)} · Pay date ${escapeHtml(opts.payDate)} · Period ${escapeHtml(opts.periodStart)} to ${escapeHtml(opts.periodEnd)}</p>
   <p><strong>${escapeHtml(opts.line.forename)} ${escapeHtml(opts.line.surname)}</strong><br/>

@@ -31,13 +31,13 @@ describe("extractRtiErrorMessage", () => {
 });
 
 describe("RTI EPS package", () => {
-  it("includes IRheader, IRmark, tax-year schema, and EmpRefs PayeRef without office", () => {
+  it("includes IRheader, unprefixed IRmark, tax-year end PeriodEnd, and EmpRefs", () => {
     const eps = buildEpsXml({
       employerPayeRef: "123/AB45678",
       accountsOfficeRef: "123PA00045678",
       taxYear: "26-27",
-      periodStart: "2026-08-01",
-      periodEnd: "2026-08-31",
+      periodStart: "2026-10-06",
+      periodEnd: "2026-11-05",
       noPaymentForPeriod: true,
       senderId: "123456789012",
       senderPassword: "secret",
@@ -45,6 +45,11 @@ describe("RTI EPS package", () => {
     });
     expect(eps.bodyInner).toContain("<IRheader>");
     expect(eps.bodyInner).toContain('<IRmark Type="generic">');
+    expect(eps.bodyInner).not.toContain("ct:IRmark");
+    expect(eps.bodyInner).not.toContain("ct:Sender");
+    expect(eps.bodyInner).toContain("<PeriodEnd>2027-04-05</PeriodEnd>");
+    expect(eps.bodyInner).toContain("<From>2026-10-06</From>");
+    expect(eps.bodyInner).toContain("<To>2026-11-05</To>");
     expect(eps.bodyInner).toContain(
       "http://www.govtalk.gov.uk/taxation/PAYE/RTI/EmployerPaymentSummary/26-27/1",
     );

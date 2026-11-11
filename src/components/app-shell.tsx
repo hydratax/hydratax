@@ -49,6 +49,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
         }
         userEmail={session.email}
         canManageTeam={full}
+        canViewLogs={session.role === "owner" || session.role === "admin"}
       />
       <main className="mx-auto max-w-6xl px-4 py-8 md:px-6 md:py-10">
         {children}

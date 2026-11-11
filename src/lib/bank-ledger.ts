@@ -122,6 +122,19 @@ export type PropertyAsset = {
   createdAt: string;
 };
 
+/** CT capital allowances claim for the accounting period (pence). */
+export type CapitalAllowancesClaim = {
+  /** Annual Investment Allowance claimed on qualifying additions. */
+  aiaClaimPence: number;
+  /** Writing-down allowance — main pool (typically 18%). */
+  mainPoolWdaPence: number;
+  /** Writing-down allowance — special rate pool (typically 6%). */
+  specialRateWdaPence: number;
+  /** Optional first-year / other allowances. */
+  otherAllowancesPence: number;
+  notes?: string;
+};
+
 export type BankLedger = {
   periodStart: string | null;
   periodEnd: string | null;
@@ -130,6 +143,8 @@ export type BankLedger = {
   properties: PropertyAsset[];
   debtors: DebtorAccount[];
   creditors: CreditorAccount[];
+  /** Corporation tax capital allowances for the period. */
+  capitalAllowances?: CapitalAllowancesClaim;
   /** Unpaid called-up share capital (debtor) — Digitus Note 2 line. */
   unpaidShareCapitalPence?: number;
   /** Snapshot of closing balances from last year (for bring-forward). */

@@ -27,6 +27,8 @@ import {
   GatewayCredentialsFields,
   gatewayCredentialsReady,
 } from "@/components/forms/gateway-credentials-fields";
+import { PayrollSettingsPanel } from "@/components/forms/payroll-settings-panel";
+import type { PayrollDeskSettings } from "@/lib/desk-profile";
 
 type RunRow = {
   id?: string;
@@ -51,6 +53,7 @@ export function PayrollWorkspace({
   payRuns,
   hasPackPassword,
   contactEmail,
+  payrollSettings,
 }: {
   clientId: string;
   clientName: string;
@@ -61,9 +64,12 @@ export function PayrollWorkspace({
   payRuns: RunRow[];
   hasPackPassword: boolean;
   contactEmail: string | null;
+  payrollSettings?: PayrollDeskSettings | null;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"run" | "people" | "history">("run");
+  const [tab, setTab] = useState<"run" | "people" | "history" | "settings">(
+    "run",
+  );
   const [frequency, setFrequency] = useState<PayFrequency>("M1");
   const defaults = useMemo(() => defaultPayPeriod(frequency), [frequency]);
   const [payDate, setPayDate] = useState(defaults.payDate);
@@ -122,45 +128,61 @@ export function PayrollWorkspace({
     );
   }
 
+  const liveEmployees = employees.filter((e) => e.active).length;
+
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-line bg-white p-4 md:p-5">
-        <dl className="flex flex-wrap gap-6 text-sm">
-          <div>
-            <dt className="text-ink-soft">PAYE</dt>
-            <dd className="font-mono font-semibold">{payeRef || "Not set"}</dd>
-          </div>
-          <div>
-            <dt className="text-ink-soft">Accounts office</dt>
-            <dd className="font-mono font-semibold">
-              {accountsOfficeRef || "Not set"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-ink-soft">Live employees</dt>
-            <dd className="font-semibold">{employees.filter((e) => e.active).length}</dd>
-          </div>
-        </dl>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="gloss-card relative overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-4">
+          <div className="gloss-shine" aria-hidden />
+          <p className="relative text-[11px] font-bold uppercase tracking-[0.14em] text-ink-soft">
+            PAYE
+          </p>
+          <p className="relative mt-2 font-mono text-sm font-semibold text-ink">
+            {payeRef || "Not set"}
+          </p>
+        </div>
+        <div className="gloss-card relative overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-4">
+          <div className="gloss-shine" aria-hidden />
+          <p className="relative text-[11px] font-bold uppercase tracking-[0.14em] text-ink-soft">
+            Accounts office
+          </p>
+          <p className="relative mt-2 font-mono text-sm font-semibold text-ink">
+            {accountsOfficeRef || "Not set"}
+          </p>
+        </div>
+        <div className="gloss-card relative overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-4">
+          <div className="gloss-shine" aria-hidden />
+          <p className="relative text-[11px] font-bold uppercase tracking-[0.14em] text-ink-soft">
+            Live employees
+          </p>
+          <p className="display relative mt-1 text-3xl text-ink">
+            {liveEmployees}
+          </p>
+        </div>
       </div>
 
       {!isEmployer || !payeRef || !accountsOfficeRef ? (
         <EmployerSetup clientId={clientId} />
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 border-b border-line/70 pb-3">
         {(
           [
             ["run", "Pay run"],
             ["people", "Employees"],
             ["history", "History & packs"],
+            ["settings", "Settings"],
           ] as const
         ).map(([id, label]) => (
           <button
             key={id}
             type="button"
             onClick={() => setTab(id)}
-            className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
-              tab === id ? "bg-sea text-white" : "bg-sand text-ink-soft"
+            className={`rounded-xl px-3.5 py-2 text-sm font-semibold transition ${
+              tab === id
+                ? "bg-sea text-white shadow-sm"
+                : "bg-white text-ink-soft ring-1 ring-line hover:text-ink"
             }`}
           >
             {label}
@@ -173,34 +195,51 @@ export function PayrollWorkspace({
       )}
 
       {tab === "run" && (
-        <div className="panel gloss-card space-y-5 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="gloss-card relative space-y-5 overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-5 md:p-6">
+          <div className="gloss-shine" aria-hidden />
+          <div className="relative flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="display text-2xl text-ink">This period</h3>
-              <p className="text-sm text-ink-soft">
+              <h3 className="display text-2xl text-ink md:text-3xl">
+                This period
+              </h3>
+              <p className="mt-1 text-sm text-ink-soft">
                 Preview first. FPS only goes to HMRC when you confirm.
                 {latest?.payDate
                   ? ` Last submitted ${latest.payDate}.`
                   : ""}
               </p>
             </div>
-            <div className="flex rounded-lg border border-line p-1">
+            <div className="flex rounded-xl border border-line/80 bg-sand/40 p-1">
               <button
                 type="button"
-                className={`rounded-md px-3 py-1.5 text-sm font-semibold ${frequency === "M1" ? "bg-sea text-white" : "text-ink-soft"}`}
+                className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${frequency === "M1" ? "bg-sea text-white shadow-sm" : "text-ink-soft hover:text-ink"}`}
                 onClick={() => applyFrequency("M1")}
               >
                 Monthly
               </button>
               <button
                 type="button"
-                className={`rounded-md px-3 py-1.5 text-sm font-semibold ${frequency === "W1" ? "bg-sea text-white" : "text-ink-soft"}`}
+                className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${frequency === "W1" ? "bg-sea text-white shadow-sm" : "text-ink-soft hover:text-ink"}`}
                 onClick={() => applyFrequency("W1")}
               >
                 Weekly
               </button>
             </div>
           </div>
+
+          {liveEmployees === 0 ? (
+            <div className="relative rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              No live employees on this employer yet. Add people on the{" "}
+              <button
+                type="button"
+                className="font-semibold text-sea underline"
+                onClick={() => setTab("people")}
+              >
+                Employees
+              </button>{" "}
+              tab before previewing pay, or submit an EPS if nobody was paid.
+            </div>
+          ) : null}
 
           <TimesheetUpload
             clientId={clientId}
@@ -255,14 +294,20 @@ export function PayrollWorkspace({
             hint="Required for FPS and EPS submit to HMRC Transaction Engine."
           />
 
-          <div className="flex flex-wrap gap-2">
+          <div className="relative flex flex-wrap gap-2">
             <button
               type="button"
-              className="btn btn-secondary"
+              className="btn btn-primary"
               disabled={pending}
               onClick={() => {
                 setError(null);
                 setOk(null);
+                if (liveEmployees === 0) {
+                  setError(
+                    "Add at least one live employee before previewing a pay run, or use Submit EPS if nobody was paid.",
+                  );
+                  return;
+                }
                 start(async () => {
                   try {
                     const next = await previewPayRun({
@@ -274,7 +319,9 @@ export function PayrollWorkspace({
                     });
                     setPreview(next);
                   } catch (err) {
-                    setError(err instanceof Error ? err.message : "Preview failed");
+                    setError(
+                      messageFromUnknown(err, "Could not preview this pay run."),
+                    );
                   }
                 });
               }}
@@ -328,7 +375,12 @@ export function PayrollWorkspace({
                     setGgPassword("");
                     router.refresh();
                   } catch (err) {
-                    setError(err instanceof Error ? err.message : "EPS failed");
+                    setError(
+                      messageFromUnknown(
+                        err,
+                        "Could not submit EPS. Check Government Gateway details and try again.",
+                      ),
+                    );
                   }
                 });
               }}
@@ -491,7 +543,12 @@ export function PayrollWorkspace({
                       setGgPassword("");
                       router.refresh();
                     } catch (err) {
-                      setError(err instanceof Error ? err.message : "Submit failed");
+                      setError(
+                        messageFromUnknown(
+                          err,
+                          "Could not submit FPS. Check pay details and Government Gateway credentials.",
+                        ),
+                      );
                     }
                   });
                 }}
@@ -501,6 +558,17 @@ export function PayrollWorkspace({
             </div>
           )}
         </div>
+      )}
+
+      {tab === "settings" && (
+        <PayrollSettingsPanel
+          clientId={clientId}
+          payeRef={payeRef}
+          accountsOfficeRef={accountsOfficeRef}
+          hasPackPassword={hasPackPassword}
+          contactEmail={contactEmail}
+          initialSettings={payrollSettings}
+        />
       )}
 
       {tab === "history" && (
@@ -515,7 +583,22 @@ export function PayrollWorkspace({
             {payRuns.length === 0 && (
               <li className="py-3 text-sm text-ink-soft">No pay runs yet.</li>
             )}
-            {payRuns.map((p) => (
+            {payRuns
+              .filter((p) => {
+                const ty = payrollSettings?.activeTaxYear;
+                if (!ty || !p.payDate) return true;
+                // Map 2025-26 → Apr 2025–Mar 2026 style filter via taxYearFromDate would need import;
+                // keep loose: show all unless year digits appear in payDate year.
+                const startYear = Number(ty.slice(0, 4));
+                if (!Number.isFinite(startYear)) return true;
+                const y = Number(String(p.payDate).slice(0, 4));
+                const m = Number(String(p.payDate).slice(5, 7));
+                const inYear =
+                  (y === startYear && m >= 4) ||
+                  (y === startYear + 1 && m <= 3);
+                return inYear;
+              })
+              .map((p) => (
               <li key={String(p.id)} className="py-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>

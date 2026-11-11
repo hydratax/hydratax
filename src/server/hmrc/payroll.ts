@@ -13,7 +13,7 @@ import {
   parsePayeRef,
   escapeXml,
 } from "@/server/hmrc/rti-submit";
-import { computeIrmark, injectIrmark } from "@/server/hmrc/ct600/irmark";
+import { computeRtiIrmark, injectRtiIrmark } from "@/server/hmrc/rti-irmark";
 
 export type PayFrequency = "M1" | "W1";
 
@@ -208,8 +208,23 @@ function rtiSchemaNs(
   return `http://www.govtalk.gov.uk/taxation/PAYE/RTI/${kind}/${year}/1`;
 }
 
+/** IRheader PeriodEnd for RTI = tax year end (5 April), not the pay/no-pay month end. */
+export function rtiTaxYearPeriodEnd(taxYear: string): string {
+  const m = /^(\d{2})-(\d{2})$/.exec(taxYear.trim());
+  if (!m) {
+    // Accept 2026-27
+    const full = /^(\d{4})-(\d{2})$/.exec(taxYear.trim());
+    if (full) return `${Number(full[1]) + 1}-04-05`;
+    throw new Error(`Invalid RTI tax year: ${taxYear}`);
+  }
+  const endCentury = Number(m[1]) >= 70 ? 1900 : 2000;
+  const endYear = endCentury + Number(m[2]);
+  return `${endYear}-04-05`;
+}
+
 function buildRtiIrHeader(opts: {
   employerPayeRef: string;
+  /** Tax year end ISO date (YYYY-04-05) */
   periodEnd: string;
 }): string {
   const { officeNo, reference } = parsePayeRef(opts.employerPayeRef);
@@ -228,8 +243,8 @@ function withIrmark(bodyWithoutMark: string): {
   bodyInner: string;
   irmark: string;
 } {
-  const irmark = computeIrmark(bodyWithoutMark);
-  return { bodyInner: injectIrmark(bodyWithoutMark, irmark), irmark };
+  const irmark = computeRtiIrmark(bodyWithoutMark);
+  return { bodyInner: injectRtiIrmark(bodyWithoutMark, irmark), irmark };
 }
 
 function buildFpsBodyInner(opts: {
@@ -293,7 +308,7 @@ function buildFpsBodyInner(opts: {
   const draft = `<IRenvelope xmlns="${rtiSchemaNs("FullPaymentSubmission", opts.taxYear)}">
       ${buildRtiIrHeader({
         employerPayeRef: opts.employerPayeRef,
-        periodEnd: opts.payDate,
+        periodEnd: rtiTaxYearPeriodEnd(opts.taxYear),
       })}
       <FullPaymentSubmission>
         <EmpRefs>
@@ -321,6 +336,7 @@ function buildEpsBodyInner(opts: {
   noPaymentForPeriod?: boolean;
 }): { bodyInner: string; irmark: string } {
   const { officeNo, reference } = parsePayeRef(opts.employerPayeRef);
+  // HMRC: NoPayment From day must be 06; To day must be 05 (tax-month bounds).
   const noPay = opts.noPaymentForPeriod
     ? `<NoPaymentDates>
         <NoPaymentPeriod>
@@ -333,7 +349,7 @@ function buildEpsBodyInner(opts: {
   const draft = `<IRenvelope xmlns="${rtiSchemaNs("EmployerPaymentSummary", opts.taxYear)}">
       ${buildRtiIrHeader({
         employerPayeRef: opts.employerPayeRef,
-        periodEnd: opts.periodEnd,
+        periodEnd: rtiTaxYearPeriodEnd(opts.taxYear),
       })}
       <EmployerPaymentSummary>
         <EmpRefs>

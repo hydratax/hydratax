@@ -802,6 +802,19 @@ export async function submitEpsNoPayment(input: z.input<typeof epsSchema>) {
   const { getHmrcConfig } = await import("@/server/hmrc/config");
   const cfg = getHmrcConfig();
   const taxYear = taxYearFromDate(data.periodEnd);
+  // HMRC no-payment window must be tax-month bounds (From day 06, To day 05).
+  const fromDay = data.periodStart.slice(8, 10);
+  const toDay = data.periodEnd.slice(8, 10);
+  if (fromDay !== "06" || toDay !== "05") {
+    throw new Error(
+      "No-payment EPS period must be a UK tax month (start on the 6th, end on the 5th). Check Period start / Period end.",
+    );
+  }
+  if (!client.accountsOfficeRef?.trim()) {
+    throw new Error(
+      "Accounts Office reference is required for EPS. Enter it under Payroll → Settings.",
+    );
+  }
   const eps = buildEpsXml({
     employerPayeRef: client.payeRef,
     accountsOfficeRef: client.accountsOfficeRef,

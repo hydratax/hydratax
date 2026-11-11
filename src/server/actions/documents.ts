@@ -41,7 +41,10 @@ const categorySchema = z
         "corporation_tax",
         "self_assessment",
         "companies_house",
-      ].includes(v) || /^sa:[^:]+:(invoice|receipt|p60|bank_statement|books|other)$/.test(v),
+      ].includes(v) ||
+      /^sa:[^:]+:(invoice|receipt|p60|bank_statement|books|other)$/.test(v) ||
+      // Prior-year filed SA100 / SA302: sa_filed:2024-25:return[:taxpayerId]
+      /^sa_filed:\d{4}-\d{2}:(return|sa302)(?::[^:]+)?$/.test(v),
     { message: "Invalid document category" },
   );
 
@@ -255,4 +258,56 @@ export async function uploadClientDocument(formData: FormData) {
   revalidatePath(`/clients/${clientId}/documents`);
   revalidatePath(`/clients/${clientId}/self-assessment`);
   return doc;
+}
+
+export async function updateClientDocumentCategory(input: {
+  clientId: string;
+  documentId: string;
+  category: string;
+}) {
+  const session = await requireSession();
+  if (session.role === "readonly") throw new Error("Forbidden");
+  await getClient(input.clientId);
+  const category = categorySchema.parse(input.category);
+
+  if (isSupabaseConfigured()) {
+    const { createClient } = await import("@/lib/supabase/server");
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("client_documents")
+      .update({ category })
+      .eq("id", input.documentId)
+      .eq("practice_id", session.practiceId)
+      .eq("client_id", input.clientId)
+      .select("*")
+      .single();
+    if (error) throw new Error(error.message);
+    revalidatePath(`/clients/${input.clientId}/self-assessment`);
+    revalidatePath(`/clients/${input.clientId}/documents`);
+    return {
+      id: data.id as string,
+      category: data.category as string,
+      filename: data.filename as string,
+      blobUrl: (data.r2_key as string)?.startsWith("http")
+        ? (data.r2_key as string)
+        : `/api/documents/download?key=${encodeURIComponent(data.r2_key as string)}`,
+    };
+  }
+
+  if (isMemoryStore()) {
+    const doc = memoryStore.documents.find(
+      (d) => d.id === input.documentId && d.clientId === input.clientId,
+    );
+    if (!doc) throw new Error("Document not found");
+    doc.category = category;
+    revalidatePath(`/clients/${input.clientId}/self-assessment`);
+    return {
+      id: doc.id,
+      category: doc.category,
+      filename: doc.filename,
+      blobUrl: doc.blobUrl,
+    };
+  }
+
+  throw new Error("Could not update document category");
 }

@@ -53,10 +53,11 @@ export function TeamAdmin({
           });
         }}
       >
-        <h2 className="display text-2xl text-ink">Add team member</h2>
+        <h2 className="display text-2xl text-ink">Invite team member</h2>
         <p className="text-sm text-ink-soft">
           Choose payroll, VAT, corporation tax, invoices, or Self Assessment.
-          The teammate must already have a HydraTax login with this email.
+          If they already have a HydraTax login we add them now; otherwise we
+          email a create-account link to this address.
         </p>
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block text-sm font-semibold text-ink">
@@ -102,7 +103,7 @@ export function TeamAdmin({
         </fieldset>
         <FormErrorBanner error={error} />
         <button type="submit" className="btn btn-primary" disabled={pending}>
-          {pending ? "Adding…" : "Add member"}
+          {pending ? "Sending…" : "Invite member"}
         </button>
       </form>
 
@@ -157,9 +158,19 @@ export function TeamAdmin({
                 </td>
                 <td className="px-4 py-3">
                   <span
-                    className={`badge ${m.active ? "badge-ok" : "badge-muted"}`}
+                    className={`badge ${
+                      m.id.startsWith("invite:")
+                        ? "badge-muted"
+                        : m.active
+                          ? "badge-ok"
+                          : "badge-muted"
+                    }`}
                   >
-                    {m.active ? "active" : "off"}
+                    {m.id.startsWith("invite:")
+                      ? "invite sent"
+                      : m.active
+                        ? "active"
+                        : "off"}
                     {actingMemberId === m.id ? " · viewing" : ""}
                   </span>
                 </td>

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import {
   getSa100Draft,
   listSa100Returns,
+  listSaFiledDocuments,
 } from "@/server/actions/sa100";
 import {
   getDirectorWorkspace,
@@ -60,10 +61,11 @@ export default async function PersonSelfAssessmentPage({
   const saClientId = workspace.person.homeClientId;
   const homeClient = await getClient(saClientId).catch(() => null);
 
-  const [sa100Draft, sa100Returns, documents] = await Promise.all([
+  const [sa100Draft, sa100Returns, documents, saFiledDocs] = await Promise.all([
     getSa100Draft(saClientId, activeYear, selected.id).catch(() => null),
     listSa100Returns(saClientId, selected.id).catch(() => []),
     listClientDocuments(saClientId).catch(() => []),
+    listSaFiledDocuments(saClientId, selected.id).catch(() => []),
   ]);
 
   const accumulated = accumulateSa100FromIncome(selected, {
@@ -118,6 +120,7 @@ export default async function PersonSelfAssessmentPage({
           taxYear: r.taxYear,
           status: r.status,
         }))}
+        filedDocs={saFiledDocs}
         clientId={saClientId}
         taxpayerId={selected.id}
       >

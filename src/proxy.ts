@@ -20,6 +20,7 @@ const PUBLIC_PREFIXES = [
   "/sign-up",
   "/forgot-password",
   "/reset-password",
+  "/verify-2fa",
   "/auth",
   "/terms",
   "/privacy",
@@ -157,6 +158,26 @@ export default async function proxy(request: NextRequest) {
     const qs = cleanSearch.toString();
     const returnTo = qs ? `${pathname}?${qs}` : pathname;
     url.searchParams.set("next", returnTo);
+    return NextResponse.redirect(url);
+  }
+
+  // Password/OAuth done but OTP still outstanding — keep them on /verify-2fa.
+  const mfaPending = request.cookies.get("ht_mfa_pending")?.value;
+  if (
+    mfaPending &&
+    pathname !== "/verify-2fa" &&
+    !pathname.startsWith("/verify-2fa/") &&
+    !pathname.startsWith("/auth/") &&
+    !pathname.startsWith("/api/") &&
+    !isPublicPath(pathname)
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/verify-2fa";
+    url.search = "";
+    url.searchParams.set(
+      "next",
+      `${pathname}${request.nextUrl.search || ""}`,
+    );
     return NextResponse.redirect(url);
   }
 

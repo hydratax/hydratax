@@ -73,13 +73,126 @@ export async function listSa100Returns(
   taxpayerId?: string | null,
 ) {
   await getClient(clientId);
-  return returns()
-    .filter(
-      (r) =>
-        r.clientId === clientId &&
-        (taxpayerId === undefined || sameTaxpayer(r, taxpayerId)),
-    )
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const fromMemory = returns().filter(
+    (r) =>
+      r.clientId === clientId &&
+      (taxpayerId === undefined || sameTaxpayer(r, taxpayerId)),
+  );
+
+  // Durable prior-year uploads live on client_documents (survive serverless refresh).
+  const fromDocs = await filedReturnsFromDocuments(clientId, taxpayerId).catch(
+    () => [] as Sa100Stored[],
+  );
+
+  const byYear = new Map<string, Sa100Stored>();
+  for (const r of fromDocs) byYear.set(`${r.taxYear}:${r.taxpayerId ?? ""}`, r);
+  for (const r of fromMemory) {
+    // In-memory drafts / live HMRC submits win over document placeholders.
+    byYear.set(`${r.taxYear}:${r.taxpayerId ?? ""}`, r);
+  }
+  return Array.from(byYear.values()).sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt),
+  );
+}
+
+async function filedReturnsFromDocuments(
+  clientId: string,
+  taxpayerId?: string | null,
+): Promise<Sa100Stored[]> {
+  const { listClientDocuments } = await import("@/server/actions/documents");
+  const { parseSaFiledCategory } = await import("@/lib/sa-filed-docs");
+  const { emptySa100Draft } = await import("@/lib/sa100/schema");
+  const docs = await listClientDocuments(clientId);
+  const byYear = new Map<string, Sa100Stored>();
+
+  for (const d of docs) {
+    const parsed = parseSaFiledCategory(d.category);
+    if (!parsed || parsed.kind !== "return") continue;
+    if (taxpayerId !== undefined) {
+      const docTp = parsed.taxpayerId;
+      if (taxpayerId && docTp && docTp !== taxpayerId) continue;
+      if (taxpayerId && !docTp) {
+        /* legacy year-only tags still show on the person desk */
+      }
+      if (!taxpayerId && docTp) continue;
+    }
+    const draft = emptySa100Draft({ taxYear: parsed.taxYear });
+    const createdAt =
+      typeof d.createdAt === "string"
+        ? d.createdAt
+        : new Date(d.createdAt).toISOString();
+    byYear.set(parsed.taxYear, {
+      id: `doc-${d.id}`,
+      clientId,
+      taxpayerId: parsed.taxpayerId ?? taxpayerId ?? null,
+      taxYear: parsed.taxYear,
+      status: "accepted",
+      draft,
+      calculation: calculateSa302(draft),
+      attachedSupplements: [],
+      hmrcCorrelationId: `upload-${d.id}`,
+      submittedAt: createdAt,
+      createdAt,
+      updatedAt: createdAt,
+    });
+  }
+  return Array.from(byYear.values());
+}
+
+/** Filed SA100 / SA302 PDFs for a client (and optional taxpayer). */
+export async function listSaFiledDocuments(
+  clientId: string,
+  taxpayerId?: string | null,
+) {
+  await getClient(clientId);
+  const { listClientDocuments } = await import("@/server/actions/documents");
+  const { parseSaFiledCategory, isLegacySaUploadCategory } = await import(
+    "@/lib/sa-filed-docs"
+  );
+  const docs = await listClientDocuments(clientId);
+  const filed: Array<{
+    id: string;
+    filename: string;
+    blobUrl: string;
+    taxYear: string | null;
+    kind: "return" | "sa302" | "unassigned";
+    createdAt: string;
+  }> = [];
+
+  for (const d of docs) {
+    const createdAt =
+      typeof d.createdAt === "string"
+        ? d.createdAt
+        : new Date(d.createdAt).toISOString();
+    const parsed = parseSaFiledCategory(d.category);
+    if (parsed) {
+      if (taxpayerId) {
+        if (parsed.taxpayerId && parsed.taxpayerId !== taxpayerId) continue;
+      } else if (parsed.taxpayerId) {
+        continue;
+      }
+      filed.push({
+        id: d.id,
+        filename: d.filename,
+        blobUrl: d.blobUrl,
+        taxYear: parsed.taxYear,
+        kind: parsed.kind,
+        createdAt,
+      });
+      continue;
+    }
+    if (isLegacySaUploadCategory(d.category)) {
+      filed.push({
+        id: d.id,
+        filename: d.filename,
+        blobUrl: d.blobUrl,
+        taxYear: null,
+        kind: "unassigned",
+        createdAt,
+      });
+    }
+  }
+  return filed.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function getSa100Return(clientId: string, returnId: string) {
@@ -316,8 +429,36 @@ export async function deleteSa100Return(input: {
       allowed.has(r.status) &&
       sameTaxpayer(r, input.taxpayerId),
   );
-  if (idx < 0) throw new Error("No Self Assessment return found for that year");
-  const [removed] = list.splice(idx, 1);
+  let removed: Sa100Stored | undefined;
+  if (idx >= 0) {
+    [removed] = list.splice(idx, 1);
+  }
+
+  const filedBefore = await listSaFiledDocuments(
+    input.clientId,
+    input.taxpayerId,
+  ).catch(() => []);
+  const yearDocs = filedBefore.filter((d) => d.taxYear === input.taxYear);
+  if (!removed && yearDocs.length === 0) {
+    throw new Error("No Self Assessment return found for that year");
+  }
+
+  // Clear durable filed PDFs for that year (return + optional SA302).
+  try {
+    const { updateClientDocumentCategory } = await import(
+      "@/server/actions/documents"
+    );
+    for (const d of yearDocs) {
+      await updateClientDocumentCategory({
+        clientId: input.clientId,
+        documentId: d.id,
+        category: "self_assessment",
+      }).catch(() => undefined);
+    }
+  } catch {
+    /* documents optional */
+  }
+
   await appendAuditEvent({
     practiceId: session.practiceId,
     clientId: input.clientId,
@@ -334,7 +475,7 @@ export async function deleteSa100Return(input: {
 
 /**
  * Record a prior-year submitted return (upload supporting PDF) without
- * opening a new draft for that year.
+ * opening a new draft for that year. Tags the document so it survives refresh.
  */
 export async function recordSubmittedSaReturn(input: {
   clientId: string;
@@ -343,75 +484,157 @@ export async function recordSubmittedSaReturn(input: {
   documentId?: string | null;
   filename?: string | null;
 }) {
+  return recordSaFiledUpload({ ...input, kind: "return" });
+}
+
+/** Upload / attach an SA302 tax calculation PDF for a prior year. */
+export async function recordSa302Upload(input: {
+  clientId: string;
+  taxYear: string;
+  taxpayerId?: string | null;
+  documentId: string;
+  filename?: string | null;
+}) {
+  return recordSaFiledUpload({ ...input, kind: "sa302" });
+}
+
+/** Assign an untagged SA upload (legacy self_assessment) to a year + kind. */
+export async function assignSaFiledDocument(input: {
+  clientId: string;
+  documentId: string;
+  taxYear: string;
+  kind: "return" | "sa302";
+  taxpayerId?: string | null;
+}) {
+  return recordSaFiledUpload({
+    clientId: input.clientId,
+    taxYear: input.taxYear,
+    taxpayerId: input.taxpayerId,
+    documentId: input.documentId,
+    kind: input.kind,
+  });
+}
+
+async function recordSaFiledUpload(input: {
+  clientId: string;
+  taxYear: string;
+  taxpayerId?: string | null;
+  documentId?: string | null;
+  filename?: string | null;
+  kind: "return" | "sa302";
+}) {
   const session = await requireSession();
   const client = await getClient(input.clientId);
   const { parseSaTaxYearLabel } = await import("@/lib/sa-tax-year");
+  const { saFiledCategory, parseSaFiledCategory } = await import(
+    "@/lib/sa-filed-docs"
+  );
   const year = parseSaTaxYearLabel(input.taxYear);
   if (!year) throw new Error("Invalid tax year");
+  if (!input.documentId) throw new Error("Upload a PDF first");
 
-  const existingDraft = await getSa100Draft(
+  if (input.kind === "return") {
+    const existingDraft = await getSa100Draft(
+      input.clientId,
+      year.label,
+      input.taxpayerId,
+    );
+    if (existingDraft) {
+      throw new Error(
+        `Delete the ${year.label} draft before recording a submitted return for that year`,
+      );
+    }
+  }
+
+  const filed = await listSaFiledDocuments(
     input.clientId,
-    year.label,
     input.taxpayerId,
+  ).catch(() => []);
+  const clash = filed.find(
+    (d) =>
+      d.taxYear === year.label &&
+      d.kind === input.kind &&
+      d.id !== input.documentId,
   );
-  if (existingDraft) {
+  if (clash) {
     throw new Error(
-      `Delete the ${year.label} draft before recording a submitted return for that year`,
+      `A ${input.kind === "sa302" ? "SA302" : "submitted return"} already exists for ${year.label}`,
     );
   }
 
-  const already = returns().find(
-    (r) =>
-      r.clientId === input.clientId &&
-      r.taxYear === year.label &&
-      (r.status === "submitted" || r.status === "accepted") &&
-      sameTaxpayer(r, input.taxpayerId),
+  const { updateClientDocumentCategory } = await import(
+    "@/server/actions/documents"
   );
-  if (already) {
-    throw new Error(`A submitted return already exists for ${year.label}`);
-  }
-
-  const { emptySa100Draft } = await import("@/lib/sa100/schema");
-  const draft = emptySa100Draft({
-    taxYear: year.label,
-    utr: client.utr ?? "",
-    nino: client.nino ?? "",
-  });
-  const calculation = calculateSa302(draft);
-  const now = new Date().toISOString();
-  const row: Sa100Stored = {
-    id: crypto.randomUUID(),
+  const tagged = await updateClientDocumentCategory({
     clientId: input.clientId,
-    taxpayerId: input.taxpayerId ?? null,
-    taxYear: year.label,
-    status: "accepted",
-    draft,
-    calculation,
-    attachedSupplements: [],
-    hmrcCorrelationId: input.documentId
-      ? `upload-${input.documentId}`
-      : `upload-${Date.now()}`,
-    submittedAt: now,
-    createdAt: now,
-    updatedAt: now,
-  };
-  returns().push(row);
+    documentId: input.documentId,
+    category: saFiledCategory(year.label, input.kind, input.taxpayerId),
+  });
+
+  // Keep an in-memory SA100 row for return uploads (desk session convenience).
+  let row: Sa100Stored | null = null;
+  if (input.kind === "return") {
+    const already = returns().find(
+      (r) =>
+        r.clientId === input.clientId &&
+        r.taxYear === year.label &&
+        (r.status === "submitted" || r.status === "accepted") &&
+        sameTaxpayer(r, input.taxpayerId),
+    );
+    if (!already) {
+      const { emptySa100Draft } = await import("@/lib/sa100/schema");
+      const draft = emptySa100Draft({
+        taxYear: year.label,
+        utr: client.utr ?? "",
+        nino: client.nino ?? "",
+      });
+      const now = new Date().toISOString();
+      row = {
+        id: `doc-${input.documentId}`,
+        clientId: input.clientId,
+        taxpayerId: input.taxpayerId ?? null,
+        taxYear: year.label,
+        status: "accepted",
+        draft,
+        calculation: calculateSa302(draft),
+        attachedSupplements: [],
+        hmrcCorrelationId: `upload-${input.documentId}`,
+        submittedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      };
+      returns().push(row);
+    } else {
+      row = already;
+    }
+  }
 
   await appendAuditEvent({
     practiceId: session.practiceId,
     clientId: input.clientId,
     actorId: session.userId,
-    action: "sa100.submitted.upload",
+    action:
+      input.kind === "sa302" ? "sa100.sa302.upload" : "sa100.submitted.upload",
     entityType: "sa100_return",
-    entityId: row.id,
+    entityId: row?.id ?? input.documentId,
     detail: {
       taxYear: year.label,
-      documentId: input.documentId ?? null,
-      filename: input.filename ?? null,
+      documentId: input.documentId,
+      filename: input.filename ?? tagged.filename,
+      kind: input.kind,
+      category: parseSaFiledCategory(tagged.category),
     },
   }).catch(() => undefined);
 
   revalidatePath(`/clients/${input.clientId}/self-assessment`);
   revalidatePath("/self-assessment", "layout");
-  return row;
+  return {
+    ok: true as const,
+    kind: input.kind,
+    taxYear: year.label,
+    documentId: input.documentId,
+    filename: tagged.filename,
+    blobUrl: tagged.blobUrl,
+    return: row,
+  };
 }

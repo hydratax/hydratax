@@ -625,13 +625,15 @@ body {
   cursor: pointer;
 }
 
-.panel-interactive:hover {
+/* Lift the card only when hovering the surface — not when hovering
+   action buttons inside (Delete / menus), so siblings stay calm. */
+.panel-interactive:hover:not(:has(.btn:hover, button:hover, a:hover, [role="menuitem"]:hover)) {
   border-color: #b7c4cc;
   box-shadow: 0 12px 32px -20px rgba(10, 10, 10, 0.35);
   transform: translateY(-2px);
 }
 
-.panel-interactive:active {
+.panel-interactive:active:not(:has(.btn:active, button:active, a:active)) {
   transform: scale(0.985);
   border-color: var(--sea);
 }
@@ -673,19 +675,19 @@ body {
   min-height: 0;
 }
 
-.panel-interactive:hover .open-chip,
-.client-row:hover .open-chip,
-.service-tile:hover .open-chip,
-.stat-tile:hover .open-chip {
+.panel-interactive:hover:not(:has(.btn:hover, button:hover, a:hover, [role="menuitem"]:hover)) .open-chip,
+.client-row:hover:not(:has(.btn:hover, button:hover, a:hover, [role="menuitem"]:hover)) .open-chip,
+.service-tile:hover:not(:has(.btn:hover, button:hover, a:hover)) .open-chip,
+.stat-tile:hover:not(:has(.btn:hover, button:hover, a:hover)) .open-chip {
   background: linear-gradient(180deg, var(--sea) 0%, var(--sea-deep) 100%);
   color: white;
   border-color: var(--sea-deep);
   box-shadow: 0 4px 12px -6px rgba(15, 118, 110, 0.55);
 }
 
-.panel-interactive:active .open-chip,
-.client-row:active .open-chip,
-.service-tile:active .open-chip,
+.panel-interactive:active:not(:has(.btn:active, button:active)) .open-chip,
+.client-row:active:not(:has(.btn:active, button:active)) .open-chip,
+.service-tile:active:not(:has(.btn:active, button:active)) .open-chip,
 .open-chip.is-pending {
   transform: scale(0.96);
   background: linear-gradient(180deg, var(--sea) 0%, var(--sea-deep) 100%);
@@ -1028,7 +1030,7 @@ html[data-nav-pending] {
   transition: background 0.15s ease, padding 0.15s ease;
 }
 
-.client-row:hover {
+.client-row:hover:not(:has(.btn:hover, button:hover, a:hover, [role="menuitem"]:hover)) {
   background: rgba(15, 118, 110, 0.04);
   padding-left: 0.55rem;
   padding-right: 0.55rem;
@@ -1475,7 +1477,14 @@ html[data-nav-pending] {
     rgba(255, 255, 255, 0.55) 50%,
     transparent 60%
   );
-  animation: gloss-run 4.5s ease-in-out infinite;
+  opacity: 0;
+  transform: translateX(-120%) skewX(-18deg);
+  pointer-events: none;
+}
+
+.gloss-badge:hover::after {
+  opacity: 1;
+  animation: gloss-run 0.9s ease-out 1;
 }
 
 .gloss-card {
@@ -1489,6 +1498,10 @@ html[data-nav-pending] {
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.95) inset,
     0 18px 40px -28px rgba(15, 118, 110, 0.22);
+  transition:
+    border-color 0.22s ease,
+    box-shadow 0.22s ease,
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .gloss-shine {
@@ -1503,8 +1516,18 @@ html[data-nav-pending] {
     rgba(255, 255, 255, 0.45),
     transparent
   );
-  animation: gloss-run 5.5s ease-in-out infinite;
+  opacity: 0;
+  transform: translateX(-120%) skewX(-18deg);
   pointer-events: none;
+}
+
+/* Shine only on the hovered card — never all tiles in sync. */
+.gloss-card:hover > .gloss-shine,
+.company-deadline-tile:hover > .gloss-shine,
+a.gloss-card:hover > .gloss-shine,
+button.gloss-card:hover > .gloss-shine {
+  opacity: 1;
+  animation: gloss-run 0.95s ease-out 1;
 }
 
 .gloss-slider,
@@ -1610,6 +1633,15 @@ html[data-nav-pending] {
   .company-related-link,
   .company-profile-body {
     animation: none;
+  }
+
+  .gloss-badge:hover::after,
+  .gloss-card:hover > .gloss-shine,
+  .company-deadline-tile:hover > .gloss-shine,
+  a.gloss-card:hover > .gloss-shine,
+  button.gloss-card:hover > .gloss-shine {
+    animation: none;
+    opacity: 0;
   }
 
   .company-cta-primary:hover {

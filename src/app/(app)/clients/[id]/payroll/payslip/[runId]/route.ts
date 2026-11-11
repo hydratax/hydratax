@@ -3,6 +3,7 @@ import { getClient } from "@/server/actions/clients";
 import { getPayRun } from "@/server/actions/payroll";
 import { renderPayslipHtml } from "@/lib/payroll";
 import type { PayLine } from "@/server/hmrc/payroll";
+import type { DeskProfile } from "@/lib/desk-profile";
 
 export async function GET(
   request: Request,
@@ -25,6 +26,9 @@ export async function GET(
   if (!line) {
     return new Response("Employee not on this run", { status: 404 });
   }
+  const template =
+    (client as { deskProfile?: DeskProfile }).deskProfile?.payrollSettings
+      ?.payslipTemplate ?? "hydra_a";
   const html = renderPayslipHtml({
     employerName: client.name,
     payeRef: client.payeRef ?? "—",
@@ -33,6 +37,7 @@ export async function GET(
     periodEnd: String((run as { periodEnd?: string }).periodEnd ?? ""),
     frequency: String((run as { payFrequency?: string }).payFrequency ?? "M1"),
     line,
+    template,
   });
   return new Response(html, {
     headers: { "Content-Type": "text/html; charset=utf-8" },
