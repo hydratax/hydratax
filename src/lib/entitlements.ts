@@ -50,7 +50,7 @@ export const PLAN_ENTITLEMENTS: PlanEntitlement[] = [
     planKey: "practice:Practice",
     label: "Practice",
     modules: ALL_TAX,
-    maxClients: 50,
+    maxClients: 10,
   },
   {
     planKey: "practice:Firm",

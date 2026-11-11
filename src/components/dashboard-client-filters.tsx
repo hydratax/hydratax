@@ -14,9 +14,12 @@ export type DashboardClientRow = {
   isEmployer: boolean;
   vrn: string | null;
   companyNumber: string | null;
+  payeRef?: string | null;
+  /** True for sole traders, partnerships, or Ltd homes that hold SA people. */
+  hasSelfAssessment?: boolean;
 };
 
-export type DashboardFilter = "clients" | "vat" | "rails" | "ltd";
+export type DashboardFilter = "clients" | "vat" | "paye" | "sa" | "ltd";
 
 type StatCard = {
   id: DashboardFilter;
@@ -25,38 +28,28 @@ type StatCard = {
   hint: string;
 };
 
-function clientMatchesRails(
-  client: DashboardClientRow,
-  unlocked: Set<ServiceModule>,
-) {
-  if (unlocked.has("vat") && client.isVatRegistered) return true;
-  if (unlocked.has("corporation_tax") && client.type === "limited_company") {
-    return true;
-  }
-  if (unlocked.has("payroll") && client.isEmployer) return true;
-  if (
-    unlocked.has("self_assessment") &&
-    client.type !== "limited_company"
-  ) {
-    return true;
-  }
-  return false;
-}
-
 function filterClients(
   clients: DashboardClientRow[],
   filter: DashboardFilter,
-  unlocked: Set<ServiceModule>,
 ) {
   switch (filter) {
     case "clients":
       return clients;
     case "vat":
       return clients.filter((c) => c.isVatRegistered);
+    case "paye":
+      return clients.filter(
+        (c) => c.isEmployer || Boolean(c.payeRef?.trim()),
+      );
+    case "sa":
+      return clients.filter(
+        (c) =>
+          c.hasSelfAssessment ||
+          c.type === "sole_trader" ||
+          c.type === "partnership",
+      );
     case "ltd":
       return clients.filter((c) => c.type === "limited_company");
-    case "rails":
-      return clients.filter((c) => clientMatchesRails(c, unlocked));
     default:
       return clients;
   }
@@ -64,7 +57,7 @@ function filterClients(
 
 export function DashboardClientFilters({
   clients,
-  unlockedModules,
+  unlockedModules: _unlockedModules,
   stats,
   canAddClients,
 }: {
@@ -73,25 +66,21 @@ export function DashboardClientFilters({
   stats: StatCard[];
   canAddClients: boolean;
 }) {
-  const unlocked = useMemo(
-    () => new Set(unlockedModules),
-    [unlockedModules],
-  );
   const [activeFilter, setActiveFilter] = useState<DashboardFilter | null>(
     null,
   );
 
   const filtered = useMemo(() => {
     if (!activeFilter) return [];
-    return filterClients(clients, activeFilter, unlocked);
-  }, [activeFilter, clients, unlocked]);
+    return filterClients(clients, activeFilter);
+  }, [activeFilter, clients]);
 
   const activeLabel =
     stats.find((s) => s.id === activeFilter)?.label ?? "Clients";
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
         {stats.map((card) => {
           const selected = activeFilter === card.id;
           return (
@@ -101,25 +90,33 @@ export function DashboardClientFilters({
               onClick={() =>
                 setActiveFilter((prev) => (prev === card.id ? null : card.id))
               }
-              className={`panel panel-interactive p-4 text-left transition ${
-                selected ? "ring-2 ring-sea ring-offset-2" : ""
+              className={`stat-tile text-left ${
+                selected ? "stat-tile--active" : ""
               }`}
               aria-pressed={selected}
             >
-              <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+              <span className="service-tile__sheen" aria-hidden />
+              <p className="relative z-[1] text-[0.65rem] font-bold uppercase tracking-[0.14em] text-sea">
                 {card.label}
               </p>
-              <p className="display mt-2 text-3xl text-ink">{card.value}</p>
-              <p className="mt-1 text-xs text-ink-soft">{card.hint}</p>
+              <p className="display relative z-[1] mt-2 text-3xl text-ink">
+                {card.value}
+              </p>
+              <p className="relative z-[1] mt-1 text-xs text-ink-soft">
+                {card.hint}
+              </p>
             </button>
           );
         })}
       </div>
 
       {!activeFilter ? (
-        <section className="panel px-5 py-10 text-center">
-          <p className="font-semibold text-ink">Filter your desk</p>
-          <p className="mt-1 text-sm text-ink-soft">
+        <section className="service-tile px-5 py-10 text-center">
+          <span className="service-tile__sheen" aria-hidden />
+          <p className="relative z-[1] font-semibold text-ink">
+            Filter your desk
+          </p>
+          <p className="relative z-[1] mt-1 text-sm text-ink-soft">
             Select a card above to view matching clients. Your full client list
             lives on{" "}
             <Link href="/clients" className="font-semibold text-sea underline">
@@ -128,27 +125,53 @@ export function DashboardClientFilters({
             .
           </p>
           {canAddClients && (
-            <Link href="/clients/new" className="btn btn-primary mt-4 text-sm">
+            <Link
+              href="/clients/new"
+              className="btn btn-primary relative z-[1] mt-4 text-sm"
+            >
               Add client
             </Link>
           )}
         </section>
       ) : filtered.length === 0 ? (
-        <section className="panel px-5 py-10 text-center">
-          <p className="font-semibold text-ink">No {activeLabel.toLowerCase()} clients</p>
+        <section className="service-tile px-5 py-10 text-center">
+          <p className="font-semibold text-ink">
+            No {activeLabel.toLowerCase()} clients
+          </p>
           <p className="mt-1 text-sm text-ink-soft">
             Nothing in your practice matches this filter yet.
           </p>
-          <button
-            type="button"
-            className="btn btn-secondary mt-4 text-sm"
-            onClick={() => setActiveFilter(null)}
-          >
-            Clear filter
-          </button>
+          {activeFilter === "sa" ? (
+            <Link
+              href="/clients?desk=sa"
+              className="btn btn-primary mt-4 inline-flex text-sm"
+            >
+              Open Self Assessment desk
+            </Link>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-secondary mt-4 text-sm"
+              onClick={() => setActiveFilter(null)}
+            >
+              Clear filter
+            </button>
+          )}
         </section>
       ) : (
-        <section className="panel overflow-hidden p-5">
+        <section className="service-tile overflow-hidden p-5">
+          {activeFilter === "sa" ? (
+            <p className="mb-3 text-sm text-ink-soft">
+              Showing client files linked to Self Assessment people. Open the{" "}
+              <Link
+                href="/clients?desk=sa"
+                className="font-semibold text-sea underline"
+              >
+                SA desk
+              </Link>{" "}
+              for the full people list.
+            </p>
+          ) : null}
           <DashboardClientList clients={filtered} />
         </section>
       )}

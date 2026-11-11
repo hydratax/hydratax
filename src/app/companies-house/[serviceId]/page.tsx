@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getChService } from "@/lib/ch-services";
 import { ChRequestForm } from "@/components/forms/ch-request-form";
@@ -69,16 +70,11 @@ function ChServiceWizard({
       const readiness = getIncorporationFilingReadiness();
       if (!readiness) return null;
       return (
-        <>
-          <IncorporationWizard
-            service={service}
-            sameDay={serviceId === "incorporation-same-day"}
-            readiness={readiness}
-          />
-          <div className="mt-12">
-            <FaqSection items={faqsForChService(service.id)} />
-          </div>
-        </>
+        <IncorporationWizard
+          service={service}
+          sameDay={serviceId === "incorporation-same-day"}
+          readiness={readiness}
+        />
       );
     }
     case "confirmation-statement":
@@ -226,54 +222,126 @@ export default async function ChServicePage({
     serviceId !== "dissolve-company" &&
     WIZARD_SERVICE_IDS.includes(serviceId as (typeof WIZARD_SERVICE_IDS)[number]);
 
+  const isIncorporation =
+    serviceId === "incorporation" || serviceId === "incorporation-same-day";
+
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen company-profile">
       <SiteHeader />
 
-      <main className="mx-auto max-w-6xl px-4 py-8 md:px-6 md:py-10">
+      <main>
         {usesDedicatedWizard ? (
-          <ChServiceWizard
-            serviceId={serviceId}
-            service={service}
-            formDefaults={formDefaults}
-          />
+          <div className="mx-auto max-w-6xl px-4 py-8 md:px-6 md:py-10">
+            {!hubCheckout && (
+              <nav className="mb-6 text-sm text-ink-soft">
+                <Link href="/" className="font-semibold text-sea hover:underline">
+                  Home
+                </Link>
+                <span className="mx-2 text-line">/</span>
+                <Link
+                  href="/companies-house"
+                  className="font-semibold text-sea hover:underline"
+                >
+                  Companies House
+                </Link>
+                <span className="mx-2 text-line">/</span>
+                <span className="text-ink">{service.title}</span>
+              </nav>
+            )}
+            <ChServiceWizard
+              serviceId={serviceId}
+              service={service}
+              formDefaults={formDefaults}
+            />
+          </div>
         ) : (
           <>
             {!hubCheckout && (
-              <>
-                <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
-                  Companies House · {service.channel}
-                </p>
-                <h1 className="display mt-2 text-3xl text-ink sm:text-4xl md:text-5xl">
-                  {service.title}
-                </h1>
-                <p className="mt-3 max-w-3xl text-ink-soft">{service.summary}</p>
-              </>
+              <header className="company-profile-hero relative overflow-hidden border-b border-line/70">
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 opacity-[0.32]"
+                  style={{
+                    backgroundImage:
+                      "linear-gradient(rgba(15,118,110,0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(15,118,110,0.055) 1px, transparent 1px)",
+                    backgroundSize: "48px 48px",
+                    maskImage:
+                      "radial-gradient(ellipse 80% 70% at 50% 0%, black, transparent)",
+                  }}
+                />
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0"
+                  style={{
+                    background:
+                      "radial-gradient(ellipse 70% 55% at 50% 28%, rgba(15,118,110,0.14), transparent 58%), linear-gradient(165deg, #f4fbfa 0%, #f7f9fa 45%, #eef7f6 100%)",
+                  }}
+                />
+                <div className="relative mx-auto max-w-6xl px-4 pb-10 pt-8 md:px-6 md:pb-12 md:pt-10">
+                  <nav className="text-sm text-ink-soft">
+                    <Link
+                      href="/"
+                      className="font-semibold text-sea hover:underline"
+                    >
+                      Home
+                    </Link>
+                    <span className="mx-2 text-line">/</span>
+                    <Link
+                      href="/companies-house"
+                      className="font-semibold text-sea hover:underline"
+                    >
+                      Companies House
+                    </Link>
+                    <span className="mx-2 text-line">/</span>
+                    <span className="text-ink">{service.title}</span>
+                  </nav>
+                  <div className="company-profile-hero-copy mt-8 max-w-3xl">
+                    <p className="gloss-badge inline-flex rounded-lg bg-sea/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-sea">
+                      {service.channel} · Companies House
+                    </p>
+                    <h1 className="display mt-4 text-[clamp(2rem,4.6vw,3.4rem)] leading-[1.08] tracking-tight text-ink">
+                      {service.title}
+                    </h1>
+                    <p className="mt-4 max-w-2xl text-base text-ink-soft">
+                      {service.summary}
+                    </p>
+                  </div>
+                </div>
+              </header>
             )}
 
-            <div className="mt-8 grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
-              <div className="space-y-6">
-                <div className="panel p-5">
-                  <h2 className="display text-2xl">What you need</h2>
-                  <ul className="mt-3 space-y-2 text-sm text-ink-soft">
+            <div className="mx-auto max-w-6xl px-4 py-10 md:px-6 md:py-12">
+              <div className="grid gap-8 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+                <div className="gloss-card relative overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-6">
+                  <div className="gloss-shine" aria-hidden />
+                  <h2 className="display relative text-2xl text-ink">
+                    What you need
+                  </h2>
+                  <ul className="relative mt-4 space-y-3">
                     {service.whatYouNeed.map((item) => (
-                      <li key={item} className="flex gap-2">
-                        <span className="text-sea">✓</span>
+                      <li
+                        key={item}
+                        className="border-b border-line/70 pb-3 text-sm text-ink-soft last:border-b-0 last:pb-0"
+                      >
                         {item}
                       </li>
                     ))}
                   </ul>
                 </div>
+                <ChRequestForm service={service} defaults={formDefaults} />
               </div>
 
-              <ChRequestForm service={service} defaults={formDefaults} />
-            </div>
+              {!isIncorporation && (
+                <div className="mt-12 gloss-card relative overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-5 md:p-6">
+                  <div className="gloss-shine" aria-hidden />
+                  <div className="relative">
+                    <CompanySearchPanel variant="embedded" />
+                  </div>
+                </div>
+              )}
 
-            <div className="mt-12">
-              <CompanySearchPanel />
+              <FaqSection items={faqsForChService(service.id)} />
             </div>
-
-            <FaqSection items={faqsForChService(service.id)} />
           </>
         )}
       </main>

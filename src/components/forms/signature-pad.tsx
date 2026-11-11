@@ -12,7 +12,7 @@ type Props = {
   className?: string;
 };
 
-/** Simple canvas signature for HydraSign (PNG data URL). */
+/** Simple canvas signature for letter of engagement e-sign (PNG data URL). */
 export function SignaturePad({ onChange, className }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);

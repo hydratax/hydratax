@@ -81,21 +81,29 @@ function DeadlineTile({
   );
 }
 
+const RELATED_PREVIEW = 4;
+
 function RelatedStream({
   heading,
   links,
+  moreHref,
 }: {
   heading: string;
   links: DirectoryCompanyLink[];
+  moreHref?: string;
 }) {
+  const [expanded, setExpanded] = useState(false);
   if (links.length === 0) return null;
+  const visible = expanded ? links : links.slice(0, RELATED_PREVIEW);
+  const hasMore = links.length > RELATED_PREVIEW;
+
   return (
     <div>
       <h3 className="text-[11px] font-bold uppercase tracking-[0.16em] text-ink-soft">
         {heading}
       </h3>
       <ul className="mt-3 space-y-1">
-        {links.map((c, i) => (
+        {visible.map((c, i) => (
           <li key={c.companyNumber}>
             <Link
               href={c.href}
@@ -112,6 +120,23 @@ function RelatedStream({
           </li>
         ))}
       </ul>
+      {hasMore && !expanded ? (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="mt-3 w-full rounded-xl border border-line/80 px-3 py-2.5 text-sm font-semibold text-sea transition hover:border-sea/40 hover:bg-sea/5"
+        >
+          Show more
+        </button>
+      ) : null}
+      {expanded && moreHref ? (
+        <Link
+          href={moreHref}
+          className="mt-3 inline-flex text-sm font-semibold text-sea transition hover:text-sea-deep"
+        >
+          Browse all →
+        </Link>
+      ) : null}
     </div>
   );
 }
@@ -500,12 +525,22 @@ export function PublicCompanyProfile({
                     : "Related on the register"
                 }
                 links={related}
+                moreHref={
+                  location
+                    ? locationHubPath(location)
+                    : sicCode
+                      ? industryHubPath(sicCode)
+                      : undefined
+                }
               />
               {relatedExtra.length > 0 ? (
                 <div className="mt-8 border-t border-line/80 pt-6">
                   <RelatedStream
                     heading={`More ${industryLabel.toLowerCase()} companies`}
                     links={relatedExtra}
+                    moreHref={
+                      sicCode ? industryHubPath(sicCode) : undefined
+                    }
                   />
                 </div>
               ) : null}

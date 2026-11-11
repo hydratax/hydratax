@@ -6,13 +6,14 @@ import {
 import { ClientsList, type ClientListItem } from "@/components/clients-list";
 import { RefreshCompaniesHouseButton } from "@/components/refresh-companies-house-button";
 import { SaDirectorsList } from "@/components/sa-directors-list";
+import { PartnershipDeskList } from "@/components/partnership-desk-list";
 import { listPracticeDirectors } from "@/server/actions/sa-directors";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import { clientSlugFor } from "@/lib/client-slug";
 import { canRefreshCompaniesHouse } from "@/lib/access";
 import { requireSession } from "@/server/auth/session";
 
-type Desk = "all" | "sa" | "ct600" | "vat" | "payroll";
+type Desk = "all" | "sa" | "partnership" | "ct600" | "vat" | "payroll";
 
 const DESK_META: Record<
   Desk,
@@ -29,6 +30,12 @@ const DESK_META: Record<
     subtitle:
       "Individuals — tax year 6 April to 5 April, file online by 31 January. Personal UTR and NINO, not company Corporation Tax.",
     empty: "No Self Assessment people yet.",
+  },
+  partnership: {
+    title: "Partnership return (SA800)",
+    subtitle:
+      "Partnership clients only — open SA800 stationery. Sole traders and limited companies are on their own desks.",
+    empty: "No partnership clients yet.",
   },
   ct600: {
     title: "Companies · Corporation Tax",
@@ -49,7 +56,13 @@ const DESK_META: Record<
 };
 
 function parseDesk(raw: string | undefined): Desk {
-  if (raw === "sa" || raw === "ct600" || raw === "vat" || raw === "payroll") {
+  if (
+    raw === "sa" ||
+    raw === "partnership" ||
+    raw === "ct600" ||
+    raw === "vat" ||
+    raw === "payroll"
+  ) {
     return raw;
   }
   return "all";
@@ -66,6 +79,8 @@ function matchesDesk(
   switch (desk) {
     case "sa":
       return type === "sole_trader" || type === "partnership";
+    case "partnership":
+      return type === "partnership";
     case "ct600":
       return type === "limited_company";
     case "vat":
@@ -185,6 +200,78 @@ export default async function ClientsPage({ searchParams }: Props) {
   const clients = await listClients();
   const peers = clients.map((c) => ({ id: c.id, name: c.name }));
 
+  if (desk === "partnership") {
+    const partnerships = clients
+      .filter((c) => c.type === "partnership")
+      .map((c) => ({
+        id: c.id,
+        slug: clientSlugFor({ id: c.id, name: c.name }, peers),
+        name: c.name,
+        utr: c.utr,
+      }));
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
+              Practice
+            </p>
+            <h1 className="display mt-1 text-4xl text-ink md:text-5xl">
+              {meta.title}
+            </h1>
+            <p className="mt-1 text-ink-soft">{meta.subtitle}</p>
+            <p className="mt-2 text-sm">
+              <Link
+                href="/clients"
+                className="font-semibold text-sea hover:underline"
+              >
+                ← All clients
+              </Link>
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/clients?desk=sa"
+              className="btn btn-secondary text-sm"
+            >
+              ← Self Assessment
+            </Link>
+            <Link
+              href="/clients/bulk-email?desk=sa"
+              className="btn btn-secondary text-sm"
+            >
+              Bulk email
+            </Link>
+            <Link href="/clients/import" className="btn btn-secondary text-sm">
+              Import Excel
+            </Link>
+            <Link
+              href="/clients/new?desk=partnership"
+              className="btn btn-primary text-sm"
+            >
+              Add partnership
+            </Link>
+          </div>
+        </div>
+
+        {partnerships.length === 0 ? (
+          <div className="service-tile px-5 py-10 text-center text-sm text-ink-soft">
+            {meta.empty}{" "}
+            <Link
+              href="/clients/new?desk=partnership"
+              className="font-semibold text-sea hover:underline"
+            >
+              Add a partnership
+            </Link>
+            .
+          </div>
+        ) : (
+          <PartnershipDeskList partnerships={partnerships} />
+        )}
+      </div>
+    );
+  }
+
   if (desk === "sa") {
     const { directors, soleTraders } = await loadSaDeskRows(clients);
     return (
@@ -209,15 +296,21 @@ export default async function ClientsPage({ searchParams }: Props) {
           </div>
           <div className="flex flex-wrap gap-2">
             <Link
+              href="/clients?desk=partnership"
+              className="btn btn-secondary text-sm"
+            >
+              Partnerships (SA800)
+            </Link>
+            <Link
               href="/clients/bulk-email?desk=sa"
-              className="btn btn-secondary"
+              className="btn btn-secondary text-sm"
             >
               Bulk email
             </Link>
-            <Link href="/clients/import" className="btn btn-secondary">
+            <Link href="/clients/import" className="btn btn-secondary text-sm">
               Import Excel
             </Link>
-            <Link href="/clients/new?desk=sa" className="btn btn-primary">
+            <Link href="/clients/new?desk=sa" className="btn btn-primary text-sm">
               Add client
             </Link>
           </div>

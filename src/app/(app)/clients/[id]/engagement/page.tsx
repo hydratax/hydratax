@@ -14,9 +14,10 @@ export default async function EngagementPage({
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="display text-3xl text-ink">Engagement</h1>
+          <h1 className="display text-3xl text-ink">Letter of engagement</h1>
           <p className="mt-2 max-w-2xl text-sm text-ink-soft">
-            Record the services and fee, then bill {client.name} from Invoices.
+            Record services and fee, send for e-signature, then bill{" "}
+            {client.name} from Invoices.
           </p>
         </div>
         <Link
@@ -34,6 +35,7 @@ export default async function EngagementPage({
         clientId={clientId}
         clientName={client.name}
         initial={client.deskProfile?.engagement ?? null}
+        initialPortal={client.deskProfile?.portal ?? null}
       />
     </div>
   );

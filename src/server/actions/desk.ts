@@ -740,7 +740,7 @@ async function persistPortalOnly(
     .where(eq(clients.id, client.id));
 }
 
-/** Accountant: send a HydraSign request to the client portal. */
+/** Accountant: send a letter-of-engagement e-sign request to the client portal. */
 export async function createPortalSignRequest(input: {
   clientId: string;
   title: string;
@@ -827,7 +827,7 @@ export async function createPortalSignRequest(input: {
   return nextPortal;
 }
 
-/** Client: complete a HydraSign request from the public portal. */
+/** Client: complete a letter-of-engagement e-sign request from the public portal. */
 export async function completePortalSignRequest(input: {
   token: string;
   signRequestId: string;

@@ -56,58 +56,105 @@ export default async function IndustryHubPage({
   const companies = await listCompaniesForHub({ sicCode: sic, size: 48 });
 
   return (
-    <div className="min-h-screen bg-paper">
+    <div className="min-h-screen company-profile">
       <SiteHeader />
-      <main className="mx-auto max-w-5xl px-4 py-8 md:px-6 md:py-12">
-        <nav className="text-sm text-ink-soft">
-          <Link href="/" className="font-semibold text-sea">
-            Home
-          </Link>
-          <span> / </span>
-          <Link href="/companies" className="font-semibold text-sea">
-            Companies
-          </Link>
-          <span> / </span>
-          <span className="text-ink">{label}</span>
-        </nav>
+      <main>
+        <header className="company-profile-hero relative overflow-hidden border-b border-line/70">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 opacity-[0.32]"
+            style={{
+              backgroundImage:
+                "linear-gradient(rgba(15,118,110,0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(15,118,110,0.055) 1px, transparent 1px)",
+              backgroundSize: "48px 48px",
+              maskImage:
+                "radial-gradient(ellipse 80% 70% at 50% 0%, black, transparent)",
+            }}
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(ellipse 70% 55% at 50% 25%, rgba(15,118,110,0.14), transparent 58%), linear-gradient(165deg, #f4fbfa 0%, #f7f9fa 45%, #eef7f6 100%)",
+            }}
+          />
 
-        <h1 className="display mt-4 text-4xl text-ink md:text-5xl">
-          {label} companies
-        </h1>
-        <p className="mt-3 max-w-2xl text-ink-soft">
-          Active Companies House companies under SIC {sic}
-          {fullLabel !== label ? ` (${fullLabel})` : ""}. Open a company to see
-          accounts and confirmation statement dates, then file online.
-        </p>
+          <div className="relative mx-auto max-w-6xl px-4 pb-10 pt-8 md:px-6 md:pb-12 md:pt-10">
+            <nav className="text-sm text-ink-soft">
+              <Link href="/" className="font-semibold text-sea hover:underline">
+                Home
+              </Link>
+              <span className="mx-2 text-line">/</span>
+              <Link
+                href="/companies"
+                className="font-semibold text-sea hover:underline"
+              >
+                Companies
+              </Link>
+              <span className="mx-2 text-line">/</span>
+              <span className="text-ink">{label}</span>
+            </nav>
 
-        {companies.length === 0 ? (
-          <p className="mt-8 text-sm text-ink-soft">
-            No companies returned for this SIC right now. Try the{" "}
-            <Link href="/companies" className="font-semibold text-sea">
-              company search
-            </Link>
-            .
-          </p>
-        ) : (
-          <ul className="mt-8 grid gap-2 sm:grid-cols-2">
-            {companies.map((c) => (
-              <li key={c.companyNumber}>
-                <Link
-                  href={c.href}
-                  className="block rounded-xl border border-line bg-white px-4 py-3 transition hover:border-sea/40"
-                >
-                  <span className="font-semibold text-ink line-clamp-1">
-                    {c.title}
-                  </span>
-                  <span className="mt-1 block mono text-xs text-ink-soft">
-                    {c.companyNumber}
-                    {c.addressSnippet ? ` · ${c.addressSnippet}` : ""}
-                  </span>
+            <div className="company-profile-hero-copy mt-8 max-w-3xl">
+              <p className="gloss-badge inline-flex rounded-lg bg-sea/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-sea">
+                SIC {sic} · Companies House
+              </p>
+              <h1 className="display mt-4 text-[clamp(2rem,4.6vw,3.4rem)] leading-[1.08] tracking-tight text-ink">
+                {label} companies
+              </h1>
+              <p className="mt-4 max-w-2xl text-base text-ink-soft">
+                Active Companies House companies under SIC {sic}
+                {fullLabel !== label ? ` (${fullLabel})` : ""}. Open a company
+                to see accounts and confirmation statement dates, then file
+                online.
+              </p>
+            </div>
+          </div>
+        </header>
+
+        <section className="border-b border-line/70 bg-gradient-to-b from-white to-[#f7fbfa]">
+          <div className="mx-auto max-w-6xl px-4 py-10 md:px-6 md:py-12">
+            {companies.length === 0 ? (
+              <p className="text-sm text-ink-soft">
+                No companies returned for this SIC right now. Try the{" "}
+                <Link href="/companies" className="font-semibold text-sea">
+                  company search
                 </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+                .
+              </p>
+            ) : (
+              <ul className="grid gap-3 sm:grid-cols-2">
+                {companies.map((c, i) => (
+                  <li key={c.companyNumber}>
+                    <Link
+                      href={c.href}
+                      className="company-deadline-tile gloss-card group relative block overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-5 transition duration-300 hover:-translate-y-1.5 hover:border-sea/40 hover:shadow-[0_22px_44px_-22px_rgba(15,118,110,0.4)]"
+                      style={{ animationDelay: `${0.04 + i * 0.02}s` }}
+                    >
+                      <div className="gloss-shine" aria-hidden />
+                      <p className="relative text-[11px] font-bold uppercase tracking-[0.16em] text-ink-soft">
+                        {c.companyNumber}
+                      </p>
+                      <p className="display relative mt-3 text-xl text-ink transition group-hover:text-sea-deep sm:text-2xl">
+                        {c.title}
+                      </p>
+                      {c.addressSnippet ? (
+                        <p className="relative mt-2 text-sm text-ink-soft line-clamp-2">
+                          {c.addressSnippet}
+                        </p>
+                      ) : null}
+                      <span className="relative mt-4 inline-flex items-center gap-1 text-sm font-bold text-sea transition group-hover:gap-2">
+                        Open profile
+                        <span aria-hidden>→</span>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
       </main>
       <SiteFooter />
     </div>

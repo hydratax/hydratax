@@ -133,12 +133,7 @@ export function RefreshCompaniesHouseButton() {
         <p className="max-w-sm text-right text-xs text-ink-soft" role="status">
           {message}
         </p>
-      ) : (
-        <p className="max-w-sm text-right text-[11px] text-ink-soft">
-          Checks every company in batches of {BATCH_SIZE}, with a{" "}
-          {formatGap(BATCH_GAP_MS)} gap between batches.
-        </p>
-      )}
+      ) : null}
     </div>
   );
 }

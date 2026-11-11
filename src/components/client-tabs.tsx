@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useId, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import {
   canAccessModule,
   tabKeyToModule,
@@ -18,9 +24,11 @@ const mainTabs = [
   { href: "/corporation-tax", label: "Corporation Tax", key: "corporation-tax" },
   { href: "/payroll", label: "Payroll", key: "payroll" },
   { href: "/invoices", label: "Invoices", key: "invoices" },
-  { href: "/time-fees", label: "Time & fees", key: "time-fees" },
-  { href: "/engagement", label: "Engagement", key: "engagement" },
-  { href: "/forms", label: "Forms and letters", key: "forms" },
+] as const;
+
+const engagementItems = [
+  { href: "/engagement", label: "Letter of engagement", key: "engagement" },
+  { href: "/forms", label: "Forms & letters", key: "forms" },
   { href: "/communications", label: "Communications", key: "communications" },
 ] as const;
 
@@ -33,12 +41,13 @@ const booksItems = [
 
 type TabItem =
   | (typeof mainTabs)[number]
-  | (typeof booksItems)[number];
+  | (typeof booksItems)[number]
+  | (typeof engagementItems)[number];
 
 function activeTabFromPath(pathname: string, clientSlug: string) {
   const base = `/clients/${clientSlug}`;
   if (pathname === base) return "overview";
-  for (const tab of [...booksItems, ...mainTabs]) {
+  for (const tab of [...engagementItems, ...booksItems, ...mainTabs]) {
     if (tab.href && pathname.startsWith(`${base}${tab.href}`)) {
       return tab.key;
     }
@@ -70,8 +79,11 @@ export function ClientTabs({
   const [pendingHref, setPendingHref] = useState<string | null>(null);
   const [pendingFromPath, setPendingFromPath] = useState<string | null>(null);
   const [booksOpen, setBooksOpen] = useState(false);
+  const [engagementOpen, setEngagementOpen] = useState(false);
   const booksRef = useRef<HTMLDivElement>(null);
+  const engagementRef = useRef<HTMLDivElement>(null);
   const booksMenuId = useId();
+  const engagementMenuId = useId();
   const showPending =
     pendingHref && pendingFromPath === pathname ? pendingHref : null;
 
@@ -84,7 +96,11 @@ export function ClientTabs({
   const visibleBooks = booksItems.filter((tab) =>
     canAccessModule(moduleAccess, tabKeyToModule(tab.key)),
   );
+  const visibleEngagement = engagementItems.filter((tab) =>
+    canAccessModule(moduleAccess, tabKeyToModule(tab.key)),
+  );
   const booksActive = visibleBooks.some((t) => t.key === active);
+  const engagementActive = visibleEngagement.some((t) => t.key === active);
 
   useEffect(() => {
     if (!showPending) return;
@@ -97,15 +113,22 @@ export function ClientTabs({
 
   useEffect(() => {
     setBooksOpen(false);
+    setEngagementOpen(false);
   }, [pathname]);
 
   useEffect(() => {
-    if (!booksOpen) return;
+    if (!booksOpen && !engagementOpen) return;
     function onDoc(e: MouseEvent) {
       if (!booksRef.current?.contains(e.target as Node)) setBooksOpen(false);
+      if (!engagementRef.current?.contains(e.target as Node)) {
+        setEngagementOpen(false);
+      }
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setBooksOpen(false);
+      if (e.key === "Escape") {
+        setBooksOpen(false);
+        setEngagementOpen(false);
+      }
     }
     document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey);
@@ -113,7 +136,7 @@ export function ClientTabs({
       document.removeEventListener("mousedown", onDoc);
       document.removeEventListener("keydown", onKey);
     };
-  }, [booksOpen]);
+  }, [booksOpen, engagementOpen]);
 
   function markPending(href: string, label: string) {
     if (href === pathname) return;
@@ -139,6 +162,76 @@ export function ClientTabs({
     );
   }
 
+  function DropdownMenu({
+    label,
+    open,
+    setOpen,
+    menuId,
+    menuRef,
+    activeMenu,
+    items,
+  }: {
+    label: string;
+    open: boolean;
+    setOpen: (v: boolean | ((p: boolean) => boolean)) => void;
+    menuId: string;
+    menuRef: RefObject<HTMLDivElement | null>;
+    activeMenu: boolean;
+    items: readonly TabItem[];
+  }) {
+    if (items.length === 0) return null;
+    return (
+      <div className="relative" ref={menuRef}>
+        <button
+          type="button"
+          className={`${tabClass(activeMenu, false)} inline-flex items-center gap-1`}
+          aria-expanded={open}
+          aria-haspopup="menu"
+          aria-controls={menuId}
+          onClick={() => setOpen((v) => !v)}
+        >
+          {label}
+          <span className="text-[0.65rem] opacity-70" aria-hidden>
+            ▾
+          </span>
+        </button>
+        {open && (
+          <div
+            id={menuId}
+            role="menu"
+            className="absolute left-0 top-full z-40 min-w-[12.5rem] pt-1"
+          >
+            <div className="rounded-lg border border-line bg-white py-1 shadow-lg">
+              {items.map((tab) => {
+                const href = `/clients/${clientSlug}${tab.href}`;
+                const isActive = active === tab.key;
+                return (
+                  <Link
+                    key={tab.key}
+                    href={href}
+                    role="menuitem"
+                    prefetch
+                    onClick={() => {
+                      markPending(href, `Opening ${tab.label}…`);
+                      setOpen(false);
+                    }}
+                    className={`block px-4 py-2 text-sm font-semibold ${
+                      isActive
+                        ? "bg-sea/10 text-sea"
+                        : "text-ink-soft hover:bg-sand hover:text-ink"
+                    }`}
+                  >
+                    {tab.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div
       className={`mb-7 border-b border-line pb-0 transition-opacity ${
@@ -151,56 +244,25 @@ export function ClientTabs({
       <div className="flex flex-wrap gap-1">
         {visibleMain[0] && <TabLink tab={visibleMain[0]} />}
 
-        {visibleBooks.length > 0 && (
-          <div className="relative" ref={booksRef}>
-            <button
-              type="button"
-              className={`${tabClass(booksActive, false)} inline-flex items-center gap-1`}
-              aria-expanded={booksOpen}
-              aria-haspopup="menu"
-              aria-controls={booksMenuId}
-              onClick={() => setBooksOpen((v) => !v)}
-            >
-              Books
-              <span className="text-[0.65rem] opacity-70" aria-hidden>
-                ▾
-              </span>
-            </button>
-            {booksOpen && (
-              <div
-                id={booksMenuId}
-                role="menu"
-                className="absolute left-0 top-full z-40 min-w-[11rem] pt-1"
-              >
-                <div className="rounded-lg border border-line bg-white py-1 shadow-lg">
-                  {visibleBooks.map((tab) => {
-                    const href = `/clients/${clientSlug}${tab.href}`;
-                    const isActive = active === tab.key;
-                    return (
-                      <Link
-                        key={tab.key}
-                        href={href}
-                        role="menuitem"
-                        prefetch
-                        onClick={() => {
-                          markPending(href, `Opening ${tab.label}…`);
-                          setBooksOpen(false);
-                        }}
-                        className={`block px-4 py-2 text-sm font-semibold ${
-                          isActive
-                            ? "bg-sea/10 text-sea"
-                            : "text-ink-soft hover:bg-sand hover:text-ink"
-                        }`}
-                      >
-                        {tab.label}
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        <DropdownMenu
+          label="Books"
+          open={booksOpen}
+          setOpen={setBooksOpen}
+          menuId={booksMenuId}
+          menuRef={booksRef}
+          activeMenu={booksActive}
+          items={visibleBooks}
+        />
+
+        <DropdownMenu
+          label="Engagement"
+          open={engagementOpen}
+          setOpen={setEngagementOpen}
+          menuId={engagementMenuId}
+          menuRef={engagementRef}
+          activeMenu={engagementActive}
+          items={visibleEngagement}
+        />
 
         {visibleMain.slice(1).map((tab) => (
           <TabLink key={tab.key} tab={tab} />

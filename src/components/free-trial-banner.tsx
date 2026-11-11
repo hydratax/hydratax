@@ -22,7 +22,7 @@ export function FreeTrialBanner({ dark = false }: { dark?: boolean }) {
           {PRACTICE_TRIAL.bannerText}
         </span>
         <span className="text-white/95 sm:hidden">
-          No Hydra fees · free filings
+          Free trial · free filings
         </span>
         <Link
           href={PRACTICE_TRIAL.ctaHref}

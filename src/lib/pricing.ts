@@ -55,7 +55,9 @@ export function hydraTotal(
 
 /** Practice desk — fixed bundle used as the Custom volume-price ceiling. */
 export const PRACTICE_PLAN_PRICE_POUNDS = 79;
-export const PRACTICE_PLAN_CLIENT_LIMIT = 50;
+/** Small practice desk: from 2 up to 10 clients. */
+export const PRACTICE_PLAN_CLIENT_LIMIT = 10;
+export const PRACTICE_PLAN_CLIENT_MIN = 2;
 
 /** Yearly desk plans (Solo / Practice / Custom): 15% off ≈ almost 2 months free. */
 export const YEARLY_DISCOUNT = 0.15;
@@ -86,7 +88,7 @@ export function yearlySavingsPoundsFromMonthly(monthlyPounds: number): number {
 
 /**
  * Custom all-inclusive stays below Practice when scaled by client count.
- * Practice £79 / 50 clients → volume targets 90% of that scaled rate.
+ * Practice £79 / 10 clients → volume targets 90% of that scaled rate.
  */
 export const CUSTOM_VS_PRACTICE_RATIO = 0.9;
 
@@ -363,20 +365,25 @@ export const PRICING_SECTIONS = [
     id: "practice",
     title: "Practice desk",
     subtitle:
-      "Solo for one client. Practice & Custom include a 7-day free trial (card at checkout).",
+      "Solo for one client. Practice (2–10 clients) & Custom include a 7-day free trial (card at checkout).",
     plans: [
       {
         name: "Solo",
         price: 29,
         period: "/month",
-        blurb: "One client desk — PAYE for one employee and one Self Assessment.",
+        blurb:
+          "One client — dormant or trading accounts, CT600, VAT, letters & forms.",
         features: [
           "1 client only",
+          "Dormant company accounts filing",
+          "Trading company accounts filing",
+          "CT600 corporation tax return",
+          "MTD VAT obligations & submit",
+          "Custom letters and forms",
           "PAYE for 1 employee",
           "1 Self Assessment",
           "Books in integer pence",
           "Immutable audit trail",
-          "HMRC-ready filing",
         ],
         cta: "Choose Solo",
         highlighted: false,
@@ -385,14 +392,15 @@ export const PRICING_SECTIONS = [
         name: "Practice",
         price: PRACTICE_PLAN_PRICE_POUNDS,
         period: "/month",
-        blurb:
-          "7 days free, then £79/month — capped at 50 clients. No Hydra fees while you trial.",
+        blurb: `7 days free, then £${PRACTICE_PLAN_PRICE_POUNDS}/month — for practices with ${PRACTICE_PLAN_CLIENT_MIN} to ${PRACTICE_PLAN_CLIENT_LIMIT} clients.`,
         features: [
-          "7-day free trial — no Hydra fees",
+          "7-day free trial",
           "Free submissions during trial",
-          `Up to ${PRACTICE_PLAN_CLIENT_LIMIT} clients`,
+          `${PRACTICE_PLAN_CLIENT_MIN}–${PRACTICE_PLAN_CLIENT_LIMIT} clients`,
           "CT600 included",
           "MTD VAT included",
+          "Dormant & trading accounts",
+          "Custom letters and forms",
           `${PRACTICE_PLAN_CLIENT_LIMIT} Self Assessments included`,
           "Staff roles & deadlines board",
           ...DESK_CH_FEATURES,
@@ -408,7 +416,7 @@ export const PRICING_SECTIONS = [
         blurb:
           "Pick HMRC modules by client count — 7-day free trial, then volume discounts apply.",
         features: [
-          "7-day free trial — no Hydra fees",
+          "7-day free trial",
           "No desk fee after trial — modules only",
           "Cheaper per client as volume grows",
           "PAYE: 1 client up to 10 employees",

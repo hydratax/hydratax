@@ -37,7 +37,12 @@ export function ClientPortalForm({
 
   return (
     <div className="space-y-8">
-      <PortalSignPanel token={token} initial={portal.signRequests ?? []} />
+      <PortalSignPanel
+        token={token}
+        initial={(portal.signRequests ?? []).filter((r) =>
+          /engagement/i.test(r.title),
+        )}
+      />
 
       {(packs.accounts || packs.ct600 || packs.vat) && (
         <section className="space-y-4 rounded-xl border border-sea/30 bg-sea/5 p-5">

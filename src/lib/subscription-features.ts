@@ -38,7 +38,7 @@ export function featuresForPlanKey(planKey: string): {
   if (baseKey.startsWith("practice:Custom")) {
     const selection = parseCustomPlanSelection(baseKey);
     const features = [
-      "7-day free trial — no Hydra fees while trial is active",
+      "7-day free trial",
       "Companies House filings included on the desk",
       "Books, documents, and practice desk access",
     ];

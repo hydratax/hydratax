@@ -27,8 +27,8 @@ export function CompanySearchPanel({
 }: {
   heading?: string;
   description?: string | null;
-  /** `hero` — bare search on dark background; `card` — panel chrome */
-  variant?: "card" | "hero";
+  /** `hero` — dark landing; `card` — panel chrome; `page`/`embedded` — company-profile style pages */
+  variant?: "card" | "hero" | "page" | "embedded";
   selectTarget?: "hub" | "accounts";
 }) {
   const router = useRouter();
@@ -113,32 +113,41 @@ export function CompanySearchPanel({
   }
 
   const isHero = variant === "hero";
+  const isProfileLight = variant === "page" || variant === "embedded";
   const busy = searching || navigating;
 
   return (
     <div
       className={
-        isHero
-          ? "space-y-5 overflow-visible"
+        isHero || isProfileLight
+          ? "space-y-4 overflow-visible"
           : "panel space-y-4 overflow-visible p-5"
       }
     >
       <div>
-        <h1
-          className={
-            isHero
-              ? "display text-3xl text-white sm:text-4xl md:text-5xl"
-              : "display text-2xl text-ink"
-          }
-        >
-          {heading}
-        </h1>
+        {variant === "embedded" ? (
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-sea">
+            {heading}
+          </p>
+        ) : (
+          <h2
+            className={
+              isHero
+                ? "display text-3xl text-white sm:text-4xl md:text-5xl"
+                : "display text-2xl text-ink md:text-3xl"
+            }
+          >
+            {heading}
+          </h2>
+        )}
         {description !== null && description !== undefined && (
           <p
             className={
               isHero
                 ? "mt-2 text-sm text-white/65"
-                : "mt-1 text-sm text-ink-soft"
+                : variant === "embedded"
+                  ? "mt-2 text-sm text-ink-soft"
+                  : "mt-1 text-sm text-ink-soft"
             }
           >
             {description}
@@ -174,7 +183,9 @@ export function CompanySearchPanel({
           className={
             isHero
               ? "w-full rounded-xl border border-white/20 bg-white px-4 py-3.5 pr-28 text-base text-ink shadow-lg"
-              : "w-full rounded-lg border border-line px-3 py-2.5 pr-24 text-sm"
+              : isProfileLight
+                ? "w-full rounded-xl border border-line/80 bg-white px-4 py-3.5 pr-28 text-base text-ink shadow-sm transition hover:border-sea/30 focus:border-sea/50 focus:outline-none focus:ring-4 focus:ring-sea/10"
+                : "w-full rounded-lg border border-line px-3 py-2.5 pr-24 text-sm"
           }
         />
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-ink-soft">

@@ -71,7 +71,7 @@ export const PRODUCT_FAQS: Record<string, FaqItem[]> = {
   practice: [
     {
       q: "Is there a free trial?",
-      a: "Yes on Practice and Custom desk plans — 7 days free. You add a card at checkout (£0 today); the first charge is on day 8. Solo and other module plans do not include a free trial. No Hydra fees and free submissions while you trial. Companies House statutory fees still apply where charged. We email you on day 7 before billing starts. Cancel anytime before day 8.",
+      a: "Yes on Practice and Custom desk plans — 7 days free. You add a card at checkout (£0 today); the first charge is on day 8. Solo and other module plans do not include a free trial. Free submissions while you trial. Companies House statutory fees still apply where charged. We email you on day 7 before billing starts. Cancel anytime before day 8.",
     },
     {
       q: "Who is the Practice desk for?",
@@ -79,7 +79,7 @@ export const PRODUCT_FAQS: Record<string, FaqItem[]> = {
     },
     {
       q: "How do plan limits work?",
-      a: "Practice is capped at 50 clients and includes CT600, MTD VAT and 50 Self Assessments. Solo is one client. Custom unlocks only the HMRC modules you pick, with volume discounts as client count grows.",
+      a: "Practice is for 2 to 10 clients and includes CT600, MTD VAT, dormant and trading accounts, letters/forms, and Self Assessment. Solo is one client. Custom unlocks only the HMRC modules you pick, with volume discounts as client count grows.",
     },
     {
       q: "Do you offer yearly billing?",

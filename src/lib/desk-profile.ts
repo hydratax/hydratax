@@ -67,7 +67,7 @@ export type PortalApprovalPack = {
   sentAt: string;
 };
 
-/** HydraSign — lightweight e-sign on the client portal (no third-party vendor). */
+/** Letter of engagement e-sign on the client portal (no third-party vendor). */
 export type PortalSignRequest = {
   id: string;
   title: string;

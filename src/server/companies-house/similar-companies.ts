@@ -13,6 +13,7 @@ export async function findSimilarCompanies(opts: {
   byIndustry: DirectoryCompanyLink[];
   byLocation: DirectoryCompanyLink[];
 }> {
+  /** Fetch a short related list (UI shows 4, then Show more). */
   const limit = opts.limit ?? 8;
   const exclude = opts.companyNumber;
 

@@ -38,7 +38,7 @@ describe("custom volume pricing", () => {
     ).toBe(30);
   });
 
-  it("stays cheaper than Practice at 50 clients all-inclusive", () => {
+  it("stays cheaper than Practice at the Practice client cap all-inclusive", () => {
     const custom = allInclusive(PRACTICE_PLAN_CLIENT_LIMIT);
     expect(custom).toBeLessThan(PRACTICE_PLAN_PRICE_POUNDS);
     expect(custom).toBeLessThanOrEqual(

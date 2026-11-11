@@ -34,7 +34,7 @@ export function PortalSignPanel({
   return (
     <section className="space-y-4 rounded-xl border border-sea/30 bg-sea/5 p-5">
       <div>
-        <h2 className="text-lg font-semibold">HydraSign</h2>
+        <h2 className="text-lg font-semibold">Letter of engagement</h2>
         <p className="mt-1 text-sm text-ink-soft">
           Review each document, type your name, and sign. Your accountant keeps
           a record of the signature on your client file.

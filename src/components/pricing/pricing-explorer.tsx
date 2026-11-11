@@ -262,37 +262,54 @@ function PlanCards({
             key={plan.name}
             className={`pricing-plan h-full ${plan.highlighted ? "is-featured" : ""}`}
           >
-            {plan.highlighted && (
-              <span className="pricing-plan__badge">
-                {section.id === "practice" && plan.name === "Practice"
-                  ? PRACTICE_TRIAL.shortBadge
-                  : "Most chosen"}
-              </span>
-            )}
+            <div className="pricing-plan__badge-slot">
+              {plan.highlighted ? (
+                <span className="pricing-plan__badge">
+                  {section.id === "practice" && plan.name === "Practice"
+                    ? PRACTICE_TRIAL.shortBadge
+                    : "Most chosen"}
+                </span>
+              ) : (
+                <span className="pricing-plan__badge pricing-plan__badge--ghost" aria-hidden>
+                  &nbsp;
+                </span>
+              )}
+            </div>
             <h3 className="display text-2xl text-ink">{plan.name}</h3>
-            <p className="mt-2 min-h-[2.75rem] text-sm leading-relaxed text-ink-soft">
+            <p className="pricing-plan__blurb mt-2 text-sm leading-relaxed text-ink-soft">
               {plan.blurb}
             </p>
-            {yearly ? (
-              <>
-                <p className="price-figure mt-6">
-                  <span className="price-amount">{formatGBP(yearlyTotal)}</span>
-                  <span className="price-period">/year</span>
-                </p>
-                <p className="mt-1 text-xs text-ink-soft">
-                  <span className="line-through">
-                    {formatGBP(plan.price * 12)}
-                  </span>{" "}
-                  · save {formatGBP(yearlySave)} · almost 2 months free
-                </p>
-              </>
-            ) : (
-              <p className="price-figure mt-6">
-                <span className="price-amount">{formatGBP(plan.price)}</span>
-                <span className="price-period">{plan.period}</span>
-              </p>
-            )}
-            <ul className="mt-6 min-h-[8.5rem] flex-1 space-y-3 text-sm text-ink-soft">
+            <div className="pricing-plan__price mt-6">
+              {yearly ? (
+                <>
+                  <p className="price-figure">
+                    <span className="price-amount">
+                      {formatGBP(yearlyTotal)}
+                    </span>
+                    <span className="price-period">/year</span>
+                  </p>
+                  <p className="pricing-plan__price-note mt-1 text-xs text-ink-soft">
+                    <span className="line-through">
+                      {formatGBP(plan.price * 12)}
+                    </span>{" "}
+                    · save {formatGBP(yearlySave)} · almost 2 months free
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="price-figure">
+                    <span className="price-amount">
+                      {formatGBP(plan.price)}
+                    </span>
+                    <span className="price-period">{plan.period}</span>
+                  </p>
+                  <p className="pricing-plan__price-note mt-1 text-xs text-ink-soft" aria-hidden>
+                    &nbsp;
+                  </p>
+                </>
+              )}
+            </div>
+            <ul className="pricing-plan__features mt-6 flex-1 space-y-3 text-sm text-ink-soft">
               {plan.features.map((f) => (
                 <li key={f} className="flex gap-2.5">
                   <span className="mt-0.5 text-sea" aria-hidden>
@@ -528,9 +545,7 @@ function CompaniesHouseCards() {
         accounts.
       </p>
       {COMPANIES_HOUSE_SERVICES.map((service) => {
-        const totalSolo = hydraTotal(service.chFeePounds, service.id, "solo");
         const totalDesk = hydraTotal(service.chFeePounds, service.id, "desk");
-        const hasDeskRate = totalDesk !== totalSolo;
 
         return (
           <article
@@ -547,15 +562,10 @@ function CompaniesHouseCards() {
             <div className="mt-auto pt-6">
               <p className="price-figure mt-2">
                 <span className="price-amount text-3xl">
-                  {formatGBP(hasDeskRate ? totalDesk : totalSolo)}
+                  {formatGBP(totalDesk)}
                 </span>
                 <span className="price-period">/filing</span>
               </p>
-              {hasDeskRate && (
-                <p className="mt-1 text-xs text-ink-soft">
-                  Practice / Custom desk rate · Solo {formatGBP(totalSolo)}
-                </p>
-              )}
               <Link
                 href={`/companies-house/${service.id}`}
                 className="btn btn-primary mt-5 w-full whitespace-nowrap px-3 py-2.5 text-sm"

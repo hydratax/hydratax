@@ -2,11 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import {
-  createPortalSignRequest,
-  ensurePortal,
-  sendPortalApprovalPack,
-} from "@/server/actions/desk";
+import { ensurePortal, sendPortalApprovalPack } from "@/server/actions/desk";
 import type { PortalRecord } from "@/lib/desk-profile";
 import { messageFromUnknown } from "@/lib/action-error";
 
@@ -29,12 +25,13 @@ export function PortalLinkButton({
   const [kind, setKind] = useState<"accounts" | "ct600" | "vat">("accounts");
   const [documentId, setDocumentId] = useState(documents[0]?.id ?? "");
   const [message, setMessage] = useState("");
-  const [signTitle, setSignTitle] = useState("Engagement letter");
-  const [signDocumentId, setSignDocumentId] = useState(documents[0]?.id ?? "");
-  const [signMessage, setSignMessage] = useState("");
   const [pending, start] = useTransition();
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const link = portal ? `${origin}/portal/${portal.token}` : "";
+
+  const engagementSigns = (portal?.signRequests ?? []).filter((r) =>
+    /engagement/i.test(r.title),
+  );
 
   return (
     <div className="space-y-4">
@@ -62,22 +59,26 @@ export function PortalLinkButton({
         </button>
         {link && (
           <p className="break-all text-sm">
-            <a className="font-semibold text-sea" href={link} target="_blank" rel="noreferrer">
+            <a
+              className="font-semibold text-sea"
+              href={link}
+              target="_blank"
+              rel="noreferrer"
+            >
               {link}
             </a>
           </p>
         )}
         <p className="text-sm text-ink-soft">
-          Clients use this page to upload bank statements and other papers,
-          sign with HydraSign, and approve accounts / CT600 / VAT. For
-          structured onboarding with a custom form, use the{" "}
+          Clients use this page to upload papers and approve accounts / CT600 /
+          VAT. Letter of engagement e-signatures are sent from{" "}
           <Link
-            href={`/clients/${clientSlug}/forms`}
+            href={`/clients/${clientSlug}/engagement`}
             className="font-semibold text-sea"
           >
-            Forms
-          </Link>{" "}
-          tab.
+            Engagement
+          </Link>
+          .
         </p>
         {portal && (
           <ul className="text-sm text-ink-soft">
@@ -91,9 +92,9 @@ export function PortalLinkButton({
               {portal.approveCt600 ? "yes" : "no"} · VAT:{" "}
               {portal.approveVat ? "yes" : "no"}
             </li>
-            {(portal.signRequests ?? []).map((r) => (
+            {engagementSigns.map((r) => (
               <li key={r.id}>
-                HydraSign — {r.status}: {r.title}
+                Letter of engagement — {r.status}
                 {r.signerName ? ` · ${r.signerName}` : ""}
                 {r.signedAt
                   ? ` · ${new Date(r.signedAt).toLocaleString("en-GB")}`
@@ -110,109 +111,6 @@ export function PortalLinkButton({
         )}
         {error && <p className="text-sm text-danger">{error}</p>}
         {msg && <p className="text-sm text-ok">{msg}</p>}
-      </div>
-
-      <div className="panel space-y-3 p-5">
-        <h2 className="display text-xl text-ink">HydraSign</h2>
-        <p className="text-sm text-ink-soft">
-          Send an engagement letter or other document for the client to sign on
-          their portal link. Typed name, drawn signature, time and IP are stored
-          on the client file.
-        </p>
-        <label className="block space-y-1">
-          <span className="label">Title</span>
-          <input
-            className="input"
-            value={signTitle}
-            onChange={(e) => setSignTitle(e.target.value)}
-            placeholder="Engagement letter"
-          />
-        </label>
-        <label className="block space-y-1">
-          <span className="label">Document on file</span>
-          <select
-            className="input"
-            value={signDocumentId}
-            onChange={(e) => setSignDocumentId(e.target.value)}
-          >
-            <option value="">Message only (no attachment)</option>
-            {documents.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.filename}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block space-y-1">
-          <span className="label">Note to client (optional)</span>
-          <textarea
-            className="input min-h-[4rem]"
-            value={signMessage}
-            onChange={(e) => setSignMessage(e.target.value)}
-            placeholder="Please review and sign so we can proceed."
-          />
-        </label>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={pending || !portal}
-          onClick={() => {
-            setError("");
-            start(async () => {
-              try {
-                if (!portal) {
-                  await ensurePortal(clientId);
-                }
-                const next = await createPortalSignRequest({
-                  clientId,
-                  title: signTitle,
-                  message: signMessage || undefined,
-                  documentId: signDocumentId || undefined,
-                });
-                setPortal(next);
-                setMsg(
-                  "HydraSign request sent — client can sign on their link.",
-                );
-              } catch (err) {
-                setError(
-                  messageFromUnknown(err, "Could not create signature request"),
-                );
-              }
-            });
-          }}
-        >
-          Send for signature
-        </button>
-        {(portal?.signRequests ?? []).some((r) => r.status === "signed") && (
-          <div className="space-y-3 border-t border-line pt-3">
-            <p className="text-sm font-semibold text-ink">Signed copies</p>
-            {(portal?.signRequests ?? [])
-              .filter((r) => r.status === "signed")
-              .map((r) => (
-                <div
-                  key={r.id}
-                  className="rounded-lg border border-line bg-white/60 p-3 text-sm"
-                >
-                  <p className="font-medium text-ink">{r.title}</p>
-                  <p className="text-ink-soft">
-                    {r.signerName ?? r.typedName}
-                    {r.signedAt
-                      ? ` · ${new Date(r.signedAt).toLocaleString("en-GB")}`
-                      : ""}
-                    {r.ip ? ` · IP ${r.ip}` : ""}
-                  </p>
-                  {r.signatureDataUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={r.signatureDataUrl}
-                      alt={`Signature of ${r.signerName ?? "client"}`}
-                      className="mt-2 max-h-24 rounded border border-line bg-white"
-                    />
-                  ) : null}
-                </div>
-              ))}
-          </div>
-        )}
       </div>
 
       <div className="panel space-y-3 p-5">

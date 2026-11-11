@@ -8,7 +8,7 @@ export const PRACTICE_TRIAL = {
   shortBadge: "7-day free trial",
   tagline: "Practice & Custom plans — try free for 7 days",
   detail:
-    "Practice and Custom desks include a 7-day free trial. No Hydra fees while you trial; card saved at checkout, first charge on day 8. Cancel anytime before then.",
+    "Practice and Custom desks include a 7-day free trial. Card saved at checkout, first charge on day 8. Cancel anytime before then.",
   cta: "Start 7-day free trial",
   /** Trial is offered on Practice / Custom pricing — not forced at signup. */
   ctaHref: "/pricing#practice",

@@ -1,8 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { saveEngagement } from "@/server/actions/desk";
-import type { EngagementRecord } from "@/lib/desk-profile";
+import {
+  createPortalSignRequest,
+  ensurePortal,
+  saveEngagement,
+} from "@/server/actions/desk";
+import type { EngagementRecord, PortalRecord } from "@/lib/desk-profile";
+import { messageFromUnknown } from "@/lib/action-error";
 
 const SERVICE_OPTIONS = [
   "Bookkeeping",
@@ -13,14 +18,18 @@ const SERVICE_OPTIONS = [
   "Companies House filings",
 ];
 
+const ENGAGEMENT_SIGN_TITLE = "Letter of engagement";
+
 export function EngagementForm({
   clientId,
   clientName,
   initial,
+  initialPortal,
 }: {
   clientId: string;
   clientName: string;
   initial: EngagementRecord | null;
+  initialPortal?: PortalRecord | null;
 }) {
   const [status, setStatus] = useState<EngagementRecord["status"]>(
     initial?.status ?? "draft",
@@ -31,6 +40,7 @@ export function EngagementForm({
   );
   const [issuedOn, setIssuedOn] = useState(initial?.issuedOn ?? "");
   const [signedOn, setSignedOn] = useState(initial?.signedOn ?? "");
+  const [portal, setPortal] = useState(initialPortal ?? null);
   const [message, setMessage] = useState("");
   const [pending, start] = useTransition();
 
@@ -43,6 +53,10 @@ You will keep digital records and send us the papers we request through your Hyd
 
 Status: ${status}.
 Issued: ${issuedOn || "not yet"}. Signed: ${signedOn || "not yet"}.`;
+
+  const engagementSigns = (portal?.signRequests ?? []).filter((r) =>
+    /engagement/i.test(r.title),
+  );
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
@@ -60,7 +74,9 @@ Issued: ${issuedOn || "not yet"}. Signed: ${signedOn || "not yet"}.`;
                 issuedOn,
                 signedOn,
               });
-              setMessage("Engagement saved. Raise the fee from Invoices when you bill.");
+              setMessage(
+                "Engagement saved. Raise the fee from Invoices when you bill.",
+              );
             } catch (err) {
               setMessage(err instanceof Error ? err.message : "Could not save");
             }
@@ -129,17 +145,76 @@ Issued: ${issuedOn || "not yet"}. Signed: ${signedOn || "not yet"}.`;
             onChange={(e) => setSignedOn(e.target.value)}
           />
         </label>
-        <button className="btn btn-primary" disabled={pending} type="submit">
-          {pending ? "Saving…" : "Save engagement"}
-        </button>
-        <button
-          className="btn btn-secondary ml-2"
-          type="button"
-          onClick={() => window.print()}
-        >
-          Print letter
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button className="btn btn-primary" disabled={pending} type="submit">
+            {pending ? "Saving…" : "Save engagement"}
+          </button>
+          <button
+            className="btn btn-secondary"
+            type="button"
+            onClick={() => window.print()}
+          >
+            Print letter
+          </button>
+          <button
+            className="btn btn-secondary"
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              start(async () => {
+                try {
+                  await saveEngagement({
+                    clientId,
+                    status: status === "draft" ? "issued" : status,
+                    feePounds: Number(feePounds) || 0,
+                    services,
+                    issuedOn: issuedOn || new Date().toISOString().slice(0, 10),
+                    signedOn,
+                  });
+                  if (!portal) {
+                    const nextPortal = await ensurePortal(clientId);
+                    setPortal(nextPortal);
+                  }
+                  const next = await createPortalSignRequest({
+                    clientId,
+                    title: ENGAGEMENT_SIGN_TITLE,
+                    message:
+                      "Please review and sign this letter of engagement so we can proceed.",
+                  });
+                  setPortal(next);
+                  if (status === "draft") setStatus("issued");
+                  if (!issuedOn) {
+                    setIssuedOn(new Date().toISOString().slice(0, 10));
+                  }
+                  setMessage(
+                    "Letter of engagement sent for e-signature on the client link.",
+                  );
+                } catch (err) {
+                  setMessage(
+                    messageFromUnknown(err, "Could not send for signature"),
+                  );
+                }
+              });
+            }}
+          >
+            Send for e-signature
+          </button>
+        </div>
         {message && <p className="text-sm text-ink-soft">{message}</p>}
+        {engagementSigns.length > 0 ? (
+          <div className="space-y-2 border-t border-line pt-3">
+            <p className="text-sm font-semibold text-ink">E-signature status</p>
+            {engagementSigns.map((r) => (
+              <p key={r.id} className="text-sm text-ink-soft">
+                {r.status === "signed" ? "Signed" : "Awaiting signature"}
+                {r.signerName ? ` · ${r.signerName}` : ""}
+                {r.signedAt
+                  ? ` · ${new Date(r.signedAt).toLocaleString("en-GB")}`
+                  : ""}
+              </p>
+            ))}
+          </div>
+        ) : null}
       </form>
       <pre className="panel whitespace-pre-wrap p-5 text-sm text-ink">
         {letter}

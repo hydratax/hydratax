@@ -14,36 +14,42 @@ export function DashboardServiceCard(props: {
   return (
     <PendingLink
       href={props.href}
-      className={`panel panel-interactive relative block p-4 ${
-        props.locked ? "opacity-90" : ""
+      className={`service-tile group relative flex h-full min-h-[8.5rem] flex-col overflow-hidden ${
+        props.locked ? "service-tile--locked" : ""
       }`}
       pendingLabel={props.pendingLabel}
     >
       {(pending) => (
         <>
-          {props.locked ? (
-            <span className="badge badge-muted absolute right-3 top-3">
-              Locked
-            </span>
-          ) : null}
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-bold uppercase tracking-wide text-ink-soft">
+          <span className="service-tile__sheen" aria-hidden />
+          <div className="relative z-[1] flex h-full flex-col">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-[0.65rem] font-bold uppercase tracking-[0.14em] text-sea">
                 {props.moduleLabel}
               </p>
-              <p className="display mt-1 text-xl text-ink">{props.title}</p>
-              <p className="mt-1 text-sm text-ink-soft">{props.blurb}</p>
               {props.locked ? (
+                <span className="badge badge-muted shrink-0">Locked</span>
+              ) : (
                 <span
-                  className={`mt-3 inline-flex open-chip ${pending ? "is-pending" : ""}`}
+                  className={`open-chip open-chip--sm shrink-0 ${
+                    pending ? "is-pending" : ""
+                  }`}
                 >
-                  {pending ? "Opening…" : props.cta}
+                  {pending ? "…" : props.cta}
                 </span>
-              ) : null}
+              )}
             </div>
-            {!props.locked ? (
+            <p className="display mt-2 text-lg leading-snug text-ink md:text-xl">
+              {props.title}
+            </p>
+            <p className="mt-auto pt-2 text-sm leading-snug text-ink-soft">
+              {props.blurb}
+            </p>
+            {props.locked ? (
               <span
-                className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}
+                className={`open-chip open-chip--sm mt-3 inline-flex w-fit ${
+                  pending ? "is-pending" : ""
+                }`}
               >
                 {pending ? "Opening…" : props.cta}
               </span>

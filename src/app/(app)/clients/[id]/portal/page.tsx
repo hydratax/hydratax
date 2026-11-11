@@ -17,7 +17,7 @@ export default async function ClientPortalAdminPage({
         <h1 className="display text-3xl text-ink">Client link</h1>
         <p className="mt-2 max-w-2xl text-sm text-ink-soft">
           Send {client.name} this link to upload bank statements and other
-          papers, sign engagement letters with HydraSign, review drafts you
+          papers, review drafts you
           attach, and approve accounts, the Company Tax Return, and VAT before
           you file.
         </p>
