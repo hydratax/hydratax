@@ -64,8 +64,8 @@ function buildRailLinks(
     {
       module: "corporation_tax",
       title: "Companies · CT600",
-      href: "/filings/corporation-tax",
-      blurb: "Pick a company · CT600 periods",
+      href: "/clients?desk=ct600",
+      blurb: "Company cards · CT600 & accounts",
     },
     {
       module: "self_assessment",
@@ -78,12 +78,6 @@ function buildRailLinks(
       title: "PAYE / RTI",
       href: firstPayroll,
       blurb: "FPS & EPS",
-    },
-    {
-      module: "companies_house",
-      title: "Companies House",
-      href: "/companies-house",
-      blurb: "Filings & personal codes",
     },
   ];
 }
@@ -237,12 +231,17 @@ export default async function DashboardPage() {
           id: c.id,
           slug: clientSlugFor({ id: c.id, name: c.name }, peers),
           name: c.name,
-          type: c.type,
+          type: c.type as "sole_trader" | "limited_company" | "partnership",
           isVatRegistered: c.isVatRegistered,
           isEmployer: c.isEmployer,
           vrn: c.vrn,
+          utr: c.utr,
           companyNumber: c.companyNumber,
           payeRef: c.payeRef,
+          companiesHouse:
+            "companiesHouse" in c
+              ? (c.companiesHouse as import("@/server/companies-house/enrich-client").ClientCompaniesHouseSnapshot | null)
+              : null,
         }))}
         saPeople={saPeople}
         unlockedModules={entitlements.modules}

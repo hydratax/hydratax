@@ -2,19 +2,11 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { DashboardClientList } from "@/components/dashboard-client-list";
+import { ClientsList, type ClientListItem } from "@/components/clients-list";
 import { PendingLink } from "@/components/pending-link";
 import type { ServiceModule } from "@/lib/entitlements";
 
-export type DashboardClientRow = {
-  id: string;
-  slug: string;
-  name: string;
-  type: string;
-  isVatRegistered: boolean;
-  isEmployer: boolean;
-  vrn: string | null;
-  companyNumber: string | null;
+export type DashboardClientRow = ClientListItem & {
   payeRef?: string | null;
 };
 
@@ -50,7 +42,6 @@ function filterClients(
         (c) => c.isEmployer || Boolean(c.payeRef?.trim()),
       );
     case "sa":
-      // Limited companies belong on Ltd / CT600 — never on SA.
       return clients.filter(
         (c) => c.type === "sole_trader" || c.type === "partnership",
       );
@@ -81,8 +72,9 @@ export function DashboardClientFilters({
   stats: StatCard[];
   canAddClients: boolean;
 }) {
+  /** Ltd companies with colour-coded filing cards — default desk view. */
   const [activeFilter, setActiveFilter] = useState<DashboardFilter | null>(
-    null,
+    "ltd",
   );
   const [saQuery, setSaQuery] = useState("");
 
@@ -257,7 +249,20 @@ export function DashboardClientFilters({
         </section>
       ) : (
         <section className="service-tile overflow-hidden p-5">
-          <DashboardClientList clients={filtered} />
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="display text-2xl text-ink">{activeLabel}</h2>
+              <p className="mt-1 text-sm text-ink-soft">
+                Colour-coded for confirmation statement and accounts deadlines.
+              </p>
+            </div>
+            {canAddClients && (
+              <Link href="/clients/new" className="btn btn-primary text-sm">
+                Add client
+              </Link>
+            )}
+          </div>
+          <ClientsList clients={filtered} />
         </section>
       )}
     </div>
