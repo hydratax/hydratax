@@ -46,13 +46,6 @@ function buildRailLinks(
     "/vat",
     "/clients?desk=vat",
   );
-  const firstCt = firstHref(
-    clients,
-    peers,
-    (c) => c.type === "limited_company",
-    "/corporation-tax",
-    "/filings/corporation-tax",
-  );
   const firstPayroll = firstHref(
     clients,
     peers,
@@ -71,8 +64,8 @@ function buildRailLinks(
     {
       module: "corporation_tax",
       title: "Companies · CT600",
-      href: firstCt,
-      blurb: "Company UTR & CT600 return",
+      href: "/filings/corporation-tax",
+      blurb: "Pick a company · CT600 periods",
     },
     {
       module: "self_assessment",
