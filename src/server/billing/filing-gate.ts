@@ -127,8 +127,8 @@ export async function endTrialAndChargeNow(
     // Trial row without Stripe id — cannot charge; ask for card via portal.
     return {
       ok: false,
-      code: "PAYMENT_METHOD_REQUIRED",
-      message: filingGateUserMessage(FILING_GATE.PAYMENT_METHOD_REQUIRED),
+      code: "PAYMENT_REQUIRED",
+      message: filingGateUserMessage(FILING_GATE.PAYMENT_REQUIRED),
     };
   }
 

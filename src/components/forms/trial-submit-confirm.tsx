@@ -26,7 +26,7 @@ export function useTrialSubmitGate() {
     setNeedsConfirm(message.includes(FILING_GATE.TRIAL_BLOCKED));
     setPaymentFailed(
       message.includes(FILING_GATE.PAYMENT_FAILED) ||
-        message.includes(FILING_GATE.PAYMENT_METHOD_REQUIRED),
+        message.includes(FILING_GATE.PAYMENT_REQUIRED),
     );
     return true;
   }

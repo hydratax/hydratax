@@ -287,8 +287,8 @@ function FixedPlanCard({
   const yearlySave = yearlySavingsPoundsFromMonthly(plan.price);
   const isSmallFirm =
     section.id === "practice" &&
-    (("checkoutKey" in plan && plan.checkoutKey === "Practice") ||
-      plan.name === "Small Firm");
+    "checkoutKey" in plan &&
+    plan.checkoutKey === "Practice";
 
   return (
     <article

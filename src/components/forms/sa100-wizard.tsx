@@ -192,6 +192,7 @@ export function Sa100Wizard({
   companyName = null,
   taxYear = TAX_YEAR_LABEL,
   initial,
+  initialReturnId = null,
 }: {
   clientId: string;
   clientName: string;
