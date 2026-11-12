@@ -10,7 +10,12 @@ import { FormErrorBanner } from "@/components/forms/form-error-banner";
 export function ForgotPasswordForm() {
   const searchParams = useSearchParams();
   const sent = searchParams.get("sent") === "1";
-  const [error, setError] = useState<string | null>(null);
+  const linkFailed = searchParams.get("error") === "link";
+  const [error, setError] = useState<string | null>(
+    linkFailed
+      ? "That reset link could not be used (it may have expired, already been used, or was opened in a different browser). Request a new link below."
+      : null,
+  );
   const [pending, start] = useTransition();
 
   if (sent) {
@@ -19,7 +24,8 @@ export function ForgotPasswordForm() {
         <h1 className="display text-3xl text-ink">Check your email</h1>
         <p className="text-sm text-ink-soft">
           If an account exists for that address, we sent a link to reset your
-          password. The link expires after a short time.
+          password. The link expires after a short time. Open it in the same
+          browser when possible.
         </p>
         <p className="text-center text-sm text-ink-soft">
           <Link href="/sign-in" className="font-semibold text-sea">
@@ -39,6 +45,9 @@ export function ForgotPasswordForm() {
         const fd = new FormData(e.currentTarget);
         start(async () => {
           try {
+            // Remember recovery intent if the email link lands on Site URL with ?code=
+            const secure = window.location.protocol === "https:";
+            document.cookie = `ht_auth_next=${encodeURIComponent("/reset-password")}; Path=/; Max-Age=3600; SameSite=Lax${secure ? "; Secure" : ""}`;
             const res = await requestPasswordReset({
               email: String(fd.get("email") ?? ""),
             });

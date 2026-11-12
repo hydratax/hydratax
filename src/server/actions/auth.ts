@@ -398,11 +398,12 @@ export async function requestPasswordReset(input: {
     const appUrl = (
       process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
     ).replace(/\/$/, "");
-    // Exchange happens on /auth/callback, then continue to set a new password.
+    // Prefer /auth/confirm?token_hash=… in the Supabase recovery email template
+    // (works across browsers). redirectTo remains the fallback after verify.
     const { error } = await supabase.auth.resetPasswordForEmail(
       parsed.data.email,
       {
-        redirectTo: `${appUrl}/auth/callback?next=${encodeURIComponent("/reset-password")}`,
+        redirectTo: `${appUrl}/reset-password`,
       },
     );
     if (error) {

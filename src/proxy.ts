@@ -110,15 +110,33 @@ function oauthCodeHandoff(request: NextRequest): NextResponse | null {
   cleanSearch.delete("error_description");
   const qs = cleanSearch.toString();
 
+  const intentNext = request.cookies.get("ht_auth_next")?.value;
+  const decodedIntent = intentNext
+    ? (() => {
+        try {
+          return decodeURIComponent(intentNext);
+        } catch {
+          return intentNext;
+        }
+      })()
+    : null;
+  const resumeFromIntent =
+    decodedIntent &&
+    decodedIntent.startsWith("/") &&
+    !decodedIntent.startsWith("//")
+      ? decodedIntent
+      : null;
+
   const resume =
-    pathname === "/" ||
+    resumeFromIntent ??
+    (pathname === "/" ||
     pathname === "/sign-in" ||
     pathname === "/create-account" ||
     pathname === "/quick-signup"
       ? "/dashboard"
       : qs
         ? `${pathname}?${qs}`
-        : pathname;
+        : pathname);
   url.searchParams.set("next", resume);
 
   return NextResponse.redirect(url);

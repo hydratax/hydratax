@@ -34,12 +34,17 @@ export async function GET(request: NextRequest) {
   const orgType =
     orgTypeRaw && ORG_TYPES.has(orgTypeRaw) ? orgTypeRaw : null;
 
+  const isPasswordRecovery = next.startsWith("/reset-password");
+
   const fail = (reason?: string) => {
     if (reason) console.warn("[auth/callback]", reason);
     const classified = classifyOAuthCallbackFailure(reason);
-    const res = NextResponse.redirect(
-      `${origin}/sign-in?error=${classified}&next=${encodeURIComponent(next)}`,
-    );
+    // Password-reset links often open in a different browser (no PKCE cookie).
+    // Don't dump users on Sign in with a misleading "Google" error.
+    const dest = isPasswordRecovery
+      ? `/forgot-password?error=link`
+      : `/sign-in?error=${classified}&next=${encodeURIComponent(next)}`;
+    const res = NextResponse.redirect(`${origin}${dest}`);
     res.cookies.set("ht_auth_next", "", { path: "/", maxAge: 0 });
     res.cookies.set("ht_auth_org", "", { path: "/", maxAge: 0 });
     return res;
@@ -116,6 +121,20 @@ export async function GET(request: NextRequest) {
   let mfaRequired = false;
   let suggest2fa = false;
   let secureDevicePath = `/secure-device?next=${encodeURIComponent(next)}`;
+
+  if (user && isPasswordRecovery) {
+    // Recovery session → set new password; skip MFA / device-trust / welcome.
+    const redirectResponse = NextResponse.redirect(
+      `${origin}/reset-password`,
+    );
+    for (const { name, value, options } of pendingCookies) {
+      redirectResponse.cookies.set(name, value, options);
+    }
+    redirectResponse.cookies.set("ht_auth_next", "", { path: "/", maxAge: 0 });
+    redirectResponse.cookies.set("ht_auth_org", "", { path: "/", maxAge: 0 });
+    redirectResponse.headers.set("Cache-Control", "private, no-store");
+    return redirectResponse;
+  }
 
   if (user) {
     const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
