@@ -8,6 +8,7 @@ import { redirect } from "next/navigation";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 import { getPracticeLetterhead } from "@/server/actions/letterhead";
 import { formatPracticePaymentInstructions } from "@/lib/desk-profile";
+import { letterheadNeedsBranding } from "@/lib/invoices/totals";
 
 export default async function ClientInvoicesPage({
   params,
@@ -61,6 +62,7 @@ export default async function ClientInvoicesPage({
         defaultPaymentInstructions={formatPracticePaymentInstructions(
           letterhead,
         )}
+        brandingIncomplete={letterheadNeedsBranding(letterhead)}
       />
     </div>
   );

@@ -126,6 +126,9 @@ export default async function CheckoutSuccessPage({
     }
   }
 
+  const { getOptionalSession } = await import("@/server/auth/session");
+  const signedIn = Boolean(await getOptionalSession());
+
   const serviceId =
     chFulfillment?.serviceId ||
     (planKey.startsWith("companies-house:")
@@ -331,17 +334,56 @@ export default async function CheckoutSuccessPage({
             )}
 
             <div className="mt-8 flex flex-wrap justify-center gap-3">
-              <PendingLink
-                href="/dashboard"
-                className="btn btn-primary"
-                pendingLabel="Opening desk…"
-              >
-                Open desk
-              </PendingLink>
-              <Link href="/settings/account" className="btn btn-secondary">
-                Manage billing
-              </Link>
+              {signedIn ? (
+                <>
+                  <PendingLink
+                    href="/dashboard"
+                    className="btn btn-primary"
+                    pendingLabel="Opening desk…"
+                  >
+                    Open desk
+                  </PendingLink>
+                  <Link href="/settings/account" className="btn btn-secondary">
+                    Manage billing
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <PendingLink
+                    href={`/create-account?${new URLSearchParams({
+                      ...(email ? { email } : {}),
+                      ...(sessionId ? { checkout: sessionId } : {}),
+                      next: "/dashboard",
+                    }).toString()}`}
+                    className="btn btn-primary"
+                    pendingLabel="Opening…"
+                  >
+                    Create login to open desk
+                  </PendingLink>
+                  <Link
+                    href={`/sign-in?${new URLSearchParams({
+                      ...(email ? { email } : {}),
+                      next: "/dashboard",
+                    }).toString()}`}
+                    className="btn btn-secondary"
+                  >
+                    Already have an account? Sign in
+                  </Link>
+                </>
+              )}
             </div>
+            {!signedIn ? (
+              <p className="mt-4 text-sm text-ink-soft">
+                Use the same email
+                {email ? (
+                  <>
+                    {" "}
+                    (<span className="font-semibold text-ink">{email}</span>)
+                  </>
+                ) : null}{" "}
+                so we can attach this payment to your practice.
+              </p>
+            ) : null}
           </>
         )}
       </main>

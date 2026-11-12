@@ -21,6 +21,7 @@ import { gatherFraudMetadata } from "@/components/fraud-metadata";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { SaReturnDocuments } from "@/components/forms/sa-return-documents";
 import { supplementCodesForDraft } from "@/lib/sa100/forms-catalog";
+import { parseSaTaxYearLabel } from "@/lib/sa-tax-year";
 
 const STEPS = [
   "pages",
@@ -204,10 +205,19 @@ export function Sa100Wizard({
   /** e.g. 2025-26 */
   taxYear?: string;
   initial?: Partial<Sa100Draft> | null;
+  /** Existing draft id so remounts keep PDF downloads + Submit */
+  initialReturnId?: string | null;
 }) {
   const router = useRouter();
   const [i, setI] = useState(0);
+  const yearMeta = useMemo(
+    () => parseSaTaxYearLabel(taxYear || initial?.taxYear || TAX_YEAR_LABEL),
+    [taxYear, initial?.taxYear],
+  );
   const [draft, setDraft] = useState(() => {
+    const year =
+      parseSaTaxYearLabel(taxYear || initial?.taxYear || "") ||
+      parseSaTaxYearLabel(TAX_YEAR_LABEL);
     const base = emptySa100Draft({
       utr: utr ?? "",
       nino: nino ?? "",
@@ -215,6 +225,12 @@ export function Sa100Wizard({
       ...(initial ?? {}),
       ...(taxYear ? { taxYear } : {}),
     });
+    // Books dates follow the selected accounting year when not already set.
+    if (year) {
+      if (!base.seBooksFrom) base.seBooksFrom = year.start;
+      if (!base.seBooksTo) base.seBooksTo = year.end;
+      if (!base.taxYear) base.taxYear = year.label;
+    }
     // Do not invent employer / company name onto the return — only what the
     // accountant enters (or what was already saved on the draft).
     void companyName;
@@ -223,7 +239,12 @@ export function Sa100Wizard({
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
-  const [returnId, setReturnId] = useState<string | null>(null);
+  const [returnId, setReturnId] = useState<string | null>(
+    initialReturnId ?? null,
+  );
+  const [natureConfirmed, setNatureConfirmed] = useState(
+    () => Boolean((initial?.seDescription ?? "").trim()),
+  );
   const topRef = useRef<HTMLDivElement>(null);
 
   const calc = useMemo(() => calculateSa302(draft), [draft]);
@@ -235,6 +256,38 @@ export function Sa100Wizard({
     setDraft((d) => emptySa100Draft({ ...d, ...p }));
   const step = STEPS[i]!;
   const last = i === STEPS.length - 1;
+
+  const natureMissing =
+    draft.hasSelfEmployment &&
+    (!draft.seDescription.trim() || !natureConfirmed);
+
+  function persistDraft(opts?: { advance?: boolean; message?: string }) {
+    setError(null);
+    start(async () => {
+      try {
+        if (opts?.advance && step === "work" && natureMissing) {
+          setError(
+            "Confirm the nature of business (description of business) before continuing.",
+          );
+          return;
+        }
+        const saved = await saveSa100Draft({
+          clientId,
+          draft,
+          taxpayerId,
+        });
+        setReturnId(saved.id);
+        setOk(opts?.message ?? "Draft saved — SA100 & SA302 updated.");
+        if (opts?.advance) {
+          setI((x) => Math.min(STEPS.length - 1, x + 1));
+        }
+        // Soft refresh without remounting the wizard (page key no longer uses updatedAt).
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Save failed");
+      }
+    });
+  }
 
   useEffect(() => {
     // Always land at the top of the SA wizard when changing steps.
@@ -589,12 +642,29 @@ export function Sa100Wizard({
                       onChange={(seBusinessName) => patch({ seBusinessName })}
                     />
                   </L>
-                  <L label="Description of business" box="2">
+                  <L label="Description of business / nature of trade" box="2">
                     <TextInput
                       value={draft.seDescription}
-                      onChange={(seDescription) => patch({ seDescription })}
+                      onChange={(seDescription) => {
+                        patch({ seDescription });
+                        setNatureConfirmed(false);
+                      }}
                     />
                   </L>
+                  <label className="sm:col-span-2 flex items-start gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={natureConfirmed && Boolean(draft.seDescription.trim())}
+                      onChange={(e) => setNatureConfirmed(e.target.checked)}
+                      disabled={!draft.seDescription.trim()}
+                    />
+                    <span>
+                      I confirm this is the correct nature of business for this
+                      return
+                      {yearMeta ? ` (${yearMeta.label})` : ""}.
+                    </span>
+                  </label>
                   <L
                     label="Business address"
                     className="sm:col-span-2"
@@ -608,7 +678,11 @@ export function Sa100Wizard({
                   </L>
                   <div className="sm:col-span-2">
                     <YN
-                      label="6 · Did this business start after 5 April 2025?"
+                      label={
+                        yearMeta
+                          ? `6 · Did this business start after 5 April ${yearMeta.label.slice(0, 4)}?`
+                          : "6 · Did this business start after 5 April of this tax year?"
+                      }
                       value={draft.seStartedAfter}
                       onChange={(seStartedAfter) => patch({ seStartedAfter })}
                     />
@@ -624,7 +698,11 @@ export function Sa100Wizard({
                   )}
                   <div className="sm:col-span-2">
                     <YN
-                      label="7 · Did this business cease after 5 April 2025 but before 6 April 2026?"
+                      label={
+                        yearMeta
+                          ? `7 · Did this business cease after 5 April ${yearMeta.label.slice(0, 4)} but before 6 April ${Number(yearMeta.label.slice(0, 4)) + 1}?`
+                          : "7 · Did this business cease during this tax year?"
+                      }
                       value={draft.seCeased}
                       onChange={(seCeased) => patch({ seCeased })}
                     />
@@ -1635,72 +1713,76 @@ export function Sa100Wizard({
           >
             Back
           </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={pending}
+            onClick={() =>
+              persistDraft({ message: "Draft saved — SA100 & SA302 updated." })
+            }
+          >
+            {pending ? "Saving…" : "Save draft"}
+          </button>
           {!last ? (
             <button
               type="button"
               className="btn btn-primary"
-              onClick={() => setI((x) => Math.min(STEPS.length - 1, x + 1))}
+              disabled={pending || (step === "work" && natureMissing)}
+              onClick={() => {
+                if (step === "work" && natureMissing) {
+                  setError(
+                    "Confirm the nature of business before continuing.",
+                  );
+                  return;
+                }
+                // Autosave as you move through the return.
+                persistDraft({
+                  advance: true,
+                  message: "Progress saved.",
+                });
+              }}
             >
               Continue
             </button>
           ) : (
-            <>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                disabled={pending}
-                onClick={() => {
-                  setError(null);
-                  start(async () => {
-                    try {
-                      const saved = await saveSa100Draft({
-                        clientId,
-                        draft,
-                        taxpayerId,
-                      });
-                      setReturnId(saved.id);
-                      setOk("Draft saved.");
-                      router.refresh();
-                    } catch (e) {
-                      setError(e instanceof Error ? e.message : "Save failed");
-                    }
-                  });
-                }}
-              >
-                Save draft
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={pending || !draft.declarationAccepted}
-                onClick={() => {
-                  setError(null);
-                  start(async () => {
-                    try {
-                      const res = await submitSa100Return({
-                        clientId,
-                        draft,
-                        taxpayerId,
-                        fraudMetadata: gatherFraudMetadata(),
-                      });
-                      setReturnId(res.id);
-                      setOk(
-                        res.demo
-                          ? `Demo accepted · ${res.correlationId} — SA100 & SA302 PDFs ready`
-                          : `Submitted · ${res.correlationId}`,
-                      );
-                      router.refresh();
-                    } catch (e) {
-                      setError(
-                        e instanceof Error ? e.message : "Submit failed",
-                      );
-                    }
-                  });
-                }}
-              >
-                {pending ? "Submitting…" : "Submit Self Assessment"}
-              </button>
-            </>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={pending || !draft.declarationAccepted}
+              onClick={() => {
+                setError(null);
+                start(async () => {
+                  try {
+                    // Keep a draft snapshot (with PDFs) before submit.
+                    const saved = await saveSa100Draft({
+                      clientId,
+                      draft,
+                      taxpayerId,
+                    });
+                    setReturnId(saved.id);
+                    const res = await submitSa100Return({
+                      clientId,
+                      draft,
+                      taxpayerId,
+                      fraudMetadata: gatherFraudMetadata(),
+                    });
+                    setReturnId(res.id);
+                    setOk(
+                      res.demo
+                        ? `Demo accepted · ${res.correlationId} — SA100 & SA302 PDFs ready`
+                        : `Submitted · ${res.correlationId}`,
+                    );
+                    router.refresh();
+                  } catch (e) {
+                    setError(
+                      e instanceof Error ? e.message : "Submit failed",
+                    );
+                  }
+                });
+              }}
+            >
+              {pending ? "Submitting…" : "Submit Self Assessment"}
+            </button>
           )}
         </div>
 

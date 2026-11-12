@@ -115,15 +115,21 @@ export async function saveMfaSettings(input: z.infer<typeof saveSchema>) {
 
   // Keep the current browser session usable after enabling 2FA.
   if (data.enabled) {
+    const { applyDeviceTrustPolicy } = await import(
+      "@/server/auth/session-policy"
+    );
     const jar = await cookies();
+    const { DEVICE_TRUSTED_COOKIE } = await import("@/lib/session-policy");
+    const trusted = jar.get(DEVICE_TRUSTED_COOKIE)?.value === "1";
     jar.set(MFA_OK_COOKIE, session.userId, {
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
       path: "/",
-      maxAge: 60 * 60 * 12,
+      maxAge: trusted ? 7 * 24 * 60 * 60 : 10 * 60 * 60,
     });
     jar.delete(MFA_PENDING_COOKIE);
+    await applyDeviceTrustPolicy(trusted);
   }
   return { ok: true as const };
 }
@@ -162,12 +168,16 @@ export async function beginMfaIfRequired(userId: string): Promise<{
 
   if (!data?.enabled || !data.channel) {
     const jar = await cookies();
+    const { DEVICE_TRUSTED_COOKIE, sessionTtlSeconds } = await import(
+      "@/lib/session-policy"
+    );
+    const trusted = jar.get(DEVICE_TRUSTED_COOKIE)?.value === "1";
     jar.set(MFA_OK_COOKIE, userId, {
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
       path: "/",
-      maxAge: 60 * 60 * 12,
+      maxAge: sessionTtlSeconds(trusted),
     });
     jar.delete(MFA_PENDING_COOKIE);
     return { required: false };
@@ -213,12 +223,16 @@ export async function markMfaVerified(): Promise<{ ok: boolean; error?: string }
   if (pending && pending !== session.userId) {
     return { ok: false, error: "Verification expired. Sign in again." };
   }
+  const { DEVICE_TRUSTED_COOKIE, sessionTtlSeconds } = await import(
+    "@/lib/session-policy"
+  );
+  const trusted = jar.get(DEVICE_TRUSTED_COOKIE)?.value === "1";
   jar.set(MFA_OK_COOKIE, session.userId, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 60 * 60 * 12,
+    maxAge: sessionTtlSeconds(trusted),
   });
   jar.delete(MFA_PENDING_COOKIE);
   return { ok: true };
@@ -326,12 +340,16 @@ export async function verifyMfaCode(input: {
   }
 
   await supabase.from("mfa_challenges").delete().eq("user_id", session.userId);
+  const { DEVICE_TRUSTED_COOKIE, sessionTtlSeconds } = await import(
+    "@/lib/session-policy"
+  );
+  const trusted = jar.get(DEVICE_TRUSTED_COOKIE)?.value === "1";
   jar.set(MFA_OK_COOKIE, session.userId, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 60 * 60 * 12,
+    maxAge: sessionTtlSeconds(trusted),
   });
   jar.delete(MFA_PENDING_COOKIE);
   return { ok: true };

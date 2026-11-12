@@ -25,6 +25,7 @@ import { appendAuditEvent } from "@/server/audit/log";
 import { isDemoMode, isMemoryStore, isSupabaseConfigured } from "@/lib/env";
 import { demoStore } from "@/server/demo/store";
 import { filingSaTaxYear } from "@/lib/sa-tax-year";
+import { personKeySlug } from "@/lib/sa-taxpayer";
 import { listPracticeDirectors } from "@/server/actions/sa-directors";
 import { listSa100Returns } from "@/server/actions/sa100";
 
@@ -330,7 +331,7 @@ export async function listBulkSaEmailCandidates(): Promise<{
       taxYear: d.filing.taxYear || filingYear.label,
       filingDue: d.filing.filingDue || filingYear.filingDue,
       status: d.filing.status || "none",
-      href: `/self-assessment/${encodeURIComponent(d.key)}`,
+      href: `/self-assessment/${personKeySlug(d.key)}`,
     });
   }
 
@@ -352,6 +353,7 @@ const sendOneSchema = z.object({
   toEmail: z.string().email(),
   subject: z.string().min(3).max(200),
   message: z.string().min(1).max(8000),
+  html: z.string().max(500_000).optional(),
   kind: z.string().default("general"),
   accountsDue: z.string().optional().nullable(),
   documentCount: z.number().int().min(0).default(0),
@@ -382,6 +384,7 @@ export async function sendClientCommunicationEmail(
     replyTo: sender.replyTo,
     subject: data.subject,
     text: data.message,
+    html: data.html,
     attachments: data.attachments,
   });
 

@@ -108,8 +108,16 @@ export async function listSaSubmissions(clientId: string) {
     .where(eq(saSubmissions.clientId, clientId));
 }
 
-export async function submitSaUpdate(input: z.infer<typeof submitSchema>) {
+export async function submitSaUpdate(
+  input: z.infer<typeof submitSchema> & { confirmEndTrial?: boolean },
+) {
   const session = await requireSession();
+  const { requireLiveFilingAllowed } = await import(
+    "@/server/billing/filing-gate"
+  );
+  await requireLiveFilingAllowed(session.practiceId, {
+    confirmEndTrial: Boolean(input.confirmEndTrial),
+  });
   const data = submitSchema.parse(input);
   const client = await getClient(data.clientId);
   if (!client.nino) throw new Error("Client NINO required for Self Assessment");

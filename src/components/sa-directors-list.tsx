@@ -15,6 +15,7 @@ import {
   type ClientWorkStage,
 } from "@/lib/client-work-stage";
 import type { PracticeDirector } from "@/server/actions/sa-directors";
+import { personKeySlug } from "@/lib/sa-taxpayer";
 
 type SoleTrader = {
   id: string;
@@ -139,7 +140,7 @@ export function SaDirectorsList({
           <ul className="grid gap-2 sm:grid-cols-2">
             {filteredDirectors.map((d) => {
               // Person desk — not the limited company workspace.
-              const href = `/self-assessment/${encodeURIComponent(d.key)}`;
+              const href = `/self-assessment/${personKeySlug(d.key)}`;
               const submitted =
                 d.filing.status === "submitted" ||
                 d.filing.status === "accepted";

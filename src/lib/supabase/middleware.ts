@@ -44,11 +44,55 @@ export async function updateSession(request: NextRequest): Promise<{
     },
   });
 
-  // Validates JWT — do not use getSession() for auth gates
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  userId = user?.id ?? null;
+  // Prefer local JWT claims when available; avoid hammering Auth on every hop.
+  try {
+    const { data: claimsData } = await supabase.auth.getClaims();
+    const sub = claimsData?.claims?.sub;
+    if (typeof sub === "string" && sub.length > 0) {
+      userId = sub;
+      return { response: supabaseResponse, userId };
+    }
+  } catch {
+    // Fall through to getUser / cookie session.
+  }
+
+  try {
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser();
+    if (error) {
+      const rateLimited =
+        error.status === 429 ||
+        /rate limit|too many requests|over_request_rate_limit/i.test(
+          error.message ?? "",
+        );
+      if (rateLimited) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        userId = session?.user?.id ?? null;
+      } else {
+        userId = null;
+      }
+    } else {
+      userId = user?.id ?? null;
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err ?? "");
+    if (/rate limit|too many requests|over_request_rate_limit/i.test(msg)) {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        userId = session?.user?.id ?? null;
+      } catch {
+        userId = null;
+      }
+    } else {
+      userId = null;
+    }
+  }
 
   return { response: supabaseResponse, userId };
 }

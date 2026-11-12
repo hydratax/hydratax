@@ -105,9 +105,16 @@ export async function saveSa800Draft(input: {
 export async function submitSa800Draft(input: {
   clientId: string;
   taxYear: string;
+  confirmEndTrial?: boolean;
 }) {
   const session = await requireSession();
   if (session.role === "readonly") throw new Error("Forbidden");
+  const { requireLiveFilingAllowed } = await import(
+    "@/server/billing/filing-gate"
+  );
+  await requireLiveFilingAllowed(session.practiceId, {
+    confirmEndTrial: Boolean(input.confirmEndTrial),
+  });
   await getClient(input.clientId);
   const row = await getSa800Draft(input.clientId, input.taxYear);
   if (!row) throw new Error("Save the draft before submitting");

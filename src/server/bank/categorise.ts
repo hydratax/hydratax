@@ -3,6 +3,7 @@ import {
   type BankCategory,
 } from "@/lib/bank-categories";
 import { matchMerchant } from "@/server/bank/merchants";
+import { matchOccupationHint } from "@/lib/occupation-hints";
 import * as XLSX from "xlsx";
 
 export type { BankCategory };
@@ -19,7 +20,13 @@ export type CategorisedLine = {
 export function categoriseDescription(
   description: string,
   amountPence: number,
+  occupation?: string | null,
 ): Pick<CategorisedLine, "category" | "confidence"> {
+  // Occupation-specific rules first (e.g. taxi → fuel / vehicle).
+  const byTrade = matchOccupationHint(description, occupation);
+  if (byTrade) {
+    return { category: byTrade.category, confidence: byTrade.confidence };
+  }
   const merchant = matchMerchant(description);
   if (merchant) {
     return { category: merchant.category, confidence: merchant.confidence };

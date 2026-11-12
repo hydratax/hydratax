@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   PRICING_SECTIONS,
   formatGBP,
   COMPANIES_HOUSE_SERVICES,
   hydraTotal,
   CUSTOM_PLAN_MODULES,
+  CUSTOM_PLAN_MIN_CLIENTS,
   CUSTOM_PLAN_MAX_CLIENTS,
   customPlanAmountPounds,
   customModuleAmountPounds,
@@ -16,6 +18,7 @@ import {
   yearlyAmountPoundsFromMonthly,
   yearlySavingsPoundsFromMonthly,
   YEARLY_MARKETING_LINE,
+  pricingCheckoutKey,
   type CustomModuleId,
   type CustomModuleSelection,
 } from "@/lib/pricing";
@@ -28,17 +31,15 @@ import { FormErrorBanner } from "@/components/forms/form-error-banner";
 type Section = (typeof PRICING_SECTIONS)[number];
 type Plan = Section["plans"][number];
 
-function planKey(sectionId: string, planName: string) {
-  return `${sectionId}:${planName}`;
-}
-
 export function PricingExplorer({
   stripeReady,
 }: {
   stripeReady: boolean;
 }) {
+  const searchParams = useSearchParams();
+  const resumePlan = (searchParams.get("plan") ?? "").trim();
+  const resumedRef = useRef(false);
   const [activeId, setActiveId] = useState<string>(PRICING_SECTIONS[0].id);
-  const [billing, setBilling] = useState<"month" | "year">("month");
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -59,7 +60,17 @@ export function PricingExplorer({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ planKey: key }),
         });
-        const data = (await res.json()) as { url?: string; error?: string };
+        const data = (await res.json()) as {
+          url?: string;
+          error?: string;
+          needsAuth?: boolean;
+          planKey?: string;
+        };
+        if (res.status === 401 || data.needsAuth) {
+          const plan = encodeURIComponent(data.planKey || key);
+          window.location.href = `/create-account?next=${encodeURIComponent(`/pricing?plan=${plan}`)}&plan=${plan}`;
+          return;
+        }
         if (!res.ok || !data.url) {
           setError(data.error ?? "Checkout failed");
           setPendingKey(null);
@@ -73,33 +84,16 @@ export function PricingExplorer({
     });
   }
 
+  // After create-account → /pricing?plan=… resume Stripe with the signed-in practice.
+  useEffect(() => {
+    if (!stripeReady || !resumePlan || resumedRef.current) return;
+    resumedRef.current = true;
+    checkout(resumePlan);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once on mount
+  }, [stripeReady, resumePlan]);
+
   return (
     <div className="pricing-page">
-      <section className="pricing-hero">
-        <div className="pricing-hero__glow" aria-hidden />
-        <div className="mx-auto max-w-6xl px-4 md:px-6">
-          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-teal-200/90">
-            Pricing
-          </p>
-          <h1 className="display mt-3 max-w-3xl text-3xl text-white sm:text-4xl md:text-6xl">
-            Clear plans for every filing
-          </h1>
-          <p className="mt-4 max-w-xl text-base text-white/70 sm:text-lg">
-            Practice desk, VAT, CT600, Self Assessment, PAYE, and Companies
-            House — compare options and checkout in one step. Practice &amp;
-            Custom include a {PRACTICE_TRIAL.days}-day free trial.
-          </p>
-          <p className="mt-5">
-            <a
-              href="/book-demo"
-              className="inline-flex rounded-lg border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
-            >
-              Book a demo
-            </a>
-          </p>
-        </div>
-      </section>
-
       <section className="pricing-body">
         <div className="mx-auto max-w-6xl px-4 py-12 md:px-6 md:py-16">
           <div className="grid gap-10 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-14">
@@ -135,39 +129,7 @@ export function PricingExplorer({
                   {section.subtitle}
                 </p>
                 {section.id === "practice" ? (
-                  <div className="mt-6 space-y-3">
-                    <div
-                      className="inline-flex rounded-full border border-line bg-paper p-1"
-                      role="group"
-                      aria-label="Billing period"
-                    >
-                      <button
-                        type="button"
-                        className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
-                          billing === "month"
-                            ? "bg-sea text-white"
-                            : "text-ink-soft hover:text-ink"
-                        }`}
-                        onClick={() => setBilling("month")}
-                      >
-                        Monthly
-                      </button>
-                      <button
-                        type="button"
-                        className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
-                          billing === "year"
-                            ? "bg-sea text-white"
-                            : "text-ink-soft hover:text-ink"
-                        }`}
-                        onClick={() => setBilling("year")}
-                      >
-                        Yearly · 15% off
-                      </button>
-                    </div>
-                    <p className="text-sm font-semibold text-sea">
-                      {YEARLY_MARKETING_LINE}
-                    </p>
-                  </div>
+                  <p className="pricing-yearly-banner mt-6">{YEARLY_MARKETING_LINE}</p>
                 ) : null}
               </div>
 
@@ -187,7 +149,6 @@ export function PricingExplorer({
               ) : (
                 <PlanCards
                   section={section}
-                  billing={section.id === "practice" ? billing : "month"}
                   onCheckout={checkout}
                   pendingKey={pendingKey}
                   busy={isPending}
@@ -208,15 +169,54 @@ export function PricingExplorer({
   );
 }
 
+function BillingPeriodToggle({
+  billing,
+  onChange,
+  id,
+}: {
+  billing: "month" | "year";
+  onChange: (v: "month" | "year") => void;
+  id: string;
+}) {
+  return (
+    <div
+      className="inline-flex rounded-full border border-line bg-paper p-0.5"
+      role="group"
+      aria-label={`Billing period for ${id}`}
+    >
+      <button
+        type="button"
+        className={`rounded-full px-2.5 py-0.5 text-[0.7rem] font-semibold leading-5 transition sm:px-3 ${
+          billing === "month"
+            ? "bg-sea text-white"
+            : "text-ink-soft hover:text-ink"
+        }`}
+        onClick={() => onChange("month")}
+      >
+        Monthly
+      </button>
+      <button
+        type="button"
+        className={`rounded-full px-2.5 py-0.5 text-[0.7rem] font-semibold leading-5 transition sm:px-3 ${
+          billing === "year"
+            ? "bg-sea text-white"
+            : "text-ink-soft hover:text-ink"
+        }`}
+        onClick={() => onChange("year")}
+      >
+        Yearly · 15% off
+      </button>
+    </div>
+  );
+}
+
 function PlanCards({
   section,
-  billing,
   onCheckout,
   pendingKey,
   busy,
 }: {
   section: Section;
-  billing: "month" | "year";
   onCheckout: (key: string) => void;
   pendingKey: string | null;
   busy: boolean;
@@ -228,6 +228,7 @@ function PlanCards({
       : count === 3
         ? "lg:grid-cols-3"
         : "md:grid-cols-2";
+  const perCardBilling = section.id === "practice";
 
   return (
     <div className={`mt-10 grid items-stretch gap-6 ${grid}`}>
@@ -238,7 +239,6 @@ function PlanCards({
             <CustomPlanCard
               key={plan.name}
               plan={plan}
-              billing={billing}
               onCheckout={onCheckout}
               pendingKey={pendingKey}
               busy={busy}
@@ -246,122 +246,158 @@ function PlanCards({
           );
         }
 
-        const monthlyKey = planKey(section.id, plan.name);
-        const checkoutKey =
-          billing === "year" && section.id === "practice"
-            ? withYearlyPlanKey(monthlyKey)
-            : monthlyKey;
-        const loading = busy && pendingKey === checkoutKey;
-        const isLink = "href" in plan && Boolean(plan.href);
-        const yearly = billing === "year" && section.id === "practice";
-        const yearlyTotal = yearlyAmountPoundsFromMonthly(plan.price);
-        const yearlySave = yearlySavingsPoundsFromMonthly(plan.price);
-
         return (
-          <article
+          <FixedPlanCard
             key={plan.name}
-            className={`pricing-plan h-full ${plan.highlighted ? "is-featured" : ""}`}
-          >
-            <div className="pricing-plan__badge-slot">
-              {plan.highlighted ? (
-                <span className="pricing-plan__badge">
-                  {section.id === "practice" && plan.name === "Practice"
-                    ? PRACTICE_TRIAL.shortBadge
-                    : "Most chosen"}
-                </span>
-              ) : (
-                <span className="pricing-plan__badge pricing-plan__badge--ghost" aria-hidden>
-                  &nbsp;
-                </span>
-              )}
-            </div>
-            <h3 className="display text-2xl text-ink">{plan.name}</h3>
-            <p className="pricing-plan__blurb mt-2 text-sm leading-relaxed text-ink-soft">
-              {plan.blurb}
-            </p>
-            <div className="pricing-plan__price mt-6">
-              {yearly ? (
-                <>
-                  <p className="price-figure">
-                    <span className="price-amount">
-                      {formatGBP(yearlyTotal)}
-                    </span>
-                    <span className="price-period">/year</span>
-                  </p>
-                  <p className="pricing-plan__price-note mt-1 text-xs text-ink-soft">
-                    <span className="line-through">
-                      {formatGBP(plan.price * 12)}
-                    </span>{" "}
-                    · save {formatGBP(yearlySave)} · almost 2 months free
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="price-figure">
-                    <span className="price-amount">
-                      {formatGBP(plan.price)}
-                    </span>
-                    <span className="price-period">{plan.period}</span>
-                  </p>
-                  <p className="pricing-plan__price-note mt-1 text-xs text-ink-soft" aria-hidden>
-                    &nbsp;
-                  </p>
-                </>
-              )}
-            </div>
-            <ul className="pricing-plan__features mt-6 flex-1 space-y-3 text-sm text-ink-soft">
-              {plan.features.map((f) => (
-                <li key={f} className="flex gap-2.5">
-                  <span className="mt-0.5 text-sea" aria-hidden>
-                    ✓
-                  </span>
-                  <span>{f}</span>
-                </li>
-              ))}
-            </ul>
-            <div className="mt-auto pt-6">
-              {isLink && "href" in plan && plan.href ? (
-                <Link
-                  href={plan.href}
-                  className="btn btn-primary w-full px-3 py-2.5 text-sm leading-snug"
-                >
-                  {plan.cta}
-                </Link>
-              ) : (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onCheckout(checkoutKey)}
-                  className="btn btn-primary w-full px-3 py-2.5 text-sm leading-snug disabled:opacity-60"
-                >
-                  {loading
-                    ? "Redirecting…"
-                    : yearly
-                      ? `${plan.cta} · yearly`
-                      : plan.cta}
-                </button>
-              )}
-            </div>
-          </article>
+            section={section}
+            plan={plan}
+            perCardBilling={perCardBilling}
+            onCheckout={onCheckout}
+            pendingKey={pendingKey}
+            busy={busy}
+          />
         );
       })}
     </div>
   );
 }
 
+function FixedPlanCard({
+  section,
+  plan,
+  perCardBilling,
+  onCheckout,
+  pendingKey,
+  busy,
+}: {
+  section: Section;
+  plan: Plan;
+  perCardBilling: boolean;
+  onCheckout: (key: string) => void;
+  pendingKey: string | null;
+  busy: boolean;
+}) {
+  const [billing, setBilling] = useState<"month" | "year">("month");
+  const monthlyKey = pricingCheckoutKey(section.id, plan);
+  const yearly = perCardBilling && billing === "year";
+  const checkoutKey = yearly ? withYearlyPlanKey(monthlyKey) : monthlyKey;
+  const loading = busy && pendingKey === checkoutKey;
+  const isLink = "href" in plan && Boolean(plan.href);
+  const yearlyTotal = yearlyAmountPoundsFromMonthly(plan.price);
+  const yearlySave = yearlySavingsPoundsFromMonthly(plan.price);
+  const isSmallFirm =
+    section.id === "practice" &&
+    (("checkoutKey" in plan && plan.checkoutKey === "Practice") ||
+      plan.name === "Small Firm");
+
+  return (
+    <article
+      className={`pricing-plan h-full ${plan.highlighted ? "is-featured" : ""}`}
+    >
+      {perCardBilling ? (
+        <div className="mb-2 flex justify-end">
+          <BillingPeriodToggle
+            id={plan.name}
+            billing={billing}
+            onChange={setBilling}
+          />
+        </div>
+      ) : null}
+      <div className="pricing-plan__badge-slot">
+        {plan.highlighted ? (
+          <span className="pricing-plan__badge">
+            {isSmallFirm ? PRACTICE_TRIAL.shortBadge : "Most chosen"}
+          </span>
+        ) : (
+          <span
+            className="pricing-plan__badge pricing-plan__badge--ghost"
+            aria-hidden
+          >
+            &nbsp;
+          </span>
+        )}
+      </div>
+      <h3 className="display text-2xl text-ink">{plan.name}</h3>
+      {plan.blurb ? (
+        <p className="pricing-plan__blurb mt-2 text-sm leading-relaxed text-ink-soft">
+          {plan.blurb}
+        </p>
+      ) : null}
+      <div className="pricing-plan__price mt-4">
+        {yearly ? (
+          <>
+            <p className="price-figure">
+              <span className="price-amount">{formatGBP(yearlyTotal)}</span>
+              <span className="price-period">/year</span>
+            </p>
+            <p className="pricing-plan__price-note mt-1 text-xs text-ink-soft">
+              <span className="line-through">
+                {formatGBP(plan.price * 12)}
+              </span>{" "}
+              · save {formatGBP(yearlySave)} · almost 2 months free
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="price-figure">
+              <span className="price-amount">{formatGBP(plan.price)}</span>
+              <span className="price-period">{plan.period}</span>
+            </p>
+            <p className="pricing-plan__price-note mt-1 text-xs text-ink-soft" aria-hidden>
+              &nbsp;
+            </p>
+          </>
+        )}
+      </div>
+      <ul className="pricing-plan__features mt-6 flex-1 space-y-3 text-sm text-ink-soft">
+        {plan.features.map((f) => (
+          <li key={f} className="flex gap-2.5">
+            <span className="mt-0.5 text-sea" aria-hidden>
+              ✓
+            </span>
+            <span>{f}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-auto pt-6">
+        {isLink && "href" in plan && plan.href ? (
+          <Link
+            href={plan.href}
+            className="btn btn-primary w-full px-3 py-2.5 text-sm leading-snug"
+          >
+            {plan.cta}
+          </Link>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onCheckout(checkoutKey)}
+            className="btn btn-primary w-full px-3 py-2.5 text-sm leading-snug disabled:opacity-60"
+          >
+            {loading
+              ? "Redirecting…"
+              : yearly
+                ? `${plan.cta} · yearly`
+                : plan.cta}
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
 function CustomPlanCard({
   plan,
-  billing,
   onCheckout,
   pendingKey,
   busy,
 }: {
   plan: Plan;
-  billing: "month" | "year";
   onCheckout: (key: string) => void;
   pendingKey: string | null;
   busy: boolean;
 }) {
+  const [billing, setBilling] = useState<"month" | "year">("month");
   const [modules, setModules] = useState<CustomModuleSelection[]>([]);
 
   const selection = useMemo(() => ({ modules }), [modules]);
@@ -383,21 +419,24 @@ function CustomPlanCard({
   }
 
   function clientsFor(id: CustomModuleId) {
-    return modules.find((m) => m.id === id)?.clients ?? 1;
+    return modules.find((m) => m.id === id)?.clients ?? CUSTOM_PLAN_MIN_CLIENTS;
   }
 
   function toggleModule(id: CustomModuleId) {
     setModules((prev) =>
       prev.some((m) => m.id === id)
         ? prev.filter((m) => m.id !== id)
-        : [...prev, { id, clients: 1 }],
+        : [...prev, { id, clients: CUSTOM_PLAN_MIN_CLIENTS }],
     );
   }
 
   function setClients(id: CustomModuleId, clients: number) {
     const n = Math.max(
-      1,
-      Math.min(CUSTOM_PLAN_MAX_CLIENTS, Math.floor(clients) || 1),
+      CUSTOM_PLAN_MIN_CLIENTS,
+      Math.min(
+        CUSTOM_PLAN_MAX_CLIENTS,
+        Math.floor(clients) || CUSTOM_PLAN_MIN_CLIENTS,
+      ),
     );
     setModules((prev) =>
       prev.map((m) => (m.id === id ? { ...m, clients: n } : m)),
@@ -406,14 +445,20 @@ function CustomPlanCard({
 
   return (
     <article className="pricing-plan h-full is-featured xl:col-span-1">
-      <span className="pricing-plan__badge">{PRACTICE_TRIAL.shortBadge}</span>
+      <div className="mb-2 flex justify-end">
+        <BillingPeriodToggle
+          id={plan.name}
+          billing={billing}
+          onChange={setBilling}
+        />
+      </div>
+      <div className="pricing-plan__badge-slot">
+        <span className="pricing-plan__badge">{PRACTICE_TRIAL.shortBadge}</span>
+      </div>
       <h3 className="display text-2xl text-ink">{plan.name}</h3>
-      <p className="mt-2 min-h-[2.75rem] text-sm leading-relaxed text-ink-soft">
-        {plan.blurb}
-      </p>
       {canCheckout ? (
         <>
-          <p className="price-figure mt-6">
+          <p className="price-figure mt-4">
             <span className="price-amount">{formatGBP(total)}</span>
             <span className="price-period">
               {billing === "year" ? "/year" : "/month"}
@@ -429,16 +474,14 @@ function CustomPlanCard({
               </>
             ) : (
               <>
-                HMRC by client count · volume discounts · Companies House
-                included
+                From {CUSTOM_PLAN_MIN_CLIENTS} clients · Companies House included
               </>
             )}
           </p>
         </>
       ) : (
-        <p className="mt-6 min-h-[4.25rem] text-sm text-ink-soft">
-          Select a service below to see your{" "}
-          {billing === "year" ? "yearly" : "monthly"} price.
+        <p className="mt-4 text-sm text-ink-soft">
+          Select services below (min {CUSTOM_PLAN_MIN_CLIENTS} clients each).
         </p>
       )}
 
@@ -487,7 +530,7 @@ function CustomPlanCard({
                   <input
                     id={`clients-${mod.id}`}
                     type="number"
-                    min={1}
+                    min={CUSTOM_PLAN_MIN_CLIENTS}
                     max={CUSTOM_PLAN_MAX_CLIENTS}
                     value={clients}
                     onChange={(e) =>
@@ -513,7 +556,8 @@ function CustomPlanCard({
 
       <p className="mt-4 text-xs leading-relaxed text-ink-soft">
         Companies House (incorporation, confirmation statements, annual accounts)
-        is included with every Custom desk — no monthly add-on.
+        is included with every Enterprise desk — no monthly add-on. Minimum{" "}
+        {CUSTOM_PLAN_MIN_CLIENTS} clients per selected module.
       </p>
 
       <div className="mt-auto space-y-2 pt-6">
@@ -540,8 +584,8 @@ function CompaniesHouseCards() {
   return (
     <div className="mt-10 grid items-stretch gap-6 md:grid-cols-2 lg:grid-cols-3">
       <p className="md:col-span-2 lg:col-span-3 text-sm text-ink-soft">
-        One price per filing — statutory Companies House fee included. Practice
-        and Custom desks include unlimited confirmation statements and annual
+        One price per filing — statutory Companies House fee included. Small Firm
+        and Enterprise desks include unlimited confirmation statements and annual
         accounts.
       </p>
       {COMPANIES_HOUSE_SERVICES.map((service) => {

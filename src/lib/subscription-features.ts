@@ -4,6 +4,7 @@ import {
   basePlanKey,
   isYearlyPlanKey,
   parseCustomPlanSelection,
+  pricingCheckoutKey,
 } from "@/lib/pricing";
 import { entitlementsForPlans, moduleLabel } from "@/lib/entitlements";
 
@@ -60,12 +61,12 @@ export function featuresForPlanKey(planKey: string): {
     if (selection.modules.length === 0) {
       features.push("Choose HMRC modules on Pricing when you are ready");
     }
-    return { label: "Custom practice desk", features };
+    return { label: "Enterprise", features };
   }
 
   for (const section of PRICING_SECTIONS) {
     for (const plan of section.plans) {
-      const key = `${section.id}:${plan.name}`;
+      const key = pricingCheckoutKey(section.id, plan);
       if (baseKey === key || baseKey.startsWith(`${key}:`)) {
         const features: string[] = [...plan.features];
         if (yearly) {

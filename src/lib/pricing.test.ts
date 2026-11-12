@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   CUSTOM_PLAN_MODULES,
-  CUSTOM_VS_PRACTICE_RATIO,
+  CUSTOM_PLAN_MIN_CLIENTS,
+  ENTERPRISE_MODULE_PACK_FLOORS,
+  ENTERPRISE_PACK_FLOOR_RATIO,
+  ENTERPRISE_VOLUME_ANCHOR_CLIENTS,
   PRACTICE_PLAN_CLIENT_LIMIT,
-  PRACTICE_PLAN_PRICE_POUNDS,
   basePlanKey,
+  customModuleAmountPounds,
   customPlanAmountPounds,
   customPlanKey,
   parseCustomPlanSelection,
@@ -13,6 +16,14 @@ import {
   yearlySavingsPoundsFromMonthly,
 } from "@/lib/pricing";
 import { getCheckoutPlan } from "@/lib/checkout-plans";
+
+describe("CT practice pack billing", () => {
+  it("charges the CT practice pack yearly, not monthly", () => {
+    const pack = getCheckoutPlan("ct600:CT practice pack");
+    expect(pack?.interval).toBe("year");
+    expect(pack?.amountPence).toBe(35000);
+  });
+});
 
 function allInclusive(clients: number) {
   return customPlanAmountPounds({
@@ -23,46 +34,45 @@ function allInclusive(clients: number) {
   });
 }
 
-describe("custom volume pricing", () => {
-  it("has no desk fee at one client on a single module", () => {
-    expect(
-      customPlanAmountPounds({ modules: [{ id: "vat", clients: 1 }] }),
-    ).toBe(12);
-    expect(
-      customPlanAmountPounds({
-        modules: [
-          { id: "vat", clients: 1 },
-          { id: "payroll", clients: 1 },
-        ],
-      }),
-    ).toBe(30);
+describe("enterprise volume pricing", () => {
+  it("starts at 11 clients per module (above Small Firm)", () => {
+    expect(CUSTOM_PLAN_MIN_CLIENTS).toBe(11);
+    expect(CUSTOM_PLAN_MIN_CLIENTS).toBeGreaterThan(PRACTICE_PLAN_CLIENT_LIMIT);
   });
 
-  it("stays cheaper than Practice at the Practice client cap all-inclusive", () => {
-    const custom = allInclusive(PRACTICE_PLAN_CLIENT_LIMIT);
-    expect(custom).toBeLessThan(PRACTICE_PLAN_PRICE_POUNDS);
-    expect(custom).toBeLessThanOrEqual(
-      Math.round(PRACTICE_PLAN_PRICE_POUNDS * CUSTOM_VS_PRACTICE_RATIO),
+  it("keeps Enterprise CT-only above a 12-month amortisation of the yearly CT pack", () => {
+    // CT practice pack is £350/year → floor uses 350/12
+    const monthlyFloor =
+      ENTERPRISE_MODULE_PACK_FLOORS.corporation_tax.packPricePounds *
+      ENTERPRISE_PACK_FLOOR_RATIO;
+    const enterpriseMonthly = customModuleAmountPounds("corporation_tax", 15);
+    expect(enterpriseMonthly).toBeGreaterThanOrEqual(Math.floor(monthlyFloor));
+    expect(enterpriseMonthly * 12).toBeGreaterThanOrEqual(
+      Math.round(350 * ENTERPRISE_PACK_FLOOR_RATIO),
     );
   });
 
-  it("gets cheaper per client as volume grows", () => {
-    const at1 = allInclusive(1) / 1;
-    const at50 = allInclusive(50) / 50;
+  it("stays under £5000 at 1000 clients per module", () => {
+    expect(allInclusive(ENTERPRISE_VOLUME_ANCHOR_CLIENTS)).toBeLessThan(5000);
+  });
+
+  it("gets cheaper per client as volume grows past the pack floor band", () => {
+    const at15 = allInclusive(15) / 15;
+    const at200 = allInclusive(200) / 200;
     const at500 = allInclusive(500) / 500;
-    expect(at50).toBeLessThan(at1);
-    expect(at500).toBeLessThan(at1);
+    expect(at200).toBeLessThan(at15);
+    expect(at500).toBeLessThan(at200);
   });
 
   it("encodes client counts in the plan key", () => {
     expect(
       customPlanKey({
         modules: [
-          { id: "vat", clients: 10 },
-          { id: "payroll", clients: 5 },
+          { id: "vat", clients: 11 },
+          { id: "payroll", clients: 15 },
         ],
       }),
-    ).toBe("practice:Custom:payroll:5+vat:10");
+    ).toBe("practice:Custom:payroll:15+vat:11");
   });
 });
 
@@ -73,7 +83,7 @@ describe("yearly desk billing (15% off)", () => {
     expect(yearlyAmountPoundsFromMonthly(29)).toBe(296);
   });
 
-  it("resolves yearly Solo / Practice / Custom checkout plans", () => {
+  it("resolves yearly Solo / Small Firm / Enterprise checkout plans", () => {
     const solo = getCheckoutPlan("practice:Solo:yearly");
     expect(solo?.interval).toBe("year");
     expect(solo?.amountPence).toBe(29600);
@@ -81,11 +91,12 @@ describe("yearly desk billing (15% off)", () => {
     const practice = getCheckoutPlan("practice:Practice:yearly");
     expect(practice?.interval).toBe("year");
     expect(practice?.amountPence).toBe(80600);
+    expect(practice?.name).toContain("Small Firm");
 
     const customMonthly = customPlanAmountPounds({
-      modules: [{ id: "vat", clients: 10 }],
+      modules: [{ id: "vat", clients: 11 }],
     });
-    const custom = getCheckoutPlan("practice:Custom:vat:10:yearly");
+    const custom = getCheckoutPlan("practice:Custom:vat:11:yearly");
     expect(custom?.interval).toBe("year");
     expect(custom?.amountPence).toBe(
       yearlyAmountPoundsFromMonthly(customMonthly) * 100,
@@ -98,11 +109,22 @@ describe("yearly desk billing (15% off)", () => {
     );
     expect(basePlanKey("practice:Practice:yearly")).toBe("practice:Practice");
     expect(
-      parseCustomPlanSelection("practice:Custom:vat:10+payroll:5:yearly"),
+      parseCustomPlanSelection("practice:Custom:vat:11+payroll:15:yearly"),
     ).toEqual({
       modules: [
-        { id: "vat", clients: 10 },
-        { id: "payroll", clients: 5 },
+        { id: "vat", clients: 11 },
+        { id: "payroll", clients: 15 },
+      ],
+    });
+  });
+
+  it("raises sub-minimum Enterprise client counts to 11", () => {
+    expect(
+      parseCustomPlanSelection("practice:Custom:vat:5+payroll:1"),
+    ).toEqual({
+      modules: [
+        { id: "vat", clients: 11 },
+        { id: "payroll", clients: 11 },
       ],
     });
   });

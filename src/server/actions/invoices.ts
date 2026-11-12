@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireModule, requireSession } from "@/server/auth/session";
+import { requireModule } from "@/server/auth/session";
 import { getClient } from "@/server/actions/clients";
 import {
   memoryStore,
@@ -85,7 +85,7 @@ function mapTemplateRow(r: Record<string, unknown>): MemoryInvoiceLineTemplate {
 }
 
 export async function listClientInvoices(clientId: string) {
-  await requireModule("invoices");
+  const session = await requireModule("invoices");
   await getClient(clientId);
 
   if (isSupabaseConfigured()) {
@@ -96,6 +96,7 @@ export async function listClientInvoices(clientId: string) {
         .from("client_invoices")
         .select("*")
         .eq("client_id", clientId)
+        .eq("practice_id", session.practiceId)
         .order("due_date", { ascending: true });
       if (data) return data.map((r) => mapInvoiceRow(r as Record<string, unknown>));
     } catch {
@@ -104,7 +105,10 @@ export async function listClientInvoices(clientId: string) {
   }
 
   return memoryStore.invoices
-    .filter((i) => i.clientId === clientId)
+    .filter(
+      (i) =>
+        i.clientId === clientId && i.practiceId === session.practiceId,
+    )
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 }
 
@@ -248,7 +252,7 @@ export async function setInvoiceStatus(
 }
 
 export async function getInvoice(invoiceId: string) {
-  await requireSession();
+  const session = await requireModule("invoices");
 
   if (isSupabaseConfigured()) {
     try {
@@ -258,6 +262,7 @@ export async function getInvoice(invoiceId: string) {
         .from("client_invoices")
         .select("*")
         .eq("id", invoiceId)
+        .eq("practice_id", session.practiceId)
         .maybeSingle();
       if (data) return mapInvoiceRow(data as Record<string, unknown>);
     } catch {
@@ -265,9 +270,131 @@ export async function getInvoice(invoiceId: string) {
     }
   }
 
-  const invoice = memoryStore.invoices.find((i) => i.id === invoiceId);
+  const invoice = memoryStore.invoices.find(
+    (i) => i.id === invoiceId && i.practiceId === session.practiceId,
+  );
   if (!invoice) throw new Error("Invoice not found");
   return invoice;
+}
+
+/** Email an invoice to the client — practice-scoped; never crosses accounts. */
+export async function sendClientInvoiceEmail(input: {
+  invoiceId: string;
+  toEmail?: string;
+  message?: string;
+}) {
+  const session = await requireModule("invoices");
+  if (session.role === "readonly") throw new Error("Forbidden");
+
+  const invoice = await getInvoice(input.invoiceId);
+  const client = await getClient(invoice.clientId);
+  if (client.practiceId && client.practiceId !== session.practiceId) {
+    throw new Error("Invoice not found");
+  }
+
+  const toEmail = (input.toEmail || client.contactEmail || "").trim();
+  if (!toEmail) {
+    throw new Error(
+      "Add a client email address (or enter one) before sending this invoice.",
+    );
+  }
+
+  const { getPracticeLetterhead } = await import(
+    "@/server/actions/letterhead"
+  );
+  const letterhead = await getPracticeLetterhead();
+  const { renderInvoiceHtml } = await import(
+    "@/lib/invoices/render-invoice-html"
+  );
+  const html = renderInvoiceHtml({
+    letterhead,
+    invoice: {
+      invoiceNumber: invoice.invoiceNumber,
+      status: invoice.status,
+      issueDate: invoice.issueDate,
+      dueDate: invoice.dueDate,
+      reference: invoice.reference,
+      notes: invoice.notes,
+      paymentInstructions: invoice.paymentInstructions,
+      subtotalPence: invoice.subtotalPence,
+      vatPence: invoice.vatPence,
+      totalPence: invoice.totalPence,
+      lines: invoice.lines,
+    },
+    client: {
+      name: client.name,
+      contactEmail: client.contactEmail,
+      contactPhone: client.contactPhone,
+      companyNumber: client.companyNumber,
+    },
+    brandingSettingsHref: "/settings/letterhead",
+  });
+
+  const total = new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+  }).format(invoice.totalPence / 100);
+
+  const cover =
+    input.message?.trim() ||
+    [
+      `Dear ${client.name},`,
+      "",
+      `Please find invoice ${invoice.invoiceNumber} for ${total}, due ${invoice.dueDate}.`,
+      "",
+      "If you have any questions, reply to this email.",
+      "",
+      `Kind regards,`,
+      letterhead.practiceName || session.practiceName,
+    ].join("\n");
+
+  const { sendClientCommunicationEmail } = await import(
+    "@/server/actions/client-communications"
+  );
+  const result = await sendClientCommunicationEmail({
+    clientId: invoice.clientId,
+    toEmail,
+    subject: `Invoice ${invoice.invoiceNumber} — ${letterhead.practiceName || session.practiceName}`,
+    message: cover,
+    html: `${cover
+      .split("\n")
+      .map((l) => `<p>${l ? l.replace(/&/g, "&amp;").replace(/</g, "&lt;") : "&nbsp;"}</p>`)
+      .join("")}<hr/>${html}`,
+    kind: "invoice",
+    documentCount: 1,
+    attachments: [
+      {
+        filename: `${invoice.invoiceNumber}.html`,
+        content: Buffer.from(html, "utf8").toString("base64"),
+        contentType: "text/html; charset=utf-8",
+      },
+    ],
+  });
+
+  // Mark as sent when still draft/due so the desk reflects dispatch.
+  if (invoice.status === "draft" || invoice.status === "due") {
+    await setInvoiceStatus(invoice.id, "sent");
+  }
+
+  await appendAuditEvent({
+    practiceId: session.practiceId,
+    clientId: invoice.clientId,
+    actorId: session.userId,
+    action: "invoice.emailed",
+    entityType: "client_invoice",
+    entityId: invoice.id,
+    detail: { toEmail, invoiceNumber: invoice.invoiceNumber },
+  });
+
+  revalidatePath(`/clients/${invoice.clientId}/invoices`);
+  return {
+    ok: true as const,
+    toEmail,
+    delivery:
+      result && typeof result === "object" && "delivery" in result
+        ? String((result as { delivery?: string }).delivery ?? "sent")
+        : "sent",
+  };
 }
 
 export async function listInvoiceLineTemplates() {

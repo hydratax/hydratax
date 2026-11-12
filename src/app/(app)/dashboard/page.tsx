@@ -5,9 +5,14 @@ import { getHmrcEnvInfo } from "@/server/actions/hmrc-connect";
 import { getPracticeEntitlements } from "@/server/actions/account";
 import { DashboardClientFilters } from "@/components/dashboard-client-filters";
 import { DashboardServiceCard } from "@/components/dashboard-service-card";
-import { moduleLabel, type ServiceModule } from "@/lib/entitlements";
+import {
+  moduleLabel,
+  pricingHashForModule,
+  type ServiceModule,
+} from "@/lib/entitlements";
 import { displayPracticeName } from "@/lib/practice-name";
 import { clientSlugFor } from "@/lib/client-slug";
+import { personKeySlug } from "@/lib/sa-taxpayer";
 
 function buildRailLinks(): {
   module: ServiceModule;
@@ -66,7 +71,7 @@ export default async function DashboardPage() {
     ...directors.map((d) => ({
       key: `dir:${d.key}`,
       fullName: d.fullName,
-      href: `/self-assessment/${encodeURIComponent(d.key)}`,
+      href: `/self-assessment/${personKeySlug(d.key)}`,
       kind: "director" as const,
       detail:
         d.companies.length === 1
@@ -169,18 +174,19 @@ export default async function DashboardPage() {
         <div className="mt-4 grid auto-rows-fr gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
           {railLinks.map((rail) => {
             const open = unlocked.has(rail.module);
+            const pricingHref = `/pricing#${pricingHashForModule(rail.module)}`;
             return (
               <DashboardServiceCard
                 key={rail.title}
-                href={open ? rail.href : "/pricing#practice"}
+                href={open ? rail.href : pricingHref}
                 module={rail.module}
                 moduleLabel={moduleLabel(rail.module)}
                 title={rail.title}
                 blurb={rail.blurb}
                 locked={!open}
-                cta={open ? "Open" : "Try free →"}
+                cta={open ? "Open" : "Unlock on Pricing →"}
                 pendingLabel={
-                  open ? `Opening ${rail.title}…` : "Opening plans…"
+                  open ? `Opening ${rail.title}…` : "Opening pricing…"
                 }
               />
             );

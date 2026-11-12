@@ -4,6 +4,8 @@ import {
   mergeTaxpayerRoles,
   normalizePersonName,
   personCompanySummary,
+  personKeyFromParam,
+  personKeySlug,
 } from "./sa-taxpayer";
 
 describe("normalizePersonName", () => {
@@ -14,6 +16,14 @@ describe("normalizePersonName", () => {
     expect(normalizePersonName("MINHAS, Raja Haris Aziz")).toBe(
       normalizePersonName("Mr Raja Haris Aziz Minhas"),
     );
+  });
+});
+
+describe("personKeySlug", () => {
+  it("uses hyphens so SA URLs have no spaces", () => {
+    expect(personKeySlug("E Rabbani Zill")).toBe("e-rabbani-zill");
+    expect(personKeyFromParam("e-rabbani-zill")).toBe("e rabbani zill");
+    expect(personKeyFromParam("e%20rabbani%20zill")).toBe("e rabbani zill");
   });
 });
 

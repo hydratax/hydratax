@@ -17,6 +17,7 @@ import {
   displayPersonName,
   mergeTaxpayerRoles,
   normalizePersonName,
+  personKeyFromParam,
   roleFromCompanyLinks,
   type SaTaxpayer,
   type SaTaxpayerRole,
@@ -241,10 +242,12 @@ export async function getDirectorWorkspace(input: {
   personKey: string;
 }) {
   const directors = await listPracticeDirectors();
+  const want = personKeyFromParam(input.personKey) || input.personKey;
   const person =
-    directors.find((d) => d.key === input.personKey) ??
+    directors.find((d) => d.key === want) ??
+    directors.find((d) => personKeyFromParam(d.key) === want) ??
     directors.find(
-      (d) => normalizePersonName(d.fullName) === input.personKey,
+      (d) => normalizePersonName(d.fullName) === normalizePersonName(want),
     );
   if (!person) throw new Error("Director not found in practice");
 

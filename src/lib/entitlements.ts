@@ -25,6 +25,8 @@ export type PlanEntitlement = {
   label: string;
   modules: ServiceModule[];
   maxClients: number | null;
+  /** Optional aliases for older Stripe / stored plan keys. */
+  aliases?: string[];
 };
 
 const ALL_TAX: ServiceModule[] = [
@@ -48,7 +50,8 @@ export const PLAN_ENTITLEMENTS: PlanEntitlement[] = [
   },
   {
     planKey: "practice:Practice",
-    label: "Practice",
+    label: "Small Firm",
+    aliases: ["practice:Small Firm"],
     modules: ALL_TAX,
     maxClients: 10,
   },
@@ -60,31 +63,35 @@ export const PLAN_ENTITLEMENTS: PlanEntitlement[] = [
   },
   {
     planKey: "practice:Custom",
-    label: "Custom",
+    label: "Enterprise",
+    aliases: ["practice:Enterprise"],
     modules: ["clients", "books", "documents", "companies_house", "practice_desk"],
     maxClients: 10_000,
   },
   {
-    planKey: "vat:Single VRN",
-    label: "Single VRN",
+    planKey: "vat:One company or sole trader",
+    label: "One company or sole trader",
+    aliases: ["vat:Single VRN"],
     modules: ["clients", "books", "documents", "vat"],
     maxClients: 1,
   },
   {
-    planKey: "vat:Practice VAT pack",
-    label: "Practice VAT pack",
+    planKey: "vat:VAT practice pack",
+    label: "VAT practice pack",
+    aliases: ["vat:Practice VAT pack"],
     modules: ["clients", "books", "documents", "vat", "practice_desk"],
-    maxClients: 25,
+    maxClients: 15,
   },
   {
     planKey: "ct600:Per return",
     label: "CT600 per return",
     modules: ["clients", "books", "documents", "corporation_tax"],
-    maxClients: null,
+    maxClients: 1,
   },
   {
-    planKey: "ct600:Unlimited CT",
-    label: "Unlimited CT",
+    planKey: "ct600:CT practice pack",
+    label: "CT practice pack",
+    aliases: ["ct600:Unlimited CT"],
     modules: [
       "clients",
       "books",
@@ -92,11 +99,12 @@ export const PLAN_ENTITLEMENTS: PlanEntitlement[] = [
       "corporation_tax",
       "practice_desk",
     ],
-    maxClients: null,
+    maxClients: 15,
   },
   {
-    planKey: "self-assessment:Per taxpayer",
-    label: "SA per taxpayer",
+    planKey: "self-assessment:1 SA return",
+    label: "1 SA return",
+    aliases: ["self-assessment:Per taxpayer"],
     modules: ["clients", "books", "documents", "self_assessment"],
     maxClients: 1,
   },
@@ -110,11 +118,12 @@ export const PLAN_ENTITLEMENTS: PlanEntitlement[] = [
       "self_assessment",
       "practice_desk",
     ],
-    maxClients: 40,
+    maxClients: 15,
   },
   {
-    planKey: "payroll:Starter PAYE",
-    label: "Starter PAYE",
+    planKey: "payroll:One employer",
+    label: "One employer",
+    aliases: ["payroll:Starter PAYE"],
     modules: ["clients", "books", "documents", "payroll"],
     maxClients: 1,
   },
@@ -129,6 +138,30 @@ export const PLAN_ENTITLEMENTS: PlanEntitlement[] = [
 /** Companies House one-offs unlock the CH module for that practice */
 export function isCompaniesHousePlan(planKey: string) {
   return planKey.startsWith("companies-house:");
+}
+
+function findPlanEntitlement(key: string): PlanEntitlement | undefined {
+  const direct = PLAN_ENTITLEMENTS.find((p) => p.planKey === key);
+  if (direct) return direct;
+  return PLAN_ENTITLEMENTS.find((p) => p.aliases?.includes(key));
+}
+
+/** Pricing page hash for a locked service module. */
+export function pricingHashForModule(module: ServiceModule): string {
+  switch (module) {
+    case "vat":
+      return "vat";
+    case "corporation_tax":
+      return "ct600";
+    case "self_assessment":
+      return "self-assessment";
+    case "payroll":
+      return "payroll";
+    case "companies_house":
+      return "companies-house";
+    default:
+      return "practice";
+  }
 }
 
 export function entitlementsForPlans(planKeys: string[]): {
@@ -172,10 +205,10 @@ export function entitlementsForPlans(planKeys: string[]): {
       }
       const maxForPlan = customUnlimited
         ? null
-        : Math.max(clientCap, 15);
+        : Math.max(clientCap, selection.modules.length ? 1 : 0);
       plans.push({
         planKey: rawKey,
-        label: "Custom",
+        label: "Enterprise",
         modules: [...modules] as ServiceModule[],
         maxClients: maxForPlan,
       });
@@ -186,7 +219,7 @@ export function entitlementsForPlans(planKeys: string[]): {
       }
       continue;
     }
-    const ent = PLAN_ENTITLEMENTS.find((p) => p.planKey === key);
+    const ent = findPlanEntitlement(key);
     if (!ent) continue;
     plans.push(ent);
     for (const m of ent.modules) modules.add(m);
@@ -217,4 +250,20 @@ export function moduleLabel(m: ServiceModule): string {
     practice_desk: "Practice desk",
   };
   return map[m];
+}
+
+/** Tax rails gated by Stripe plan entitlements (not team role alone). */
+export function isPlanGatedModule(
+  module: string,
+): module is Extract<
+  ServiceModule,
+  "vat" | "self_assessment" | "corporation_tax" | "payroll" | "companies_house"
+> {
+  return (
+    module === "vat" ||
+    module === "self_assessment" ||
+    module === "corporation_tax" ||
+    module === "payroll" ||
+    module === "companies_house"
+  );
 }

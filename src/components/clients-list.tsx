@@ -109,7 +109,23 @@ function AccountsStatusButton({
   );
 }
 
-export function ClientsList({ clients }: { clients: ClientListItem[] }) {
+/** Path suffix after `/clients/:slug` — e.g. `/vat` opens the VAT tab. */
+export type ClientOpenPath =
+  | ""
+  | "/vat"
+  | "/payroll"
+  | "/corporation-tax"
+  | "/self-assessment"
+  | "/sa800";
+
+export function ClientsList({
+  clients,
+  openPath = "",
+}: {
+  clients: ClientListItem[];
+  /** When opening from a domain desk, land on that tab. */
+  openPath?: ClientOpenPath;
+}) {
   const [filter, setFilter] = useState<FilingFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -226,7 +242,7 @@ export function ClientsList({ clients }: { clients: ClientListItem[] }) {
           return (
             <PendingLink
               key={c.id}
-              href={`/clients/${c.slug}`}
+              href={`/clients/${c.slug}${openPath}`}
               className={`panel panel-interactive client-card flex h-full flex-col p-5 ${highlight}`}
               pendingLabel="Opening client…"
             >

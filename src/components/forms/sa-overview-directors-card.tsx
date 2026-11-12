@@ -8,6 +8,7 @@ import {
   saUrgencyLabel,
 } from "@/lib/sa-tax-year";
 import type { PracticeDirector } from "@/server/actions/sa-directors";
+import { personKeySlug } from "@/lib/sa-taxpayer";
 
 export function SaOverviewDirectorsCard({
   clientSlug,
@@ -38,7 +39,7 @@ export function SaOverviewDirectorsCard({
             return (
               <li key={d.key}>
                 <Link
-                  href={`/self-assessment/${encodeURIComponent(d.key)}`}
+                  href={`/self-assessment/${personKeySlug(d.key)}`}
                   onClick={() =>
                     markNavPending(`Opening SA for ${d.fullName}…`)
                   }

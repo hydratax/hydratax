@@ -114,6 +114,8 @@ export async function GET(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   let mfaRequired = false;
+  let suggest2fa = false;
+  let secureDevicePath = `/secure-device?next=${encodeURIComponent(next)}`;
 
   if (user) {
     const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
@@ -149,6 +151,51 @@ export async function GET(request: NextRequest) {
     }
 
     try {
+      const { startProvisionalSession, recordSuccessfulLogin } = await import(
+        "@/server/auth/session-policy"
+      );
+      await startProvisionalSession();
+      const login = await recordSuccessfulLogin(user.id);
+      suggest2fa = login.suggest2fa;
+      const { postLoginPath } = await import("@/lib/session-policy");
+      // First login (incl. email confirm / OAuth signup) skips Trust-device.
+      secureDevicePath = postLoginPath(next, {
+        suggest2fa,
+        loginCount: login.loginCount,
+      });
+    } catch {
+      /* session policy best-effort */
+    }
+
+    // Welcome + admin notify if signup completed via email confirm / OAuth
+    // without a session at signUp time.
+    try {
+      const freshMeta = (user.user_metadata ?? {}) as Record<string, unknown>;
+      if (!freshMeta.hydra_welcome_sent && user.email) {
+        const { sendSignupEmails } = await import(
+          "@/server/email/signup-notify"
+        );
+        await sendSignupEmails({
+          to: user.email,
+          firstName:
+            typeof freshMeta.first_name === "string"
+              ? freshMeta.first_name
+              : null,
+          surname:
+            typeof freshMeta.surname === "string" ? freshMeta.surname : null,
+          orgType:
+            typeof freshMeta.org_type === "string" ? freshMeta.org_type : null,
+          userId: user.id,
+        });
+        await supabase.auth.updateUser({
+          data: { ...freshMeta, hydra_welcome_sent: true },
+        });
+      }
+    } catch (err) {
+      console.error("[auth/callback] signup emails failed", err);
+    }
+
+    try {
       const { beginMfaIfRequired } = await import("@/server/actions/mfa");
       const mfa = await beginMfaIfRequired(user.id);
       mfaRequired = mfa.required;
@@ -158,8 +205,8 @@ export async function GET(request: NextRequest) {
   }
 
   const destination = mfaRequired
-    ? `/verify-2fa?next=${encodeURIComponent(next)}`
-    : next;
+    ? `/verify-2fa?next=${encodeURIComponent(secureDevicePath)}`
+    : secureDevicePath;
   const redirectResponse = NextResponse.redirect(`${origin}${destination}`);
   for (const { name, value, options } of pendingCookies) {
     redirectResponse.cookies.set(name, value, options);
@@ -170,10 +217,18 @@ export async function GET(request: NextRequest) {
     const { MFA_OK_COOKIE, MFA_PENDING_COOKIE } = await import(
       "@/lib/mfa-cookies"
     );
+    const {
+      SESSION_EXPIRES_COOKIE,
+      DEVICE_TRUSTED_COOKIE,
+      sessionTtlSeconds,
+    } = await import("@/lib/session-policy");
     const jar = await cookieStore();
     const secure = process.env.NODE_ENV === "production";
     const pendingVal = jar.get(MFA_PENDING_COOKIE)?.value;
     const okVal = jar.get(MFA_OK_COOKIE)?.value;
+    const expiresVal = jar.get(SESSION_EXPIRES_COOKIE)?.value;
+    const trustedVal = jar.get(DEVICE_TRUSTED_COOKIE)?.value;
+    const ttl = sessionTtlSeconds(trustedVal === "1");
     if (pendingVal) {
       redirectResponse.cookies.set(MFA_PENDING_COOKIE, pendingVal, {
         httpOnly: true,
@@ -189,7 +244,25 @@ export async function GET(request: NextRequest) {
         sameSite: "lax",
         secure,
         path: "/",
-        maxAge: 60 * 60 * 12,
+        maxAge: ttl,
+      });
+    }
+    if (expiresVal) {
+      redirectResponse.cookies.set(SESSION_EXPIRES_COOKIE, expiresVal, {
+        httpOnly: true,
+        sameSite: "lax",
+        secure,
+        path: "/",
+        maxAge: ttl,
+      });
+    }
+    if (trustedVal) {
+      redirectResponse.cookies.set(DEVICE_TRUSTED_COOKIE, trustedVal, {
+        httpOnly: true,
+        sameSite: "lax",
+        secure,
+        path: "/",
+        maxAge: ttl,
       });
     }
   } catch {

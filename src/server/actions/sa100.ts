@@ -279,9 +279,86 @@ export async function saveSa100Draft(input: {
     /* best-effort */
   }
 
+  // Persist SA100 pack + SA302 PDF alongside every draft save.
+  try {
+    await persistSaDraftPdfs({
+      practiceId: session.practiceId,
+      userId: session.userId,
+      clientId: input.clientId,
+      taxpayerId: input.taxpayerId,
+      client,
+      row,
+    });
+  } catch (err) {
+    console.warn("[sa100] draft PDF persist failed", err);
+  }
+
   revalidatePath(`/clients/${input.clientId}/self-assessment`);
+  revalidatePath("/self-assessment", "layout");
   revalidatePath("/clients");
   return row;
+}
+
+async function persistSaDraftPdfs(input: {
+  practiceId: string;
+  userId: string;
+  clientId: string;
+  taxpayerId?: string | null;
+  client: Awaited<ReturnType<typeof getClient>>;
+  row: Sa100Stored;
+}) {
+  const { buildSa302Pdf } = await import("@/server/sa100/pdf");
+  const { buildSa100PackPdf } = await import("@/server/sa100/pack");
+  const { storeClientDocumentBytes } = await import(
+    "@/server/documents/store-bytes"
+  );
+  const { saFiledCategory } = await import("@/lib/sa-filed-docs");
+
+  const taxpayerName =
+    input.row.draft.declarationName?.trim() ||
+    (input.client.type === "limited_company" ? "" : input.client.name);
+  const meta = {
+    submissionRef: input.row.hmrcCorrelationId ?? null,
+    status: input.row.status,
+    taxYear: input.row.taxYear,
+  };
+
+  const sa302 = await buildSa302Pdf(
+    input.row.calculation,
+    taxpayerName,
+    input.row.draft.utr || input.client.utr || "",
+    meta,
+  );
+  const pack = await buildSa100PackPdf(input.row.draft, taxpayerName, meta);
+
+  await storeClientDocumentBytes({
+    practiceId: input.practiceId,
+    clientId: input.clientId,
+    filename: `SA100-${input.row.taxYear}-draft.pdf`,
+    contentType: "application/pdf",
+    bytes: pack.bytes,
+    category: saFiledCategory(
+      input.row.taxYear,
+      "return",
+      input.taxpayerId,
+    ),
+    uploadedBy: input.userId,
+    folder: "sa-drafts",
+  });
+  await storeClientDocumentBytes({
+    practiceId: input.practiceId,
+    clientId: input.clientId,
+    filename: `SA302-${input.row.taxYear}-draft.pdf`,
+    contentType: "application/pdf",
+    bytes: sa302,
+    category: saFiledCategory(
+      input.row.taxYear,
+      "sa302",
+      input.taxpayerId,
+    ),
+    uploadedBy: input.userId,
+    folder: "sa-drafts",
+  });
 }
 
 const submitSchema = z.object({
@@ -291,8 +368,16 @@ const submitSchema = z.object({
   taxpayerId: z.string().optional().nullable(),
 });
 
-export async function submitSa100Return(input: z.infer<typeof submitSchema>) {
+export async function submitSa100Return(
+  input: z.infer<typeof submitSchema> & { confirmEndTrial?: boolean },
+) {
   const session = await requireSession();
+  const { requireLiveFilingAllowed } = await import(
+    "@/server/billing/filing-gate"
+  );
+  await requireLiveFilingAllowed(session.practiceId, {
+    confirmEndTrial: Boolean(input.confirmEndTrial),
+  });
   const data = submitSchema.parse(input);
   const client = await getClient(data.clientId);
   if (client.type === "limited_company" && !data.taxpayerId) {

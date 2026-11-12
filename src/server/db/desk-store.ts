@@ -984,4 +984,141 @@ export async function deskCreateCustomBankCategory(
   return { id, label };
 }
 
+/** Reuse an existing practice category with the same label (case-insensitive). */
+export async function deskFindOrCreateCustomBankCategory(
+  practiceId: string,
+  label: string,
+): Promise<{ id: string; label: string }> {
+  const existing = await deskListCustomBankCategories(practiceId);
+  const hit = existing.find(
+    (r) => r.label.toLowerCase() === label.toLowerCase(),
+  );
+  if (hit) return hit;
+  try {
+    return await deskCreateCustomBankCategory(practiceId, label);
+  } catch (err) {
+    // Unique race / duplicate label — re-list and return.
+    const again = await deskListCustomBankCategories(practiceId);
+    const retry = again.find(
+      (r) => r.label.toLowerCase() === label.toLowerCase(),
+    );
+    if (retry) return retry;
+    throw err;
+  }
+}
+
+export async function deskRetargetMerchantIdentifiers(input: {
+  practiceId: string;
+  fromCategory: string;
+  toCategory: string;
+}): Promise<number> {
+  if (isD1Configured()) {
+    const before = await d1Query<{ id: string }>(
+      `SELECT id FROM merchant_identifiers
+       WHERE practice_id = ? AND category = ?`,
+      [input.practiceId, input.fromCategory],
+    );
+    if (!before.length) return 0;
+    await d1Execute(
+      `UPDATE merchant_identifiers
+       SET category = ?
+       WHERE practice_id = ? AND category = ?`,
+      [input.toCategory, input.practiceId, input.fromCategory],
+    );
+    return before.length;
+  }
+  const supabase = await getSupabaseDataClient();
+  if (!supabase) return 0;
+  const { data } = await supabase
+    .from("merchant_identifiers")
+    .select("id")
+    .eq("practice_id", input.practiceId)
+    .eq("category", input.fromCategory);
+  if (!data?.length) return 0;
+  await supabase
+    .from("merchant_identifiers")
+    .update({ category: input.toCategory })
+    .eq("practice_id", input.practiceId)
+    .eq("category", input.fromCategory);
+  return data.length;
+}
+
+export async function deskUpsertMerchantIdentifier(input: {
+  practiceId: string;
+  pattern: string;
+  category: string;
+  label: string;
+  matchType?: "contains" | "regex";
+  priority?: number;
+}): Promise<void> {
+  const pattern = input.pattern.trim().toLowerCase();
+  if (!pattern) return;
+  const matchType = input.matchType ?? "contains";
+  const priority = input.priority ?? 20;
+  const id = newId();
+
+  if (isD1Configured()) {
+    const existing = await d1Query<{ id: string }>(
+      `SELECT id FROM merchant_identifiers
+       WHERE practice_id = ? AND lower(pattern) = ? AND match_type = ?
+       LIMIT 1`,
+      [input.practiceId, pattern, matchType],
+    );
+    if (existing[0]) {
+      await d1Execute(
+        `UPDATE merchant_identifiers
+         SET category = ?, label = ?, priority = ?
+         WHERE id = ?`,
+        [input.category, input.label, priority, existing[0].id],
+      );
+      return;
+    }
+    await d1Execute(
+      `INSERT INTO merchant_identifiers
+        (id, practice_id, pattern, match_type, category, label, priority)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        input.practiceId,
+        pattern,
+        matchType,
+        input.category,
+        input.label,
+        priority,
+      ],
+    );
+    return;
+  }
+
+  const supabase = await getSupabaseDataClient();
+  if (!supabase) return;
+  const { data } = await supabase
+    .from("merchant_identifiers")
+    .select("id")
+    .eq("practice_id", input.practiceId)
+    .ilike("pattern", pattern)
+    .eq("match_type", matchType)
+    .limit(1);
+  if (data?.[0]?.id) {
+    await supabase
+      .from("merchant_identifiers")
+      .update({
+        category: input.category,
+        label: input.label,
+        priority,
+      })
+      .eq("id", data[0].id);
+    return;
+  }
+  await supabase.from("merchant_identifiers").insert({
+    id,
+    practice_id: input.practiceId,
+    pattern,
+    match_type: matchType,
+    category: input.category,
+    label: input.label,
+    priority,
+  });
+}
+
 export { mapSnakeCaseRow };

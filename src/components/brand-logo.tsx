@@ -2,7 +2,8 @@ import Image from "next/image";
 import Link from "next/link";
 
 type BrandLogoProps = {
-  href?: string;
+  /** Pass `null` to render the mark without a link. */
+  href?: string | null;
   size?: "sm" | "md" | "lg" | "hero";
   showWordmark?: boolean;
   className?: string;
@@ -17,7 +18,7 @@ const sizes = {
 } as const;
 
 export function BrandLogo({
-  href = "/",
+  href,
   size = "md",
   showWordmark = true,
   className = "",
@@ -52,9 +53,10 @@ export function BrandLogo({
     </span>
   );
 
-  if (!href) return content;
+  if (href === null) return content;
+  const linkHref = href ?? "/";
   return (
-    <Link href={href} className="group transition-opacity hover:opacity-90">
+    <Link href={linkHref} className="group transition-opacity hover:opacity-90">
       {content}
     </Link>
   );

@@ -262,7 +262,18 @@ export function DashboardClientFilters({
               </Link>
             )}
           </div>
-          <ClientsList clients={filtered} />
+          <ClientsList
+            clients={filtered}
+            openPath={
+              activeFilter === "vat"
+                ? "/vat"
+                : activeFilter === "paye"
+                  ? "/payroll"
+                  : activeFilter === "ltd"
+                    ? "/corporation-tax"
+                    : ""
+            }
+          />
         </section>
       )}
     </div>

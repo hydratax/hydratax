@@ -55,6 +55,90 @@ function localMemorySession(): SessionContext {
   };
 }
 
+function isAuthRateLimited(err: unknown): boolean {
+  const msg =
+    err && typeof err === "object" && "message" in err
+      ? String((err as { message?: unknown }).message ?? "")
+      : String(err ?? "");
+  const status =
+    err && typeof err === "object" && "status" in err
+      ? Number((err as { status?: unknown }).status)
+      : 0;
+  return (
+    status === 429 ||
+    /rate limit|too many requests|over_request_rate_limit/i.test(msg)
+  );
+}
+
+/**
+ * Resolve the signed-in user without crashing the desk on Auth rate limits.
+ * Prefer getClaims (local JWT when asymmetric keys are enabled); fall back to
+ * getUser; on 429, read the cookie session so the user is not bounced to sign-in.
+ */
+async function resolveSupabaseUser(
+  supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>,
+): Promise<{ id: string; email: string | null } | null> {
+  try {
+    const { data: claimsData } = await supabase.auth.getClaims();
+    const sub = claimsData?.claims?.sub;
+    if (typeof sub === "string" && sub.length > 0) {
+      const email = claimsData?.claims?.email;
+      return {
+        id: sub,
+        email: typeof email === "string" ? email : null,
+      };
+    }
+  } catch (err) {
+    if (!isAuthRateLimited(err)) {
+      // Claims unavailable (e.g. HS256 / no JWKS) — try getUser below.
+      console.warn("[session] getClaims failed", err);
+    }
+  }
+
+  try {
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser();
+    if (error) {
+      if (isAuthRateLimited(error)) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.user?.id) {
+          return {
+            id: session.user.id,
+            email: session.user.email ?? null,
+          };
+        }
+      }
+      return null;
+    }
+    if (!user) return null;
+    return { id: user.id, email: user.email ?? null };
+  } catch (err) {
+    if (isAuthRateLimited(err)) {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.user?.id) {
+          return {
+            id: session.user.id,
+            email: session.user.email ?? null,
+          };
+        }
+      } catch {
+        /* ignore */
+      }
+      console.warn("[session] Supabase Auth rate limited — using cookie session if present");
+      return null;
+    }
+    console.error("[session] getUser failed", err);
+    return null;
+  }
+}
+
 /** Soft session lookup — returns null when signed out (no throw / no redirect). */
 export const getOptionalSession = cache(
   async (): Promise<SessionContext | null> => {
@@ -66,9 +150,7 @@ export const getOptionalSession = cache(
   if (isSupabaseConfigured()) {
     const { createClient } = await import("@/lib/supabase/server");
     const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user = await resolveSupabaseUser(supabase);
 
     if (!user) return null;
 
@@ -152,6 +234,43 @@ export const getOptionalSession = cache(
 export async function requireSession(
   nextPath?: string,
 ): Promise<SessionContext> {
+  // Wall-clock desk expiry (10h / 7d) — backup to proxy enforcement.
+  try {
+    const { deskSessionExpired, clearSessionPolicyCookies } = await import(
+      "@/server/auth/session-policy"
+    );
+    if (await deskSessionExpired()) {
+      await clearSessionPolicyCookies();
+      if (isSupabaseConfigured()) {
+        try {
+          const { createClient } = await import("@/lib/supabase/server");
+          const supabase = await createClient();
+          await supabase.auth.signOut();
+        } catch {
+          /* ignore */
+        }
+      }
+      let path = nextPath;
+      if (!path) {
+        const h = await headers();
+        path = h.get("x-pathname") || "/dashboard";
+      }
+      redirect(
+        `/sign-in?next=${encodeURIComponent(path)}&expired=1`,
+      );
+    }
+  } catch (err) {
+    // redirect() throws — rethrow; ignore soft import failures
+    if (
+      err &&
+      typeof err === "object" &&
+      "digest" in err &&
+      String((err as { digest?: string }).digest ?? "").startsWith("NEXT_REDIRECT")
+    ) {
+      throw err;
+    }
+  }
+
   const session = await getOptionalSession();
   if (!session) {
     let path = nextPath;
@@ -195,7 +314,30 @@ export async function requireModule(
   module: import("@/lib/access").AppModule,
 ): Promise<SessionContext> {
   const session = await requireSession();
-  const { assertModuleAccess } = await import("@/lib/access");
-  assertModuleAccess(session.moduleAccess, module);
+  const { canAccessModule } = await import("@/lib/access");
+  const { isPlanGatedModule, pricingHashForModule } = await import(
+    "@/lib/entitlements"
+  );
+
+  const pricingPath = isPlanGatedModule(module)
+    ? `/pricing#${pricingHashForModule(module)}`
+    : "/pricing#practice";
+
+  if (!canAccessModule(session.moduleAccess, module)) {
+    // Team role lock — send them to Pricing / desk rather than a raw error page.
+    redirect(isPlanGatedModule(module) ? pricingPath : "/clients");
+  }
+
+  // Plan entitlements: individual add-ons only unlock the rails they paid for.
+  if (isPlanGatedModule(module)) {
+    const { getPracticeEntitlements } = await import(
+      "@/server/actions/account"
+    );
+    const ent = await getPracticeEntitlements().catch(() => null);
+    if (!ent || !ent.modules.includes(module)) {
+      redirect(pricingPath);
+    }
+  }
+
   return session;
 }

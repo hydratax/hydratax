@@ -294,6 +294,12 @@ type MemoryStore = {
   payrollTimesheets: MemoryTimesheet[];
   documents: MemoryDocument[];
   bankTransactions: MemoryBankTx[];
+  /** Practice-level custom / provisional bank heads (demo memory). */
+  customBankCategories: Array<{
+    id: string;
+    practiceId: string;
+    label: string;
+  }>;
   emailLogs: MemoryEmailLog[];
   chRequests: MemoryChRequest[];
   gatewayCredentials: MemoryGatewayCredential[];
@@ -385,6 +391,7 @@ function emptyStore(): MemoryStore {
     payrollTimesheets: [],
     documents: [],
     bankTransactions: [],
+    customBankCategories: [],
     emailLogs: [],
     chRequests: [],
     gatewayCredentials: [],

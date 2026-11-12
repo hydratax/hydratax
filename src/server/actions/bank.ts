@@ -63,6 +63,7 @@ export type BankImportResult =
       lines: CategorisedLine[];
       pdfStored: boolean;
       message: string;
+      provisionalHeads?: number;
       document?: {
         id: string;
         filename: string;
@@ -127,6 +128,8 @@ export type ConvertedBankLine = {
 export async function convertBankStatementText(input: {
   text: string;
   source?: "pdf" | "ocr" | "csv";
+  /** SA occupation — biases allocation (e.g. taxi → fuel / vehicle). */
+  occupation?: string | null;
 }): Promise<
   | {
       ok: true;
@@ -151,8 +154,23 @@ export async function convertBankStatementText(input: {
     let bankHint: string | null = null;
     if (input.source === "csv") {
       lines = parseBankCsv(text);
+      if (input.occupation) {
+        const { categoriseDescription } = await import(
+          "@/server/bank/categorise"
+        );
+        lines = lines.map((line) => {
+          const next = categoriseDescription(
+            line.description,
+            line.amountPence,
+            input.occupation,
+          );
+          return { ...line, ...next };
+        });
+      }
     } else {
-      const parsed = parseUkStatementText(text);
+      const parsed = parseUkStatementText(text, {
+        occupation: input.occupation,
+      });
       lines = parsed.lines;
       bankHint = parsed.meta.bankHint;
     }
@@ -161,7 +179,11 @@ export async function convertBankStatementText(input: {
     const { applyIdentifierRules } = await import(
       "@/server/bank/merchant-identifiers"
     );
-    lines = await applyIdentifierRules(lines, session.practiceId);
+    lines = await applyIdentifierRules(
+      lines,
+      session.practiceId,
+      input.occupation,
+    );
     lines = dedupeImportLines(lines);
 
     if (!lines.length) {
@@ -193,6 +215,8 @@ export async function importBankConvertedLines(input: {
   lines: ConvertedBankLine[];
   filename?: string;
   source?: "pdf" | "ocr" | "csv" | "spreadsheet";
+  /** SA occupation — keeps trade-biased allocation on save. */
+  occupation?: string | null;
 }): Promise<BankImportResult> {
   try {
     const session = await requireSession();
@@ -207,8 +231,20 @@ export async function importBankConvertedLines(input: {
     const { applyIdentifierRules } = await import(
       "@/server/bank/merchant-identifiers"
     );
-    lines = await applyIdentifierRules(lines, session.practiceId);
+    lines = await applyIdentifierRules(
+      lines,
+      session.practiceId,
+      input.occupation,
+    );
     lines = dedupeImportLines(lines);
+    const { runProvisionalHeadsOnLines } = await import(
+      "@/server/bank/run-provisional-heads"
+    );
+    const provisional = await runProvisionalHeadsOnLines(
+      lines,
+      session.practiceId,
+    );
+    lines = provisional.lines;
 
     const parseSource = input.source ?? "pdf";
     const clientId = input.clientId;
@@ -289,12 +325,18 @@ export async function importBankConvertedLines(input: {
     revalidatePath(`/clients/${clientId}/self-assessment`);
     revalidatePath(`/clients/${clientId}/corporation-tax`);
     revalidatePath(`/clients/${clientId}/accounts-pack`);
+    revalidatePath(`/self-assessment`);
 
+    const headNote =
+      provisional.created.length > 0
+        ? ` Created ${provisional.created.length} review head${provisional.created.length === 1 ? "" : "s"} for material unknown payees — map each Review section to the correct accounts head.`
+        : "";
     return {
       ok: true,
       lines,
       pdfStored: parseSource === "pdf" || parseSource === "ocr",
-      message: `Saved ${lines.length} transactions to this client’s books. Download CSV/Excel below, or continue to year-end.`,
+      message: `Saved ${lines.length} transactions to this client’s books.${headNote}`,
+      provisionalHeads: provisional.created.length,
     };
   } catch (err) {
     return {
@@ -369,6 +411,14 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
   );
   lines = await applyIdentifierRules(lines, session.practiceId);
   lines = dedupeImportLines(lines);
+  const { runProvisionalHeadsOnLines } = await import(
+    "@/server/bank/run-provisional-heads"
+  );
+  const provisional = await runProvisionalHeadsOnLines(
+    lines,
+    session.practiceId,
+  );
+  lines = provisional.lines;
 
   if (isMemoryStore()) {
     memoryStore.bankTransactions = memoryStore.bankTransactions.filter(
@@ -471,13 +521,18 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
       ? ` ${needsConfirm} line${needsConfirm === 1 ? "" : "s"} need review / client confirmation.`
       : "";
   const warnBit = parseWarning ? ` ${parseWarning}` : "";
+  const headBit =
+    provisional.created.length > 0
+      ? ` Created ${provisional.created.length} review head${provisional.created.length === 1 ? "" : "s"} for material unknown payees — map each Review section to the correct accounts head.`
+      : "";
 
   return {
     ok: true,
     lines,
     pdfStored: parseSource === "pdf" || parseSource === "ocr",
     document: document ?? undefined,
-    message: `Imported ${lines.length} transactions from ${file.name}${bankBit}.${confirmBit}${warnBit} Download categorised CSV or Excel below.`,
+    provisionalHeads: provisional.created.length,
+    message: `Imported ${lines.length} transactions from ${file.name}${bankBit}.${confirmBit}${headBit}${warnBit} Download categorised CSV or Excel below.`,
   };
   } catch (err) {
     const message =
@@ -788,6 +843,139 @@ export async function getYearEndAccountsDraftFromBank(
     })),
     { shareCapitalPence: comps.shareCapitalPence ?? undefined },
   );
+}
+
+/** Re-run clustering on the client's current ledger (after imports or cleanup). */
+export async function buildProvisionalHeadsForClient(clientId: string) {
+  try {
+    const session = await requireSession();
+    if (session.role === "readonly") {
+      return { ok: false as const, error: "Read-only access." };
+    }
+    await getClient(clientId);
+    const txs = await listBankTransactions(clientId);
+    if (!txs.length) {
+      return { ok: false as const, error: "No bank lines to cluster." };
+    }
+    const { runProvisionalHeadsOnLines } = await import(
+      "@/server/bank/run-provisional-heads"
+    );
+    const provisional = await runProvisionalHeadsOnLines(
+      txs.map((t) => ({
+        description: t.description,
+        amountPence: t.amountPence,
+        category: t.category,
+        confidence: t.confidence,
+      })),
+      session.practiceId,
+    );
+    if (!provisional.created.length) {
+      return {
+        ok: true as const,
+        created: 0,
+        message:
+          "No material unknown clusters found. Thresholds: £5,000 total/single line, or 10+ lines (or 3% of statement).",
+      };
+    }
+
+    // Persist reassigned categories onto existing rows.
+    const byIndexCategory = new Map<string, string>();
+    for (let i = 0; i < txs.length; i += 1) {
+      const next = provisional.lines[i];
+      if (next && next.category !== txs[i].category) {
+        byIndexCategory.set(txs[i].id, next.category);
+      }
+    }
+    const groups = new Map<string, string[]>();
+    for (const [id, cat] of byIndexCategory) {
+      const list = groups.get(cat) ?? [];
+      list.push(id);
+      groups.set(cat, list);
+    }
+    for (const [category, ids] of groups) {
+      await updateBankCategoriesBulk(ids, category);
+    }
+
+    revalidatePath(`/clients/${clientId}/bank`);
+    revalidatePath(`/clients/${clientId}/accounts-pack`);
+    return {
+      ok: true as const,
+      created: provisional.created.length,
+      message: `Created ${provisional.created.length} review head${provisional.created.length === 1 ? "" : "s"}. Map each Review section to the correct accounts head.`,
+    };
+  } catch (err) {
+    return {
+      ok: false as const,
+      error:
+        err instanceof Error
+          ? err.message
+          : "Could not build provisional heads.",
+    };
+  }
+}
+
+/**
+ * Map a provisional Review head onto a real accounts category and update
+ * saved identifier rules so future statements follow.
+ */
+export async function mapProvisionalReviewHead(input: {
+  clientId: string;
+  fromCategory: string;
+  toCategory: string;
+}) {
+  try {
+    const session = await requireSession();
+    if (session.role === "readonly") {
+      return { ok: false as const, error: "Read-only access." };
+    }
+    const { isCustomCategoryId } = await import("@/lib/bank-categories");
+    if (!isCustomCategoryId(input.fromCategory)) {
+      return {
+        ok: false as const,
+        error: "Pick a Review / custom head to map.",
+      };
+    }
+    if (!input.toCategory || input.toCategory === input.fromCategory) {
+      return { ok: false as const, error: "Choose a destination accounts head." };
+    }
+    await getClient(input.clientId);
+    const txs = await listBankTransactions(input.clientId);
+    const ids = txs
+      .filter((t) => t.category === input.fromCategory)
+      .map((t) => t.id);
+    if (ids.length) {
+      await updateBankCategoriesBulk(ids, input.toCategory);
+    }
+
+    if (isDeskStoreConfigured()) {
+      const { deskRetargetMerchantIdentifiers } = await import(
+        "@/server/db/desk-store"
+      );
+      await deskRetargetMerchantIdentifiers({
+        practiceId: session.practiceId,
+        fromCategory: input.fromCategory,
+        toCategory: input.toCategory,
+      });
+      const { invalidateMerchantIdentifierCache } = await import(
+        "@/server/bank/merchant-identifiers"
+      );
+      invalidateMerchantIdentifierCache();
+    }
+
+    revalidatePath(`/clients/${input.clientId}/bank`);
+    revalidatePath(`/clients/${input.clientId}/accounts-pack`);
+    return {
+      ok: true as const,
+      moved: ids.length,
+      message: `Mapped ${ids.length} line${ids.length === 1 ? "" : "s"} to the chosen head. Future matching payees will follow this rule.`,
+    };
+  } catch (err) {
+    return {
+      ok: false as const,
+      error:
+        err instanceof Error ? err.message : "Could not map that review head.",
+    };
+  }
 }
 
 const connectSchema = z.object({

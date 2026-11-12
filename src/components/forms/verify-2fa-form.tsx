@@ -91,7 +91,11 @@ export function Verify2faForm({
                 return;
               }
             }
-            router.replace(next);
+            // After 2FA, always collect device-trust (and optional 2FA setup nags are upstream).
+            const dest = next.startsWith("/secure-device")
+              ? next
+              : `/secure-device?next=${encodeURIComponent(next)}`;
+            router.replace(dest);
             router.refresh();
           } catch (err) {
             clearNavPending();

@@ -148,7 +148,7 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     id: "incorporation-same-day",
     title: "Same-day incorporation",
     summary:
-      "Software same-day company registration. Statutory software fee £156. Submit before the Companies House cut-off.",
+      "Software same-day company registration. £171 total (Companies House £156 + Hydra £15). Submit before the Companies House cut-off.",
     channel: "Software",
     chFeePounds: 156,
     whatYouNeed: [
@@ -157,7 +157,7 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
       "Director personal codes",
     ],
     importantNotes: [
-      "Same-day service is software-only at £156 (Companies House fees guidance).",
+      "Companies House same-day software fee is £156; Hydra software fee £15 (total £171).",
     ],
     govUkLinks: [
       { label: "Companies House fees", url: CH_FEE_SOURCE.url },
@@ -228,7 +228,7 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     id: "confirmation-statement",
     title: "Confirmation statement (CS01)",
     summary:
-      "Confirm company information is up to date. £50 digital / software with the first statement in each 12-month payment period.",
+      "Confirm company information is up to date. £65 total (Companies House £50 + Hydra £15) with the first statement in each 12-month payment period.",
     channel: "Digital",
     chFeePounds: 50,
     popular: true,
@@ -300,7 +300,7 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     id: "accounts-ixbrl",
     title: "Annual accounts (iXBRL)",
     summary:
-      "File statutory accounts to Companies House via software. No statutory filing fee for standard accounts delivery.",
+      "File statutory accounts to Companies House via software. Companies House statutory fee £0 — Hydra software fee £25.",
     channel: "Software",
     chFeePounds: 0,
     popular: true,
@@ -313,6 +313,7 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     ],
     importantNotes: [
       "Statutory CH fee for software accounts filing is £0 on the current fee schedule for standard delivery.",
+      "Hydra software fee for this filing is £25.",
       "Deadlines and accounts content remain your / your client’s responsibility under the Companies Act.",
     ],
     govUkLinks: [
@@ -369,7 +370,8 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
   {
     id: "change-of-name",
     title: "Change of company name",
-    summary: "File a company name change with Companies House.",
+    summary:
+      "File a company name change with Companies House. £40 total (Companies House £20 + Hydra £20).",
     channel: "Digital",
     chFeePounds: 20,
     whatYouNeed: [
@@ -422,7 +424,8 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
   {
     id: "change-of-name-same-day",
     title: "Same-day change of name",
-    summary: "Expedited company name change with Companies House.",
+    summary:
+      "Expedited company name change with Companies House. £105 total (Companies House £85 + Hydra £20).",
     channel: "Digital",
     chFeePounds: 85,
     whatYouNeed: [

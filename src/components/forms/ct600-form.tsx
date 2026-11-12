@@ -19,6 +19,10 @@ import {
   GatewayCredentialsFields,
   gatewayCredentialsReady,
 } from "@/components/forms/gateway-credentials-fields";
+import {
+  TrialSubmitConfirmPanel,
+  useTrialSubmitGate,
+} from "@/components/forms/trial-submit-confirm";
 
 function penceToInput(n: number) {
   return (n / 100).toFixed(2);
@@ -35,6 +39,7 @@ export function Ct600Form({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const trialGate = useTrialSubmitGate();
   const [step, setStep] = useState(0);
   const [periodStart, setPeriodStart] = useState(
     defaultPeriodStart ?? "2025-04-01",
@@ -577,17 +582,59 @@ export function Ct600Form({
             live={ctLive}
           />
           <FormErrorBanner error={error} />
+          <TrialSubmitConfirmPanel
+            gateError={trialGate.gateError}
+            needsConfirm={trialGate.needsConfirm}
+            paymentFailed={trialGate.paymentFailed}
+            pending={trialGate.pending || pending}
+            onDismiss={() => trialGate.clearGate()}
+            onConfirm={() =>
+              trialGate.endTrialThen(async ({ confirmEndTrial }) => {
+                const res = await submitCt600(draftId, clientId, {
+                  senderId: ggUserId.trim() || undefined,
+                  senderPassword: ggPassword.trim() || undefined,
+                  useSavedPassword: hasSavedPassword && !ggPassword.trim(),
+                  rememberPassword,
+                  confirmEndTrial,
+                });
+                if (rememberPassword && ggPassword.trim()) {
+                  setHasSavedPassword(true);
+                  setRememberPassword(false);
+                }
+                setConfirmation({
+                  ok: Boolean(res.res.ok),
+                  kind: "Corporation Tax · CT600",
+                  title: res.res.ok ? "CT600 accepted" : "CT600 rejected",
+                  subtitle: res.res.ok
+                    ? "Return lodged with HMRC Transaction Engine."
+                    : res.res.errorMessage ??
+                      "HMRC did not accept this return.",
+                  correlationId: res.res.correlationId,
+                  details: [
+                    {
+                      label: "Period",
+                      value: `${periodStart} → ${periodEnd}`,
+                    },
+                  ],
+                });
+                setGgPassword("");
+                router.refresh();
+              })
+            }
+          />
           <button
             type="button"
             className="btn btn-primary"
             disabled={
               pending ||
+              trialGate.pending ||
               (ctLive &&
                 !gatewayCredentialsReady(ggUserId, ggPassword, hasSavedPassword))
             }
             onClick={() =>
               start(async () => {
                 setError(null);
+                trialGate.clearGate();
                 try {
                   const res = await submitCt600(draftId, clientId, {
                     senderId: ggUserId.trim() || undefined,
@@ -618,7 +665,11 @@ export function Ct600Form({
                   setGgPassword("");
                   router.refresh();
                 } catch (err) {
-                  setError(err instanceof Error ? err.message : "Submit failed");
+                  if (!trialGate.captureSubmitError(err)) {
+                    setError(
+                      err instanceof Error ? err.message : "Submit failed",
+                    );
+                  }
                 }
               })
             }

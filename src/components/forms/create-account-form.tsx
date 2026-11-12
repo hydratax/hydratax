@@ -19,28 +19,28 @@ import Link from "next/link";
 
 const ORG_TYPES = [
   {
+    id: "sole_trader" as const,
+    title: "Sole trader",
+    blurb: "Self-employed individual filing Self Assessment",
+    icon: "person",
+  },
+  {
     id: "company" as const,
-    title: "Company",
-    blurb: "Limited company director or secretary",
+    title: "Company director",
+    blurb: "Director or secretary of a limited company",
     icon: "building",
   },
   {
-    id: "sole_trader" as const,
-    title: "Sole trader",
-    blurb: "Self-employed individual",
-    icon: "person",
+    id: "practice" as const,
+    title: "Limited company / practice",
+    blurb: "Accountancy practice or firm managing clients",
+    icon: "practice",
   },
   {
     id: "partnership" as const,
     title: "Partnership",
     blurb: "Partners filing together",
     icon: "people",
-  },
-  {
-    id: "practice" as const,
-    title: "Accountancy practice",
-    blurb: "Accountants managing multiple clients",
-    icon: "practice",
   },
 ];
 
@@ -110,11 +110,15 @@ function OrgIcon({ kind, active }: { kind: string; active: boolean }) {
 export function CreateAccountForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const returnPath = safeReturnPath(searchParams.get("next"));
+  const planParam = (searchParams.get("plan") ?? "").trim();
+  const returnPath = safeReturnPath(
+    searchParams.get("next") ||
+      (planParam ? `/pricing?plan=${encodeURIComponent(planParam)}` : null),
+  );
   const inviteEmail = (searchParams.get("email") ?? "").trim();
   const hasInvite = Boolean(searchParams.get("invite") || inviteEmail);
   const [orgType, setOrgType] = useState<(typeof ORG_TYPES)[number]["id"]>(
-    "practice",
+    "sole_trader",
   );
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -141,7 +145,9 @@ export function CreateAccountForm() {
         <p className="mt-2 text-white/80">
           {hasInvite
             ? "Finish creating your login to join the practice that invited you. You can set up two-factor authentication afterwards from Account settings."
-            : "Company, sole trader, partnership, or multi-client practice — then choose the plan that fits when you need filing rails."}
+            : planParam
+              ? "Tell us who you are, create your login, then we take you to checkout for the plan you chose."
+              : "Are you a sole trader, company director, partnership, or practice? Create your login first — then pick a plan."}
         </p>
       </div>
 

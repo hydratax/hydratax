@@ -12,6 +12,7 @@ import {
   isYearlyPlanKey,
   withYearlyPlanKey,
   yearlyAmountPoundsFromMonthly,
+  pricingCheckoutKey,
   type CustomPlanSelection,
   type DeskPlanTier,
 } from "@/lib/pricing";
@@ -47,18 +48,22 @@ export function listCheckoutPlans(): CheckoutPlan[] {
     if (section.id === "companies-house") continue;
     for (const plan of section.plans) {
       if ("customBuilder" in plan && plan.customBuilder) continue;
-      const oneTime = plan.period.includes("filing");
-      const key = `${section.id}:${plan.name}`;
+      const oneTime =
+        plan.period.includes("filing") ||
+        plan.period.includes("return") ||
+        plan.period.includes("once");
+      const billedYearly = plan.period.includes("year");
+      const key = pricingCheckoutKey(section.id, plan);
       plans.push({
         key,
         sectionId: section.id,
         name: `${section.title} — ${plan.name}`,
         amountPence: plan.price * 100,
-        interval: oneTime ? "one_time" : "month",
+        interval: oneTime ? "one_time" : billedYearly ? "year" : "month",
         description: plan.blurb,
-        monthlyListPounds: oneTime ? undefined : plan.price,
+        monthlyListPounds: oneTime || billedYearly ? undefined : plan.price,
       });
-      if (!oneTime && practiceDeskYearlyEligible(key)) {
+      if (!oneTime && !billedYearly && practiceDeskYearlyEligible(key)) {
         const yearly = yearlyAmountPoundsFromMonthly(plan.price);
         plans.push({
           key: withYearlyPlanKey(key),
@@ -141,12 +146,12 @@ export function getCheckoutPlan(key: string): CheckoutPlan | undefined {
     return {
       key: planKey,
       sectionId: "practice",
-      name: `Practice desk — Custom (${labels})${yearly ? " · yearly" : ""}`,
+      name: `Practice desk — Enterprise (${labels})${yearly ? " · yearly" : ""}`,
       amountPence: amount * 100,
       interval: yearly ? "year" : "month",
       description: yearly
-        ? "Custom unlimited HMRC modules. Billed yearly — 15% off (almost 2 months free). Companies House included."
-        : "Custom unlimited HMRC modules. Companies House filings included. No desk fee.",
+        ? "Enterprise HMRC modules. Billed yearly — 15% off (almost 2 months free). Companies House included."
+        : "Enterprise HMRC modules. Companies House filings included. No desk fee.",
       monthlyListPounds: monthly,
     };
   }

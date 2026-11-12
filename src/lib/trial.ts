@@ -6,16 +6,16 @@ export const PRACTICE_TRIAL = {
   days: PRACTICE_TRIAL_DAYS,
   headline: "7 days free",
   shortBadge: "7-day free trial",
-  tagline: "Practice & Custom plans — try free for 7 days",
+  tagline: "Small Firm & Enterprise — try free for 7 days",
   detail:
-    "Practice and Custom desks include a 7-day free trial. Card saved at checkout, first charge on day 8. Cancel anytime before then.",
+    "Small Firm and Enterprise include a 7-day free trial. Explore every feature; live HMRC and Companies House submissions end the trial and charge your card. Cancel anytime within 7 days for no charge.",
   cta: "Start 7-day free trial",
-  /** Trial is offered on Practice / Custom pricing — not forced at signup. */
+  /** Trial is offered on Small Firm / Enterprise pricing — not forced at signup. */
   ctaHref: "/pricing#practice",
   pricingNote:
-    "Practice & Custom include a 7-day free trial. Card required at checkout — billed from day 8.",
+    "Small Firm & Enterprise: 7-day free trial. Prepare everything; submit live only after the card is charged (or wait until day 8).",
   bannerText:
-    "Practice & Custom: 7 days free — card saved at checkout, charged on day 8.",
+    "Small Firm & Enterprise: 7 days free to explore — live HMRC/CH filing charges your card.",
 } as const;
 
 export function practiceTrialEndsAt(from = new Date()): Date {

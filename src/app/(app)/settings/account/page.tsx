@@ -39,7 +39,9 @@ export default async function AccountSettingsPage() {
 
       <AccountProfileForm profile={profile} />
 
-      <MfaSettingsPanel initial={mfa} />
+      <div id="two-factor">
+        <MfaSettingsPanel initial={mfa} />
+      </div>
 
       {isOwner ? <AccountSubscriptionPanel billing={billing} /> : null}
 

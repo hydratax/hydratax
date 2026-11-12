@@ -194,6 +194,13 @@ export async function addEmployee(input: z.input<typeof addEmployeeForm>) {
   });
 
   const existing = await listEmployees(data.clientId, { includeLeavers: true });
+  const activeCount = existing.filter((e) => e.active).length;
+  const { PAYE_EMPLOYEES_PER_EMPLOYER } = await import("@/lib/pricing");
+  if (activeCount >= PAYE_EMPLOYEES_PER_EMPLOYER) {
+    throw new Error(
+      `Your plan allows up to ${PAYE_EMPLOYEES_PER_EMPLOYER} employees per employer. Upgrade on Pricing to add more.`,
+    );
+  }
   const payrollId =
     parsed.payrollId?.trim() ||
     generatePayrollId(existing.map((e) => e.payrollId));
@@ -653,8 +660,16 @@ export async function previewPayRun(input: z.input<typeof payRunSchema>) {
   return buildPayRunPackage(data);
 }
 
-export async function createAndSubmitPayRun(input: z.input<typeof payRunSchema>) {
+export async function createAndSubmitPayRun(
+  input: z.input<typeof payRunSchema> & { confirmEndTrial?: boolean },
+) {
   const session = await requireSession();
+  const { requireLiveFilingAllowed } = await import(
+    "@/server/billing/filing-gate"
+  );
+  await requireLiveFilingAllowed(session.practiceId, {
+    confirmEndTrial: Boolean(input.confirmEndTrial),
+  });
   const data = payRunSchema.parse({ ...input, submit: true });
   const client = await getClient(data.clientId);
   const pack = await buildPayRunPackage(data);
@@ -780,8 +795,16 @@ export async function createAndSubmitPayRun(input: z.input<typeof payRunSchema>)
   };
 }
 
-export async function submitEpsNoPayment(input: z.input<typeof epsSchema>) {
+export async function submitEpsNoPayment(
+  input: z.input<typeof epsSchema> & { confirmEndTrial?: boolean },
+) {
   const session = await requireSession();
+  const { requireLiveFilingAllowed } = await import(
+    "@/server/billing/filing-gate"
+  );
+  await requireLiveFilingAllowed(session.practiceId, {
+    confirmEndTrial: Boolean(input.confirmEndTrial),
+  });
   const data = epsSchema.parse(input);
   const client = await getClient(data.clientId);
   if (!client.payeRef || !client.accountsOfficeRef) {

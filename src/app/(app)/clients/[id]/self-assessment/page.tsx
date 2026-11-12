@@ -8,6 +8,8 @@ import {
 } from "@/server/actions/sa100";
 import { listSaTaxpayers } from "@/server/actions/sa-taxpayers";
 import { listClientDocuments } from "@/server/actions/documents";
+import { listBankTransactions } from "@/server/actions/bank";
+import { listCustomBankCategories } from "@/server/actions/custom-categories";
 import {
   getDirectorWorkspace,
   listPracticeDirectors,
@@ -22,11 +24,14 @@ import { SaTaxYearWorkspace } from "@/components/forms/sa-tax-year-workspace";
 import { money } from "@/lib/format";
 import {
   normalizePersonName,
+  personKeyFromParam,
+  personKeySlug,
   roleFromCompanyLinks,
 } from "@/lib/sa-taxpayer";
 import { accumulateSa100FromIncome } from "@/lib/sa-income";
 import { filingSaTaxYear, parseSaTaxYearLabel } from "@/lib/sa-tax-year";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
+import { requireModule } from "@/server/auth/session";
 
 export default async function SelfAssessmentPage({
   params,
@@ -35,6 +40,7 @@ export default async function SelfAssessmentPage({
   params: Promise<{ id: string }>;
   searchParams?: Promise<{ person?: string; year?: string }>;
 }) {
+  await requireModule("self_assessment");
   const { id: ref } = await params;
   const sp = (await searchParams) ?? {};
   const { client, slug, clientId } = await loadClientPage(ref, "self-assessment");
@@ -60,10 +66,11 @@ export default async function SelfAssessmentPage({
     : allPracticeDirectors;
 
   const personParam = sp.person?.trim() || "";
+  const personWant = personParam ? personKeyFromParam(personParam) : "";
   const matchedDirector =
-    practiceDirectors.find((d) => d.key === personParam) ||
+    practiceDirectors.find((d) => d.key === personWant || d.key === personParam) ||
     practiceDirectors.find(
-      (d) => normalizePersonName(d.fullName) === normalizePersonName(personParam),
+      (d) => normalizePersonName(d.fullName) === personWant,
     ) ||
     practiceDirectors.find((d) => d.taxpayer?.id === personParam) ||
     null;
@@ -74,7 +81,7 @@ export default async function SelfAssessmentPage({
       ? `?year=${encodeURIComponent(activeYear)}`
       : "";
     redirect(
-      `/self-assessment/${encodeURIComponent(matchedDirector.key)}${yearQs}`,
+      `/self-assessment/${personKeySlug(matchedDirector.key)}${yearQs}`,
     );
   }
 
@@ -85,25 +92,33 @@ export default async function SelfAssessmentPage({
       }).catch(() => null)
     : null;
 
-  const selected =
-    workspace?.taxpayer ??
-    taxpayers.find((t) => t.id === personParam) ??
-    taxpayers[0] ??
-    null;
+  /** Company with several people — wait for an explicit pick before showing SA detail. */
+  const mustPickPerson =
+    isLimited && practiceDirectors.length > 1 && !matchedDirector && !personParam;
+
+  const selected = mustPickPerson
+    ? null
+    : workspace?.taxpayer ??
+      taxpayers.find((t) => t.id === personParam) ??
+      (practiceDirectors.length <= 1 ? taxpayers[0] ?? null : null);
 
   const selectedId = selected?.id ?? null;
 
   const saClientId = workspace?.person.homeClientId ?? clientId;
-  const [sa100Draft, sa100Returns, saFiledDocs] = selected
+  const [sa100Draft, sa100Returns, saFiledDocs, bankTxs, customCats] = selected
     ? await Promise.all([
         getSa100Draft(saClientId, activeYear, selected.id).catch(() => null),
         listSa100Returns(saClientId, selected.id).catch(() => []),
         listSaFiledDocuments(saClientId, selected.id).catch(() => []),
+        listBankTransactions(saClientId).catch(() => []),
+        listCustomBankCategories().catch(() => []),
       ])
     : [
         null,
         [] as Awaited<ReturnType<typeof listSa100Returns>>,
         [] as Awaited<ReturnType<typeof listSaFiledDocuments>>,
+        [] as Awaited<ReturnType<typeof listBankTransactions>>,
+        [] as Awaited<ReturnType<typeof listCustomBankCategories>>,
       ];
 
   const accumulated = selected
@@ -134,14 +149,20 @@ export default async function SelfAssessmentPage({
         </div>
       ) : null}
 
-      {/* Person picker only when no person is open — avoids looping the full grid */}
+      {/* Person picker when no person is open — required when multiple directors/PSCs */}
       {!matchedDirector && isLimited && practiceDirectors.length > 0 ? (
-        <section>
+        <section className="space-y-3">
+          {mustPickPerson ? (
+            <p className="text-sm text-ink-soft">
+              This company has {practiceDirectors.length} people. Select one to
+              open their identifiers, income and SA100.
+            </p>
+          ) : null}
           <ul className="grid gap-2 sm:grid-cols-2">
             {practiceDirectors.map((d) => (
               <li key={d.key}>
                 <Link
-                  href={`/self-assessment/${encodeURIComponent(d.key)}`}
+                  href={`/self-assessment/${personKeySlug(d.key)}`}
                   className="panel panel-interactive block p-4"
                 >
                   <p className="font-semibold text-ink">{d.fullName}</p>
@@ -231,7 +252,7 @@ export default async function SelfAssessmentPage({
             taxpayerId={selected.id}
           >
             <Sa100Wizard
-              key={`${selected.id}-sa100-${activeYear}-${selected.updatedAt}-${sa100Draft?.updatedAt ?? "new"}`}
+              key={`${selected.id}-sa100-${activeYear}`}
               clientId={saClientId}
               clientName={selected.fullName}
               contactEmail={selected.email || client.contactEmail || null}
@@ -240,6 +261,7 @@ export default async function SelfAssessmentPage({
               taxpayerId={selected.id}
               companyName={isLimited ? client.name : null}
               taxYear={activeYear}
+              initialReturnId={sa100Draft?.id ?? null}
               initial={{
                 ...accumulated,
                 phone: selected.phone || accumulated?.phone || "",
@@ -251,9 +273,10 @@ export default async function SelfAssessmentPage({
           </SaTaxYearWorkspace>
 
           <SaPersonalBooks
-            clientId={clientId}
+            clientId={saClientId}
             taxpayerId={selected.id}
             taxpayerName={selected.fullName}
+            occupation={selected.occupation ?? ""}
             documents={documents.map((d) => ({
               id: d.id,
               filename: d.filename,
@@ -264,6 +287,18 @@ export default async function SelfAssessmentPage({
                 typeof d.createdAt === "string"
                   ? d.createdAt
                   : new Date(d.createdAt).toISOString(),
+            }))}
+            transactions={bankTxs.map((t) => ({
+              id: t.id,
+              dated: t.dated,
+              description: t.description,
+              amountPence: t.amountPence,
+              category: t.category,
+              confidence: t.confidence,
+            }))}
+            customCategories={customCats.map((c) => ({
+              id: c.id,
+              label: c.label,
             }))}
           />
 

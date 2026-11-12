@@ -5,7 +5,6 @@ import {
 import { getConnectionStatus } from "@/server/actions/hmrc-connect";
 import { requireModule } from "@/server/auth/session";
 import { VatReturnsWorkspace } from "@/components/forms/vat-returns-workspace";
-import { redirect } from "next/navigation";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 
 export default async function VatPage({
@@ -13,12 +12,7 @@ export default async function VatPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  let session;
-  try {
-    session = await requireModule("vat");
-  } catch {
-    redirect("/clients");
-  }
+  const session = await requireModule("vat");
   const { id: ref } = await params;
   const { client, slug, clientId } = await loadClientPage(ref, "vat");
   const [obligations, returns, connection] = await Promise.all([

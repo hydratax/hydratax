@@ -14,6 +14,11 @@ import {
   tabKeyToModule,
   type ModuleAccess,
 } from "@/lib/access";
+import {
+  isPlanGatedModule,
+  pricingHashForModule,
+  type ServiceModule,
+} from "@/lib/entitlements";
 import { markNavPending } from "@/components/pending-link";
 
 const mainTabs = [
@@ -67,12 +72,15 @@ export function ClientTabs({
   clientSlug,
   moduleAccess = "full",
   clientType,
+  unlockedPlanModules,
 }: {
   clientSlug: string;
   /** @deprecated Active tab is inferred from the URL */
   active?: string;
   moduleAccess?: ModuleAccess;
   clientType?: string;
+  /** Stripe plan modules — locked rails link to Pricing. */
+  unlockedPlanModules?: ServiceModule[];
 }) {
   const pathname = usePathname();
   const active = activeTabFromPath(pathname, clientSlug);
@@ -86,6 +94,16 @@ export function ClientTabs({
   const engagementMenuId = useId();
   const showPending =
     pendingHref && pendingFromPath === pathname ? pendingHref : null;
+
+  const planUnlocked = new Set(unlockedPlanModules ?? []);
+
+  function planAllows(tabKey: string): boolean {
+    const mod = tabKeyToModule(tabKey);
+    if (!isPlanGatedModule(mod)) return true;
+    // When entitlements were not loaded, do not hide tabs (server pages still gate).
+    if (!unlockedPlanModules) return true;
+    return planUnlocked.has(mod);
+  }
 
   const visibleMain = mainTabs.filter((tab) => {
     if (tab.key === "sa800" && clientType && clientType !== "partnership") {
@@ -146,18 +164,32 @@ export function ClientTabs({
   }
 
   function TabLink({ tab }: { tab: TabItem }) {
-    const href = `/clients/${clientSlug}${tab.href}`;
-    const isActive = active === tab.key;
+    const unlocked = planAllows(tab.key);
+    const mod = tabKeyToModule(tab.key);
+    const href = unlocked
+      ? `/clients/${clientSlug}${tab.href}`
+      : isPlanGatedModule(mod)
+        ? `/pricing#${pricingHashForModule(mod)}`
+        : `/clients/${clientSlug}${tab.href}`;
+    const isActive = unlocked && active === tab.key;
     const isPending = showPending === href;
     return (
       <Link
         href={href}
         prefetch
-        onClick={() => markPending(href, `Opening ${tab.label}…`)}
-        className={tabClass(isActive, isPending)}
+        onClick={() =>
+          markPending(
+            href,
+            unlocked ? `Opening ${tab.label}…` : "Opening pricing…",
+          )
+        }
+        className={`${tabClass(isActive, isPending)}${
+          unlocked ? "" : " opacity-55"
+        }`}
         aria-current={isActive ? "page" : undefined}
+        title={unlocked ? undefined : "Included on your plan — unlock on Pricing"}
       >
-        {tab.label}
+        {unlocked ? tab.label : `${tab.label} · Locked`}
       </Link>
     );
   }

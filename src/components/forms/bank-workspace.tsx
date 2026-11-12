@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import {
+  buildProvisionalHeadsForClient,
   clearBankTransactions,
   convertBankStatementText,
   dedupeBankTransactions,
@@ -673,6 +674,25 @@ export function BankWorkspace({
                 }
               >
                 Re-apply auto rules
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary text-sm"
+                disabled={pending}
+                onClick={() =>
+                  start(async () => {
+                    setErr(null);
+                    const res = await buildProvisionalHeadsForClient(clientId);
+                    if (!res.ok) {
+                      setErr(res.error);
+                      return;
+                    }
+                    setMsg(res.message);
+                    router.refresh();
+                  })
+                }
+              >
+                Build review heads
               </button>
             </div>
           ) : null}

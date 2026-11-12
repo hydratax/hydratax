@@ -7,6 +7,7 @@ import {
   createClientInvoice,
   createInvoiceLineTemplate,
   deleteInvoiceLineTemplate,
+  sendClientInvoiceEmail,
   setInvoiceStatus,
 } from "@/server/actions/invoices";
 import type {
@@ -15,6 +16,11 @@ import type {
 } from "@/server/demo/store";
 import { money } from "@/lib/format";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import {
+  isInvoiceOverdue,
+  openInvoiceTotals,
+} from "@/lib/invoices/totals";
+import { messageFromUnknown } from "@/lib/action-error";
 
 type LineDraft = {
   description: string;
@@ -35,11 +41,6 @@ function statusBadge(status: MemoryInvoice["status"]) {
   if (status === "due" || status === "sent") return "badge badge-due-soon";
   if (status === "void") return "badge badge-muted";
   return "badge badge-muted";
-}
-
-function isOverdue(inv: MemoryInvoice) {
-  if (inv.status === "paid" || inv.status === "void") return false;
-  return inv.dueDate < new Date().toISOString().slice(0, 10);
 }
 
 function addDays(iso: string, days: number) {
@@ -77,6 +78,7 @@ export function InvoiceWorkspace({
   templates,
   initialLine,
   defaultPaymentInstructions = "",
+  brandingIncomplete = false,
 }: {
   clientId: string;
   clientName: string;
@@ -86,10 +88,16 @@ export function InvoiceWorkspace({
   initialLine?: LineDraft | null;
   /** From Settings → Practice branding bank details */
   defaultPaymentInstructions?: string;
+  /** True when logo / address / bank details are missing */
+  brandingIncomplete?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+  const [emailingId, setEmailingId] = useState<string | null>(null);
+  const [emailTo, setEmailTo] = useState(clientEmail ?? "");
+  const dueTotals = useMemo(() => openInvoiceTotals(invoices), [invoices]);
   const [lines, setLines] = useState<LineDraft[]>([
     initialLine ?? emptyLine(),
   ]);
@@ -170,11 +178,68 @@ export function InvoiceWorkspace({
 
   return (
     <div className="space-y-8">
+      {brandingIncomplete ? (
+        <div className="rounded-xl border border-sea/30 bg-sea/5 px-4 py-3 text-sm text-ink">
+          <p className="font-semibold">Personalise your invoices</p>
+          <p className="mt-1 text-ink-soft">
+            Logo, address and bank details are incomplete — invoices will show
+            blank placeholders until you add practice branding.
+          </p>
+          <Link
+            href="/settings/letterhead"
+            className="mt-2 inline-flex font-semibold text-sea hover:underline"
+          >
+            Add branding in Practice branding →
+          </Link>
+        </div>
+      ) : null}
+
+      <div className="panel grid gap-4 p-5 sm:grid-cols-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+            Amount due
+          </p>
+          <p className="display mt-1 text-2xl text-ink">
+            {money(dueTotals.amountDuePence)}
+          </p>
+          <p className="text-xs text-ink-soft">
+            Open invoices (draft / sent / due)
+          </p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+            Overdue
+          </p>
+          <p className="display mt-1 text-2xl text-danger">
+            {money(dueTotals.overduePence)}
+          </p>
+          <p className="text-xs text-ink-soft">
+            {dueTotals.overdueCount} invoice
+            {dueTotals.overdueCount === 1 ? "" : "s"}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+            Open count
+          </p>
+          <p className="display mt-1 text-2xl">{dueTotals.openCount}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+            Due soon
+          </p>
+          <p className="display mt-1 text-2xl text-violet">
+            {dueTotals.dueSoonCount}
+          </p>
+        </div>
+      </div>
+
       <form
         className="panel space-y-4 p-5"
         onSubmit={(e) => {
           e.preventDefault();
           setError(null);
+          setOk(null);
           start(async () => {
             try {
               await createClientInvoice({
@@ -517,11 +582,20 @@ export function InvoiceWorkspace({
         </button>
       </form>
 
+      <FormErrorBanner error={error} />
+      {ok ? <p className="text-sm font-semibold text-ok">{ok}</p> : null}
+
       <div className="panel overflow-hidden">
         <div className="border-b border-line px-4 py-3">
           <h2 className="font-semibold text-ink">
             Invoices ({invoices.length})
           </h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            Outstanding: {money(dueTotals.amountDuePence)}
+            {dueTotals.overdueCount
+              ? ` · ${money(dueTotals.overduePence)} overdue`
+              : ""}
+          </p>
         </div>
         <ul className="divide-y divide-line">
           {invoices.length === 0 && (
@@ -532,7 +606,7 @@ export function InvoiceWorkspace({
           {invoices.map((inv) => (
             <li
               key={inv.id}
-              className={`px-4 py-4 ${isOverdue(inv) ? "client-card--overdue" : ""}`}
+              className={`px-4 py-4 ${isInvoiceOverdue(inv) ? "client-card--overdue" : ""}`}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -541,7 +615,7 @@ export function InvoiceWorkspace({
                   </p>
                   <p className="mt-1 text-sm text-ink-soft">
                     Issued {inv.issueDate} · Due {inv.dueDate}
-                    {isOverdue(inv) ? " · Overdue" : ""}
+                    {isInvoiceOverdue(inv) ? " · Overdue" : ""}
                     {inv.reference ? ` · Ref ${inv.reference}` : ""}
                   </p>
                   <ul className="mt-2 text-sm text-ink-soft">
@@ -551,6 +625,59 @@ export function InvoiceWorkspace({
                       </li>
                     ))}
                   </ul>
+                  {emailingId === inv.id ? (
+                    <div className="mt-3 flex flex-wrap items-end gap-2">
+                      <label className="text-xs font-semibold text-ink">
+                        Send to
+                        <input
+                          type="email"
+                          className="input mt-1 block min-w-[14rem]"
+                          value={emailTo}
+                          onChange={(e) => setEmailTo(e.target.value)}
+                          placeholder="client@firm.co.uk"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="btn btn-primary text-sm"
+                        disabled={pending}
+                        onClick={() =>
+                          start(async () => {
+                            setError(null);
+                            setOk(null);
+                            try {
+                              const res = await sendClientInvoiceEmail({
+                                invoiceId: inv.id,
+                                toEmail: emailTo,
+                              });
+                              setOk(
+                                `Invoice emailed to ${res.toEmail}${
+                                  res.delivery === "logged"
+                                    ? " (logged — email provider not configured)"
+                                    : ""
+                                }.`,
+                              );
+                              setEmailingId(null);
+                              router.refresh();
+                            } catch (err) {
+                              setError(
+                                messageFromUnknown(err, "Could not email invoice"),
+                              );
+                            }
+                          })
+                        }
+                      >
+                        {pending ? "Sending…" : "Send email"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost text-sm"
+                        onClick={() => setEmailingId(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="text-right">
                   <p className="mono text-lg font-semibold">
@@ -565,6 +692,21 @@ export function InvoiceWorkspace({
                     >
                       Print / PDF
                     </Link>
+                    {inv.status !== "void" ? (
+                      <button
+                        type="button"
+                        className="text-sm font-semibold text-sea"
+                        disabled={pending}
+                        onClick={() => {
+                          setEmailingId(inv.id);
+                          setEmailTo(clientEmail ?? "");
+                          setError(null);
+                          setOk(null);
+                        }}
+                      >
+                        Email invoice
+                      </button>
+                    ) : null}
                     {inv.status === "draft" && (
                       <button
                         type="button"
@@ -630,41 +772,40 @@ export function InvoiceSummaryCards({
   invoices: MemoryInvoice[];
   title?: string;
 }) {
-  const open = invoices.filter(
-    (i) => i.status === "due" || i.status === "sent" || i.status === "draft",
-  );
-  const overdue = open.filter(isOverdue);
-  const dueSoon = open.filter((i) => !isOverdue(i));
+  const totals = openInvoiceTotals(invoices);
 
   return (
     <Link
       href={`/clients/${clientId}/invoices`}
       className={`panel panel-interactive block p-5 ${
-        overdue.length ? "border-danger/35 ring-1 ring-danger/15" : ""
+        totals.overdueCount ? "border-danger/35 ring-1 ring-danger/15" : ""
       }`}
     >
       <div className="flex items-center justify-between gap-3">
         <h2 className="display text-2xl">{title}</h2>
         <span className="open-chip">Open</span>
       </div>
-      {overdue.length > 0 && (
+      <p className="mt-2 display text-2xl text-ink">
+        {money(totals.amountDuePence)}
+      </p>
+      <p className="text-sm text-ink-soft">Amount due on open invoices</p>
+      {totals.overdueCount > 0 && (
         <p className="mt-2 text-sm text-danger">
-          {overdue.length} overdue invoice{overdue.length === 1 ? "" : "s"} need
-          attention.
+          {totals.overdueCount} overdue · {money(totals.overduePence)}
         </p>
       )}
       <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
         <div>
           <dt className="text-ink-soft">Open</dt>
-          <dd className="display text-2xl">{open.length}</dd>
+          <dd className="display text-2xl">{totals.openCount}</dd>
         </div>
         <div>
           <dt className="text-ink-soft">Due</dt>
-          <dd className="display text-2xl text-violet">{dueSoon.length}</dd>
+          <dd className="display text-2xl text-violet">{totals.dueSoonCount}</dd>
         </div>
         <div>
           <dt className="text-ink-soft">Overdue</dt>
-          <dd className="display text-2xl text-danger">{overdue.length}</dd>
+          <dd className="display text-2xl text-danger">{totals.overdueCount}</dd>
         </div>
       </dl>
       <ul className="mt-4 divide-y divide-line text-sm">

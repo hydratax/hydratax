@@ -101,10 +101,11 @@ Your ${PRACTICE_TRIAL_DAYS}-day HydraTax Practice desk trial for ${opts.practice
 
 Tomorrow (day 8) your saved card will be charged ${price}/month unless you cancel before then.
 
-• Keep filing: do nothing — your plan continues automatically.
-• Cancel: ${opts.appUrl}/pricing (Plans & billing) or reply to this email.
+• Keep the plan: do nothing — billing starts tomorrow on the card saved at checkout.
+• Cancel with no charge: ${opts.appUrl}/settings/account before the trial ends.
+• Live HMRC / Companies House submit during trial ends the trial and charges now.
 
-No Hydra fees applied during your trial. Companies House statutory fees still apply where charged.
+Prepare returns freely during the trial; live government submission is not included until billed.
 
 — HydraTax
 `;
@@ -116,10 +117,11 @@ No Hydra fees applied during your trial. Companies House statutory fees still ap
   <p>Your ${PRACTICE_TRIAL_DAYS}-day Practice desk trial for <strong>${opts.practiceName}</strong> ends on <strong>${endLabel}</strong>.</p>
   <p>Tomorrow (day 8) your saved card will be charged <strong>${price}/month</strong> unless you cancel before then.</p>
   <ul>
-    <li><strong>Keep filing:</strong> do nothing — your plan continues automatically.</li>
-    <li><strong>Cancel:</strong> open <a href="${opts.appUrl}/pricing">Plans &amp; billing</a> before the trial ends.</li>
+    <li><strong>Keep the plan:</strong> do nothing — billing starts tomorrow on the card saved at checkout.</li>
+    <li><strong>Cancel with no charge:</strong> open <a href="${opts.appUrl}/settings/account">Subscription settings</a> before the trial ends.</li>
+    <li><strong>Live submit now:</strong> confirming an HMRC or Companies House filing ends the trial and charges your card.</li>
   </ul>
-  <p style="color:#3a4248;font-size:14px;">No Hydra fees applied during your trial. Companies House statutory fees still apply where charged.</p>
+  <p style="color:#3a4248;font-size:14px;">You can prepare returns during the trial; live government submission is not included until billed.</p>
   <p style="margin-top:28px;"><a href="${opts.appUrl}/dashboard" style="display:inline-block;background:#0f766e;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">Open practice desk</a></p>
 </body></html>`;
 

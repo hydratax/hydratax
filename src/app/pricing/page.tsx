@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { PricingExplorer } from "@/components/pricing/pricing-explorer";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -45,7 +46,9 @@ export default function PricingPage() {
       <SiteHeader />
 
       <main>
-        <PricingExplorer stripeReady={isStripeConfigured()} />
+        <Suspense fallback={<div className="mx-auto max-w-6xl px-4 py-16 text-ink-soft">Loading pricing…</div>}>
+          <PricingExplorer stripeReady={isStripeConfigured()} />
+        </Suspense>
       </main>
 
       <SiteFooter />

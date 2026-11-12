@@ -96,45 +96,71 @@ export async function signUpWithSupabase(
     if (error) {
       return { ok: false, error: friendlyAuthMessage(error.message) };
     }
-    if (!authData.session) {
-      return { ok: true, redirectTo: "/sign-in?confirm=1" };
-    }
 
     // Provision practice row; free trial only starts via Practice/Custom checkout
     let practiceName: string | null = null;
-    try {
-      const { ensureSupabasePractice } = await import(
-        "@/server/auth/ensure-practice"
-      );
-      const practice = await ensureSupabasePractice(authData.user!);
-      practiceName = practice.practiceName;
-      // Single-company / company signups get weekly CS / accounts / CT600 nudges
-      if (data.orgType === "company" || data.orgType === "sole_trader") {
-        const { enrolCompanyFilingReminders } = await import(
-          "@/server/billing/company-filing-reminders"
+    const user = authData.user;
+    if (user) {
+      try {
+        const { ensureSupabasePractice } = await import(
+          "@/server/auth/ensure-practice"
         );
-        await enrolCompanyFilingReminders({
-          userId: authData.user!.id,
-          practiceId: practice.practiceId,
-          email: data.email,
-          firstName: data.firstName,
-        });
+        const practice = await ensureSupabasePractice(user);
+        practiceName = practice.practiceName;
+        // Single-company / company signups get weekly CS / accounts / CT600 nudges
+        if (data.orgType === "company" || data.orgType === "sole_trader") {
+          const { enrolCompanyFilingReminders } = await import(
+            "@/server/billing/company-filing-reminders"
+          );
+          await enrolCompanyFilingReminders({
+            userId: user.id,
+            practiceId: practice.practiceId,
+            email: data.email,
+            firstName: data.firstName,
+          });
+        }
+      } catch {
+        /* practice seeded on first dashboard visit */
       }
-    } catch {
-      /* practice seeded on first dashboard visit */
+
+      // First desk visit = signup; skip Trust-device until the second login.
+      try {
+        const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+        await supabase.auth.updateUser({
+          data: {
+            ...meta,
+            hydra_login_count: 1,
+            hydra_welcome_sent: true,
+            hydra_last_login_at: new Date().toISOString(),
+          },
+        });
+        if (authData.session) {
+          const { startProvisionalSession } = await import(
+            "@/server/auth/session-policy"
+          );
+          await startProvisionalSession();
+        }
+      } catch {
+        /* best-effort */
+      }
     }
 
     try {
-      const { sendAccountWelcomeEmail } = await import(
-        "@/server/email/account-welcome"
-      );
-      await sendAccountWelcomeEmail({
+      const { sendSignupEmails } = await import("@/server/email/signup-notify");
+      await sendSignupEmails({
         to: data.email,
         firstName: data.firstName,
+        surname: data.surname,
         practiceName,
+        orgType: data.orgType,
+        userId: user?.id ?? null,
       });
     } catch (err) {
-      console.error("[auth.signUp] welcome email failed", err);
+      console.error("[auth.signUp] signup emails failed", err);
+    }
+
+    if (!authData.session) {
+      return { ok: true, redirectTo: "/sign-in?confirm=1" };
     }
 
     return { ok: true, redirectTo: "/dashboard" };
@@ -192,43 +218,68 @@ export async function quickSignUpWithSupabase(
     if (error) {
       return { ok: false, error: friendlyAuthMessage(error.message) };
     }
+
+    let practiceName: string | null = null;
+    const user = authData.user;
+    const firstName = data.email.split("@")[0] || null;
+    if (user) {
+      try {
+        const { ensureSupabasePractice } = await import(
+          "@/server/auth/ensure-practice"
+        );
+        const practice = await ensureSupabasePractice(user);
+        practiceName = practice.practiceName;
+        const { enrolCompanyFilingReminders } = await import(
+          "@/server/billing/company-filing-reminders"
+        );
+        await enrolCompanyFilingReminders({
+          userId: user.id,
+          practiceId: practice.practiceId,
+          email: data.email,
+        });
+      } catch {
+        /* practice seeded on first desk visit */
+      }
+
+      try {
+        const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+        await supabase.auth.updateUser({
+          data: {
+            ...meta,
+            hydra_login_count: 1,
+            hydra_welcome_sent: true,
+            hydra_last_login_at: new Date().toISOString(),
+          },
+        });
+        if (authData.session) {
+          const { startProvisionalSession } = await import(
+            "@/server/auth/session-policy"
+          );
+          await startProvisionalSession();
+        }
+      } catch {
+        /* best-effort */
+      }
+    }
+
+    try {
+      const { sendSignupEmails } = await import("@/server/email/signup-notify");
+      await sendSignupEmails({
+        to: data.email,
+        firstName,
+        practiceName,
+        orgType: "company",
+        userId: user?.id ?? null,
+      });
+    } catch (err) {
+      console.error("[auth.quickSignUp] signup emails failed", err);
+    }
+
     if (!authData.session) {
       return {
         ok: true,
         redirectTo: `/sign-in?confirm=1&next=${encodeURIComponent(continueTo)}`,
       };
-    }
-
-    let practiceName: string | null = null;
-    try {
-      const { ensureSupabasePractice } = await import(
-        "@/server/auth/ensure-practice"
-      );
-      const practice = await ensureSupabasePractice(authData.user!);
-      practiceName = practice.practiceName;
-      const { enrolCompanyFilingReminders } = await import(
-        "@/server/billing/company-filing-reminders"
-      );
-      await enrolCompanyFilingReminders({
-        userId: authData.user!.id,
-        practiceId: practice.practiceId,
-        email: data.email,
-      });
-    } catch {
-      /* practice seeded on first desk visit */
-    }
-
-    try {
-      const { sendAccountWelcomeEmail } = await import(
-        "@/server/email/account-welcome"
-      );
-      await sendAccountWelcomeEmail({
-        to: data.email,
-        firstName: data.email.split("@")[0] || null,
-        practiceName,
-      });
-    } catch (err) {
-      console.error("[auth.quickSignUp] welcome email failed", err);
     }
 
     return { ok: true, redirectTo: continueTo };
@@ -262,14 +313,34 @@ export async function signInWithSupabase(
       return { ok: false, error: friendlyAuthMessage(error.message) };
     }
     const userId = signedIn.user?.id;
+    let suggest2fa = false;
+    let loginCount = 0;
     if (userId) {
+      const { startProvisionalSession, recordSuccessfulLogin } = await import(
+        "@/server/auth/session-policy"
+      );
+      await startProvisionalSession();
+      const login = await recordSuccessfulLogin(userId);
+      suggest2fa = login.suggest2fa;
+      loginCount = login.loginCount;
+
       const { beginMfaIfRequired } = await import("@/server/actions/mfa");
       const mfa = await beginMfaIfRequired(userId);
       if (mfa.required) {
-        return { ok: true, redirectTo: "/verify-2fa" };
+        const { postLoginPath } = await import("@/lib/session-policy");
+        return {
+          ok: true,
+          redirectTo: `/verify-2fa?next=${encodeURIComponent(
+            postLoginPath("/dashboard", { suggest2fa, loginCount }),
+          )}`,
+        };
       }
     }
-    return { ok: true, redirectTo: "/dashboard" };
+    const { postLoginPath } = await import("@/lib/session-policy");
+    return {
+      ok: true,
+      redirectTo: postLoginPath("/dashboard", { suggest2fa, loginCount }),
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Sign in failed";
     return { ok: false, error: friendlyAuthMessage(msg) };
@@ -399,13 +470,10 @@ export async function signOutSupabase() {
     await supabase.auth.signOut();
   }
   try {
-    const { cookies } = await import("next/headers");
-    const { MFA_OK_COOKIE, MFA_PENDING_COOKIE } = await import(
-      "@/lib/mfa-cookies"
+    const { clearSessionPolicyCookies } = await import(
+      "@/server/auth/session-policy"
     );
-    const jar = await cookies();
-    jar.delete(MFA_OK_COOKIE);
-    jar.delete(MFA_PENDING_COOKIE);
+    await clearSessionPolicyCookies();
   } catch {
     /* ignore */
   }

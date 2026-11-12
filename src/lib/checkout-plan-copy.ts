@@ -41,9 +41,9 @@ export function describeCheckoutPlan(planKey: string): CheckoutPlanCopy {
 
   let title = features.label;
   if (base.startsWith("practice:Custom")) {
-    title = "Custom practice desk";
+    title = "Enterprise desk";
   } else if (base === "practice:Practice") {
-    title = "Practice desk";
+    title = "Small Firm desk";
   } else if (base === "practice:Solo") {
     title = "Solo desk";
   } else if (base.startsWith("companies-house:")) {

@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { requireModule } from "@/server/auth/session";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 import { getSa800Draft, listSa800Returns } from "@/server/actions/sa800";
@@ -14,11 +13,7 @@ export default async function PartnershipReturnPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ year?: string }>;
 }) {
-  try {
-    await requireModule("self_assessment");
-  } catch {
-    redirect("/clients");
-  }
+  await requireModule("self_assessment");
 
   const { id: ref } = await params;
   const query = await searchParams;

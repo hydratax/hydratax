@@ -12,7 +12,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   filingSaTaxYear,
-  listSaTaxYears,
+  formatSaTaxYearRange,
   parseSaTaxYearLabel,
   saCardUrgencyClass,
   saFilingUrgency,
@@ -31,6 +31,7 @@ import { uploadClientDocument } from "@/server/actions/documents";
 import { saFiledCategory } from "@/lib/sa-filed-docs";
 import { messageFromUnknown } from "@/lib/action-error";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { SaYearActionsMenu } from "@/components/forms/sa-year-actions-menu";
 
 export type SaFiledDocRow = {
   id: string;
@@ -42,7 +43,7 @@ export type SaFiledDocRow = {
 };
 
 /**
- * One card per tax year — year + status + Edit / Delete / Upload SA100 & SA302.
+ * One card per tax year — year + status + Actions menu (Edit / uploads / Delete).
  * Prior-year uploads are stored as tagged client documents so they survive refresh.
  */
 export function SaTaxYearWorkspace({
@@ -90,11 +91,15 @@ export function SaTaxYearWorkspace({
       string,
       { return?: SaFiledDocRow; sa302?: SaFiledDocRow }
     >();
-    for (const d of filedDocs) {
+    // Prefer newest document per kind (draft saves append fresh PDFs).
+    const sorted = [...filedDocs].sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt),
+    );
+    for (const d of sorted) {
       if (!d.taxYear || d.kind === "unassigned") continue;
       const slot = map.get(d.taxYear) ?? {};
-      if (d.kind === "return") slot.return = d;
-      if (d.kind === "sa302") slot.sa302 = d;
+      if (d.kind === "return" && !slot.return) slot.return = d;
+      if (d.kind === "sa302" && !slot.sa302) slot.sa302 = d;
       map.set(d.taxYear, slot);
     }
     return map;
@@ -106,15 +111,17 @@ export function SaTaxYearWorkspace({
   );
 
   const yearCards = useMemo(() => {
-    const defaults = listSaTaxYears(3).map((y) => y.label);
+    // Only show years the user has started (draft/filed) or explicitly added.
+    // Never auto-seed overdue empty years onto the desk.
     const fromReturns = returns.map((r) => r.taxYear);
     const fromDocs = filedDocs
       .map((d) => d.taxYear)
       .filter((y): y is string => Boolean(y));
+    const filingUrgency = saFilingUrgency(filingYear, "none");
+    const includeFilingYear = filingUrgency !== "overdue";
     const labels = Array.from(
       new Set([
-        filingYear.label,
-        ...defaults,
+        ...(includeFilingYear ? [filingYear.label] : []),
         ...fromReturns,
         ...fromDocs,
         ...extraYears,
@@ -123,11 +130,31 @@ export function SaTaxYearWorkspace({
     const years: SaTaxYear[] = [];
     for (const label of labels) {
       const y = parseSaTaxYearLabel(label);
-      if (y) years.push(y);
+      if (!y) continue;
+      const hasWork =
+        returnYears.has(y.label) ||
+        docsByYear.has(y.label) ||
+        extraYears.includes(y.label);
+      // Hide empty overdue years even if they slipped into the set.
+      if (
+        !hasWork &&
+        saFilingUrgency(y, "none") === "overdue"
+      ) {
+        continue;
+      }
+      years.push(y);
     }
     years.sort((a, b) => b.label.localeCompare(a.label));
     return years;
-  }, [returns, filedDocs, extraYears, hiddenYears, filingYear.label]);
+  }, [
+    returns,
+    filedDocs,
+    extraYears,
+    hiddenYears,
+    filingYear,
+    returnYears,
+    docsByYear,
+  ]);
 
   const active =
     (activeYear && parseSaTaxYearLabel(activeYear)) || null;
@@ -244,139 +271,31 @@ export function SaTaxYearWorkspace({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="display text-2xl text-ink">Tax return</h2>
-          <p className="mt-1 text-sm text-ink-soft">
-            One card per year · edit or delete · upload prior SA100 / SA302
-          </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Link
-            href="/self-assessment/bulk-prior-returns"
-            className="btn btn-secondary text-sm"
-          >
-            Bulk prior returns
-          </Link>
-          <button
-            type="button"
-            className="btn btn-secondary text-sm"
-            onClick={addPreviousYear}
-          >
-            Add previous year
-          </button>
-        </div>
+        <button
+          type="button"
+          className="btn btn-secondary text-sm"
+          onClick={addPreviousYear}
+        >
+          Add tax year
+        </button>
       </div>
+      <p className="text-sm text-ink-soft">
+        Add the accounting year you want to file, then open it to complete the
+        SA100. Books dates follow that year.
+      </p>
 
       <FormErrorBanner error={err} />
       {msg ? <p className="text-sm text-ok">{msg}</p> : null}
-
-      {unassigned.length > 0 ? (
-        <div className="panel space-y-3 border-amber-200 bg-amber-50/40 p-4">
-          <div>
-            <p className="font-semibold text-ink">Unassigned SA uploads</p>
-            <p className="text-sm text-ink-soft">
-              These files were uploaded before year tagging. Assign each to a
-              tax year as the submitted return or SA302.
-            </p>
-          </div>
-          <ul className="space-y-2">
-            {unassigned.map((d) => (
-              <li
-                key={d.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-white px-3 py-2 text-sm"
-              >
-                <a
-                  href={d.blobUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium text-sea hover:underline"
-                >
-                  {d.filename}
-                </a>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    className="input py-1 text-xs"
-                    id={`assign-year-${d.id}`}
-                    defaultValue={yearCards[yearCards.length - 1]?.label ?? ""}
-                  >
-                    {yearCards.map((y) => (
-                      <option key={y.label} value={y.label}>
-                        {y.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="btn btn-secondary text-xs"
-                    disabled={pending}
-                    onClick={() => {
-                      const sel = document.getElementById(
-                        `assign-year-${d.id}`,
-                      ) as HTMLSelectElement | null;
-                      const year = sel?.value;
-                      if (!year) return;
-                      setErr(null);
-                      start(async () => {
-                        try {
-                          await assignSaFiledDocument({
-                            clientId,
-                            documentId: d.id,
-                            taxYear: year,
-                            kind: "return",
-                            taxpayerId,
-                          });
-                          setMsg(`Assigned ${d.filename} as ${year} return`);
-                          router.refresh();
-                        } catch (e) {
-                          setErr(messageFromUnknown(e, "Could not assign"));
-                        }
-                      });
-                    }}
-                  >
-                    As return
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary text-xs"
-                    disabled={pending}
-                    onClick={() => {
-                      const sel = document.getElementById(
-                        `assign-year-${d.id}`,
-                      ) as HTMLSelectElement | null;
-                      const year = sel?.value;
-                      if (!year) return;
-                      setErr(null);
-                      start(async () => {
-                        try {
-                          await assignSaFiledDocument({
-                            clientId,
-                            documentId: d.id,
-                            taxYear: year,
-                            kind: "sa302",
-                            taxpayerId,
-                          });
-                          setMsg(`Assigned ${d.filename} as ${year} SA302`);
-                          router.refresh();
-                        } catch (e) {
-                          setErr(messageFromUnknown(e, "Could not assign"));
-                        }
-                      });
-                    }}
-                  >
-                    As SA302
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
 
       <ul className="space-y-3">
         {yearCards.map((year) => {
           const match = returnYears.get(year.label) ?? null;
           const docs = docsByYear.get(year.label);
+          // Prefer the return row status — draft PDFs must not look "Submitted".
           const status =
             match?.status ??
-            (docs?.return ? "accepted" : "none");
+            (docs?.return && !match ? "accepted" : "none");
           const submitted = status === "submitted" || status === "accepted";
           const isDraft = status === "draft";
           const urgency = saFilingUrgency(year, status);
@@ -393,6 +312,9 @@ export function SaTaxYearWorkspace({
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="display text-xl text-ink">
                       {year.label}
+                    </span>
+                    <span className="text-xs text-ink-soft">
+                      {formatSaTaxYearRange(year)}
                     </span>
                     {badge ? (
                       <span
@@ -422,8 +344,9 @@ export function SaTaxYearWorkspace({
                           target="_blank"
                           rel="noreferrer"
                           className="font-medium text-sea hover:underline"
+                          title={docs.return.filename}
                         >
-                          View return · {docs.return.filename}
+                          view SA100
                         </a>
                       ) : null}
                       {docs.sa302 ? (
@@ -432,56 +355,172 @@ export function SaTaxYearWorkspace({
                           target="_blank"
                           rel="noreferrer"
                           className="font-medium text-sea hover:underline"
+                          title={docs.sa302.filename}
                         >
-                          View SA302 · {docs.sa302.filename}
+                          view SA302
                         </a>
                       ) : null}
                     </div>
                   )}
                 </div>
 
-                <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-primary text-sm"
-                    onClick={() => openFiling(year)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary text-sm text-danger"
-                    disabled={pending}
-                    onClick={() => deleteYear(year, status)}
-                  >
-                    Delete
-                  </button>
-                  {!isDraft && !docs?.return ? (
-                    <button
-                      type="button"
-                      className="btn btn-secondary text-sm"
-                      disabled={pending}
-                      onClick={() => pickUpload(year.label, "return")}
-                    >
-                      Upload return
-                    </button>
-                  ) : null}
-                  {!docs?.sa302 ? (
-                    <button
-                      type="button"
-                      className="btn btn-secondary text-sm"
-                      disabled={pending}
-                      onClick={() => pickUpload(year.label, "sa302")}
-                    >
-                      Upload SA302
-                    </button>
-                  ) : null}
-                </div>
+                <SaYearActionsMenu
+                  yearLabel={year.label}
+                  pending={pending}
+                  showUploadReturn={!isDraft && !docs?.return}
+                  showUploadSa302={!docs?.sa302}
+                  onEdit={() => openFiling(year)}
+                  onDelete={() => deleteYear(year, status)}
+                  onUploadReturn={() => pickUpload(year.label, "return")}
+                  onUploadSa302={() => pickUpload(year.label, "sa302")}
+                />
               </div>
             </li>
           );
         })}
       </ul>
+
+      <div className="space-y-3 pt-2">
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/self-assessment/bulk-prior-returns"
+            className="btn btn-secondary text-sm"
+          >
+            Bulk prior returns
+          </Link>
+        </div>
+
+        {unassigned.length > 0 ? (
+          <details className="panel border-amber-200 bg-amber-50/40 p-4">
+            <summary className="cursor-pointer list-none font-semibold text-ink marker:content-none [&::-webkit-details-marker]:hidden">
+              <span className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  Unassigned SA uploads
+                  <span className="ml-2 text-sm font-normal text-ink-soft">
+                    ({unassigned.length})
+                  </span>
+                </span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+                  Open
+                </span>
+              </span>
+            </summary>
+            <div className="mt-3 space-y-3 border-t border-amber-200/80 pt-3">
+              <p className="text-sm text-ink-soft">
+                These files were uploaded before year tagging. Assign each to a
+                tax year as the submitted SA100 or SA302.
+              </p>
+              <ul className="space-y-2">
+                {unassigned.map((d) => {
+                  const name = d.filename.toLowerCase();
+                  const viewLabel = /sa\s*302|sa302/.test(name)
+                    ? "view SA302"
+                    : /sa\s*100|sa100|forms?\(/.test(name)
+                      ? "view SA100"
+                      : "view file";
+                  return (
+                    <li
+                      key={d.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-white px-3 py-2 text-sm"
+                    >
+                      <a
+                        href={d.blobUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-medium text-sea hover:underline"
+                        title={d.filename}
+                      >
+                        {viewLabel}
+                      </a>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          className="input py-1 text-xs"
+                          id={`assign-year-${d.id}`}
+                          defaultValue={
+                            yearCards[yearCards.length - 1]?.label ?? ""
+                          }
+                        >
+                          {yearCards.map((y) => (
+                            <option key={y.label} value={y.label}>
+                              {y.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          className="btn btn-secondary text-xs"
+                          disabled={pending}
+                          onClick={() => {
+                            const sel = document.getElementById(
+                              `assign-year-${d.id}`,
+                            ) as HTMLSelectElement | null;
+                            const year = sel?.value;
+                            if (!year) return;
+                            setErr(null);
+                            start(async () => {
+                              try {
+                                await assignSaFiledDocument({
+                                  clientId,
+                                  documentId: d.id,
+                                  taxYear: year,
+                                  kind: "return",
+                                  taxpayerId,
+                                });
+                                setMsg(
+                                  `Assigned as ${year} SA100`,
+                                );
+                                router.refresh();
+                              } catch (e) {
+                                setErr(
+                                  messageFromUnknown(e, "Could not assign"),
+                                );
+                              }
+                            });
+                          }}
+                        >
+                          As SA100
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary text-xs"
+                          disabled={pending}
+                          onClick={() => {
+                            const sel = document.getElementById(
+                              `assign-year-${d.id}`,
+                            ) as HTMLSelectElement | null;
+                            const year = sel?.value;
+                            if (!year) return;
+                            setErr(null);
+                            start(async () => {
+                              try {
+                                await assignSaFiledDocument({
+                                  clientId,
+                                  documentId: d.id,
+                                  taxYear: year,
+                                  kind: "sa302",
+                                  taxpayerId,
+                                });
+                                setMsg(`Assigned as ${year} SA302`);
+                                router.refresh();
+                              } catch (e) {
+                                setErr(
+                                  messageFromUnknown(e, "Could not assign"),
+                                );
+                              }
+                            });
+                          }}
+                        >
+                          As SA302
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </details>
+        ) : null}
+      </div>
 
       <input
         ref={fileRef}
@@ -514,7 +553,7 @@ export function SaTaxYearWorkspace({
                   documentId: doc.id,
                   filename: doc.filename,
                 });
-                setMsg(`SA302 for ${target.year} saved (${doc.filename}).`);
+                setMsg(`SA302 for ${target.year} saved.`);
               } else {
                 await recordSubmittedSaReturn({
                   clientId,
@@ -523,9 +562,7 @@ export function SaTaxYearWorkspace({
                   documentId: doc.id,
                   filename: doc.filename,
                 });
-                setMsg(
-                  `Submitted return for ${target.year} recorded (${doc.filename}).`,
-                );
+                setMsg(`SA100 for ${target.year} recorded.`);
               }
               router.refresh();
             } catch (error) {

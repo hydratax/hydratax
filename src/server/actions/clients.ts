@@ -408,6 +408,30 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
     );
   }
 
+  // Enforce plan client caps (Solo = 1, Practice = 10, etc.).
+  try {
+    const { getPracticeEntitlements } = await import(
+      "@/server/actions/account"
+    );
+    const ent = await getPracticeEntitlements();
+    if (ent.maxClients != null) {
+      const existing = await listClients();
+      if (existing.length >= ent.maxClients) {
+        throw new Error(
+          `Your plan allows ${ent.maxClients} client${ent.maxClients === 1 ? "" : "s"}. Upgrade on Pricing to add more clients.`,
+        );
+      }
+    }
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      /plan allows|Upgrade to add/i.test(err.message)
+    ) {
+      throw err;
+    }
+    /* entitlements lookup best-effort when offline */
+  }
+
   const data = createClientSchema.parse(input);
   const now = new Date().toISOString();
 

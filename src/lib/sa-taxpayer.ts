@@ -72,6 +72,21 @@ export function normalizePersonName(name: string): string {
   return s.split(/\s+/).filter(Boolean).sort().join(" ");
 }
 
+/**
+ * URL-safe person key (hyphens, no spaces) for `/self-assessment/[personKey]`.
+ * Spaces in the path (`e%20rabbani%20zill`) break matching / 404 in the App Router.
+ */
+export function personKeySlug(nameOrKey: string): string {
+  return normalizePersonName(nameOrKey).replace(/\s+/g, "-");
+}
+
+/** Resolve a route param that may be hyphenated, spaced, or percent-encoded. */
+export function personKeyFromParam(raw: string): string {
+  const decoded = decodeURIComponent(String(raw ?? "").replace(/\+/g, " ")).trim();
+  if (!decoded) return "";
+  return normalizePersonName(decoded.replace(/-/g, " "));
+}
+
 /** Prefer a readable "Forename Surname" display over "SURNAME, Forename". */
 export function displayPersonName(name: string): string {
   let s = name.trim();

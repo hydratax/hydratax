@@ -31,10 +31,11 @@ export function PublicAuthLinks({
     void (async () => {
       try {
         const supabase = createClient();
+        // UI-only check — getSession reads cookies locally and avoids Auth rate limits.
         const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        if (!cancelled) setSignedIn(Boolean(user));
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!cancelled) setSignedIn(Boolean(session?.user));
       } catch {
         if (!cancelled) setSignedIn(false);
       }

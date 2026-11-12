@@ -26,6 +26,7 @@ export function SignInForm() {
   const [pending, start] = useTransition();
   const confirmHint = searchParams.get("confirm") === "1";
   const resetDone = searchParams.get("reset") === "1";
+  const sessionExpired = searchParams.get("expired") === "1";
   const oauthError = searchParams.get("error");
   const oauthFailed = oauthError === "auth";
   const pkceFailed = oauthError === "pkce";
@@ -46,11 +47,12 @@ export function SignInForm() {
     void (async () => {
       try {
         const supabase = createClient();
+        // Cookie session is enough here — avoid Auth getUser rate limits on the sign-in page.
         const {
-          data: { user },
-        } = await supabase.auth.getUser();
+          data: { session },
+        } = await supabase.auth.getSession();
         if (cancelled) return;
-        if (user) {
+        if (session?.user) {
           setSignedIn(true);
           router.replace(next);
           router.refresh();
@@ -113,10 +115,20 @@ export function SignInForm() {
               setError(res.error);
               return;
             }
-            const dest =
-              res.redirectTo === "/verify-2fa"
-                ? `/verify-2fa?next=${encodeURIComponent(next)}`
-                : next;
+            // Server already routes via /secure-device (and /verify-2fa when needed).
+            let dest = res.redirectTo || next;
+            if (dest.startsWith("/verify-2fa") && !dest.includes("next=")) {
+              dest = `/verify-2fa?next=${encodeURIComponent(
+                `/secure-device?next=${encodeURIComponent(next)}`,
+              )}`;
+            } else if (dest.startsWith("/secure-device")) {
+              // Preserve the user's intended destination inside secure-device.
+              const url = new URL(dest, "http://local");
+              if (!url.searchParams.get("next") || url.searchParams.get("next") === "/dashboard") {
+                url.searchParams.set("next", next);
+              }
+              dest = `${url.pathname}?${url.searchParams.toString()}`;
+            }
             router.push(dest);
             router.refresh();
           } catch (err) {
@@ -142,6 +154,12 @@ export function SignInForm() {
       {resetDone && (
         <p className="rounded-lg border border-sea/30 bg-sea/5 px-3 py-2 text-sm text-ink">
           Password updated. Sign in with your new password.
+        </p>
+      )}
+
+      {sessionExpired && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-ink">
+          Your session ended for security. Sign in again to continue.
         </p>
       )}
 

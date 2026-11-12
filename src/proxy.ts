@@ -21,6 +21,7 @@ const PUBLIC_PREFIXES = [
   "/forgot-password",
   "/reset-password",
   "/verify-2fa",
+  "/secure-device",
   "/auth",
   "/terms",
   "/privacy",
@@ -161,12 +162,40 @@ export default async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Desk session wall-clock expiry (10h untrusted / 7d trusted).
+  if (!isPublicPath(pathname) && !pathname.startsWith("/api/")) {
+    const { isSessionExpiryPast, SESSION_EXPIRES_COOKIE } = await import(
+      "@/lib/session-policy"
+    );
+    const expires = request.cookies.get(SESSION_EXPIRES_COOKIE)?.value;
+    if (isSessionExpiryPast(expires)) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/sign-in";
+      url.search = "";
+      url.searchParams.set("next", pathname);
+      url.searchParams.set("expired", "1");
+      const redirectResponse = NextResponse.redirect(url);
+      for (const c of request.cookies.getAll()) {
+        if (
+          c.name.startsWith("sb-") ||
+          c.name.startsWith("ht_session") ||
+          c.name.startsWith("ht_device") ||
+          c.name.startsWith("ht_mfa")
+        ) {
+          redirectResponse.cookies.set(c.name, "", { path: "/", maxAge: 0 });
+        }
+      }
+      return redirectResponse;
+    }
+  }
+
   // Password/OAuth done but OTP still outstanding — keep them on /verify-2fa.
   const mfaPending = request.cookies.get("ht_mfa_pending")?.value;
   if (
     mfaPending &&
     pathname !== "/verify-2fa" &&
     !pathname.startsWith("/verify-2fa/") &&
+    !pathname.startsWith("/secure-device") &&
     !pathname.startsWith("/auth/") &&
     !pathname.startsWith("/api/") &&
     !isPublicPath(pathname)

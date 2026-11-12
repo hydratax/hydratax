@@ -218,10 +218,16 @@ export async function listVatReturns(clientId: string) {
 }
 
 export async function submitPreparedVatReturn(
-  input: z.infer<typeof submitSchema>,
+  input: z.infer<typeof submitSchema> & { confirmEndTrial?: boolean },
 ) {
   const session = await requireSession();
   const data = submitSchema.parse(input);
+  const { requireLiveFilingAllowed } = await import(
+    "@/server/billing/filing-gate"
+  );
+  await requireLiveFilingAllowed(session.practiceId, {
+    confirmEndTrial: Boolean(input.confirmEndTrial),
+  });
   const client = await getClient(data.clientId);
   if (!client.vrn) throw new Error("Missing VRN");
   const approval = await import("@/server/actions/desk").then((m) =>

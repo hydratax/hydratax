@@ -6,9 +6,11 @@ import {
   WORKSPACE_CATEGORY_SECTIONS,
   buildCategoryLabelMap,
   isCustomCategoryId,
+  isProvisionalReviewLabel,
   resolveCategoryLabel,
 } from "@/lib/bank-categories";
 import {
+  mapProvisionalReviewHead,
   updateBankCategoriesBulk,
   updateBankCategory,
 } from "@/server/actions/bank";
@@ -86,6 +88,7 @@ export function BankCategorisedView({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkCategory, setBulkCategory] = useState("expense_queries");
+  const [mapTarget, setMapTarget] = useState<Record<string, string>>({});
   const [pending, start] = useTransition();
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -178,8 +181,17 @@ export function BankCategorisedView({
       .filter((t) => t.amountPence < 0)
       .reduce((s, t) => s + Math.abs(t.amountPence), 0);
     const needsConfirm = transactions.filter(needsClientConfirm).length;
-    return { income, expenses, count: transactions.length, needsConfirm };
-  }, [transactions]);
+    const reviewHeads = customCategories.filter((c) =>
+      isProvisionalReviewLabel(c.label),
+    ).length;
+    return {
+      income,
+      expenses,
+      count: transactions.length,
+      needsConfirm,
+      reviewHeads,
+    };
+  }, [transactions, customCategories]);
 
   useEffect(() => {
     setCustomCategories(initialCustom);
@@ -341,6 +353,19 @@ export function BankCategorisedView({
           </p>
         </div>
       </div>
+
+      {summary.reviewHeads > 0 ? (
+        <div className="mx-4 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-ink">
+          <strong className="font-semibold">
+            {summary.reviewHeads} provisional review head
+            {summary.reviewHeads === 1 ? "" : "s"}
+          </strong>
+          {" — "}
+          material unknown payees were grouped automatically. Open each{" "}
+          <em>Review:</em> section and map the whole head to the correct
+          accounts category (rules stick for next statements).
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-end gap-3 border-b border-line px-4 pb-4">
         <label className="flex min-w-[16rem] flex-[2] flex-col gap-1 text-sm">
@@ -553,7 +578,11 @@ export function BankCategorisedView({
                       {sectionLabel(category, customCategories)}
                       {isCustomCategoryId(category) ? (
                         <span className="ml-2 text-xs font-normal uppercase tracking-wide text-violet-600">
-                          custom
+                          {isProvisionalReviewLabel(
+                            sectionLabel(category, customCategories),
+                          )
+                            ? "review"
+                            : "custom"}
                         </span>
                       ) : null}
                     </h4>
@@ -597,6 +626,56 @@ export function BankCategorisedView({
                     </p>
                   ) : (
                     <>
+                      {isProvisionalReviewLabel(
+                        sectionLabel(category, customCategories),
+                      ) ? (
+                        <div className="flex flex-wrap items-center gap-3 border-b border-amber-200/80 bg-amber-50/80 px-4 py-3">
+                          <span className="text-sm text-ink">
+                            Map entire head to
+                          </span>
+                          <CategoryPicker
+                            value={mapTarget[category] ?? "admin_expenses"}
+                            disabled={pending}
+                            clientId={clientId}
+                            customCategories={customCategories}
+                            onCustomAdded={(row) =>
+                              setCustomCategories((prev) =>
+                                prev.some((c) => c.id === row.id)
+                                  ? prev
+                                  : [...prev, row].sort((a, b) =>
+                                      a.label.localeCompare(b.label),
+                                    ),
+                              )
+                            }
+                            onChange={(cat) =>
+                              setMapTarget((prev) => ({
+                                ...prev,
+                                [category]: cat,
+                              }))
+                            }
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-primary text-sm"
+                            disabled={pending}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const toCategory =
+                                mapTarget[category] ?? "admin_expenses";
+                              start(async () => {
+                                await mapProvisionalReviewHead({
+                                  clientId,
+                                  fromCategory: category,
+                                  toCategory,
+                                });
+                                router.refresh();
+                              });
+                            }}
+                          >
+                            {pending ? "Mapping…" : "Map head"}
+                          </button>
+                        </div>
+                      ) : null}
                       <div className="overflow-x-auto">
                         <table className="bank-tx-table w-full table-fixed text-left text-sm">
                           <thead className="text-xs uppercase text-ink-soft">

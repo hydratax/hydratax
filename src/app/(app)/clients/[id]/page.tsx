@@ -166,13 +166,14 @@ export default async function ClientOverviewPage({
                 return (
                   <div
                     key={row.label}
-                    className="flex items-baseline justify-between gap-4 py-2.5"
+                    className="grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)] items-baseline gap-x-4 py-2.5"
                   >
                     <dt className="text-ink-soft">{row.label}</dt>
                     <dd
-                      className={`text-right font-medium ${
+                      className={`truncate text-right font-medium ${
                         mono ? "mono" : ""
                       } ${empty ? "text-ink-soft" : "text-ink"}`}
+                      title={row.value || undefined}
                     >
                       {row.value || "—"}
                     </dd>

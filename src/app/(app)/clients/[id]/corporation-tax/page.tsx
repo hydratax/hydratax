@@ -3,7 +3,6 @@ import { listCt600Returns } from "@/server/actions/ct600";
 import { listClientDocuments } from "@/server/actions/documents";
 import { requireModule } from "@/server/auth/session";
 import { Ct600PeriodWorkspace } from "@/components/forms/ct600-period-workspace";
-import { redirect } from "next/navigation";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import {
@@ -23,11 +22,7 @@ export default async function CorporationTaxPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ note?: string; start?: string; end?: string }>;
 }) {
-  try {
-    await requireModule("corporation_tax");
-  } catch {
-    redirect("/clients");
-  }
+  await requireModule("corporation_tax");
   const { id: ref } = await params;
   const query = await searchParams;
   const { client, slug, clientId } = await loadClientPage(ref, "corporation-tax");

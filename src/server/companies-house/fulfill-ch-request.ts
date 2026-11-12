@@ -248,6 +248,27 @@ export async function fulfillPaidChRequest(opts: {
     };
   }
 
+  // Free trial cannot submit to Companies House until the trial is ended/charged.
+  if (record.practiceId) {
+    try {
+      const { requireLiveFilingAllowed } = await import(
+        "@/server/billing/filing-gate"
+      );
+      await requireLiveFilingAllowed(record.practiceId);
+    } catch (err) {
+      return {
+        ok: false,
+        requestId: record.id,
+        serviceId: record.serviceId,
+        companyNumber: record.companyNumber,
+        companyName: null,
+        paymentMarked: false,
+        submitted: false,
+        error: err instanceof Error ? err.message : "Trial blocks live filing",
+      };
+    }
+  }
+
   const payload = record.payload ?? {};
   const companyName =
     typeof payload.companyName === "string"

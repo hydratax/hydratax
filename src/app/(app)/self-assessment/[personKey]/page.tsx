@@ -10,6 +10,8 @@ import {
   listPracticeDirectors,
 } from "@/server/actions/sa-directors";
 import { listClientDocuments } from "@/server/actions/documents";
+import { listBankTransactions } from "@/server/actions/bank";
+import { listCustomBankCategories } from "@/server/actions/custom-categories";
 import { getClient } from "@/server/actions/clients";
 import { Sa100Wizard } from "@/components/forms/sa100-wizard";
 import { SaPersonalBooks } from "@/components/forms/sa-personal-books";
@@ -17,12 +19,13 @@ import { SaDirectorIncomeDesk } from "@/components/forms/sa-director-income-desk
 import { SaPersonProfile } from "@/components/forms/sa-person-profile";
 import { SaTaxYearWorkspace } from "@/components/forms/sa-tax-year-workspace";
 import {
-  normalizePersonName,
+  personKeyFromParam,
+  personKeySlug,
   roleFromCompanyLinks,
 } from "@/lib/sa-taxpayer";
 import { accumulateSa100FromIncome } from "@/lib/sa-income";
 import { filingSaTaxYear, parseSaTaxYearLabel } from "@/lib/sa-tax-year";
-import { requireSession } from "@/server/auth/session";
+import { requireModule } from "@/server/auth/session";
 
 export default async function PersonSelfAssessmentPage({
   params,
@@ -31,10 +34,10 @@ export default async function PersonSelfAssessmentPage({
   params: Promise<{ personKey: string }>;
   searchParams?: Promise<{ year?: string }>;
 }) {
-  await requireSession();
+  await requireModule("self_assessment");
   const { personKey: rawKey } = await params;
   const sp = (await searchParams) ?? {};
-  const personKey = decodeURIComponent(rawKey).trim();
+  const personKey = personKeyFromParam(rawKey);
   if (!personKey) notFound();
 
   const filingYear = filingSaTaxYear();
@@ -42,38 +45,39 @@ export default async function PersonSelfAssessmentPage({
   const activeYear =
     (yearParam && parseSaTaxYearLabel(yearParam)?.label) || filingYear.label;
 
-  const directors = await listPracticeDirectors().catch(() => []);
+  const directors = await listPracticeDirectors();
   const person =
     directors.find((d) => d.key === personKey) ||
-    directors.find(
-      (d) => normalizePersonName(d.fullName) === normalizePersonName(personKey),
-    ) ||
+    directors.find((d) => personKeyFromParam(d.key) === personKey) ||
     null;
   if (!person) notFound();
 
   const workspace = await getDirectorWorkspace({
     homeClientId: person.homeClientId,
     personKey: person.key,
-  }).catch(() => null);
+  });
   if (!workspace?.taxpayer) notFound();
 
   const selected = workspace.taxpayer;
   const saClientId = workspace.person.homeClientId;
   const homeClient = await getClient(saClientId).catch(() => null);
 
-  const [sa100Draft, sa100Returns, documents, saFiledDocs] = await Promise.all([
-    getSa100Draft(saClientId, activeYear, selected.id).catch(() => null),
-    listSa100Returns(saClientId, selected.id).catch(() => []),
-    listClientDocuments(saClientId).catch(() => []),
-    listSaFiledDocuments(saClientId, selected.id).catch(() => []),
-  ]);
+  const [sa100Draft, sa100Returns, documents, saFiledDocs, bankTxs, customCats] =
+    await Promise.all([
+      getSa100Draft(saClientId, activeYear, selected.id).catch(() => null),
+      listSa100Returns(saClientId, selected.id).catch(() => []),
+      listClientDocuments(saClientId).catch(() => []),
+      listSaFiledDocuments(saClientId, selected.id).catch(() => []),
+      listBankTransactions(saClientId).catch(() => []),
+      listCustomBankCategories().catch(() => []),
+    ]);
 
   const accumulated = accumulateSa100FromIncome(selected, {
     ...(sa100Draft?.draft ?? {}),
     taxYear: activeYear,
   });
 
-  const yearHrefBase = `/self-assessment/${encodeURIComponent(person.key)}`;
+  const yearHrefBase = `/self-assessment/${personKeySlug(person.key)}`;
 
   return (
     <div className="space-y-8">
@@ -125,7 +129,7 @@ export default async function PersonSelfAssessmentPage({
         taxpayerId={selected.id}
       >
         <Sa100Wizard
-          key={`${selected.id}-sa100-${activeYear}-${selected.updatedAt}-${sa100Draft?.updatedAt ?? "new"}`}
+          key={`${selected.id}-sa100-${activeYear}`}
           clientId={saClientId}
           clientName={selected.fullName}
           contactEmail={selected.email || homeClient?.contactEmail || null}
@@ -134,6 +138,7 @@ export default async function PersonSelfAssessmentPage({
           taxpayerId={selected.id}
           companyName={null}
           taxYear={activeYear}
+          initialReturnId={sa100Draft?.id ?? null}
           initial={{
             ...accumulated,
             phone: selected.phone || accumulated?.phone || "",
@@ -147,6 +152,7 @@ export default async function PersonSelfAssessmentPage({
         clientId={saClientId}
         taxpayerId={selected.id}
         taxpayerName={selected.fullName}
+        occupation={selected.occupation ?? ""}
         documents={documents.map((d) => ({
           id: d.id,
           filename: d.filename,
@@ -157,6 +163,18 @@ export default async function PersonSelfAssessmentPage({
             typeof d.createdAt === "string"
               ? d.createdAt
               : new Date(d.createdAt).toISOString(),
+        }))}
+        transactions={bankTxs.map((t) => ({
+          id: t.id,
+          dated: t.dated,
+          description: t.description,
+          amountPence: t.amountPence,
+          category: t.category,
+          confidence: t.confidence,
+        }))}
+        customCategories={customCats.map((c) => ({
+          id: c.id,
+          label: c.label,
         }))}
       />
     </div>

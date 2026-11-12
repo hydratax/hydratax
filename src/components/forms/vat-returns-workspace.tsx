@@ -15,6 +15,10 @@ import { VAT_BOX_DEFINITIONS } from "@/lib/hmrc/filing-guides";
 import { money } from "@/lib/format";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { EmailToClientButton } from "@/components/forms/email-to-client-button";
+import {
+  TrialSubmitConfirmPanel,
+  useTrialSubmitGate,
+} from "@/components/forms/trial-submit-confirm";
 
 type Obligation = {
   periodKey: string;
@@ -159,6 +163,7 @@ export function VatReturnsWorkspace({
   const fileRef = useRef<HTMLInputElement>(null);
   const [connectOpen, setConnectOpen] = useState(false);
   const [pending, start] = useTransition();
+  const trialGate = useTrialSubmitGate();
   const openObligations = obligations.filter((o) => o.status === "O");
   const [selected, setSelected] = useState(
     openObligations[0]?.periodKey ?? obligations[0]?.periodKey ?? "",
@@ -333,19 +338,13 @@ export function VatReturnsWorkspace({
                 </button>
               </div>
             ) : (
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => setConnectOpen(true)}
-              >
-                Connect to HMRC
-              </button>
+              <span className="badge badge-muted">HMRC not connected</span>
             )}
           </div>
 
           <div className="grid gap-0 lg:grid-cols-2">
             {/* Digital record */}
-            <div className="border-b border-line p-5 lg:border-b-0 lg:border-r">
+            <div className="min-w-0 border-b border-line p-5 lg:border-b-0 lg:border-r">
               <h3 className="text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
                 Create digital record
               </h3>
@@ -358,18 +357,18 @@ export function VatReturnsWorkspace({
                   return (
                     <li
                       key={def.key}
-                      className={`flex items-center gap-3 rounded-xl px-2 py-2 ${
+                      className={`grid grid-cols-[2rem_minmax(0,1fr)_6.75rem] items-center gap-x-3 rounded-xl px-2 py-2 ${
                         computed ? "bg-sea/5" : ""
                       }`}
                     >
-                      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-sea text-xs font-bold text-white">
+                      <span className="flex size-8 items-center justify-center rounded-full bg-sea text-xs font-bold text-white">
                         {def.id}
                       </span>
-                      <span className="min-w-0 flex-1 text-sm text-ink">
+                      <span className="min-w-0 text-sm leading-snug text-ink">
                         {BOX_SHORT[def.key]}
                       </span>
                       <input
-                        className="input mono w-[7.5rem] shrink-0 py-1.5 text-right text-sm"
+                        className="input mono !h-9 !min-h-0 !w-full py-1.5 text-right text-sm"
                         inputMode="decimal"
                         readOnly={computed}
                         value={value}
@@ -384,7 +383,7 @@ export function VatReturnsWorkspace({
             </div>
 
             {/* Upload */}
-            <div className="p-5">
+            <div className="min-w-0 p-5">
               <h3 className="text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
                 Or upload a file
               </h3>
@@ -514,58 +513,103 @@ export function VatReturnsWorkspace({
 
           <div className="space-y-3 border-t border-line bg-sand/30 px-5 py-4">
             <FormErrorBanner error={error} />
+            <TrialSubmitConfirmPanel
+              gateError={trialGate.gateError}
+              needsConfirm={trialGate.needsConfirm}
+              paymentFailed={trialGate.paymentFailed}
+              pending={trialGate.pending || pending}
+              onDismiss={() => trialGate.clearGate()}
+              onConfirm={() => {
+                if (!obligation) return;
+                trialGate.endTrialThen(async ({ confirmEndTrial }) => {
+                  await prepareVatReturnFromBoxes({
+                    clientId,
+                    periodKey: obligation.periodKey,
+                    periodStart: obligation.start,
+                    periodEnd: obligation.end,
+                    boxes: derived.pence,
+                  });
+                  const fraudMetadata = gatherFraudMetadata();
+                  const res = await submitPreparedVatReturn({
+                    clientId,
+                    periodKey: obligation.periodKey,
+                    periodStart: obligation.start,
+                    periodEnd: obligation.end,
+                    fraudMetadata,
+                    confirmEndTrial,
+                  });
+                  const bundle =
+                    (res as { hmrcFormBundleNumber?: string })
+                      .hmrcFormBundleNumber ??
+                    (res as { result?: { hmrcFormBundleNumber?: string } })
+                      .result?.hmrcFormBundleNumber ??
+                    "accepted";
+                  setMessage(`Submitted to HMRC · ${bundle}`);
+                  router.refresh();
+                });
+              }}
+            />
             {message && (
               <p className="text-sm font-semibold text-ok">{message}</p>
             )}
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={pending || !obligation || !connected}
-                onClick={() =>
-                  start(async () => {
-                    if (!obligation) return;
-                    setError(null);
-                    try {
-                      await prepareVatReturnFromBoxes({
-                        clientId,
-                        periodKey: obligation.periodKey,
-                        periodStart: obligation.start,
-                        periodEnd: obligation.end,
-                        boxes: derived.pence,
-                      });
-                      const fraudMetadata = gatherFraudMetadata();
-                      const res = await submitPreparedVatReturn({
-                        clientId,
-                        periodKey: obligation.periodKey,
-                        periodStart: obligation.start,
-                        periodEnd: obligation.end,
-                        fraudMetadata,
-                      });
-                      const bundle =
-                        (res as { hmrcFormBundleNumber?: string })
-                          .hmrcFormBundleNumber ??
-                        (res as { result?: { hmrcFormBundleNumber?: string } })
-                          .result?.hmrcFormBundleNumber ??
-                        "accepted";
-                      setMessage(`Submitted to HMRC · ${bundle}`);
-                      router.refresh();
-                    } catch (err) {
-                      setError(
-                        err instanceof Error
-                          ? err.message
-                          : "Submission failed",
-                      );
-                    }
-                  })
-                }
-              >
-                {pending
-                  ? "Submitting…"
-                  : connected
-                    ? "Submit VAT return to HMRC"
-                    : "Connect to HMRC to submit"}
-              </button>
+              {connected ? (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={pending || trialGate.pending || !obligation}
+                  onClick={() =>
+                    start(async () => {
+                      if (!obligation) return;
+                      setError(null);
+                      trialGate.clearGate();
+                      try {
+                        await prepareVatReturnFromBoxes({
+                          clientId,
+                          periodKey: obligation.periodKey,
+                          periodStart: obligation.start,
+                          periodEnd: obligation.end,
+                          boxes: derived.pence,
+                        });
+                        const fraudMetadata = gatherFraudMetadata();
+                        const res = await submitPreparedVatReturn({
+                          clientId,
+                          periodKey: obligation.periodKey,
+                          periodStart: obligation.start,
+                          periodEnd: obligation.end,
+                          fraudMetadata,
+                        });
+                        const bundle =
+                          (res as { hmrcFormBundleNumber?: string })
+                            .hmrcFormBundleNumber ??
+                          (res as { result?: { hmrcFormBundleNumber?: string } })
+                            .result?.hmrcFormBundleNumber ??
+                          "accepted";
+                        setMessage(`Submitted to HMRC · ${bundle}`);
+                        router.refresh();
+                      } catch (err) {
+                        if (!trialGate.captureSubmitError(err)) {
+                          setError(
+                            err instanceof Error
+                              ? err.message
+                              : "Submission failed",
+                          );
+                        }
+                      }
+                    })
+                  }
+                >
+                  {pending ? "Submitting…" : "Submit VAT return to HMRC"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setConnectOpen(true)}
+                >
+                  Connect to HMRC
+                </button>
+              )}
               {obligation ? (
                 <EmailToClientButton
                   clientId={clientId}
@@ -583,15 +627,6 @@ export function VatReturnsWorkspace({
                   }}
                 />
               ) : null}
-              {!connected && (
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setConnectOpen(true)}
-                >
-                  Connect to HMRC
-                </button>
-              )}
             </div>
           </div>
         </section>

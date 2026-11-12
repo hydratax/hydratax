@@ -22,7 +22,7 @@ export const CH_SERVICE_FAQS: Record<string, FaqItem[]> = {
   "incorporation-same-day": [
     {
       q: "What is same-day incorporation?",
-      a: "A software filing that Companies House aims to process the same day if submitted before their cut-off. The statutory software fee is £156.",
+      a: "A software filing that Companies House aims to process the same day if submitted before their cut-off. Total £171 (Companies House £156 + Hydra £15).",
     },
     {
       q: "Is same-day guaranteed?",
@@ -39,14 +39,14 @@ export const CH_SERVICE_FAQS: Record<string, FaqItem[]> = {
       a: "From 18 November 2025, confirmation statements must confirm directors have verified identity. Each director supplies their 11-character personal code.",
     },
     {
-      q: "When is the £50 fee due?",
-      a: "With the first confirmation statement in each 12-month payment period. Extra statements in the same period do not attract another annual fee.",
+      q: "When is the confirmation statement fee due?",
+      a: "£65 total (Companies House £50 + Hydra £15) with the first confirmation statement in each 12-month payment period. Extra statements in the same period do not attract another Companies House annual fee.",
     },
   ],
   "accounts-ixbrl": [
     {
       q: "Is there a Companies House fee for accounts?",
-      a: "Standard software accounts delivery currently has a £0 statutory filing fee on the GOV.UK schedule.",
+      a: "Companies House statutory fee for standard software accounts is £0. Hydra’s software fee for this filing is £25.",
     },
     {
       q: "What accounts types can I file?",
@@ -62,7 +62,7 @@ export const CH_SERVICE_FAQS: Record<string, FaqItem[]> = {
   "change-of-name-same-day": [
     {
       q: "What is the same-day name change fee?",
-      a: "£85 digital/software per the Companies House fee schedule.",
+      a: "£105 total (Companies House £85 + Hydra £20).",
     },
   ],
 };
@@ -71,7 +71,7 @@ export const PRODUCT_FAQS: Record<string, FaqItem[]> = {
   practice: [
     {
       q: "Is there a free trial?",
-      a: "Yes on Practice and Custom desk plans — 7 days free. You add a card at checkout (£0 today); the first charge is on day 8. Solo and other module plans do not include a free trial. Free submissions while you trial. Companies House statutory fees still apply where charged. We email you on day 7 before billing starts. Cancel anytime before day 8.",
+      a: "Yes on Small Firm and Enterprise — 7 days free. You add a card at checkout (£0 today). During the trial you can prepare returns and use the desk; live submission to HMRC or Companies House ends the trial and charges your selected plan. Otherwise billing starts on day 8. Cancel within 7 days from Settings → Subscription for no charge. Solo and other module plans do not include this trial.",
     },
     {
       q: "Who is the Practice desk for?",
@@ -79,11 +79,11 @@ export const PRODUCT_FAQS: Record<string, FaqItem[]> = {
     },
     {
       q: "How do plan limits work?",
-      a: "Practice is for 2 to 10 clients and includes CT600, MTD VAT, dormant and trading accounts, letters/forms, and Self Assessment. Solo is one client. Custom unlocks only the HMRC modules you pick, with volume discounts as client count grows.",
+      a: "Small Firm is for 2 to 10 clients and includes CT600, MTD VAT, dormant and trading accounts, letters/forms, and Self Assessment. Solo is one client. Enterprise starts from 11 clients per selected HMRC module, with volume discounts, and stays under £5,000 at 1,000 clients per module.",
     },
     {
       q: "Do you offer yearly billing?",
-      a: "Yes on Solo, Practice and Custom. Pay yearly and get 15% off — almost 2 months free compared with paying month by month. Toggle Yearly on the Practice desk pricing tab before checkout.",
+      a: "Yes on Solo, Small Firm and Enterprise. Pay yearly and get 15% off — almost 2 months free compared with paying month by month. Toggle Yearly on the Practice desk pricing tab before checkout.",
     },
   ],
   vat: [
@@ -93,17 +93,17 @@ export const PRODUCT_FAQS: Record<string, FaqItem[]> = {
     },
     {
       q: "Do I need a separate plan per VRN?",
-      a: "Single VRN covers one registration. Practice VAT pack covers multiple VRNs on the desk — see Pricing.",
+      a: "One company or sole trader covers a single registration at £19/month. The VAT practice pack covers up to 15 companies or sole traders at £190/month — see Pricing.",
     },
   ],
   ct600: [
     {
       q: "How does CT600 filing work?",
-      a: "Capture P&L and balance sheet figures, build CT Online XML, review, then submit. Bank categorisation can draft figures for partner review.",
+      a: "Capture P&L and balance sheet figures, build CT Online XML, review, then submit. Bank categorisation can draft figures for partner review. Dormant company accounts are included on the per-return card.",
     },
     {
       q: "Can I pay per return?",
-      a: "Yes — Per return is one-off; Unlimited CT is a monthly practice unlock.",
+      a: "Yes — Per return is one-off (including dormant accounts). The CT practice pack is £350/year for up to 15 companies.",
     },
   ],
   "self-assessment": [
@@ -115,11 +115,19 @@ export const PRODUCT_FAQS: Record<string, FaqItem[]> = {
       q: "Can bank statements prepare Self Assessment?",
       a: "Yes — connect Open Banking (when enabled) or upload CSV/PDF statements. Hydra categorises lines; you review once, then prepare SA.",
     },
+    {
+      q: "What do the SA plans include?",
+      a: "1 SA return is £49 per return. The SA practice pack is £499/year for up to 15 Self Assessment returns. Filed downloads stay accessible for life.",
+    },
   ],
   payroll: [
     {
       q: "What RTI submissions are supported?",
       a: "Weekly or monthly pay runs with a Full Payment Submission (FPS) on or before payday, and an Employer Payment Summary (EPS) when nobody was paid. HydraTax previews year-to-date figures and blocks reused payroll IDs before the XML is built.",
+    },
+    {
+      q: "How many employees and employers can I run?",
+      a: "One employer covers 1 company with up to 10 employees at £19/month. Practice PAYE covers 15 companies with up to 10 employees each at £190/month.",
     },
     {
       q: "Can I print payslips and send them to the client?",

@@ -17,7 +17,6 @@ import { getOptionalSession, requireSession } from "@/server/auth/session";
 import { accountRefFromUser, requireAdmin } from "@/server/auth/admin";
 import { memoryStore, type MemoryChRequest } from "@/server/demo/store";
 import { appendAuditEvent } from "@/server/audit/log";
-import { getPracticeTrialStatus } from "@/server/billing/trial-status";
 import { companyAuthCodeSchema } from "@/server/companies-house/filing/personal-codes";
 
 const submitSchema = z.object({
@@ -99,18 +98,9 @@ export async function submitCompaniesHouseRequest(
     const deskIncluded =
       service.id in HYDRA_CH_DESK_FEES &&
       hydraFeeForChService(service.id, "desk") === 0;
-    let tier: DeskPlanTier = deskIncluded ? "desk" : "solo";
-    const amountStatutory = service.chFeePounds * 100;
-    let amountPence = chServiceTotal(service, tier) * 100;
-    try {
-      const trial = await getPracticeTrialStatus(session.practiceId);
-      if (trial.onTrial) {
-        tier = "desk";
-        amountPence = amountStatutory;
-      }
-    } catch {
-      /* fee fall back to desk/solo total */
-    }
+    const tier: DeskPlanTier = deskIncluded ? "desk" : "solo";
+    const amountPence = chServiceTotal(service, tier) * 100;
+    // Live CH submission during free trial is gated in fulfillFreeChRequest.
 
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
@@ -383,8 +373,17 @@ export async function getAdminAccountRef() {
 }
 
 /** Submit a £0 (desk-included) CH request without Stripe. */
-export async function fulfillFreeChRequest(requestId: string) {
-  await requireSession();
+export async function fulfillFreeChRequest(
+  requestId: string,
+  opts?: { confirmEndTrial?: boolean },
+) {
+  const session = await requireSession();
+  const { requireLiveFilingAllowed } = await import(
+    "@/server/billing/filing-gate"
+  );
+  await requireLiveFilingAllowed(session.practiceId, {
+    confirmEndTrial: Boolean(opts?.confirmEndTrial),
+  });
   const { fulfillPaidChRequest } = await import(
     "@/server/companies-house/fulfill-ch-request"
   );

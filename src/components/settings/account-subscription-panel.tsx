@@ -10,6 +10,7 @@ import {
 } from "@/server/actions/billing";
 import { statusLabel } from "@/lib/subscription-features";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { isWithinTrialWindow } from "@/lib/trial";
 
 export function AccountSubscriptionPanel({
   billing,
@@ -25,6 +26,11 @@ export function AccountSubscriptionPanel({
   if (!billing.isOwner) return null;
 
   const hasPlans = billing.subscriptions.length > 0;
+  const onTrial = billing.subscriptions.some(
+    (s) =>
+      s.status === "trialing" ||
+      (s.trialEndsAt != null && isWithinTrialWindow(s.trialEndsAt)),
+  );
 
   function manageInStripe() {
     setError(null);
@@ -60,9 +66,22 @@ export function AccountSubscriptionPanel({
         <h2 className="display text-2xl text-ink">Subscription</h2>
         <p className="mt-1 text-sm text-ink-soft">
           Plan features for this practice. Only the main account holder can
-          change or cancel billing.
+          change the payment card, cancel a trial, or end billing. Card changes
+          run through Stripe&apos;s secure billing portal — HydraTax never
+          stores full card numbers.
         </p>
       </div>
+
+      {onTrial ? (
+        <div className="rounded-xl border border-amber-300/80 bg-amber-50 px-4 py-3 text-sm text-ink">
+          <p className="font-semibold">Free trial in progress</p>
+          <p className="mt-1 text-ink-soft">
+            You can prepare returns and explore the desk. Live submission to
+            HMRC or Companies House ends the trial and charges your saved card.
+            Cancel within 7 days below to avoid any charge.
+          </p>
+        </div>
+      ) : null}
 
       {!hasPlans ? (
         <div className="rounded-xl border border-line bg-sand/30 px-4 py-3 text-sm text-ink-soft">
@@ -115,7 +134,7 @@ export function AccountSubscriptionPanel({
             disabled={pending}
             onClick={manageInStripe}
           >
-            {pending ? "Opening…" : "Manage billing"}
+            {pending ? "Opening…" : "Update payment card"}
           </button>
         ) : null}
 
@@ -123,8 +142,9 @@ export function AccountSubscriptionPanel({
           confirmCancel ? (
             <div className="flex w-full flex-wrap items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 sm:w-auto">
               <p className="text-sm text-ink">
-                Cancel at the end of the current period? You keep access until
-                then.
+                {onTrial
+                  ? "End the trial now with no charge?"
+                  : "Cancel at the end of the current period? You keep access until then."}
               </p>
               <button
                 type="button"
@@ -132,7 +152,11 @@ export function AccountSubscriptionPanel({
                 disabled={pending}
                 onClick={confirmUnsubscribe}
               >
-                {pending ? "Cancelling…" : "Confirm unsubscribe"}
+                {pending
+                  ? "Cancelling…"
+                  : onTrial
+                    ? "End trial — no charge"
+                    : "Confirm unsubscribe"}
               </button>
               <button
                 type="button"
@@ -154,7 +178,7 @@ export function AccountSubscriptionPanel({
                 setConfirmCancel(true);
               }}
             >
-              Unsubscribe
+              {onTrial ? "Cancel trial" : "Unsubscribe"}
             </button>
           )
         ) : null}

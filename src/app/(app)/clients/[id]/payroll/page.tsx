@@ -6,7 +6,6 @@ import {
 import { getPayrollDeskSettings } from "@/server/actions/payroll-settings";
 import { requireModule } from "@/server/auth/session";
 import { PayrollWorkspace } from "@/components/forms/payroll-workspace";
-import { redirect } from "next/navigation";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 
 export default async function PayrollPage({
@@ -14,11 +13,7 @@ export default async function PayrollPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  try {
-    await requireModule("payroll");
-  } catch {
-    redirect("/clients");
-  }
+  await requireModule("payroll");
   const { id: ref } = await params;
   const { client, clientId } = await loadClientPage(ref, "payroll");
   const [pack, employees, payRuns, payrollSettings] = await Promise.all([

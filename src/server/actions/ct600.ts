@@ -357,10 +357,17 @@ export async function submitCt600(
     rememberPassword?: boolean;
     declarantName?: string;
     declarantStatus?: string;
+    confirmEndTrial?: boolean;
   },
 ) {
   const session = await requireSession();
   submitSchema.parse({ returnId, clientId, ...credentials });
+  const { requireLiveFilingAllowed } = await import(
+    "@/server/billing/filing-gate"
+  );
+  await requireLiveFilingAllowed(session.practiceId, {
+    confirmEndTrial: Boolean(credentials?.confirmEndTrial),
+  });
   const client = await getClient(clientId);
   if (!client.companyNumber || !client.utr) {
     throw new Error("Company number and a valid 10-digit UTR are required for CT600");

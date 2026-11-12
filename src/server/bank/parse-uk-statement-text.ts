@@ -199,7 +199,10 @@ function signFromContext(
   return -Math.abs(amountPence);
 }
 
-export function parseUkStatementText(text: string): ParseUkStatementResult {
+export function parseUkStatementText(
+  text: string,
+  opts?: { occupation?: string | null },
+): ParseUkStatementResult {
   const bankHint = detectBank(text);
   const rawLines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
   const merged = mergeContinuationLines(rawLines);
@@ -229,6 +232,7 @@ export function parseUkStatementText(text: string): ParseUkStatementResult {
     const { category, confidence } = categoriseDescription(
       description,
       amountPence,
+      opts?.occupation,
     );
     lines.push({
       dated: parsed.dated,

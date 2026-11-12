@@ -480,7 +480,7 @@ export default async function ClientsPage({ searchParams }: Props) {
                 .
               </div>
             ) : (
-              <ClientsList clients={items} />
+              <ClientsList clients={items} openPath="/corporation-tax" />
             )}
           </section>
         </div>
@@ -496,7 +496,22 @@ export default async function ClientsPage({ searchParams }: Props) {
           .
         </div>
       ) : (
-        <ClientsList clients={items} />
+        <ClientsList
+          clients={items}
+          openPath={
+            desk === "vat"
+              ? "/vat"
+              : desk === "payroll"
+                ? "/payroll"
+                : desk === "ct600"
+                  ? "/corporation-tax"
+                  : desk === "sa"
+                    ? "/self-assessment"
+                    : desk === "partnership"
+                      ? "/sa800"
+                      : ""
+          }
+        />
       )}
     </div>
   );

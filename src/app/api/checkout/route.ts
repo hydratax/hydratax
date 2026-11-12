@@ -54,6 +54,23 @@ export async function POST(req: Request) {
     sessionEmail = sessionEmail || session.email || undefined;
   }
 
+  // Desk / module subscriptions always bind to a practice — create account first.
+  // Companies House one-offs already carry chRequestId from an authenticated wizard.
+  const isChFiling =
+    parsed.data.planKey.startsWith("companies-house:") &&
+    Boolean(parsed.data.chRequestId);
+  if (!session && !isChFiling) {
+    return NextResponse.json(
+      {
+        error:
+          "Create your HydraTax account first so we can unlock this plan after payment.",
+        needsAuth: true,
+        planKey: parsed.data.planKey,
+      },
+      { status: 401 },
+    );
+  }
+
   try {
     const result = await createStripeCheckoutSession({
       planKey: parsed.data.planKey,

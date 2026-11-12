@@ -1,13 +1,14 @@
-import type { BankCategory } from "@/lib/bank-categories";
 import { isD1Configured, d1Query } from "@/server/db/d1";
 import { matchMerchant } from "@/server/bank/merchants";
+import { matchOccupationHint } from "@/lib/occupation-hints";
 
 export type MerchantIdentifierRow = {
   id: string;
   practice_id: string | null;
   pattern: string;
   match_type: "contains" | "regex";
-  category: BankCategory;
+  /** Built-in BankCategory or `custom:<uuid>` provisional / practice head. */
+  category: string;
   label: string;
   priority: number;
 };
@@ -51,7 +52,7 @@ async function loadIdentifiers(
 
   const mapped = rows.map((r) => ({
     ...r,
-    category: r.category as BankCategory,
+    category: String(r.category),
     match_type: (r.match_type === "regex" ? "regex" : "contains") as
       | "contains"
       | "regex",
@@ -68,7 +69,7 @@ function matchFromRows(
   rows: MerchantIdentifierRow[],
   description: string,
 ): {
-  category: BankCategory;
+  category: string;
   confidence: "high" | "medium";
   label: string;
 } | null {
@@ -88,7 +89,7 @@ export async function matchMerchantIdentifier(
   description: string,
   practiceId?: string | null,
 ): Promise<{
-  category: BankCategory;
+  category: string;
   confidence: "high" | "medium";
   label: string;
 } | null> {
@@ -99,6 +100,12 @@ export async function matchMerchantIdentifier(
   return matchFromRows(rows, description);
 }
 
+/** Clear practice/global identifier cache after writes. */
+export function invalidateMerchantIdentifierCache() {
+  cachedGlobal = null;
+  cacheAt = 0;
+}
+
 export async function applyIdentifierRules<
   T extends {
     description: string;
@@ -106,11 +113,17 @@ export async function applyIdentifierRules<
     category: string;
     confidence: string;
   },
->(lines: T[], practiceId?: string | null): Promise<T[]> {
+>(
+  lines: T[],
+  practiceId?: string | null,
+  occupation?: string | null,
+): Promise<T[]> {
   const rows = await loadIdentifiers(practiceId);
   return lines.map((line) => {
     const hit =
-      matchFromRows(rows, line.description) ?? matchMerchant(line.description);
+      matchFromRows(rows, line.description) ??
+      matchOccupationHint(line.description, occupation) ??
+      matchMerchant(line.description);
     if (hit) {
       return { ...line, category: hit.category, confidence: hit.confidence };
     }
@@ -126,7 +139,7 @@ export async function categoriseWithIdentifiers(
   amountPence: number,
   practiceId?: string | null,
 ): Promise<{
-  category: BankCategory;
+  category: string;
   confidence: "high" | "medium" | "low";
 }> {
   const hit = await matchMerchantIdentifier(description, practiceId);

@@ -161,6 +161,11 @@ export function isCustomCategoryId(category: string): boolean {
   return category.startsWith(CUSTOM_CATEGORY_PREFIX);
 }
 
+/** Auto-created material unknown clusters — user maps the whole head once. */
+export function isProvisionalReviewLabel(label: string): boolean {
+  return /^review:\s+/i.test(label.trim());
+}
+
 export function customCategoryUuid(category: string): string | null {
   return isCustomCategoryId(category)
     ? category.slice(CUSTOM_CATEGORY_PREFIX.length)

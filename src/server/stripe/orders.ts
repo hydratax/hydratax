@@ -57,6 +57,18 @@ function toRecord(session: Stripe.Checkout.Session): CheckoutRecord {
 }
 
 export async function recordCheckoutEvent(event: Stripe.Event) {
+  if (event.type === "invoice.paid") {
+    await handleInvoicePaid(event.data.object as Stripe.Invoice);
+    return;
+  }
+  if (event.type === "invoice.payment_failed") {
+    console.warn("[stripe] invoice.payment_failed", {
+      id: (event.data.object as Stripe.Invoice).id,
+      customer: (event.data.object as Stripe.Invoice).customer,
+    });
+    return;
+  }
+
   if (
     event.type !== "checkout.session.completed" &&
     event.type !== "checkout.session.async_payment_succeeded"
@@ -143,6 +155,57 @@ export async function recordCheckoutEvent(event: Stripe.Event) {
 
   await activatePlanFromCheckout(record, practiceId, chRequestId);
   await maybeSendSubscriptionWelcome(record);
+}
+
+async function handleInvoicePaid(invoice: Stripe.Invoice) {
+  let recipient = invoice.customer_email?.trim() || null;
+  if (!recipient && typeof invoice.customer === "string" && isStripeReady()) {
+    try {
+      const { getStripe } = await import("@/server/stripe/client");
+      const customer = await getStripe().customers.retrieve(invoice.customer);
+      if (!customer.deleted && customer.email) recipient = customer.email;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!recipient) return;
+
+  const amount =
+    typeof invoice.amount_paid === "number"
+      ? invoice.amount_paid
+      : invoice.total ?? 0;
+  const currency = (invoice.currency ?? "gbp").toUpperCase();
+  const amountLabel = new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: currency === "GBP" ? "GBP" : currency,
+    minimumFractionDigits: 2,
+  }).format(amount / 100);
+
+  const description =
+    invoice.lines?.data?.[0]?.description ||
+    invoice.description ||
+    "HydraTax subscription";
+
+  try {
+    const { sendPurchaseInvoiceEmail } = await import(
+      "@/server/email/purchase-invoice"
+    );
+    await sendPurchaseInvoiceEmail({
+      to: recipient,
+      amountLabel,
+      description,
+      invoiceNumber: invoice.number,
+      hostedInvoiceUrl: invoice.hosted_invoice_url,
+      invoicePdfUrl: invoice.invoice_pdf,
+      oneTime: invoice.billing_reason === "manual",
+    });
+  } catch (err) {
+    console.warn("[stripe] purchase invoice email failed", err);
+  }
+}
+
+function isStripeReady() {
+  return Boolean(process.env.STRIPE_SECRET_KEY);
 }
 
 async function maybeSendSubscriptionWelcome(record: CheckoutRecord) {

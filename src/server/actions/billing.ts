@@ -182,13 +182,20 @@ export async function openBillingPortal(): Promise<
 }
 
 /**
- * Cancel active subscriptions at period end (or immediately in memory/demo).
- * Prefer the Stripe portal when available; this is the in-app fallback.
+ * Cancel subscriptions.
+ * - During free trial: cancel immediately (no charge).
+ * - After trial / paid: cancel at period end (Stripe portal also available).
  */
 export async function cancelPracticeSubscriptions(): Promise<
   { ok: true; message: string } | { ok: false; error: string }
 > {
   const session = await requireOwner();
+
+  const { getPracticeTrialStatus } = await import(
+    "@/server/billing/trial-status"
+  );
+  const trial = await getPracticeTrialStatus(session.practiceId);
+  const cancelImmediately = trial.onTrial;
 
   if (isMemoryStore()) {
     let n = 0;
@@ -208,7 +215,9 @@ export async function cancelPracticeSubscriptions(): Promise<
       ok: true,
       message:
         n > 0
-          ? "Subscription cancelled. Paid features will no longer be available."
+          ? cancelImmediately
+            ? "Trial cancelled. No charge was made."
+            : "Subscription cancelled. Paid features will no longer be available."
           : "No active subscription to cancel.",
     };
   }
@@ -237,9 +246,13 @@ export async function cancelPracticeSubscriptions(): Promise<
       const subId = row.stripe_subscription_id as string | null;
       if (!subId) continue;
       try {
-        await stripe.subscriptions.update(subId, {
-          cancel_at_period_end: true,
-        });
+        if (cancelImmediately || row.status === "trialing") {
+          await stripe.subscriptions.cancel(subId);
+        } else {
+          await stripe.subscriptions.update(subId, {
+            cancel_at_period_end: true,
+          });
+        }
         canceledViaStripe += 1;
       } catch {
         /* fall through to local status update */
@@ -247,9 +260,10 @@ export async function cancelPracticeSubscriptions(): Promise<
     }
   }
 
+  const nextStatus = cancelImmediately ? "cancelled" : "canceling";
   const { error } = await supabase
     .from("practice_subscriptions")
-    .update({ status: "canceling" })
+    .update({ status: nextStatus })
     .eq("practice_id", session.practiceId)
     .in("status", ["active", "trialing"]);
 
@@ -263,8 +277,40 @@ export async function cancelPracticeSubscriptions(): Promise<
   return {
     ok: true,
     message:
-      canceledViaStripe > 0
-        ? "Cancellation scheduled. You keep access until the end of the current billing period (or trial)."
-        : "Subscription marked for cancellation. You keep access until the period ends where applicable.",
+      cancelImmediately
+        ? "Trial ended with no charge. You can start a plan again from Pricing anytime."
+        : canceledViaStripe > 0
+          ? "Cancellation scheduled. You keep access until the end of the current billing period."
+          : "Subscription marked for cancellation. You keep access until the period ends where applicable.",
+  };
+}
+
+/**
+ * Owner confirms ending the free trial and charging the card on file
+ * (required before the first live HMRC / Companies House submission).
+ */
+export async function confirmEndTrialAndCharge(): Promise<
+  { ok: true; charged: boolean } | { ok: false; error: string }
+> {
+  const session = await requireOwner();
+  const { endTrialAndChargeNow } = await import(
+    "@/server/billing/filing-gate"
+  );
+  const res = await endTrialAndChargeNow(session.practiceId);
+  if (!res.ok) return { ok: false, error: res.message };
+  return { ok: true, charged: res.charged };
+}
+
+/** Whether this practice is on a free trial (for submit UI). */
+export async function getFilingTrialGate() {
+  const session = await requireSession();
+  const { getPracticeTrialStatus } = await import(
+    "@/server/billing/trial-status"
+  );
+  const trial = await getPracticeTrialStatus(session.practiceId);
+  return {
+    onTrial: trial.onTrial,
+    trialEndsAt: trial.trialEndsAt,
+    planKey: trial.planKey,
   };
 }

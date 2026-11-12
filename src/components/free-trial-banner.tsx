@@ -22,7 +22,7 @@ export function FreeTrialBanner({ dark = false }: { dark?: boolean }) {
           {PRACTICE_TRIAL.bannerText}
         </span>
         <span className="text-white/95 sm:hidden">
-          Free trial · free filings
+          Free trial · prepare only
         </span>
         <Link
           href={PRACTICE_TRIAL.ctaHref}
