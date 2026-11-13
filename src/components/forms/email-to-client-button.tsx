@@ -99,7 +99,10 @@ export function EmailToClientButton({
                 });
                 setOk(res.message);
               } catch (err) {
-                setError(err instanceof Error ? err.message : "Send failed");
+                const { messageFromUnknown } = await import(
+                  "@/lib/action-error"
+                );
+                setError(messageFromUnknown(err, "Send failed"));
               }
             });
           }}

@@ -376,7 +376,17 @@ export async function sendClientCommunicationEmail(
 
   const data = sendOneSchema.parse(input);
   const client = await getClient(data.clientId);
-  const sender = resolveClientEmailSender(session);
+  let practiceEmail: string | null = null;
+  try {
+    const { getPracticeLetterhead } = await import(
+      "@/server/actions/letterhead"
+    );
+    const lh = await getPracticeLetterhead();
+    practiceEmail = lh.email?.trim() || null;
+  } catch {
+    /* letterhead optional */
+  }
+  const sender = resolveClientEmailSender(session, { practiceEmail });
 
   const delivery = await sendTransactionalEmail({
     to: data.toEmail,
@@ -392,7 +402,7 @@ export async function sendClientCommunicationEmail(
     practiceId: session.practiceId,
     clientId: data.clientId,
     sentBy: session.userId,
-    fromEmail: sender.senderEmail,
+    fromEmail: sender.from,
     toEmail: data.toEmail,
     subject: data.subject,
     messagePreview: messagePreview(data.message),

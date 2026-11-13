@@ -30,4 +30,9 @@ describe("statusLabel", () => {
     expect(statusLabel("active")).toBe("Active");
     expect(statusLabel("trialing")).toMatch(/trial/i);
   });
+
+  it("labels canceling during trial with access-until date", () => {
+    const ends = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    expect(statusLabel("canceling", ends)).toMatch(/access until/i);
+  });
 });

@@ -10,9 +10,12 @@ import { looksLikeCompanyNumber } from "@/lib/company-number";
 export function CreateClientForm({
   defaultVat = true,
   defaultEmployer = false,
+  defaultContactEmail = null,
 }: {
   defaultVat?: boolean;
   defaultEmployer?: boolean;
+  /** Prefill from the signed-in account email — editable. */
+  defaultContactEmail?: string | null;
 } = {}) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -140,8 +143,15 @@ export function CreateClientForm({
             name="contactEmail"
             type="email"
             className="input"
-            placeholder="client@example.com"
+            defaultValue={defaultContactEmail ?? ""}
+            placeholder="client@firm.co.uk"
           />
+          {defaultContactEmail ? (
+            <p className="mt-1 text-xs text-ink-soft">
+              Prefills your account email — change if the client uses a
+              different address.
+            </p>
+          ) : null}
         </div>
         <div>
           <label className="label" htmlFor="contactPhone">

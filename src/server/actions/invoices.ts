@@ -282,21 +282,40 @@ export async function sendClientInvoiceEmail(input: {
   invoiceId: string;
   toEmail?: string;
   message?: string;
-}) {
+}): Promise<
+  | { ok: true; toEmail: string; delivery: string }
+  | { ok: false; error: string }
+> {
   const session = await requireModule("invoices");
-  if (session.role === "readonly") throw new Error("Forbidden");
+  if (session.role === "readonly") {
+    return { ok: false, error: "You do not have permission to email invoices." };
+  }
 
-  const invoice = await getInvoice(input.invoiceId);
-  const client = await getClient(invoice.clientId);
+  let invoice;
+  let client;
+  try {
+    invoice = await getInvoice(input.invoiceId);
+    client = await getClient(invoice.clientId);
+  } catch {
+    return { ok: false, error: "That invoice could not be found." };
+  }
   if (client.practiceId && client.practiceId !== session.practiceId) {
-    throw new Error("Invoice not found");
+    return { ok: false, error: "That invoice could not be found." };
   }
 
   const toEmail = (input.toEmail || client.contactEmail || "").trim();
   if (!toEmail) {
-    throw new Error(
-      "Add a client email address (or enter one) before sending this invoice.",
-    );
+    return {
+      ok: false,
+      error:
+        "Enter the client’s email in the Send to box (or save an email on the client record), then try again.",
+    };
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail)) {
+    return {
+      ok: false,
+      error: "That email address does not look valid. Check it and try again.",
+    };
   }
 
   const { getPracticeLetterhead } = await import(
@@ -348,53 +367,64 @@ export async function sendClientInvoiceEmail(input: {
       letterhead.practiceName || session.practiceName,
     ].join("\n");
 
-  const { sendClientCommunicationEmail } = await import(
-    "@/server/actions/client-communications"
-  );
-  const result = await sendClientCommunicationEmail({
-    clientId: invoice.clientId,
-    toEmail,
-    subject: `Invoice ${invoice.invoiceNumber} — ${letterhead.practiceName || session.practiceName}`,
-    message: cover,
-    html: `${cover
-      .split("\n")
-      .map((l) => `<p>${l ? l.replace(/&/g, "&amp;").replace(/</g, "&lt;") : "&nbsp;"}</p>`)
-      .join("")}<hr/>${html}`,
-    kind: "invoice",
-    documentCount: 1,
-    attachments: [
-      {
-        filename: `${invoice.invoiceNumber}.html`,
-        content: Buffer.from(html, "utf8").toString("base64"),
-        contentType: "text/html; charset=utf-8",
-      },
-    ],
-  });
+  try {
+    const { sendClientCommunicationEmail } = await import(
+      "@/server/actions/client-communications"
+    );
+    const result = await sendClientCommunicationEmail({
+      clientId: invoice.clientId,
+      toEmail,
+      subject: `Invoice ${invoice.invoiceNumber} — ${letterhead.practiceName || session.practiceName}`,
+      message: cover,
+      html: `${cover
+        .split("\n")
+        .map((l) => `<p>${l ? l.replace(/&/g, "&amp;").replace(/</g, "&lt;") : "&nbsp;"}</p>`)
+        .join("")}<hr/>${html}`,
+      kind: "invoice",
+      documentCount: 1,
+      attachments: [
+        {
+          filename: `${invoice.invoiceNumber}.html`,
+          content: Buffer.from(html, "utf8").toString("base64"),
+          contentType: "text/html; charset=utf-8",
+        },
+      ],
+    });
 
-  // Mark as sent when still draft/due so the desk reflects dispatch.
-  if (invoice.status === "draft" || invoice.status === "due") {
-    await setInvoiceStatus(invoice.id, "sent");
+    // Mark as sent when still draft/due so the desk reflects dispatch.
+    if (invoice.status === "draft" || invoice.status === "due") {
+      await setInvoiceStatus(invoice.id, "sent");
+    }
+
+    await appendAuditEvent({
+      practiceId: session.practiceId,
+      clientId: invoice.clientId,
+      actorId: session.userId,
+      action: "invoice.emailed",
+      entityType: "client_invoice",
+      entityId: invoice.id,
+      detail: { toEmail, invoiceNumber: invoice.invoiceNumber },
+    });
+
+    revalidatePath(`/clients/${invoice.clientId}/invoices`);
+    return {
+      ok: true as const,
+      toEmail,
+      delivery:
+        result && typeof result === "object" && "delivery" in result
+          ? String((result as { delivery?: string }).delivery ?? "sent")
+          : "sent",
+    };
+  } catch (err) {
+    const { messageFromUnknown } = await import("@/lib/action-error");
+    return {
+      ok: false,
+      error: messageFromUnknown(
+        err,
+        "We could not email this invoice. Check the address and try again.",
+      ),
+    };
   }
-
-  await appendAuditEvent({
-    practiceId: session.practiceId,
-    clientId: invoice.clientId,
-    actorId: session.userId,
-    action: "invoice.emailed",
-    entityType: "client_invoice",
-    entityId: invoice.id,
-    detail: { toEmail, invoiceNumber: invoice.invoiceNumber },
-  });
-
-  revalidatePath(`/clients/${invoice.clientId}/invoices`);
-  return {
-    ok: true as const,
-    toEmail,
-    delivery:
-      result && typeof result === "object" && "delivery" in result
-        ? String((result as { delivery?: string }).delivery ?? "sent")
-        : "sent",
-  };
 }
 
 export async function listInvoiceLineTemplates() {

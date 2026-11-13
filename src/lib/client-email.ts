@@ -11,23 +11,39 @@ export type ClientEmailTemplateVars = {
   sender_name: string;
 };
 
-export function resolveClientEmailSender(session: SessionContext): {
+/**
+ * Outbound client mail always sends from a Resend-verified HydraTax address
+ * (EMAIL_FROM / info@hydratax.uk). Practice / user addresses are Reply-To only
+ * unless they later configure a verified custom from in settings.
+ */
+export function resolveHydraOutboundFrom(): string {
+  const configured = (process.env.EMAIL_FROM ?? "").trim();
+  if (configured) return configured;
+  return "HydraTax <info@hydratax.uk>";
+}
+
+export function resolveClientEmailSender(
+  session: SessionContext,
+  opts?: { practiceEmail?: string | null },
+): {
   from: string;
   replyTo: string;
   senderEmail: string;
   senderName: string;
 } {
-  const senderEmail = session.email?.trim();
-  if (!senderEmail) {
+  const practiceEmail = opts?.practiceEmail?.trim() || null;
+  const sessionEmail = session.email?.trim() || null;
+  const replyTo = practiceEmail || sessionEmail;
+  if (!replyTo) {
     throw new Error(
-      "Your account has no email address. Sign in with email before sending client messages.",
+      "Your account has no email address. Sign in with email, or add a practice email under Settings → Practice branding, before sending client messages.",
     );
   }
-  const senderName = session.practiceName;
+  const senderName = session.practiceName || "HydraTax";
   return {
-    from: `${senderName} <${senderEmail}>`,
-    replyTo: senderEmail,
-    senderEmail,
+    from: resolveHydraOutboundFrom(),
+    replyTo,
+    senderEmail: replyTo,
     senderName,
   };
 }

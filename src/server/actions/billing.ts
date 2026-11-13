@@ -82,7 +82,13 @@ export async function getAccountBillingSummary(): Promise<AccountBillingSummary>
       ) {
         continue;
       }
-      if (s.status !== "active" && s.status !== "trialing") continue;
+      if (
+        s.status !== "active" &&
+        s.status !== "trialing" &&
+        s.status !== "canceling"
+      ) {
+        continue;
+      }
       const meta = featuresForPlanKey(s.planKey);
       if (subscriptions.some((x) => x.planKey === s.planKey)) continue;
       subscriptions.push({
@@ -182,9 +188,10 @@ export async function openBillingPortal(): Promise<
 }
 
 /**
- * Cancel subscriptions.
- * - During free trial: cancel immediately (no charge).
- * - After trial / paid: cancel at period end (Stripe portal also available).
+ * Cancel subscriptions at period / trial end — never cut access immediately.
+ * During free trial: Stripe cancel_at_period_end (no charge), local status
+ * "canceling", desk stays open until trialEndsAt, confirmation email sent.
+ * After trial / paid: same — access until current period ends.
  */
 export async function cancelPracticeSubscriptions(): Promise<
   { ok: true; message: string } | { ok: false; error: string }
@@ -195,19 +202,31 @@ export async function cancelPracticeSubscriptions(): Promise<
     "@/server/billing/trial-status"
   );
   const trial = await getPracticeTrialStatus(session.practiceId);
-  const cancelImmediately = trial.onTrial;
+  const onTrial = trial.onTrial;
 
   if (isMemoryStore()) {
     let n = 0;
+    let planKey: string | null = null;
     for (const s of memoryStore.subscriptions) {
       if (
         (s.practiceId === session.practiceId ||
           s.practiceId === memoryStore.practice.id) &&
         (s.status === "active" || s.status === "trialing")
       ) {
-        s.status = "cancelled";
+        s.status = "canceling";
+        planKey = s.planKey;
         n += 1;
       }
+    }
+    if (n > 0 && onTrial && trial.trialEndsAt) {
+      await sendTrialCancelledNotice({
+        practiceId: session.practiceId,
+        practiceName: memoryStore.practice.name,
+        trialEndsAt: new Date(trial.trialEndsAt),
+        planKey: planKey ?? trial.planKey,
+        emailOverride:
+          (process.env.ADMIN_EMAIL ?? "").split(",")[0]?.trim() || null,
+      });
     }
     revalidatePath("/settings/account");
     revalidatePath("/dashboard");
@@ -215,9 +234,9 @@ export async function cancelPracticeSubscriptions(): Promise<
       ok: true,
       message:
         n > 0
-          ? cancelImmediately
-            ? "Trial cancelled. No charge was made."
-            : "Subscription cancelled. Paid features will no longer be available."
+          ? onTrial
+            ? "Subscription cancelled. You can keep using HydraTax until your free trial ends — no charge."
+            : "Cancellation scheduled. You keep access until the end of the current billing period."
           : "No active subscription to cancel.",
     };
   }
@@ -230,7 +249,7 @@ export async function cancelPracticeSubscriptions(): Promise<
   const supabase = await createClient();
   const { data: subs } = await supabase
     .from("practice_subscriptions")
-    .select("id, plan_key, status, stripe_subscription_id")
+    .select("id, plan_key, status, stripe_subscription_id, trial_ends_at")
     .eq("practice_id", session.practiceId)
     .in("status", ["active", "trialing"]);
 
@@ -246,13 +265,10 @@ export async function cancelPracticeSubscriptions(): Promise<
       const subId = row.stripe_subscription_id as string | null;
       if (!subId) continue;
       try {
-        if (cancelImmediately || row.status === "trialing") {
-          await stripe.subscriptions.cancel(subId);
-        } else {
-          await stripe.subscriptions.update(subId, {
-            cancel_at_period_end: true,
-          });
-        }
+        // Always end at period/trial boundary — never revoke mid-trial.
+        await stripe.subscriptions.update(subId, {
+          cancel_at_period_end: true,
+        });
         canceledViaStripe += 1;
       } catch {
         /* fall through to local status update */
@@ -260,10 +276,9 @@ export async function cancelPracticeSubscriptions(): Promise<
     }
   }
 
-  const nextStatus = cancelImmediately ? "cancelled" : "canceling";
   const { error } = await supabase
     .from("practice_subscriptions")
-    .update({ status: nextStatus })
+    .update({ status: "canceling" })
     .eq("practice_id", session.practiceId)
     .in("status", ["active", "trialing"]);
 
@@ -271,18 +286,107 @@ export async function cancelPracticeSubscriptions(): Promise<
     return { ok: false, error: error.message };
   }
 
+  const primary = subs[0];
+  const trialEndsRaw =
+    trial.trialEndsAt ??
+    (primary?.trial_ends_at as string | null | undefined) ??
+    null;
+  if (onTrial && trialEndsRaw) {
+    const { data: practice } = await supabase
+      .from("practices")
+      .select("name")
+      .eq("id", session.practiceId)
+      .maybeSingle();
+    await sendTrialCancelledNotice({
+      practiceId: session.practiceId,
+      practiceName: (practice?.name as string | undefined) ?? "your practice",
+      trialEndsAt: new Date(trialEndsRaw),
+      planKey:
+        (primary?.plan_key as string | null | undefined) ?? trial.planKey,
+    });
+  }
+
   revalidatePath("/settings/account");
   revalidatePath("/dashboard");
 
   return {
     ok: true,
-    message:
-      cancelImmediately
-        ? "Trial ended with no charge. You can start a plan again from Pricing anytime."
-        : canceledViaStripe > 0
-          ? "Cancellation scheduled. You keep access until the end of the current billing period."
-          : "Subscription marked for cancellation. You keep access until the period ends where applicable.",
+    message: onTrial
+      ? "Subscription cancelled. You can keep using HydraTax until your free trial ends — no charge."
+      : canceledViaStripe > 0
+        ? "Cancellation scheduled. You keep access until the end of the current billing period."
+        : "Subscription marked for cancellation. You keep access until the period ends where applicable.",
   };
+}
+
+async function sendTrialCancelledNotice(opts: {
+  practiceId: string;
+  practiceName: string;
+  trialEndsAt: Date;
+  planKey?: string | null;
+  emailOverride?: string | null;
+}) {
+  try {
+    const { getEnv } = await import("@/lib/env");
+    const appUrl = (
+      process.env.NEXT_PUBLIC_APP_URL ||
+      getEnv().NEXT_PUBLIC_APP_URL ||
+      "https://hydratax.uk"
+    ).replace(/\/$/, "");
+
+    let to = opts.emailOverride?.trim() || null;
+    if (!to && isSupabaseConfigured() && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      const { getSupabaseAdmin } = await import("@/lib/supabase");
+      const admin = getSupabaseAdmin();
+      const { data: members } = await admin
+        .from("practice_members")
+        .select("user_id, email, role")
+        .eq("practice_id", opts.practiceId)
+        .in("role", ["owner", "admin"]);
+      const rows = (members ?? []) as {
+        user_id?: string;
+        email?: string | null;
+        role?: string;
+      }[];
+      const owner = rows.find((r) => r.role === "owner") ?? rows[0];
+      if (owner?.email) to = owner.email;
+      if (!to && owner?.user_id) {
+        const { data: profile } = await admin
+          .from("profiles")
+          .select("email")
+          .eq("id", owner.user_id)
+          .maybeSingle();
+        if (profile?.email && typeof profile.email === "string") {
+          to = profile.email;
+        }
+      }
+      if (!to && owner?.user_id) {
+        const { data: userData } = await admin.auth.admin.getUserById(
+          owner.user_id,
+        );
+        to = userData.user?.email ?? null;
+      }
+    }
+    if (!to?.includes("@")) return;
+
+    const { trialCancelledEmailContent, sendTransactionalEmail } = await import(
+      "@/server/email/transactional"
+    );
+    const content = trialCancelledEmailContent({
+      practiceName: opts.practiceName,
+      trialEndsAt: opts.trialEndsAt,
+      appUrl,
+      planKey: opts.planKey,
+    });
+    await sendTransactionalEmail({
+      to,
+      subject: content.subject,
+      text: content.text,
+      html: content.html,
+    });
+  } catch (err) {
+    console.error("[billing] trial cancelled email failed", err);
+  }
 }
 
 /**

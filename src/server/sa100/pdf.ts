@@ -486,8 +486,9 @@ export async function buildSa302Pdf(
   const poa = calc.paymentsOnAccountEach;
   const janYear = (() => {
     const ty = meta.taxYear || calc.taxYear;
-    const end = Number(ty.split("-")[1] || "26");
-    return 2000 + end;
+    // "2025-26" → due 31 Jan / 31 July 2027 (start year + 2).
+    const start = Number(String(ty).split("-")[0]);
+    return Number.isFinite(start) ? start + 2 : new Date().getFullYear() + 1;
   })();
   y -= 20;
   text(`Calculated Payment on Account due by 31st January ${janYear}`, left, y);

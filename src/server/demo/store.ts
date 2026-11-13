@@ -152,7 +152,7 @@ export type MemorySubscription = {
   id: string;
   practiceId: string;
   planKey: string;
-  status: "active" | "cancelled" | "past_due" | "trialing";
+  status: "active" | "cancelled" | "canceling" | "past_due" | "trialing";
   stripeSessionId: string | null;
   trialEndsAt?: string | null;
   createdAt: string;

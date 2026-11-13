@@ -260,7 +260,12 @@ export function InvoiceWorkspace({
               resetForm();
               router.refresh();
             } catch (err) {
-              setError(err instanceof Error ? err.message : "Failed");
+              setError(
+                messageFromUnknown(
+                  err,
+                  "Could not create the invoice. Check the lines and dates, then try again.",
+                ),
+              );
             }
           });
         }}
@@ -301,7 +306,7 @@ export function InvoiceWorkspace({
             />
           </label>
           <label className="text-sm font-semibold">
-            Payment terms
+            Due in
             <select
               className="input mt-1 font-normal"
               value={duePreset}
@@ -309,10 +314,10 @@ export function InvoiceWorkspace({
                 applyPreset(e.target.value as typeof duePreset)
               }
             >
-              <option value="7">Net 7</option>
-              <option value="14">Net 14</option>
-              <option value="30">Net 30</option>
-              <option value="custom">Custom due date</option>
+              <option value="7">7 days</option>
+              <option value="14">14 days</option>
+              <option value="30">30 days</option>
+              <option value="custom">Pick a date</option>
             </select>
           </label>
           <label className="text-sm font-semibold">
@@ -562,17 +567,30 @@ export function InvoiceWorkspace({
           />
         </label>
 
-        <label className="block text-sm font-semibold">
-          Payment instructions
+        <div>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <label
+              htmlFor="payment-instructions"
+              className="text-sm font-semibold text-ink"
+            >
+              Payment instructions
+            </label>
+            <Link
+              href="/settings/letterhead"
+              className="text-xs font-semibold text-sea hover:underline"
+            >
+              Set sort code &amp; account in Practice branding →
+            </Link>
+          </div>
           <textarea
+            id="payment-instructions"
             className="input mt-1 min-h-[4rem] font-normal"
             placeholder="Bank name, sort code, account number, payment reference…"
             value={paymentInstructions}
             onChange={(e) => setPaymentInstructions(e.target.value)}
           />
-        </label>
+        </div>
 
-        <FormErrorBanner error={error} />
         <button type="submit" className="btn btn-primary" disabled={pending}>
           {pending
             ? "Saving…"
@@ -582,7 +600,7 @@ export function InvoiceWorkspace({
         </button>
       </form>
 
-      <FormErrorBanner error={error} />
+      <FormErrorBanner error={error} title="Couldn’t continue" />
       {ok ? <p className="text-sm font-semibold text-ok">{ok}</p> : null}
 
       <div className="panel overflow-hidden">
@@ -626,68 +644,80 @@ export function InvoiceWorkspace({
                     ))}
                   </ul>
                   {emailingId === inv.id ? (
-                    <div className="mt-3 flex flex-wrap items-end gap-2">
-                      <label className="text-xs font-semibold text-ink">
+                    <div className="mt-3 space-y-2 rounded-lg border border-line bg-mist/40 p-3">
+                      <label className="block text-xs font-semibold text-ink">
                         Send to
                         <input
                           type="email"
-                          className="input mt-1 block min-w-[14rem]"
+                          className="input mt-1 block w-full max-w-sm"
                           value={emailTo}
                           onChange={(e) => setEmailTo(e.target.value)}
                           placeholder="client@firm.co.uk"
                         />
                       </label>
-                      <button
-                        type="button"
-                        className="btn btn-primary text-sm"
-                        disabled={pending}
-                        onClick={() =>
-                          start(async () => {
-                            setError(null);
-                            setOk(null);
-                            try {
-                              const res = await sendClientInvoiceEmail({
-                                invoiceId: inv.id,
-                                toEmail: emailTo,
-                              });
-                              setOk(
-                                `Invoice emailed to ${res.toEmail}${
+                      {!emailTo.trim() ? (
+                        <p className="text-xs text-ink-soft">
+                          Add the client’s email here before sending.
+                        </p>
+                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="btn btn-primary text-sm"
+                          disabled={pending}
+                          onClick={() =>
+                            start(async () => {
+                              setError(null);
+                              setOk(null);
+                              try {
+                                const res = await sendClientInvoiceEmail({
+                                  invoiceId: inv.id,
+                                  toEmail: emailTo,
+                                });
+                                if (!res.ok) {
+                                  setError(res.error);
+                                  return;
+                                }
+                                setOk(
                                   res.delivery === "logged"
-                                    ? " (logged — email provider not configured)"
-                                    : ""
-                                }.`,
-                              );
-                              setEmailingId(null);
-                              router.refresh();
-                            } catch (err) {
-                              setError(
-                                messageFromUnknown(err, "Could not email invoice"),
-                              );
-                            }
-                          })
-                        }
-                      >
-                        {pending ? "Sending…" : "Send email"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost text-sm"
-                        onClick={() => setEmailingId(null)}
-                      >
-                        Cancel
-                      </button>
+                                    ? `Invoice saved, but email was not delivered — ask your admin to configure outbound email (Resend).`
+                                    : `Invoice emailed to ${res.toEmail}.`,
+                                );
+                                setEmailingId(null);
+                                router.refresh();
+                              } catch (err) {
+                                setError(
+                                  messageFromUnknown(
+                                    err,
+                                    "Could not email invoice",
+                                  ),
+                                );
+                              }
+                            })
+                          }
+                        >
+                          {pending ? "Sending…" : "Send email"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost text-sm"
+                          onClick={() => setEmailingId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
                   ) : null}
                 </div>
-                <div className="text-right">
+                <div className="w-full sm:w-auto sm:text-right">
                   <p className="mono text-lg font-semibold">
                     {money(inv.totalPence)}
                   </p>
                   <span className={statusBadge(inv.status)}>{inv.status}</span>
-                  <div className="mt-2 flex flex-col items-end gap-1">
+                  <div className="mt-3 flex flex-wrap gap-2 sm:justify-end">
                     <Link
                       href={`/clients/${clientId}/invoices/${inv.id}/print`}
-                      className="text-sm font-semibold text-sea"
+                      className="btn btn-secondary px-3 py-1.5 text-sm"
                       target="_blank"
                     >
                       Print / PDF
@@ -695,7 +725,7 @@ export function InvoiceWorkspace({
                     {inv.status !== "void" ? (
                       <button
                         type="button"
-                        className="text-sm font-semibold text-sea"
+                        className="btn btn-secondary px-3 py-1.5 text-sm"
                         disabled={pending}
                         onClick={() => {
                           setEmailingId(inv.id);
@@ -704,13 +734,13 @@ export function InvoiceWorkspace({
                           setOk(null);
                         }}
                       >
-                        Email invoice
+                        Email
                       </button>
                     ) : null}
                     {inv.status === "draft" && (
                       <button
                         type="button"
-                        className="text-sm font-semibold text-sea"
+                        className="btn btn-ghost px-3 py-1.5 text-sm"
                         disabled={pending}
                         onClick={() =>
                           start(async () => {
@@ -725,7 +755,7 @@ export function InvoiceWorkspace({
                     {inv.status !== "paid" && inv.status !== "void" && (
                       <button
                         type="button"
-                        className="text-sm font-semibold text-sea"
+                        className="btn btn-ghost px-3 py-1.5 text-sm"
                         disabled={pending}
                         onClick={() =>
                           start(async () => {
@@ -740,7 +770,7 @@ export function InvoiceWorkspace({
                     {inv.status !== "void" && inv.status !== "paid" && (
                       <button
                         type="button"
-                        className="text-sm font-semibold text-danger"
+                        className="btn btn-ghost px-3 py-1.5 text-sm text-danger"
                         disabled={pending}
                         onClick={() =>
                           start(async () => {

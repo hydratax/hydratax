@@ -151,6 +151,7 @@ export function SaDirectorIncomeDesk({
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const [payeInfo, setPayeInfo] = useState<string | null>(null);
   const [companies, setCompanies] = useState<SaCompanyIncome[]>(
     () => initialTaxpayer.companyIncomes ?? [],
   );
@@ -227,6 +228,7 @@ export function SaDirectorIncomeDesk({
               onClick={() => {
                 setError(null);
                 setOk(null);
+                setPayeInfo(null);
                 start(async () => {
                   try {
                     const result = await refreshCompanyPayeFromPayroll({
@@ -237,16 +239,28 @@ export function SaDirectorIncomeDesk({
                     setCompanies(result.taxpayer.companyIncomes ?? []);
                     setPayePulls(result.pulls);
                     const matched = result.pulls.filter((p) => p.matched).length;
-                    setOk(
-                      matched
-                        ? `Pulled PAYE for ${matched} compan${matched === 1 ? "y" : "ies"} — Self Assessment draft updated.`
-                        : "No PAYE match (need matching NINO, date of birth and address on the employee).",
-                    );
+                    if (matched) {
+                      setOk(
+                        `Pulled PAYE for ${matched} compan${matched === 1 ? "y" : "ies"} — Self Assessment draft updated.`,
+                      );
+                    } else {
+                      const reason =
+                        result.pulls.find((p) => p.reason)?.reason ??
+                        "No PAYE information found for this person on linked company payroll.";
+                      setPayeInfo(reason);
+                    }
                     router.refresh();
                   } catch (e) {
-                    setError(
-                      e instanceof Error ? e.message : "PAYE refresh failed",
-                    );
+                    const msg =
+                      e instanceof Error ? e.message : "PAYE refresh failed";
+                    // Soft empty-state, not a hard failure banner.
+                    if (/no paye|no matching|not found|no information/i.test(msg)) {
+                      setPayeInfo(
+                        "No PAYE information found on linked company payroll.",
+                      );
+                    } else {
+                      setError(msg);
+                    }
                   }
                 });
               }}
@@ -445,6 +459,14 @@ export function SaDirectorIncomeDesk({
       </section>
 
       <FormErrorBanner error={error} />
+      {payeInfo ? (
+        <p
+          role="status"
+          className="rounded-xl border border-line bg-sand/40 px-4 py-3 text-sm text-ink"
+        >
+          {payeInfo}
+        </p>
+      ) : null}
       {ok ? <p className="text-sm text-ok">{ok}</p> : null}
     </div>
   );

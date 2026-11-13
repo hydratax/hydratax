@@ -23,7 +23,7 @@ export async function getPracticeTrialStatus(
         .from("practice_subscriptions")
         .select("plan_key, status, trial_ends_at")
         .eq("practice_id", practiceId)
-        .in("status", ["active", "trialing"])
+        .in("status", ["active", "trialing", "canceling"])
         .order("created_at", { ascending: false })
         .limit(20);
 
@@ -31,7 +31,10 @@ export async function getPracticeTrialStatus(
         if (!planKeyHasPracticeTrial(row.plan_key ?? "")) continue;
         const ends = (row.trial_ends_at as string | null) ?? null;
         // Legacy rows without trial_ends_at: treat trialing as on trial
-        if (row.status === "trialing" && !ends) {
+        if (
+          (row.status === "trialing" || row.status === "canceling") &&
+          !ends
+        ) {
           return {
             onTrial: true,
             trialEndsAt: null,
@@ -56,12 +59,17 @@ export async function getPracticeTrialStatus(
       .filter(
         (s) =>
           s.practiceId === practiceId &&
-          (s.status === "active" || s.status === "trialing") &&
+          (s.status === "active" ||
+            s.status === "trialing" ||
+            s.status === "canceling") &&
           planKeyHasPracticeTrial(s.planKey),
       )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     for (const s of subs) {
-      if (s.status === "trialing" && !s.trialEndsAt) {
+      if (
+        (s.status === "trialing" || s.status === "canceling") &&
+        !s.trialEndsAt
+      ) {
         return { onTrial: true, trialEndsAt: null, planKey: s.planKey };
       }
       if (isWithinTrialWindow(s.trialEndsAt ?? null)) {
@@ -91,6 +99,7 @@ export async function getPracticeTrialStatus(
           or(
             eq(practiceSubscriptions.status, "active"),
             eq(practiceSubscriptions.status, "trialing"),
+            eq(practiceSubscriptions.status, "canceling"),
           ),
         ),
       )
@@ -102,7 +111,10 @@ export async function getPracticeTrialStatus(
       const ends =
         row.trialEndsAt?.toISOString?.() ??
         (typeof row.trialEndsAt === "string" ? row.trialEndsAt : null);
-      if (row.status === "trialing" && !ends) {
+      if (
+        (row.status === "trialing" || row.status === "canceling") &&
+        !ends
+      ) {
         return { onTrial: true, trialEndsAt: null, planKey: row.planKey };
       }
       if (isWithinTrialWindow(ends)) {

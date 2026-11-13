@@ -16,6 +16,18 @@ function gbp(pence: number): string {
   }).format(pence / 100);
 }
 
+function formatUkDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
+  if (!m) return iso;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return d.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 export type InvoiceRenderLine = {
   description: string;
   quantity: number;
@@ -84,7 +96,7 @@ export function renderInvoiceHtml(input: {
 
   const addressBlock = address
     ? `<p class="meta">${address}</p>`
-    : `<p class="meta placeholder">Address not set</p>`;
+    : `<p class="meta placeholder">Address not set — add in Practice branding</p>`;
 
   const contactBlock = contact
     ? `<p class="meta">${escapeHtml(contact)}</p>`
@@ -107,9 +119,9 @@ export function renderInvoiceHtml(input: {
       (line) => `<tr>
       <td>${escapeHtml(line.description)}</td>
       <td class="num">${line.quantity}</td>
-      <td class="num mono">${escapeHtml(gbp(line.unitPricePence))}</td>
+      <td class="num">${escapeHtml(gbp(line.unitPricePence))}</td>
       <td class="num">${(line.vatRateBps / 100).toFixed(0)}%</td>
-      <td class="num mono">${escapeHtml(gbp(line.lineNetPence))}</td>
+      <td class="num">${escapeHtml(gbp(line.lineNetPence))}</td>
     </tr>`,
     )
     .join("");
@@ -122,44 +134,60 @@ export function renderInvoiceHtml(input: {
     : "";
 
   const payment = inv.paymentInstructions?.trim()
-    ? `<section class="block">
+    ? `<section class="block payment">
         <h2>Payment instructions</h2>
         <p class="pre">${escapeHtml(inv.paymentInstructions)}</p>
       </section>`
-    : "";
+    : needsBranding
+      ? `<section class="block payment print-hide">
+        <h2>Payment instructions</h2>
+        <p class="meta placeholder">Add bank details in <a href="${escapeHtml(brandingHref)}">Practice branding</a>.</p>
+      </section>`
+      : "";
 
   const autoPrint = input.autoPrint
     ? `<script>window.addEventListener("load",function(){setTimeout(function(){window.print()},200)});</script>`
     : "";
+
+  const statusLabel = escapeHtml(inv.status.replace(/_/g, " "));
 
   return `<!DOCTYPE html>
 <html lang="en-GB">
 <head>
   <meta charset="utf-8"/>
   <title>Invoice ${escapeHtml(inv.invoiceNumber)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Libre+Baskerville:wght@400;700&display=swap" rel="stylesheet"/>
   <style>
-    @page { size: A4; margin: 16mm 14mm 18mm; }
+    @page { size: A4; margin: 14mm 12mm 16mm; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      color: #1a1a1a;
-      font-family: "Segoe UI", Calibri, "Helvetica Neue", Arial, sans-serif;
-      font-size: 10.5pt;
-      line-height: 1.4;
-      background: #fff;
+      color: #1c1917;
+      font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+      font-size: 10pt;
+      line-height: 1.45;
+      background: #f5f5f4;
     }
-    .sheet { max-width: 190mm; margin: 0 auto; }
+    .sheet {
+      max-width: 190mm;
+      margin: 0 auto;
+      padding: 10mm 9mm 12mm;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(28, 25, 23, 0.08);
+    }
     .toolbar {
       display: flex; flex-wrap: wrap; gap: 0.5rem;
       align-items: center; justify-content: space-between;
-      margin-bottom: 1rem; padding: 0.75rem 0;
-      border-bottom: 1px solid #e5e7eb;
-      font-size: 0.875rem; color: #6b7280;
+      margin: 0 auto 12pt; max-width: 190mm;
+      padding: 0 2mm;
+      font-size: 0.875rem; color: #78716c;
     }
     .toolbar button {
       background: #0f766e; color: #fff; border: 0;
       border-radius: 0.4rem; padding: 0.5rem 0.9rem;
-      font-weight: 600; cursor: pointer;
+      font-family: inherit; font-weight: 600; cursor: pointer;
     }
     .branding-hint {
       margin: 0 0 14pt;
@@ -167,107 +195,160 @@ export function renderInvoiceHtml(input: {
       border: 1px solid #99f6e4;
       background: #f0fdfa;
       border-radius: 8px;
-      font-size: 9.5pt;
+      font-size: 9pt;
       color: #134e4a;
     }
     .branding-hint a { color: #0f766e; font-weight: 700; margin-left: 0.35rem; }
+    .accent {
+      height: 4px;
+      background: linear-gradient(90deg, #0f766e 0%, #14b8a6 55%, #99f6e4 100%);
+      border-radius: 2px;
+      margin-bottom: 16pt;
+    }
     .header {
       display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 16pt;
-      border-bottom: 1.5px solid #0f766e;
-      padding-bottom: 12pt;
-      margin-bottom: 16pt;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 18pt;
+      padding-bottom: 14pt;
+      margin-bottom: 14pt;
+      border-bottom: 1px solid #e7e5e4;
       align-items: start;
     }
-    .logo { max-height: 52px; max-width: 180px; object-fit: contain; display: block; margin-bottom: 6pt; }
+    .logo { max-height: 56px; max-width: 200px; object-fit: contain; display: block; margin-bottom: 8pt; }
     .logo-slot {
-      width: 120px; height: 48px; margin-bottom: 6pt;
-      border: 1px dashed #cbd5e1; border-radius: 6px;
+      width: 128px; height: 52px; margin-bottom: 8pt;
+      border: 1px dashed #d6d3d1; border-radius: 6px;
       display: flex; align-items: center; justify-content: center;
-      color: #94a3b8; font-size: 9pt; font-weight: 600;
-      letter-spacing: 0.04em; text-transform: uppercase;
+      color: #a8a29e; font-size: 8.5pt; font-weight: 600;
+      letter-spacing: 0.06em; text-transform: uppercase;
     }
     .practice {
-      font-family: Georgia, "Times New Roman", serif;
-      font-size: 15pt; font-weight: 600; margin: 0 0 2pt; color: #111;
+      font-family: "Libre Baskerville", Georgia, serif;
+      font-size: 16pt; font-weight: 700; margin: 0 0 3pt; color: #1c1917;
+      letter-spacing: -0.01em;
     }
-    .qual { margin: 0 0 4pt; font-size: 9pt; font-weight: 600; color: #0f766e; }
-    .meta { margin: 0 0 2pt; font-size: 9.5pt; color: #4b5563; }
-    .placeholder { color: #94a3b8; font-style: italic; }
+    .qual { margin: 0 0 5pt; font-size: 8.5pt; font-weight: 600; color: #0f766e; }
+    .meta { margin: 0 0 2pt; font-size: 9pt; color: #57534e; }
+    .placeholder { color: #a8a29e; font-style: italic; }
     .inv-meta { text-align: right; }
     .inv-meta .label {
-      font-size: 9pt; font-weight: 700; letter-spacing: 0.12em;
-      text-transform: uppercase; color: #0f766e; margin: 0;
+      font-size: 8pt; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: #0f766e; margin: 0 0 4pt;
     }
     .inv-meta h1 {
-      font-family: Georgia, "Times New Roman", serif;
-      font-size: 22pt; margin: 2pt 0 6pt; font-weight: 600;
+      font-family: "Libre Baskerville", Georgia, serif;
+      font-size: 18pt; margin: 0 0 10pt; font-weight: 700;
+      color: #1c1917; letter-spacing: -0.02em;
     }
-    .inv-meta p { margin: 0 0 2pt; font-size: 9.5pt; color: #4b5563; }
+    .inv-meta .facts {
+      display: inline-grid;
+      grid-template-columns: auto auto;
+      gap: 4pt 10pt;
+      text-align: left;
+      font-size: 9pt;
+      color: #57534e;
+    }
+    .inv-meta .facts dt { font-weight: 600; color: #78716c; }
+    .inv-meta .facts dd { margin: 0; color: #1c1917; font-variant-numeric: tabular-nums; }
+    .status-pill {
+      display: inline-block; margin-bottom: 8pt;
+      padding: 2pt 8pt; border-radius: 999px;
+      background: #ecfdf5; color: #0f766e;
+      font-size: 8pt; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
     .parties {
       display: grid; grid-template-columns: 1fr 1fr; gap: 18pt;
-      margin-bottom: 16pt;
+      margin-bottom: 18pt;
     }
     .parties h2 {
-      margin: 0 0 4pt; font-size: 8.5pt; font-weight: 700;
-      letter-spacing: 0.1em; text-transform: uppercase; color: #6b7280;
+      margin: 0 0 6pt; font-size: 8pt; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase; color: #78716c;
     }
-    .parties .name { margin: 0 0 2pt; font-weight: 700; font-size: 11pt; }
-    .parties p { margin: 0 0 1pt; font-size: 9.5pt; color: #4b5563; }
+    .parties .name {
+      margin: 0 0 3pt;
+      font-family: "Libre Baskerville", Georgia, serif;
+      font-weight: 700; font-size: 11.5pt; color: #1c1917;
+    }
+    .parties p { margin: 0 0 1pt; font-size: 9pt; color: #57534e; }
     table.lines {
-      width: 100%; border-collapse: collapse; margin-top: 4pt;
+      width: 100%; border-collapse: collapse; margin-top: 2pt;
       font-size: 9.5pt;
     }
     table.lines th {
-      text-align: left; padding: 7pt 6pt;
-      border-bottom: 1.5px solid #0f766e;
-      font-size: 8.5pt; letter-spacing: 0.06em; text-transform: uppercase;
-      color: #374151;
+      text-align: left; padding: 8pt 6pt;
+      border-bottom: 2px solid #0f766e;
+      font-size: 8pt; letter-spacing: 0.08em; text-transform: uppercase;
+      color: #44403c; font-weight: 700;
+      background: #fafaf9;
     }
-    table.lines th.num, table.lines td.num { text-align: right; }
+    table.lines th.num, table.lines td.num {
+      text-align: right; font-variant-numeric: tabular-nums;
+    }
     table.lines td {
-      padding: 7pt 6pt; border-bottom: 1px solid #e5e7eb;
-      vertical-align: top;
+      padding: 9pt 6pt; border-bottom: 1px solid #e7e5e4;
+      vertical-align: top; color: #292524;
     }
-    .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    table.lines tbody tr:last-child td { border-bottom: 1px solid #d6d3d1; }
+    .totals-wrap {
+      display: flex; justify-content: flex-end; margin-top: 14pt;
+    }
     .totals {
-      margin-left: auto; margin-top: 12pt; width: 220px;
+      width: 240px;
+      padding: 10pt 12pt;
+      background: #fafaf9;
+      border: 1px solid #e7e5e4;
+      border-radius: 8px;
       font-size: 10pt;
     }
     .totals .row {
       display: flex; justify-content: space-between; gap: 12pt;
-      padding: 3pt 0;
+      padding: 3pt 0; color: #57534e;
     }
-    .totals .row span:first-child { color: #6b7280; }
+    .totals .row span:last-child {
+      color: #1c1917; font-variant-numeric: tabular-nums; font-weight: 500;
+    }
     .totals .grand {
-      margin-top: 4pt; padding-top: 6pt;
-      border-top: 1.5px solid #111; font-weight: 700; font-size: 11pt;
+      margin-top: 6pt; padding-top: 8pt;
+      border-top: 1.5px solid #0f766e;
+      font-weight: 700; font-size: 12pt; color: #1c1917;
     }
-    .block { margin-top: 16pt; }
+    .totals .grand span:first-child {
+      font-family: "Libre Baskerville", Georgia, serif;
+      font-size: 11pt;
+    }
+    .block { margin-top: 18pt; }
     .block h2 {
-      margin: 0 0 4pt; font-size: 8.5pt; font-weight: 700;
-      letter-spacing: 0.1em; text-transform: uppercase; color: #6b7280;
+      margin: 0 0 5pt; font-size: 8pt; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase; color: #78716c;
     }
-    .pre { margin: 0; white-space: pre-wrap; font-size: 9.5pt; color: #374151; }
+    .payment {
+      padding: 10pt 12pt;
+      background: #f0fdfa;
+      border: 1px solid #ccfbf1;
+      border-radius: 8px;
+    }
+    .pre { margin: 0; white-space: pre-wrap; font-size: 9.5pt; color: #44403c; }
     .footer {
-      margin-top: 24pt; padding-top: 10pt;
-      border-top: 1px solid #d1d5db; font-size: 8pt; color: #6b7280;
+      margin-top: 28pt; padding-top: 10pt;
+      border-top: 1px solid #e7e5e4; font-size: 8pt; color: #78716c;
     }
     .footer p { margin: 0 0 2pt; }
     @media print {
       .print-hide, .toolbar { display: none !important; }
       body { background: #fff; }
+      .sheet { box-shadow: none; padding: 0; max-width: none; }
     }
   </style>
 </head>
 <body>
+  <div class="toolbar print-hide">
+    <span>Invoice ${escapeHtml(inv.invoiceNumber)} · use Print to save as PDF</span>
+    <button type="button" onclick="window.print()">Print / PDF</button>
+  </div>
   <div class="sheet">
-    <div class="toolbar print-hide">
-      <span>Invoice ${escapeHtml(inv.invoiceNumber)} · use Print to save as PDF</span>
-      <button type="button" onclick="window.print()">Print / PDF</button>
-    </div>
     ${brandingBanner}
+    <div class="accent" aria-hidden="true"></div>
     <header class="header">
       <div>
         ${logo}
@@ -279,9 +360,12 @@ export function renderInvoiceHtml(input: {
       <div class="inv-meta">
         <p class="label">Invoice</p>
         <h1>${escapeHtml(inv.invoiceNumber)}</h1>
-        <p>Status: ${escapeHtml(inv.status)}${inv.reference ? ` · Ref ${escapeHtml(inv.reference)}` : ""}</p>
-        <p>Issue date: ${escapeHtml(inv.issueDate)}</p>
-        <p>Due date: ${escapeHtml(inv.dueDate)}</p>
+        <span class="status-pill">${statusLabel}</span>
+        <dl class="facts">
+          <dt>Issued</dt><dd>${escapeHtml(formatUkDate(inv.issueDate))}</dd>
+          <dt>Due</dt><dd>${escapeHtml(formatUkDate(inv.dueDate))}</dd>
+          ${inv.reference ? `<dt>Ref</dt><dd>${escapeHtml(inv.reference)}</dd>` : ""}
+        </dl>
       </div>
     </header>
     <div class="parties">
@@ -310,10 +394,12 @@ export function renderInvoiceHtml(input: {
       </thead>
       <tbody>${linesHtml}</tbody>
     </table>
-    <div class="totals">
-      <div class="row"><span>Net</span><span class="mono">${escapeHtml(gbp(inv.subtotalPence))}</span></div>
-      <div class="row"><span>VAT</span><span class="mono">${escapeHtml(gbp(inv.vatPence))}</span></div>
-      <div class="row grand"><span>Total due</span><span class="mono">${escapeHtml(gbp(inv.totalPence))}</span></div>
+    <div class="totals-wrap">
+      <div class="totals">
+        <div class="row"><span>Net</span><span>${escapeHtml(gbp(inv.subtotalPence))}</span></div>
+        <div class="row"><span>VAT</span><span>${escapeHtml(gbp(inv.vatPence))}</span></div>
+        <div class="row grand"><span>Total due</span><span>${escapeHtml(gbp(inv.totalPence))}</span></div>
+      </div>
     </div>
     ${notes}
     ${payment}

@@ -186,11 +186,23 @@ export async function GET(request: NextRequest) {
       /* session policy best-effort */
     }
 
-    // Welcome + admin notify if signup completed via email confirm / OAuth
-    // without a session at signUp time.
+    // Welcome email only for brand-new signups (email confirm / first OAuth),
+    // never on every Google login. Persist the flag before sending.
     try {
       const freshMeta = (user.user_metadata ?? {}) as Record<string, unknown>;
-      if (!freshMeta.hydra_welcome_sent && user.email) {
+      const createdAtMs = user.created_at
+        ? new Date(user.created_at).getTime()
+        : 0;
+      const accountAgeMs = createdAtMs > 0 ? Date.now() - createdAtMs : Infinity;
+      const isFreshSignup =
+        Number.isFinite(accountAgeMs) &&
+        accountAgeMs >= 0 &&
+        accountAgeMs < 30 * 60 * 1000;
+      const alreadyWelcomed = freshMeta.hydra_welcome_sent === true;
+      if (!alreadyWelcomed && isFreshSignup && user.email) {
+        await supabase.auth.updateUser({
+          data: { ...freshMeta, hydra_welcome_sent: true },
+        });
         const { sendSignupEmails } = await import(
           "@/server/email/signup-notify"
         );
@@ -206,6 +218,8 @@ export async function GET(request: NextRequest) {
             typeof freshMeta.org_type === "string" ? freshMeta.org_type : null,
           userId: user.id,
         });
+      } else if (!alreadyWelcomed && user.email && !isFreshSignup) {
+        // Returning OAuth users from before the flag existed — mark once, no email.
         await supabase.auth.updateUser({
           data: { ...freshMeta, hydra_welcome_sent: true },
         });

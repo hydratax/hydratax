@@ -24,12 +24,20 @@ type Desk = "vat" | "payroll" | "all";
 export function AddClientChooser({
   companies,
   desk = "all",
+  defaultContactEmail = null,
+  /** Solo / empty practice — skip the “pick onboarded company” step. */
+  skipChooser = false,
 }: {
   companies: OnboardedCompanyOption[];
   desk?: Desk;
+  defaultContactEmail?: string | null;
+  skipChooser?: boolean;
 }) {
   const router = useRouter();
-  const [step, setStep] = useState<"choose" | "new">("choose");
+  const startOnNew = skipChooser || companies.length === 0;
+  const [step, setStep] = useState<"choose" | "new">(
+    startOnNew ? "new" : "choose",
+  );
   const [query, setQuery] = useState("");
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -50,19 +58,30 @@ export function AddClientChooser({
   if (step === "new") {
     return (
       <div className="space-y-4">
-        <button
-          type="button"
-          className="text-sm font-semibold text-sea hover:underline"
-          onClick={() => setStep("choose")}
-        >
-          ← Back to company list
-        </button>
+        {!startOnNew ? (
+          <button
+            type="button"
+            className="text-sm font-semibold text-sea hover:underline"
+            onClick={() => setStep("choose")}
+          >
+            ← Back to company list
+          </button>
+        ) : null}
         <div className="panel p-5">
           <CreateClientForm
             defaultVat={desk === "vat"}
             defaultEmployer={desk === "payroll"}
+            defaultContactEmail={defaultContactEmail}
           />
         </div>
+        <p className="text-sm">
+          <Link
+            href="/clients"
+            className="font-semibold text-sea hover:underline"
+          >
+            ← Cancel
+          </Link>
+        </p>
       </div>
     );
   }
@@ -71,10 +90,10 @@ export function AddClientChooser({
     <div className="space-y-4">
       <div className="panel p-5">
         <h2 className="display text-2xl text-ink">
-          Choose an onboarded company
+          Choose a company on this practice
         </h2>
         <p className="mt-1 text-sm text-ink-soft">
-          Select a company already on your practice, or add someone new.
+          Re-use a limited company you already manage, or add someone new.
         </p>
 
         <input
@@ -163,9 +182,7 @@ export function AddClientChooser({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-ink-soft">
-          Not on the list yet?
-        </p>
+        <p className="text-sm text-ink-soft">Not on the list yet?</p>
         <button
           type="button"
           className="btn btn-primary"

@@ -170,14 +170,21 @@ export function LetterheadForm({ initial }: { initial: PracticeLetterhead }) {
             onChange={(e) => setPhone(e.target.value)}
           />
         </label>
-        <label className="block">
-          <span className="label">Email</span>
+        <label className="block sm:col-span-2">
+          <span className="label">Practice email (Reply-To)</span>
           <input
             className="input mt-1"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@yourfirm.co.uk"
           />
+          <span className="mt-1 block text-xs text-ink-soft">
+            Client emails (SA100, SA302, invoices) send from HydraTax
+            (info@hydratax.uk). Replies go to this address — or your signed-in
+            email if blank. Custom “send as” your firm domain comes later once
+            the domain is verified.
+          </span>
         </label>
         <label className="block">
           <span className="label">Website</span>

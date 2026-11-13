@@ -44,18 +44,32 @@ function L({
   box,
   children,
   className = "",
+  required,
+  invalid,
+  fieldId,
 }: {
   label: string;
   box?: string;
   children: React.ReactNode;
   className?: string;
+  required?: boolean;
+  invalid?: boolean;
+  fieldId?: string;
 }) {
   return (
-    <label className={`flex flex-col gap-1 ${className}`}>
+    <label
+      id={fieldId}
+      className={`flex flex-col gap-1 ${invalid ? "rounded-lg ring-2 ring-red-400 ring-offset-2" : ""} ${className}`}
+    >
       <span className="label mb-0 flex min-h-[2.5rem] items-start text-xs">
         <span>
           {box ? <span className="font-semibold text-sea">{box} · </span> : null}
           {label}
+          {required ? (
+            <span className="ml-1 font-semibold text-red-700" aria-hidden>
+              *
+            </span>
+          ) : null}
         </span>
       </span>
       {children}
@@ -68,18 +82,24 @@ function TextInput({
   onChange,
   placeholder,
   type = "text",
+  invalid,
+  inputId,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   type?: string;
+  invalid?: boolean;
+  inputId?: string;
 }) {
   return (
     <input
-      className="input"
+      id={inputId}
+      className={`input ${invalid ? "border-red-500 bg-red-50 focus:border-red-600 focus:ring-red-200" : ""}`}
       type={type}
       value={value}
       placeholder={placeholder}
+      aria-invalid={invalid || undefined}
       onChange={(e) => onChange(e.target.value)}
     />
   );
@@ -246,9 +266,17 @@ export function Sa100Wizard({
   const [natureConfirmed, setNatureConfirmed] = useState(
     () => Boolean((initial?.seDescription ?? "").trim()),
   );
+  const [fieldErrors, setFieldErrors] = useState<Record<string, true>>({});
   const topRef = useRef<HTMLDivElement>(null);
 
   const calc = useMemo(() => calculateSa302(draft), [draft]);
+  const poaYears = useMemo(() => {
+    const label = draft.taxYear || taxYear || TAX_YEAR_LABEL;
+    const start = Number(String(label).split("-")[0]);
+    // Tax year 2025-26 → balancing + POA due 31 Jan 2027 / 31 July 2027.
+    const janYear = Number.isFinite(start) ? start + 2 : new Date().getFullYear() + 1;
+    return { janYear, julyYear: janYear };
+  }, [draft.taxYear, taxYear]);
   const packSupplements = useMemo(
     () => supplementCodesForDraft(draft),
     [draft],
@@ -258,19 +286,82 @@ export function Sa100Wizard({
   const step = STEPS[i]!;
   const last = i === STEPS.length - 1;
 
-  const natureMissing =
-    draft.hasSelfEmployment &&
-    (!draft.seDescription.trim() || !natureConfirmed);
+  function clearFieldError(key: string) {
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
+  /** Validate work-step required boxes; scroll + highlight first miss. */
+  function validateWorkStep(): string | null {
+    const missing: Record<string, true> = {};
+    const messages: string[] = [];
+    let firstId: string | null = null;
+
+    if (draft.hasEmployment) {
+      draft.employments.forEach((e, idx) => {
+        if (!e.payeRef.trim()) {
+          const id = `sa102-paye-ref-${idx}`;
+          missing[id] = true;
+          messages.push(
+            `Employment ${idx + 1}: enter the PAYE tax reference (box 4).`,
+          );
+          if (!firstId) firstId = id;
+        }
+        if (!e.employerName.trim()) {
+          const id = `sa102-employer-${idx}`;
+          missing[id] = true;
+          messages.push(
+            `Employment ${idx + 1}: enter the employer’s name (box 5).`,
+          );
+          if (!firstId) firstId = id;
+        }
+      });
+    }
+
+    if (draft.hasSelfEmployment) {
+      if (!draft.seDescription.trim()) {
+        missing["sa103-nature"] = true;
+        messages.push(
+          "Self-employment: enter the description of business / nature of trade (box 2).",
+        );
+        if (!firstId) firstId = "sa103-nature";
+      } else if (!natureConfirmed) {
+        missing["sa103-nature-confirm"] = true;
+        messages.push(
+          "Self-employment: confirm the nature of business before continuing.",
+        );
+        if (!firstId) firstId = "sa103-nature-confirm";
+      }
+    }
+
+    setFieldErrors(missing);
+    if (firstId) {
+      requestAnimationFrame(() => {
+        const el = document.getElementById(firstId!);
+        if (!el) return;
+        const details = el.closest("details");
+        if (details && !details.open) details.open = true;
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
+    return messages.length ? messages.join(" ") : null;
+  }
 
   function persistDraft(opts?: { advance?: boolean; message?: string }) {
     setError(null);
+    setOk(null);
     start(async () => {
       try {
-        if (opts?.advance && step === "work" && natureMissing) {
-          setError(
-            "Confirm the nature of business (description of business) before continuing.",
-          );
-          return;
+        if (opts?.advance && step === "work") {
+          const workErr = validateWorkStep();
+          if (workErr) {
+            setError(workErr);
+            return;
+          }
         }
         const saved = await saveSa100Draft({
           clientId,
@@ -278,6 +369,7 @@ export function Sa100Wizard({
           taxpayerId,
         });
         setReturnId(saved.id);
+        setFieldErrors({});
         setOk(opts?.message ?? "Draft saved — SA100 & SA302 updated.");
         if (opts?.advance) {
           setI((x) => Math.min(STEPS.length - 1, x + 1));
@@ -410,6 +502,7 @@ export function Sa100Wizard({
                     <Section
                       key={idx}
                       title={`Employment ${idx + 1} (SA102)`}
+                      defaultOpen
                     >
                       <SubHead>Pay, tax &amp; employer</SubHead>
                       <L label="Pay from this employment (P45/P60)" box="1">
@@ -438,17 +531,37 @@ export function Sa100Wizard({
                           onChange={(tips) => setEmp({ tips })}
                         />
                       </L>
-                      <L label="PAYE tax reference of your employer" box="4">
+                      <L
+                        label="PAYE tax reference of your employer"
+                        box="4"
+                        required
+                        invalid={Boolean(fieldErrors[`sa102-paye-ref-${idx}`])}
+                        fieldId={`sa102-paye-ref-${idx}`}
+                      >
                         <TextInput
                           value={e.payeRef}
                           placeholder="123/AB45678"
-                          onChange={(payeRef) => setEmp({ payeRef })}
+                          invalid={Boolean(fieldErrors[`sa102-paye-ref-${idx}`])}
+                          onChange={(payeRef) => {
+                            clearFieldError(`sa102-paye-ref-${idx}`);
+                            setEmp({ payeRef });
+                          }}
                         />
                       </L>
-                      <L label="Your employer’s name" box="5">
+                      <L
+                        label="Your employer’s name"
+                        box="5"
+                        required
+                        invalid={Boolean(fieldErrors[`sa102-employer-${idx}`])}
+                        fieldId={`sa102-employer-${idx}`}
+                      >
                         <TextInput
                           value={e.employerName}
-                          onChange={(employerName) => setEmp({ employerName })}
+                          invalid={Boolean(fieldErrors[`sa102-employer-${idx}`])}
+                          onChange={(employerName) => {
+                            clearFieldError(`sa102-employer-${idx}`);
+                            setEmp({ employerName });
+                          }}
                         />
                       </L>
 
@@ -635,7 +748,7 @@ export function Sa100Wizard({
                   );
                 })}
               {draft.hasSelfEmployment && (
-                <Section title="Self-employment full (SA103F)">
+                <Section title="Self-employment full (SA103F)" defaultOpen>
                   <SubHead>Business details</SubHead>
                   <L label="Business name" box="1">
                     <TextInput
@@ -643,27 +756,49 @@ export function Sa100Wizard({
                       onChange={(seBusinessName) => patch({ seBusinessName })}
                     />
                   </L>
-                  <L label="Description of business / nature of trade" box="2">
+                  <L
+                    label="Description of business / nature of trade"
+                    box="2"
+                    required
+                    invalid={Boolean(fieldErrors["sa103-nature"])}
+                    fieldId="sa103-nature"
+                  >
                     <TextInput
                       value={draft.seDescription}
+                      invalid={Boolean(fieldErrors["sa103-nature"])}
                       onChange={(seDescription) => {
+                        clearFieldError("sa103-nature");
+                        clearFieldError("sa103-nature-confirm");
                         patch({ seDescription });
                         setNatureConfirmed(false);
                       }}
                     />
                   </L>
-                  <label className="sm:col-span-2 flex items-start gap-2 text-sm text-ink">
+                  <label
+                    id="sa103-nature-confirm"
+                    className={`sm:col-span-2 flex items-start gap-2 text-sm text-ink ${
+                      fieldErrors["sa103-nature-confirm"]
+                        ? "rounded-lg bg-red-50 px-2 py-2 ring-2 ring-red-400"
+                        : ""
+                    }`}
+                  >
                     <input
                       type="checkbox"
                       className="mt-1"
                       checked={natureConfirmed && Boolean(draft.seDescription.trim())}
-                      onChange={(e) => setNatureConfirmed(e.target.checked)}
+                      onChange={(e) => {
+                        clearFieldError("sa103-nature-confirm");
+                        setNatureConfirmed(e.target.checked);
+                      }}
                       disabled={!draft.seDescription.trim()}
                     />
                     <span>
                       I confirm this is the correct nature of business for this
                       return
-                      {yearMeta ? ` (${yearMeta.label})` : ""}.
+                      {yearMeta ? ` (${yearMeta.label})` : ""}
+                      <span className="ml-1 font-semibold text-red-700" aria-hidden>
+                        *
+                      </span>
                     </span>
                   </label>
                   <L
@@ -1702,7 +1837,14 @@ export function Sa100Wizard({
 
         </div>
 
-        <FormErrorBanner error={error} />
+        <FormErrorBanner
+          error={error}
+          title={
+            error && /enter |confirm |box \d/i.test(error)
+              ? "Missing information"
+              : undefined
+          }
+        />
         {ok && <p className="mt-3 text-sm font-semibold text-ok">{ok}</p>}
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -1728,14 +1870,8 @@ export function Sa100Wizard({
             <button
               type="button"
               className="btn btn-primary"
-              disabled={pending || (step === "work" && natureMissing)}
+              disabled={pending}
               onClick={() => {
-                if (step === "work" && natureMissing) {
-                  setError(
-                    "Confirm the nature of business before continuing.",
-                  );
-                  return;
-                }
                 // Autosave as you move through the return.
                 persistDraft({
                   advance: true,
@@ -1811,7 +1947,7 @@ export function Sa100Wizard({
         </p>
         <p className="text-xs text-ink-soft">
           {calc.amountDue > 0
-            ? "to pay"
+            ? "balancing payment"
             : calc.refundDue > 0
               ? "refund"
               : "balanced"}{" "}
@@ -1840,6 +1976,34 @@ export function Sa100Wizard({
             <dt className="text-ink-soft">Paid already</dt>
             <dd className="font-semibold tabular-nums">{gbp(calc.taxDeducted)}</dd>
           </div>
+          {calc.paymentsOnAccountEach > 0 ? (
+            <>
+              <div className="mt-2 border-t border-line pt-2" />
+              <div className="flex justify-between gap-2">
+                <dt className="text-ink-soft">
+                  Due 31 Jan {poaYears.janYear}
+                </dt>
+                <dd className="font-semibold tabular-nums">
+                  {gbp(calc.amountDue + calc.paymentsOnAccountEach)}
+                </dd>
+              </div>
+              <p className="text-[11px] leading-snug text-ink-soft">
+                Balancing {gbp(calc.amountDue)} + 1st payment on account{" "}
+                {gbp(calc.paymentsOnAccountEach)}
+              </p>
+              <div className="flex justify-between gap-2">
+                <dt className="text-ink-soft">
+                  Due 31 July {poaYears.julyYear}
+                </dt>
+                <dd className="font-semibold tabular-nums">
+                  {gbp(calc.paymentsOnAccountEach)}
+                </dd>
+              </div>
+              <p className="text-[11px] leading-snug text-ink-soft">
+                2nd payment on account (next year)
+              </p>
+            </>
+          ) : null}
         </dl>
       </aside>
     </div>

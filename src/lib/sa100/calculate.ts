@@ -391,7 +391,10 @@ export function calculateSa302(d: Sa100Draft): Sa302Result {
     balance,
     amountDue: balance > 0 ? balance : 0,
     refundDue: balance < 0 ? -balance : 0,
-    paymentsOnAccountEach: balance > 0 ? r2(balance / 2) : 0,
+    // HMRC: POA usually when balancing payment ≥ £1,000 (and <80% at source —
+    // without prior-year data we apply the £1,000 threshold only).
+    paymentsOnAccountEach:
+      balance >= 1000 ? r2(balance / 2) : 0,
     breakdown,
     summary,
   };

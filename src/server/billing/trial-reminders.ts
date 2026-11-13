@@ -19,6 +19,7 @@ type Candidate = {
   practiceName: string;
   email: string | null;
   trialEndsAt: Date;
+  planKey: string | null;
 };
 
 /**
@@ -55,6 +56,7 @@ export async function sendTrialEndingReminders(): Promise<TrialReminderResult> {
         practiceName: c.practiceName,
         trialEndsAt: c.trialEndsAt,
         appUrl,
+        planKey: c.planKey,
       });
       await sendTransactionalEmail({
         to: c.email,
@@ -84,7 +86,7 @@ async function listTrialEndingSoon(windowEndMs: number): Promise<Candidate[]> {
       const { data: subs, error } = await supabase
         .from("practice_subscriptions")
         .select(
-          "id, practice_id, trial_ends_at, trial_reminder_sent_at, status, practices(name)",
+          "id, practice_id, plan_key, trial_ends_at, trial_reminder_sent_at, status, practices(name)",
         )
         .eq("status", "trialing")
         .is("trial_reminder_sent_at", null)
@@ -110,6 +112,7 @@ async function listTrialEndingSoon(windowEndMs: number): Promise<Candidate[]> {
           practiceName: practiceRow?.name ?? "your practice",
           email,
           trialEndsAt: new Date(row.trial_ends_at as string),
+          planKey: (row.plan_key as string | null) ?? null,
         });
       }
       return out;
@@ -132,6 +135,7 @@ async function listTrialEndingSoon(windowEndMs: number): Promise<Candidate[]> {
           (process.env.ADMIN_EMAIL ?? "").split(",")[0]?.trim() ||
           "trial@hydratax.local",
         trialEndsAt: ends,
+        planKey: s.planKey,
       });
     }
   }

@@ -141,11 +141,21 @@ export async function getPracticeEntitlements() {
       const supabase = await createClient();
       const { data: subs } = await supabase
         .from("practice_subscriptions")
-        .select("plan_key, status")
+        .select("plan_key, status, trial_ends_at")
         .eq("practice_id", session.practiceId)
-        .in("status", ["active", "trialing"]);
+        .in("status", ["active", "trialing", "canceling"]);
+      const { isWithinTrialWindow } = await import("@/lib/trial");
       for (const s of subs ?? []) {
-        if (s.plan_key) planKeys.push(s.plan_key);
+        if (!s.plan_key) continue;
+        // Cancelled mid-trial: keep entitlements only until trialEndsAt.
+        if (
+          s.status === "canceling" &&
+          s.trial_ends_at &&
+          !isWithinTrialWindow(s.trial_ends_at as string)
+        ) {
+          continue;
+        }
+        planKeys.push(s.plan_key);
       }
     } catch {
       /* table may not exist yet */
@@ -154,15 +164,25 @@ export async function getPracticeEntitlements() {
 
   // Memory desk (local / DEMO_MODE): match this practice, or claim orphans
   {
+    const { isWithinTrialWindow } = await import("@/lib/trial");
     const mine = memoryStore.subscriptions.filter(
       (s) =>
-        (s.status === "active" || s.status === "trialing") &&
+        (s.status === "active" ||
+          s.status === "trialing" ||
+          s.status === "canceling") &&
         (s.practiceId === session.practiceId ||
           s.practiceId === memoryStore.practice.id),
     );
     for (const s of mine) {
       if (s.practiceId !== session.practiceId) {
         s.practiceId = session.practiceId;
+      }
+      if (
+        s.status === "canceling" &&
+        s.trialEndsAt &&
+        !isWithinTrialWindow(s.trialEndsAt)
+      ) {
+        continue;
       }
       if (!planKeys.includes(s.planKey)) planKeys.push(s.planKey);
     }
@@ -197,6 +217,7 @@ export async function getPracticeEntitlements() {
             or(
               eq(practiceSubscriptions.status, "active"),
               eq(practiceSubscriptions.status, "trialing"),
+              eq(practiceSubscriptions.status, "canceling"),
             ),
           ),
         );
@@ -211,7 +232,15 @@ export async function getPracticeEntitlements() {
           ),
         );
 
+      const { isWithinTrialWindow } = await import("@/lib/trial");
       for (const s of subs) {
+        if (
+          s.status === "canceling" &&
+          s.trialEndsAt &&
+          !isWithinTrialWindow(s.trialEndsAt)
+        ) {
+          continue;
+        }
         if (!planKeys.includes(s.planKey)) planKeys.push(s.planKey);
       }
       for (const r of chPaid) {
@@ -236,13 +265,17 @@ export async function getPracticeEntitlements() {
         memoryStore.subscriptions.some(
           (s) =>
             s.practiceId === session.practiceId &&
-            (s.status === "active" || s.status === "trialing"),
+            (s.status === "active" ||
+              s.status === "trialing" ||
+              s.status === "canceling"),
         )
       ) {
         for (const s of memoryStore.subscriptions) {
           if (
             s.practiceId === session.practiceId &&
-            (s.status === "active" || s.status === "trialing") &&
+            (s.status === "active" ||
+              s.status === "trialing" ||
+              s.status === "canceling") &&
             !planKeys.includes(s.planKey)
           ) {
             planKeys.push(s.planKey);

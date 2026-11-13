@@ -347,6 +347,63 @@ export function SaPersonalBooks({
           </p>
         ) : null}
 
+        {kind === "bank_statement" ? (
+          <div className="mt-4 space-y-3 rounded-xl border border-line bg-sand/30 p-4">
+            <div>
+              <h3 className="text-sm font-semibold text-ink">
+                Convert &amp; allocate statements
+              </h3>
+              <p className="mt-1 text-xs text-ink-soft">
+                Extract transactions from PDF, photo, CSV or Excel in this same
+                section, preview allocation, then save to personal books.
+                {tradeLabel
+                  ? ` Allocation favours expense heads for ${tradeLabel.toLowerCase()}.`
+                  : ""}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                ref={convertInputRef}
+                type="file"
+                multiple
+                accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,text/csv,application/pdf,image/png,image/jpeg,image/webp,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                capture="environment"
+                className="sr-only"
+                onChange={(e) => {
+                  setConvertFiles(Array.from(e.target.files ?? []));
+                  setPreview(null);
+                }}
+              />
+              <button
+                type="button"
+                className="btn btn-secondary px-3 py-1.5 text-sm"
+                onClick={() => convertInputRef.current?.click()}
+              >
+                Choose statements
+              </button>
+              <span className="text-sm text-ink-soft">
+                {convertFiles.length === 0
+                  ? "No files chosen"
+                  : convertFiles.length === 1
+                    ? convertFiles[0].name
+                    : `${convertFiles.length} files chosen`}
+              </span>
+              <button
+                type="button"
+                disabled={pending}
+                className="btn btn-primary"
+                onClick={runConvert}
+              >
+                {pending ? "Converting…" : "Convert & allocate"}
+              </button>
+            </div>
+            <FormErrorBanner error={convertErr} />
+            {convertMsg ? (
+              <p className="text-sm text-ok">{convertMsg}</p>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="mt-4 border-t border-line pt-3">
           <p className="text-xs font-bold uppercase tracking-[0.12em] text-ink-soft">
             {SA_BOOK_KIND_LABELS[kind]} · {docsForKind.length}
@@ -376,56 +433,6 @@ export function SaPersonalBooks({
             </ul>
           )}
         </div>
-      </div>
-
-      <div className="panel gloss-card space-y-3 p-5">
-        <h3 className="display text-xl text-ink">Convert personal bank statements</h3>
-        <p className="text-sm text-ink-soft">
-          Same pipeline as company bank: extract transactions from PDF, photo,
-          CSV or Excel, preview allocation, then save to this person’s books for
-          Self Assessment.
-          {tradeLabel
-            ? ` Taxi / trade rules favour the right expense heads for ${tradeLabel.toLowerCase()}.`
-            : ""}
-        </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <input
-            ref={convertInputRef}
-            type="file"
-            multiple
-            accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,text/csv,application/pdf,image/png,image/jpeg,image/webp,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            capture="environment"
-            className="sr-only"
-            onChange={(e) => {
-              setConvertFiles(Array.from(e.target.files ?? []));
-              setPreview(null);
-            }}
-          />
-          <button
-            type="button"
-            className="btn btn-secondary px-3 py-1.5 text-sm"
-            onClick={() => convertInputRef.current?.click()}
-          >
-            Choose statements
-          </button>
-          <span className="text-sm text-ink-soft">
-            {convertFiles.length === 0
-              ? "No files chosen"
-              : convertFiles.length === 1
-                ? convertFiles[0].name
-                : `${convertFiles.length} files chosen`}
-          </span>
-          <button
-            type="button"
-            disabled={pending}
-            className="btn btn-primary"
-            onClick={runConvert}
-          >
-            {pending ? "Converting…" : "Convert & allocate"}
-          </button>
-        </div>
-        <FormErrorBanner error={convertErr} />
-        {convertMsg ? <p className="text-sm text-ok">{convertMsg}</p> : null}
       </div>
 
       {preview && preview.length > 0 ? (

@@ -110,8 +110,21 @@ export function statusLabel(status: string, trialEndsAt?: string | null) {
     }
     return "Free trial";
   }
-  if (status === "canceling" || status === "cancelled" || status === "canceled") {
+  if (status === "canceling") {
+    if (trialEndsAt) {
+      const d = new Date(trialEndsAt);
+      if (!Number.isNaN(d.getTime()) && d.getTime() > Date.now()) {
+        return `Cancelled · access until ${d.toLocaleDateString("en-GB", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })}`;
+      }
+    }
     return "Cancellation scheduled";
+  }
+  if (status === "cancelled" || status === "canceled") {
+    return "Cancelled";
   }
   if (status === "active") return "Active";
   return status;

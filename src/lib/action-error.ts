@@ -16,12 +16,19 @@ export function humanizeActionError(
 
   if (
     /unexpected response was received from the server/i.test(raw) ||
-    /invalid server actions request/i.test(raw)
+    /invalid server actions request/i.test(raw) ||
+    /server hit a problem handling this request/i.test(raw)
   ) {
     return "The server could not complete this request. Refresh the page and try again.";
   }
+  if (/email provider error|resend/i.test(raw)) {
+    return "We could not send the email. Check the address is correct, then try again. If it keeps failing, ask your practice admin to confirm email sending is set up (Resend / EMAIL_FROM).";
+  }
+  if (/add a client email|before sending this invoice/i.test(raw)) {
+    return "Enter the client’s email address in the Send to box (or save one on the client record), then try again.";
+  }
   if (/Minified React error\s*#441/i.test(raw)) {
-    return "The server hit a problem handling this request. Please try again in a moment.";
+    return "Something went wrong while sending. Check the client email is filled in, then try again. If it still fails, open Settings → Practice branding and confirm bank details / email are set.";
   }
   if (/Minified React error/i.test(raw)) {
     return "Something went wrong on our side. Please try again.";

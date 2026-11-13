@@ -111,34 +111,39 @@ export function OrgChTypeahead({
   }
 
   return (
-    <div className="relative mt-4" ref={wrapRef}>
-      <span className="pointer-events-none absolute left-3 top-3.5 z-10 text-ink-soft">
-        ⌕
-      </span>
-      <input
-        name={name}
-        value={query}
-        autoComplete="off"
-        aria-autocomplete="list"
-        aria-controls={listId}
-        aria-expanded={open}
-        role="combobox"
-        className="w-full rounded-lg border border-line bg-white py-3 pl-9 pr-24 text-sm"
-        placeholder={placeholder}
-        required={required}
-        onChange={(e) => {
-          setSelectedNumber(null);
-          setQuery(e.target.value);
-        }}
-        onFocus={() => {
-          if (enabled && items.length > 0) setOpen(true);
-        }}
-      />
-      {enabled && (
-        <span className="pointer-events-none absolute right-3 top-3.5 text-xs font-semibold text-ink-soft">
-          {loading ? "Searching…" : "Companies House"}
+    <div className="relative mt-1.5" ref={wrapRef}>
+      <div className="relative">
+        <span
+          className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-ink-soft"
+          aria-hidden
+        >
+          ⌕
         </span>
-      )}
+        <input
+          name={name}
+          value={query}
+          autoComplete="off"
+          aria-autocomplete="list"
+          aria-controls={listId}
+          aria-expanded={open}
+          role="combobox"
+          className="input w-full pl-9 pr-3"
+          placeholder={placeholder}
+          required={required}
+          onChange={(e) => {
+            setSelectedNumber(null);
+            setQuery(e.target.value);
+          }}
+          onFocus={() => {
+            if (enabled && items.length > 0) setOpen(true);
+          }}
+        />
+      </div>
+      {enabled ? (
+        <p className="mt-1.5 text-xs text-ink-soft">
+          {loading ? "Searching Companies House…" : "Lookup via Companies House"}
+        </p>
+      ) : null}
 
       {enabled && open && (loading || items.length > 0 || hint) && (
         <ul

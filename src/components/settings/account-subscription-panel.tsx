@@ -29,7 +29,13 @@ export function AccountSubscriptionPanel({
   const onTrial = billing.subscriptions.some(
     (s) =>
       s.status === "trialing" ||
+      (s.status === "canceling" &&
+        s.trialEndsAt != null &&
+        isWithinTrialWindow(s.trialEndsAt)) ||
       (s.trialEndsAt != null && isWithinTrialWindow(s.trialEndsAt)),
+  );
+  const alreadyCanceling = billing.subscriptions.some(
+    (s) => s.status === "canceling",
   );
 
   function manageInStripe() {
@@ -72,13 +78,22 @@ export function AccountSubscriptionPanel({
         </p>
       </div>
 
-      {onTrial ? (
+      {alreadyCanceling && onTrial ? (
+        <div className="rounded-xl border border-sea/40 bg-sea/5 px-4 py-3 text-sm text-ink">
+          <p className="font-semibold">Subscription cancelled</p>
+          <p className="mt-1 text-ink-soft">
+            You will not be charged. Keep using HydraTax until your free trial
+            ends — then the desk locks until you choose a plan again.
+          </p>
+        </div>
+      ) : onTrial ? (
         <div className="rounded-xl border border-amber-300/80 bg-amber-50 px-4 py-3 text-sm text-ink">
           <p className="font-semibold">Free trial in progress</p>
           <p className="mt-1 text-ink-soft">
             You can prepare returns and explore the desk. Live submission to
             HMRC or Companies House ends the trial and charges your saved card.
-            Cancel within 7 days below to avoid any charge.
+            Cancel within 7 days below to avoid any charge — you keep access
+            until the trial ends.
           </p>
         </div>
       ) : null}
@@ -138,12 +153,12 @@ export function AccountSubscriptionPanel({
           </button>
         ) : null}
 
-        {hasPlans ? (
+        {hasPlans && !alreadyCanceling ? (
           confirmCancel ? (
             <div className="flex w-full flex-wrap items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 sm:w-auto">
               <p className="text-sm text-ink">
                 {onTrial
-                  ? "End the trial now with no charge?"
+                  ? "Cancel with no charge? You can keep using HydraTax until your free trial ends."
                   : "Cancel at the end of the current period? You keep access until then."}
               </p>
               <button
@@ -155,7 +170,7 @@ export function AccountSubscriptionPanel({
                 {pending
                   ? "Cancelling…"
                   : onTrial
-                    ? "End trial — no charge"
+                    ? "Cancel — keep access until trial ends"
                     : "Confirm unsubscribe"}
               </button>
               <button
@@ -178,7 +193,7 @@ export function AccountSubscriptionPanel({
                 setConfirmCancel(true);
               }}
             >
-              {onTrial ? "Cancel trial" : "Unsubscribe"}
+              {onTrial ? "Cancel subscription" : "Unsubscribe"}
             </button>
           )
         ) : null}

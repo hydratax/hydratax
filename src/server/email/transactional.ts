@@ -1,5 +1,7 @@
 import { PRACTICE_TRIAL_DAYS } from "@/lib/trial";
-import { PRACTICE_PLAN_PRICE_POUNDS } from "@/lib/pricing";
+import { PRACTICE_PLAN_PRICE_POUNDS, formatGBP } from "@/lib/pricing";
+import { describeCheckoutPlan } from "@/lib/checkout-plan-copy";
+import { getCheckoutPlan } from "@/lib/checkout-plans";
 
 export type EmailAttachment = {
   filename: string;
@@ -86,6 +88,8 @@ export function trialEndingEmailContent(opts: {
   practiceName: string;
   trialEndsAt: Date;
   appUrl: string;
+  /** Stored plan key so Enterprise is not billed as Small Firm £79 in copy. */
+  planKey?: string | null;
 }) {
   const endLabel = opts.trialEndsAt.toLocaleDateString("en-GB", {
     weekday: "long",
@@ -93,13 +97,20 @@ export function trialEndingEmailContent(opts: {
     month: "long",
     year: "numeric",
   });
-  const price = `£${PRACTICE_PLAN_PRICE_POUNDS}`;
+  const copy = describeCheckoutPlan(opts.planKey ?? "practice:Practice");
+  const plan = opts.planKey ? getCheckoutPlan(opts.planKey) : null;
+  const priceLabel =
+    copy.priceLabel ||
+    (plan && plan.amountPence > 0
+      ? `${formatGBP(plan.amountPence / 100)}/${plan.interval === "year" ? "year" : "month"}`
+      : `£${PRACTICE_PLAN_PRICE_POUNDS}/month`);
+  const planTitle = copy.title || "your HydraTax plan";
   const subject = `Your HydraTax free trial ends tomorrow`;
   const text = `Hi,
 
-Your ${PRACTICE_TRIAL_DAYS}-day HydraTax Practice desk trial for ${opts.practiceName} ends on ${endLabel}.
+Your ${PRACTICE_TRIAL_DAYS}-day HydraTax trial for ${opts.practiceName} (${planTitle}) ends on ${endLabel}.
 
-Tomorrow (day 8) your saved card will be charged ${price}/month unless you cancel before then.
+Tomorrow (day 8) your saved card will be charged ${priceLabel} unless you cancel before then.
 
 • Keep the plan: do nothing — billing starts tomorrow on the card saved at checkout.
 • Cancel with no charge: ${opts.appUrl}/settings/account before the trial ends.
@@ -114,8 +125,8 @@ Prepare returns freely during the trial; live government submission is not inclu
 <html><body style="font-family:Georgia,serif;color:#0a0a0a;line-height:1.5;max-width:560px;margin:0 auto;padding:24px;">
   <p style="font-size:13px;letter-spacing:0.12em;text-transform:uppercase;color:#0f766e;font-weight:700;">HydraTax</p>
   <h1 style="font-size:28px;margin:8px 0 16px;">Your free trial ends tomorrow</h1>
-  <p>Your ${PRACTICE_TRIAL_DAYS}-day Practice desk trial for <strong>${opts.practiceName}</strong> ends on <strong>${endLabel}</strong>.</p>
-  <p>Tomorrow (day 8) your saved card will be charged <strong>${price}/month</strong> unless you cancel before then.</p>
+  <p>Your ${PRACTICE_TRIAL_DAYS}-day trial for <strong>${escapeHtml(opts.practiceName)}</strong> (<strong>${escapeHtml(planTitle)}</strong>) ends on <strong>${endLabel}</strong>.</p>
+  <p>Tomorrow (day 8) your saved card will be charged <strong>${escapeHtml(priceLabel)}</strong> unless you cancel before then.</p>
   <ul>
     <li><strong>Keep the plan:</strong> do nothing — billing starts tomorrow on the card saved at checkout.</li>
     <li><strong>Cancel with no charge:</strong> open <a href="${opts.appUrl}/settings/account">Subscription settings</a> before the trial ends.</li>
@@ -125,5 +136,52 @@ Prepare returns freely during the trial; live government submission is not inclu
   <p style="margin-top:28px;"><a href="${opts.appUrl}/dashboard" style="display:inline-block;background:#0f766e;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">Open practice desk</a></p>
 </body></html>`;
 
+  return { subject, text, html };
+}
+
+function escapeHtml(s: string) {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Confirm cancellation while trial access continues until trialEndsAt. */
+export function trialCancelledEmailContent(opts: {
+  practiceName: string;
+  trialEndsAt: Date;
+  appUrl: string;
+  planKey?: string | null;
+}) {
+  const endLabel = opts.trialEndsAt.toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  const copy = describeCheckoutPlan(opts.planKey ?? "practice:Practice");
+  const planTitle = copy.title || "your HydraTax plan";
+  const subject = "Your HydraTax subscription is cancelled";
+  const text = `Hi,
+
+Your HydraTax subscription for ${opts.practiceName} (${planTitle}) has been cancelled. You will not be charged.
+
+You can keep using HydraTax until your free trial ends on ${endLabel}. After that, the desk will lock until you choose a plan again.
+
+Open your desk: ${opts.appUrl}/dashboard
+Restart a plan anytime: ${opts.appUrl}/pricing
+
+— HydraTax
+`;
+  const html = `<!DOCTYPE html>
+<html><body style="font-family:Georgia,serif;color:#0a0a0a;line-height:1.5;max-width:560px;margin:0 auto;padding:24px;">
+  <p style="font-size:13px;letter-spacing:0.12em;text-transform:uppercase;color:#0f766e;font-weight:700;">HydraTax</p>
+  <h1 style="font-size:28px;margin:8px 0 16px;">Subscription cancelled</h1>
+  <p>Your subscription for <strong>${escapeHtml(opts.practiceName)}</strong> (<strong>${escapeHtml(planTitle)}</strong>) has been cancelled. <strong>You will not be charged.</strong></p>
+  <p>You can keep using HydraTax until your free trial ends on <strong>${endLabel}</strong>. After that, the desk locks until you choose a plan again.</p>
+  <p style="margin-top:28px;"><a href="${opts.appUrl}/dashboard" style="display:inline-block;background:#0f766e;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">Open practice desk</a></p>
+  <p style="margin-top:16px;"><a href="${opts.appUrl}/pricing" style="color:#0f766e;font-weight:600;">View plans</a></p>
+</body></html>`;
   return { subject, text, html };
 }
