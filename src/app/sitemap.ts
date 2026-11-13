@@ -19,6 +19,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/companies", priority: 0.96 },
     { path: "/companies-house", priority: 0.95 },
     { path: "/blog", priority: 0.9 },
+    { path: "/guides/companies-house", priority: 0.9 },
     { path: "/companies-house/incorporation", priority: 0.85 },
     { path: "/companies-house/confirmation-statement", priority: 0.85 },
     { path: "/companies-house/accounts-ixbrl", priority: 0.85 },

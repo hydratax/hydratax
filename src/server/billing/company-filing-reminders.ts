@@ -103,26 +103,26 @@ function emailBody(opts: {
 
 A quick weekly nudge from HydraTax for your limited company filings:
 
-• Confirmation statement — keep Companies House details up to date
-• Annual accounts — micro / small accounts when due
-• CT600 — Corporation Tax return for the same accounting period
+• Confirmation statement (CS01) — ${opts.appUrl}/companies-house/confirmation-statement
+• Annual accounts (iXBRL) — ${opts.appUrl}/companies-house/accounts-ixbrl
+• CT600 — open your desk: ${opts.appUrl}/dashboard
+• Check due dates — ${opts.appUrl}/companies
 
-File from your HydraTax desk when you are ready:
-${opts.appUrl}/dashboard
+Search your company, then file overdue CS01 or accounts from the links above. Reminder emails run about once a week for four months after you create your account.
 
-These reminders run about once a week for four months after you create your account. You can stop them any time:
-${opts.unsub}
+Stop anytime: ${opts.unsub}
 
 — HydraTax
 `;
   const html = `<p>Hi ${name},</p>
 <p>A quick weekly nudge for your limited company filings:</p>
 <ul>
-<li><strong>Confirmation statement</strong> — keep Companies House details up to date</li>
-<li><strong>Annual accounts</strong> — micro / small accounts when due</li>
-<li><strong>CT600</strong> — Corporation Tax return for the same accounting period</li>
+<li><strong>Confirmation statement (CS01)</strong> — <a href="${opts.appUrl}/companies-house/confirmation-statement">file CS01</a></li>
+<li><strong>Annual accounts</strong> — <a href="${opts.appUrl}/companies-house/accounts-ixbrl">file iXBRL accounts</a></li>
+<li><strong>CT600</strong> — <a href="${opts.appUrl}/dashboard">open your practice desk</a></li>
+<li><strong>Due dates</strong> — <a href="${opts.appUrl}/companies">search your company</a></li>
 </ul>
-<p><a href="${opts.appUrl}/dashboard">Open your HydraTax desk</a></p>
+<p>If a filing is overdue, use the links above to submit. <a href="${opts.appUrl}/guides/companies-house">Companies House compliance FAQs</a></p>
 <p style="color:#64748b;font-size:13px">These reminders run about once a week for four months after you create your account. <a href="${opts.unsub}">Unsubscribe</a></p>
 <p>— HydraTax</p>`;
   return { text, html };

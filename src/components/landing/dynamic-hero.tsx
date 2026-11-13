@@ -46,7 +46,7 @@ export function DynamicHero() {
               href="/create-account"
               className="btn btn-primary w-full justify-center sm:w-auto"
             >
-              Get started free
+              Get Started For Free
             </Link>
             <Link
               href="/pricing"

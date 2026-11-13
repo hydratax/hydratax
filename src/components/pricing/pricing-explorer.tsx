@@ -456,37 +456,52 @@ function CustomPlanCard({
         <span className="pricing-plan__badge">{PRACTICE_TRIAL.shortBadge}</span>
       </div>
       <h3 className="display text-2xl text-ink">{plan.name}</h3>
-      {canCheckout ? (
-        <>
-          <p className="price-figure mt-4">
-            <span className="price-amount">{formatGBP(total)}</span>
-            <span className="price-period">
-              {billing === "year" ? "/year" : "/month"}
-            </span>
-          </p>
-          <p className="mt-1 text-xs text-ink-soft">
-            {billing === "year" ? (
-              <>
-                <span className="line-through">
-                  {formatGBP(monthlyTotal * 12)}
-                </span>{" "}
-                · save {formatGBP(yearlySave)} · almost 2 months free
-              </>
-            ) : (
-              <>
-                From {CUSTOM_PLAN_MIN_CLIENTS} clients · Companies House included
-              </>
-            )}
-          </p>
-        </>
-      ) : (
-        <p className="mt-4 text-sm text-ink-soft">
-          Select services below (min {CUSTOM_PLAN_MIN_CLIENTS} clients each).
-        </p>
-      )}
+      <p className="pricing-plan__blurb mt-2 text-sm leading-relaxed text-ink-soft">
+        {plan.blurb ||
+          `Select HMRC services below (min ${CUSTOM_PLAN_MIN_CLIENTS} clients each).`}
+      </p>
 
-      <fieldset className="mt-5 space-y-2">
-        <legend className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+      {/* Same price block geometry as Solo / Small Firm so HMRC services align */}
+      <div className="pricing-plan__price mt-4">
+        {canCheckout ? (
+          <>
+            <p className="price-figure">
+              <span className="price-amount">{formatGBP(total)}</span>
+              <span className="price-period">
+                {billing === "year" ? "/year" : "/month"}
+              </span>
+            </p>
+            <p className="pricing-plan__price-note mt-1 text-xs text-ink-soft">
+              {billing === "year" ? (
+                <>
+                  <span className="line-through">
+                    {formatGBP(monthlyTotal * 12)}
+                  </span>{" "}
+                  · save {formatGBP(yearlySave)} · almost 2 months free
+                </>
+              ) : (
+                <>
+                  From {CUSTOM_PLAN_MIN_CLIENTS} clients · Companies House
+                  included
+                </>
+              )}
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="price-figure">
+              <span className="price-amount text-ink-soft">—</span>
+              <span className="price-period">/month</span>
+            </p>
+            <p className="pricing-plan__price-note mt-1 text-xs text-ink-soft">
+              Pick modules to see your price
+            </p>
+          </>
+        )}
+      </div>
+
+      <fieldset className="pricing-plan__features mt-6 flex-1 space-y-2">
+        <legend className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-soft">
           HMRC services
         </legend>
         {CUSTOM_PLAN_MODULES.map((mod) => {
@@ -552,13 +567,17 @@ function CustomPlanCard({
             </div>
           );
         })}
+        <p className="flex gap-2.5 pt-1 text-sm text-ink-soft">
+          <span className="mt-0.5 text-sea" aria-hidden>
+            ✓
+          </span>
+          <span>Can be cancelled anytime</span>
+        </p>
+        <p className="text-xs leading-relaxed text-ink-soft">
+          Companies House filings included — no monthly add-on. Min{" "}
+          {CUSTOM_PLAN_MIN_CLIENTS} clients per selected module.
+        </p>
       </fieldset>
-
-      <p className="mt-4 text-xs leading-relaxed text-ink-soft">
-        Companies House (incorporation, confirmation statements, annual accounts)
-        is included with every Enterprise desk — no monthly add-on. Minimum{" "}
-        {CUSTOM_PLAN_MIN_CLIENTS} clients per selected module.
-      </p>
 
       <div className="mt-auto space-y-2 pt-6">
         <button

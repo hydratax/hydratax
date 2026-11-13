@@ -75,6 +75,14 @@ export default function CompaniesHousePage() {
                   Find your company, then file a confirmation statement,
                   accounts or incorporation online.
                 </p>
+                <p className="mt-3 text-sm">
+                  <Link
+                    href="/guides/companies-house"
+                    className="font-semibold text-sea hover:underline"
+                  >
+                    Companies House compliance FAQs →
+                  </Link>
+                </p>
               </div>
 
               <div className="company-profile-actions gloss-card relative flex flex-col justify-center overflow-hidden rounded-2xl border border-sea/25 bg-white/90 p-6 shadow-[0_20px_50px_-28px_rgba(15,118,110,0.35)]">

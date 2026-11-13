@@ -67,6 +67,26 @@ export default function BlogIndexPage() {
           businesses. Written for HydraTax — not generic filler.
         </p>
 
+        <div className="mt-8 rounded-2xl border border-sea/25 bg-sea/5 p-5">
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-sea">
+            Most searched · Companies House
+          </p>
+          <h2 className="display mt-2 text-2xl text-ink">
+            UK Companies House compliance FAQs
+          </h2>
+          <p className="mt-2 text-sm text-ink-soft">
+            CS01, accounts deadlines, late penalties, personal codes, ACSPs,
+            strike-off and formation — with links to search companies and file
+            on HydraTax.
+          </p>
+          <Link
+            href="/guides/companies-house"
+            className="mt-4 inline-flex btn btn-primary"
+          >
+            Open Companies House FAQs
+          </Link>
+        </div>
+
         <ul className="mt-10 grid gap-5 md:grid-cols-2">
           {BLOG_POSTS.map((post) => (
             <li key={post.slug}>

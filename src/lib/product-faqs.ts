@@ -32,7 +32,7 @@ export const CH_SERVICE_FAQS: Record<string, FaqItem[]> = {
   "confirmation-statement": [
     {
       q: "Do I need a confirmation statement if nothing changed?",
-      a: "Yes. Every company must file at least once every 12 months, even with no changes, and confirm lawful future activities.",
+      a: "Yes. Every company must file at least once every 12 months, even with no changes, and confirm lawful future activities. See /guides/companies-house for full CS01 FAQs.",
     },
     {
       q: "Why do directors need personal codes?",
@@ -41,6 +41,10 @@ export const CH_SERVICE_FAQS: Record<string, FaqItem[]> = {
     {
       q: "When is the confirmation statement fee due?",
       a: "£65 total (Companies House £50 + Hydra £15) with the first confirmation statement in each 12-month payment period. Extra statements in the same period do not attract another Companies House annual fee.",
+    },
+    {
+      q: "What if I miss the confirmation statement deadline?",
+      a: "Late CS01 is a criminal offence and can lead toward strike-off. File as soon as possible via HydraTax confirmation statement, check due dates on company search, and create an account for weekly filing reminders.",
     },
   ],
   "accounts-ixbrl": [
@@ -51,6 +55,10 @@ export const CH_SERVICE_FAQS: Record<string, FaqItem[]> = {
     {
       q: "What accounts types can I file?",
       a: "Hydra supports micro-entity, small, dormant and other packs via the request form — ensure content meets Companies Act requirements for your size.",
+    },
+    {
+      q: "What are Companies House late filing penalties?",
+      a: "Private companies: £150 (≤1 month), £375 (1–3), £750 (3–6), £1,500 (over 6). Doubled if late in two successive years. Full guide: /guides/companies-house.",
     },
   ],
   "change-of-name": [
