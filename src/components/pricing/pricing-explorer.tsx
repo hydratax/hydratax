@@ -33,8 +33,11 @@ type Plan = Section["plans"][number];
 
 export function PricingExplorer({
   stripeReady,
+  signedIn,
 }: {
   stripeReady: boolean;
+  /** True only with a real signed-in practice session — anonymous never hits Stripe. */
+  signedIn: boolean;
 }) {
   const searchParams = useSearchParams();
   const resumePlan = (searchParams.get("plan") ?? "").trim();
@@ -50,9 +53,19 @@ export function PricingExplorer({
     [activeId],
   );
 
+  function accountFirstUrl(planKey: string) {
+    const plan = encodeURIComponent(planKey);
+    return `/create-account?next=${encodeURIComponent(`/pricing?plan=${plan}`)}&plan=${plan}`;
+  }
+
   function checkout(key: string) {
     setError(null);
     setPendingKey(key);
+    // Desk/module plans: create the HydraTax account before Stripe — never skip this.
+    if (!signedIn) {
+      window.location.href = accountFirstUrl(key);
+      return;
+    }
     startTransition(async () => {
       try {
         const res = await fetch("/api/checkout", {
@@ -67,8 +80,7 @@ export function PricingExplorer({
           planKey?: string;
         };
         if (res.status === 401 || data.needsAuth) {
-          const plan = encodeURIComponent(data.planKey || key);
-          window.location.href = `/create-account?next=${encodeURIComponent(`/pricing?plan=${plan}`)}&plan=${plan}`;
+          window.location.href = accountFirstUrl(data.planKey || key);
           return;
         }
         if (!res.ok || !data.url) {
@@ -84,13 +96,13 @@ export function PricingExplorer({
     });
   }
 
-  // After create-account → /pricing?plan=… resume Stripe with the signed-in practice.
+  // After create-account → /pricing?plan=… resume Stripe only once signed in.
   useEffect(() => {
-    if (!stripeReady || !resumePlan || resumedRef.current) return;
+    if (!stripeReady || !signedIn || !resumePlan || resumedRef.current) return;
     resumedRef.current = true;
     checkout(resumePlan);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once on mount
-  }, [stripeReady, resumePlan]);
+  }, [stripeReady, signedIn, resumePlan]);
 
   return (
     <div className="pricing-page">
@@ -471,21 +483,14 @@ function CustomPlanCard({
                 {billing === "year" ? "/year" : "/month"}
               </span>
             </p>
-            <p className="pricing-plan__price-note mt-1 text-xs text-ink-soft">
-              {billing === "year" ? (
-                <>
-                  <span className="line-through">
-                    {formatGBP(monthlyTotal * 12)}
-                  </span>{" "}
-                  · save {formatGBP(yearlySave)} · almost 2 months free
-                </>
-              ) : (
-                <>
-                  From {CUSTOM_PLAN_MIN_CLIENTS} clients · Companies House
-                  included
-                </>
-              )}
-            </p>
+            {billing === "year" ? (
+              <p className="pricing-plan__price-note mt-1 text-xs text-ink-soft">
+                <span className="line-through">
+                  {formatGBP(monthlyTotal * 12)}
+                </span>{" "}
+                · save {formatGBP(yearlySave)} · almost 2 months free
+              </p>
+            ) : null}
           </>
         ) : (
           <>

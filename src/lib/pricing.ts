@@ -510,7 +510,7 @@ export const PRICING_SECTIONS = [
         blurb: `7 days free, then £${PRACTICE_PLAN_PRICE_POUNDS}/month — for firms with ${PRACTICE_PLAN_CLIENT_MIN} to ${PRACTICE_PLAN_CLIENT_LIMIT} clients.`,
         features: [
           "7-day free trial",
-          "Prepare during trial — live HMRC/CH submit ends trial & charges",
+          "Prepare during trial",
           `${PRACTICE_PLAN_CLIENT_MIN}–${PRACTICE_PLAN_CLIENT_LIMIT} clients`,
           "CT600 included",
           "MTD VAT included",

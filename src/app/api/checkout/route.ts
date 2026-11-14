@@ -76,7 +76,10 @@ export async function POST(req: Request) {
   if (!auth.ok && auth.code === "mfa_required") {
     return apiSessionErrorResponse(auth);
   }
-  const session = auth.ok ? auth.session : null;
+  // Local/demo memory sessions are not real accounts — never send those to Stripe
+  // for desk plans (account creation must come first).
+  const session =
+    auth.ok && auth.session && !auth.session.local ? auth.session : null;
   if (session) {
     practiceId = session.practiceId;
     userId = session.userId;

@@ -3,6 +3,7 @@ import { PricingExplorer } from "@/components/pricing/pricing-explorer";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { isStripeConfigured } from "@/lib/env";
+import { getOptionalSession } from "@/server/auth/session";
 
 export const metadata = {
   title: "Pricing — CT600, VAT, Self Assessment, PAYE & Companies House",
@@ -40,14 +41,22 @@ export const metadata = {
   },
 };
 
-export default function PricingPage() {
+export default async function PricingPage() {
+  const session = await getOptionalSession();
+  // Local/demo memory sessions must not count as signed-in for checkout —
+  // anonymous visitors always create a real account before Stripe.
+  const signedIn = Boolean(session && !session.local);
+
   return (
     <div className="min-h-screen">
       <SiteHeader />
 
       <main>
         <Suspense fallback={<div className="mx-auto max-w-6xl px-4 py-16 text-ink-soft">Loading pricing…</div>}>
-          <PricingExplorer stripeReady={isStripeConfigured()} />
+          <PricingExplorer
+            stripeReady={isStripeConfigured()}
+            signedIn={signedIn}
+          />
         </Suspense>
       </main>
 

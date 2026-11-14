@@ -40,7 +40,7 @@ export function featuresForPlanKey(planKey: string): {
     const selection = parseCustomPlanSelection(baseKey);
     const features = [
       "7-day free trial",
-      "Prepare during trial — live HMRC/CH submit ends trial & charges",
+      "Prepare during trial",
       "Companies House filings included on the desk",
       "Books, documents, and practice desk access",
     ];

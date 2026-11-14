@@ -11,9 +11,7 @@ describe("featuresForPlanKey", () => {
     expect(r.label).toContain("Small Firm");
     expect(r.features.some((f) => /trial/i.test(f))).toBe(true);
     expect(r.features.some((f) => /free submissions/i.test(f))).toBe(false);
-    expect(
-      r.features.some((f) => /live HMRC\/CH submit ends trial/i.test(f)),
-    ).toBe(true);
+    expect(r.features).toContain("Prepare during trial");
     expect(r.features.length).toBeGreaterThan(3);
   });
 
