@@ -102,7 +102,7 @@ export async function POST(req: Request) {
   });
 
   if (!resolved.ok) {
-    if ("needsAuth" in resolved) {
+    if ("needsAuth" in resolved && resolved.needsAuth) {
       return NextResponse.json(
         {
           error:
@@ -113,9 +113,10 @@ export async function POST(req: Request) {
         { status: 401, headers: NO_STORE },
       );
     }
+    const fail = resolved as { ok: false; error: string; status: 400 | 404 };
     return NextResponse.json(
-      { error: resolved.error },
-      { status: resolved.status, headers: NO_STORE },
+      { error: fail.error },
+      { status: fail.status, headers: NO_STORE },
     );
   }
 
