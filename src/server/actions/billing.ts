@@ -8,6 +8,7 @@ import {
   isSupabaseConfigured,
 } from "@/lib/env";
 import {
+  collapseSubscriptionSummaries,
   featuresForPlanKey,
   type SubscriptionFeatureSummary,
 } from "@/lib/subscription-features";
@@ -105,7 +106,7 @@ export async function getAccountBillingSummary(): Promise<AccountBillingSummary>
 
   return {
     isOwner: true,
-    subscriptions,
+    subscriptions: collapseSubscriptionSummaries(subscriptions),
     canManageBilling: true,
     stripeConfigured,
   };

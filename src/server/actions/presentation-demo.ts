@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/server/auth/admin";
-import { requireSession } from "@/server/auth/session";
 import { createClient, listClients } from "@/server/actions/clients";
 import {
   PRESENTATION_DEMO_TAG,
@@ -22,12 +21,8 @@ export type SeedPresentationResult = {
  * Safe to re-run — skips names that already exist.
  */
 export async function seedPresentationDemoClients(): Promise<SeedPresentationResult> {
-  const session = await requireSession();
-  const isPracticeLead =
-    session.role === "owner" || session.role === "admin";
-  if (!isPracticeLead) {
-    await requireAdmin();
-  }
+  // Platform ops only (ADMIN_EMAIL) — not practice owners on Settings → Account.
+  const session = await requireAdmin();
   const existing = await listClients().catch(() => []);
   const existingNames = new Set(
     existing.map((c) => c.name.trim().toLowerCase()),

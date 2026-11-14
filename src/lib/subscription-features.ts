@@ -25,7 +25,7 @@ export function featuresForPlanKey(planKey: string): {
 } {
   if (planKey.startsWith("companies-house:")) {
     return {
-      label: "Companies House filing",
+      label: "Companies House filings",
       features: [
         "Paid Companies House filing credit",
         "Confirmation statement / accounts / incorporation as purchased",
@@ -40,6 +40,7 @@ export function featuresForPlanKey(planKey: string): {
     const selection = parseCustomPlanSelection(baseKey);
     const features = [
       "7-day free trial",
+      "Prepare during trial — live HMRC/CH submit ends trial & charges",
       "Companies House filings included on the desk",
       "Books, documents, and practice desk access",
     ];
@@ -94,6 +95,41 @@ export function featuresForPlanKey(planKey: string): {
     label: planKey,
     features: ["Active HydraTax subscription"],
   };
+}
+
+/**
+ * Collapse duplicate one-off Companies House purchase rows into a single card
+ * so Settings → Subscription does not list the same "ACTIVE" CH block N times.
+ */
+export function collapseSubscriptionSummaries(
+  rows: SubscriptionFeatureSummary[],
+): SubscriptionFeatureSummary[] {
+  const chRows = rows.filter((r) => r.planKey.startsWith("companies-house:"));
+  const other = rows.filter((r) => !r.planKey.startsWith("companies-house:"));
+  if (chRows.length === 0) return rows;
+
+  const count = chRows.length;
+  const creditWord = count === 1 ? "credit" : "credits";
+  const status =
+    chRows.some((r) => r.status === "active")
+      ? "active"
+      : chRows.some((r) => r.status === "trialing")
+        ? "trialing"
+        : chRows[0]?.status ?? "active";
+
+  const collapsed: SubscriptionFeatureSummary = {
+    planKey: "companies-house:credits",
+    label: "Companies House filings",
+    status,
+    features: [
+      `${count} paid Companies House filing ${creditWord}`,
+      "Confirmation statement / accounts / incorporation as purchased",
+    ],
+    trialEndsAt: null,
+    stripeSubscriptionId: null,
+  };
+
+  return [...other, collapsed];
 }
 
 export function statusLabel(status: string, trialEndsAt?: string | null) {

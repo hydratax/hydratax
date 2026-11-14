@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  collapseSubscriptionSummaries,
   featuresForPlanKey,
   statusLabel,
 } from "./subscription-features";
@@ -9,7 +10,43 @@ describe("featuresForPlanKey", () => {
     const r = featuresForPlanKey("practice:Practice");
     expect(r.label).toContain("Small Firm");
     expect(r.features.some((f) => /trial/i.test(f))).toBe(true);
+    expect(r.features.some((f) => /free submissions/i.test(f))).toBe(false);
+    expect(
+      r.features.some((f) => /live HMRC\/CH submit ends trial/i.test(f)),
+    ).toBe(true);
     expect(r.features.length).toBeGreaterThan(3);
+  });
+
+  it("collapses multiple Companies House purchase rows", () => {
+    const collapsed = collapseSubscriptionSummaries([
+      {
+        planKey: "companies-house:cs01",
+        label: "Companies House filings",
+        status: "active",
+        features: ["Paid Companies House filing credit"],
+        trialEndsAt: null,
+        stripeSubscriptionId: null,
+      },
+      {
+        planKey: "companies-house:accounts",
+        label: "Companies House filings",
+        status: "active",
+        features: ["Paid Companies House filing credit"],
+        trialEndsAt: null,
+        stripeSubscriptionId: null,
+      },
+      {
+        planKey: "practice:Practice",
+        label: "Practice desk — Small Firm",
+        status: "trialing",
+        features: ["7-day free trial"],
+        trialEndsAt: null,
+        stripeSubscriptionId: null,
+      },
+    ]);
+    expect(collapsed).toHaveLength(2);
+    const ch = collapsed.find((r) => r.planKey === "companies-house:credits");
+    expect(ch?.features[0]).toMatch(/2 paid/i);
   });
 
   it("summarises Custom module selections", () => {
