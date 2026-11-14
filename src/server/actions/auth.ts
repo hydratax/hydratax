@@ -130,11 +130,24 @@ export async function signUpWithSupabase(
     });
 
     if (error) {
-      // Uniform response: never reveal whether an email is already registered.
+      // Do not pretend a new account was created — send them to sign-in with
+      // an "existing account" hint (same URL shape either way avoids a hard enum).
       if (isAlreadyRegisteredError(error.message)) {
-        return { ok: true, redirectTo: "/sign-in?confirm=1" };
+        return { ok: true, redirectTo: "/sign-in?exists=1" };
       }
       return { ok: false, error: friendlyAuthMessage(error.message) };
+    }
+
+    // With "Confirm email" on, Supabase often returns a user with empty
+    // identities (and no session) when the email is already registered —
+    // instead of an error. Treat that as an existing account, not "check email".
+    if (
+      authData.user &&
+      !authData.session &&
+      Array.isArray(authData.user.identities) &&
+      authData.user.identities.length === 0
+    ) {
+      return { ok: true, redirectTo: "/sign-in?exists=1" };
     }
 
     // Provision practice row; free trial only starts via Practice/Custom checkout
@@ -199,7 +212,33 @@ export async function signUpWithSupabase(
       console.error("[auth.signUp] signup emails failed", safeErr(err));
     }
 
+    // Supabase "Confirm email" with broken/default SMTP leaves users stuck:
+    // no session, no inbox mail, and sign-in often says "invalid credentials".
+    // Always send the confirm link via Resend when confirmation is required.
     if (!authData.session) {
+      try {
+        const { sendSignupConfirmEmail } = await import(
+          "@/server/email/auth-confirm"
+        );
+        const sent = await sendSignupConfirmEmail({
+          email: data.email,
+          firstName: data.firstName,
+          password: data.password,
+        });
+        // Last resort: confirm the user server-side so they can sign in now.
+        if (sent === "failed" && user?.id) {
+          const { getSupabaseAdmin } = await import("@/lib/supabase");
+          await getSupabaseAdmin().auth.admin.updateUserById(user.id, {
+            email_confirm: true,
+          });
+          return {
+            ok: true,
+            redirectTo: "/sign-in?confirmed=1",
+          };
+        }
+      } catch (err) {
+        console.error("[auth.signUp] confirm email failed", safeErr(err));
+      }
       return { ok: true, redirectTo: "/sign-in?confirm=1" };
     }
 
@@ -265,10 +304,22 @@ export async function quickSignUpWithSupabase(
       if (isAlreadyRegisteredError(error.message)) {
         return {
           ok: true,
-          redirectTo: `/sign-in?confirm=1&next=${encodeURIComponent(continueTo)}`,
+          redirectTo: `/sign-in?exists=1&next=${encodeURIComponent(continueTo)}`,
         };
       }
       return { ok: false, error: friendlyAuthMessage(error.message) };
+    }
+
+    if (
+      authData.user &&
+      !authData.session &&
+      Array.isArray(authData.user.identities) &&
+      authData.user.identities.length === 0
+    ) {
+      return {
+        ok: true,
+        redirectTo: `/sign-in?exists=1&next=${encodeURIComponent(continueTo)}`,
+      };
     }
 
     let practiceName: string | null = null;
@@ -328,6 +379,28 @@ export async function quickSignUpWithSupabase(
     }
 
     if (!authData.session) {
+      try {
+        const { sendSignupConfirmEmail } = await import(
+          "@/server/email/auth-confirm"
+        );
+        const sent = await sendSignupConfirmEmail({
+          email: data.email,
+          firstName,
+          password: data.password,
+        });
+        if (sent === "failed" && user?.id) {
+          const { getSupabaseAdmin } = await import("@/lib/supabase");
+          await getSupabaseAdmin().auth.admin.updateUserById(user.id, {
+            email_confirm: true,
+          });
+          return {
+            ok: true,
+            redirectTo: `/sign-in?confirmed=1&next=${encodeURIComponent(continueTo)}`,
+          };
+        }
+      } catch (err) {
+        console.error("[auth.quickSignUp] confirm email failed", safeErr(err));
+      }
       return {
         ok: true,
         redirectTo: `/sign-in?confirm=1&next=${encodeURIComponent(continueTo)}`,
@@ -392,7 +465,11 @@ export async function signInWithSupabase(
       password: data.password,
     });
     if (error) {
-      return { ok: false, error: friendlyAuthMessage(error.message) };
+      const code =
+        error && typeof error === "object" && "code" in error
+          ? String((error as { code?: string }).code ?? "")
+          : "";
+      return { ok: false, error: friendlyAuthMessage(error.message, code) };
     }
     const userId = signedIn.user?.id;
     let suggest2fa = false;
@@ -434,13 +511,14 @@ export async function signInWithSupabase(
   }
 }
 
-function friendlyAuthMessage(raw: string): string {
+function friendlyAuthMessage(raw: string, code = ""): string {
   const m = raw.toLowerCase();
-  if (m.includes("invalid login") || m.includes("invalid credentials")) {
-    return "Email or password is incorrect.";
+  const c = code.toLowerCase();
+  if (c === "email_not_confirmed" || m.includes("email not confirmed") || m.includes("not confirmed")) {
+    return "Confirm your email first — check your inbox (and spam) for the HydraTax confirmation link, then sign in again.";
   }
-  if (m.includes("email not confirmed") || m.includes("not confirmed")) {
-    return "Confirm your email from the link we sent, then sign in again.";
+  if (c === "invalid_credentials" || m.includes("invalid login") || m.includes("invalid credentials")) {
+    return "Email or password is incorrect. If you just signed up, use the password you chose — or Forgot password if this email already had an account.";
   }
   if (
     m.includes("already registered") ||
@@ -563,6 +641,47 @@ export async function updatePasswordWithSupabase(input: {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Could not update password";
     return { ok: false, error: friendlyAuthMessage(msg) };
+  }
+}
+
+/** Resend the signup confirmation link via Resend (not Supabase SMTP). */
+export async function resendSignupConfirmation(
+  emailRaw: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const parsed = emailSchema.safeParse(emailRaw);
+  if (!parsed.success) {
+    return { ok: false, error: "Enter a valid email address." };
+  }
+  const limited = await rateLimitByIp("resend-confirm", {
+    limit: 5,
+    windowMs: 60 * 60 * 1000,
+  });
+  if (!limited.ok) return { ok: false, error: RATE_LIMITED_MESSAGE };
+
+  if (!isSupabaseConfigured()) {
+    return { ok: false, error: "Email confirmation is not available locally." };
+  }
+
+  try {
+    const { sendSignupConfirmEmail } = await import(
+      "@/server/email/auth-confirm"
+    );
+    const sent = await sendSignupConfirmEmail({ email: parsed.data });
+    if (sent === "failed") {
+      return {
+        ok: false,
+        error:
+          "Could not send the confirmation email. Try again in a minute, or use Forgot password if you already have an account.",
+      };
+    }
+    return {
+      ok: true,
+      message:
+        "If an unconfirmed account exists for that email, we sent a confirmation link from HydraTax. Check inbox and spam.",
+    };
+  } catch (err) {
+    console.error("[auth.resendConfirm]", safeErr(err));
+    return { ok: false, error: "Could not send the confirmation email." };
   }
 }
 

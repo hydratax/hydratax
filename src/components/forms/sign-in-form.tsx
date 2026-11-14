@@ -3,7 +3,10 @@
 import { useState, useTransition, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { signInWithSupabase } from "@/server/actions/auth";
+import {
+  resendSignupConfirmation,
+  signInWithSupabase,
+} from "@/server/actions/auth";
 import { safeReturnPath } from "@/lib/auth-return";
 import { messageFromUnknown } from "@/lib/action-error";
 import {
@@ -23,15 +26,19 @@ export function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const [resendPending, startResend] = useTransition();
   const confirmHint = searchParams.get("confirm") === "1";
+  const existsHint = searchParams.get("exists") === "1";
+  const confirmedHint = searchParams.get("confirmed") === "1";
   const resetDone = searchParams.get("reset") === "1";
   const sessionExpired = searchParams.get("expired") === "1";
   const oauthError = searchParams.get("error");
   const oauthFailed = oauthError === "auth";
   const pkceFailed = oauthError === "pkce";
-  const accountExists = oauthError === "account_exists";
-  const hasOauthQueryError = accountExists || oauthFailed || pkceFailed;
+  const oauthAccountExists = oauthError === "account_exists";
+  const hasOauthQueryError = oauthAccountExists || oauthFailed || pkceFailed;
   const next = safeReturnPath(searchParams.get("next"));
   // Hold OAuth error UI until we know there isn't already a live session
   // (successful Google sign-in can briefly land here after a code replay).
@@ -74,14 +81,14 @@ export function SignInForm() {
   const bannerError =
     error ??
     (showOauthError
-      ? accountExists
+      ? oauthAccountExists
         ? EXISTING_ACCOUNT_SIGN_IN_MESSAGE
         : pkceFailed
           ? "Google sign-in was interrupted (browser cookie missing). Try Google again in the same browser, or sign in with email and password."
           : "Google sign-in did not finish. Try again, or sign in with your email and password."
       : null);
 
-  const bannerTitle = accountExists
+  const bannerTitle = oauthAccountExists
     ? "Account already exists"
     : pkceFailed || oauthFailed
       ? "Google sign-in incomplete"
@@ -145,9 +152,57 @@ export function SignInForm() {
         </p>
       </div>
 
-      {confirmHint && (
+      {confirmHint && !existsHint && (
+        <div className="space-y-2 rounded-lg border border-sea/30 bg-sea/5 px-3 py-2 text-sm text-ink">
+          <p>
+            We sent a confirmation link from HydraTax. Check inbox and spam,
+            open the link, then sign in here. If nothing arrives, use Resend
+            below — or Forgot password if this email already had an account.
+          </p>
+          <button
+            type="button"
+            disabled={resendPending}
+            className="text-xs font-semibold text-sea hover:underline disabled:opacity-60"
+            onClick={() => {
+              const emailInput = document.querySelector<HTMLInputElement>(
+                'input[name="email"]',
+              );
+              const email = emailInput?.value?.trim() ?? "";
+              setError(null);
+              setInfo(null);
+              startResend(async () => {
+                const result = await resendSignupConfirmation(email);
+                if (!result.ok) {
+                  setError(result.error);
+                  return;
+                }
+                setInfo(result.message);
+              });
+            }}
+          >
+            {resendPending ? "Sending…" : "Resend confirmation email"}
+          </button>
+        </div>
+      )}
+
+      {existsHint && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-ink">
+          {EXISTING_ACCOUNT_SIGN_IN_MESSAGE}{" "}
+          <Link href="/forgot-password" className="font-semibold text-sea hover:underline">
+            Forgot password
+          </Link>
+        </p>
+      )}
+
+      {confirmedHint && (
         <p className="rounded-lg border border-sea/30 bg-sea/5 px-3 py-2 text-sm text-ink">
-          Check your email to confirm the account, then sign in here.
+          Your email is confirmed. Sign in with the password you chose.
+        </p>
+      )}
+
+      {info && (
+        <p className="rounded-lg border border-sea/30 bg-sea/5 px-3 py-2 text-sm text-ink">
+          {info}
         </p>
       )}
 
