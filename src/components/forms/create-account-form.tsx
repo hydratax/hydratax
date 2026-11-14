@@ -179,6 +179,14 @@ export function CreateAccountForm() {
                 );
                 return;
               }
+              // Never treat an existing-account redirect as success / "check email".
+              if (
+                result.redirectTo.includes("exists=1") ||
+                result.redirectTo.includes("error=account_exists")
+              ) {
+                setError(EXISTING_ACCOUNT_SIGN_IN_MESSAGE);
+                return;
+              }
               // Prefer the pricing/plan resume path so checkout continues after
               // signup — never drop the chosen plan by hard-routing to /dashboard.
               const dest = result.redirectTo.startsWith("/sign-in")

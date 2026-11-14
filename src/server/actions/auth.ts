@@ -8,6 +8,7 @@ import { isMemoryStore, isSupabaseConfigured, isStripeConfigured } from "@/lib/e
 import { memoryStore } from "@/server/demo/store";
 import { startPracticeTrial } from "@/server/billing/start-practice-trial";
 import { rateLimit, rateLimitByIp } from "@/lib/rate-limit";
+import { EXISTING_ACCOUNT_SIGN_IN_MESSAGE } from "@/lib/auth-errors";
 
 /** New passwords: >= 12 chars (Supabase/bcrypt caps usable length at 72 bytes). */
 const PASSWORD_MIN = 12;
@@ -61,6 +62,25 @@ function isAlreadyRegisteredError(raw: string): boolean {
     m.includes("email address is already associated")
   );
 }
+
+/**
+ * Supabase "Confirm email" often returns a user with empty identities and no
+ * session when the email is already registered — instead of an error. Never
+ * treat that as "check your email".
+ */
+function isObfuscatedExistingAccount(authData: {
+  user: { identities?: unknown[] | null } | null;
+  session: unknown;
+}): boolean {
+  const user = authData.user;
+  if (!user || authData.session) return false;
+  return Array.isArray(user.identities) && user.identities.length === 0;
+}
+
+const existingAccountResult = (): AuthActionResult => ({
+  ok: false,
+  error: EXISTING_ACCOUNT_SIGN_IN_MESSAGE,
+});
 
 export type AuthActionResult =
   | { ok: true; redirectTo: string }
@@ -130,24 +150,14 @@ export async function signUpWithSupabase(
     });
 
     if (error) {
-      // Do not pretend a new account was created — send them to sign-in with
-      // an "existing account" hint (same URL shape either way avoids a hard enum).
       if (isAlreadyRegisteredError(error.message)) {
-        return { ok: true, redirectTo: "/sign-in?exists=1" };
+        return existingAccountResult();
       }
       return { ok: false, error: friendlyAuthMessage(error.message) };
     }
 
-    // With "Confirm email" on, Supabase often returns a user with empty
-    // identities (and no session) when the email is already registered —
-    // instead of an error. Treat that as an existing account, not "check email".
-    if (
-      authData.user &&
-      !authData.session &&
-      Array.isArray(authData.user.identities) &&
-      authData.user.identities.length === 0
-    ) {
-      return { ok: true, redirectTo: "/sign-in?exists=1" };
+    if (isObfuscatedExistingAccount(authData)) {
+      return existingAccountResult();
     }
 
     // Provision practice row; free trial only starts via Practice/Custom checkout
@@ -302,24 +312,13 @@ export async function quickSignUpWithSupabase(
 
     if (error) {
       if (isAlreadyRegisteredError(error.message)) {
-        return {
-          ok: true,
-          redirectTo: `/sign-in?exists=1&next=${encodeURIComponent(continueTo)}`,
-        };
+        return existingAccountResult();
       }
       return { ok: false, error: friendlyAuthMessage(error.message) };
     }
 
-    if (
-      authData.user &&
-      !authData.session &&
-      Array.isArray(authData.user.identities) &&
-      authData.user.identities.length === 0
-    ) {
-      return {
-        ok: true,
-        redirectTo: `/sign-in?exists=1&next=${encodeURIComponent(continueTo)}`,
-      };
+    if (isObfuscatedExistingAccount(authData)) {
+      return existingAccountResult();
     }
 
     let practiceName: string | null = null;
