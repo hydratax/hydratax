@@ -24,6 +24,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
     ...(full ? [{ href: "/settings/hmrc-rules", label: "HMRC tax rules" }] : []),
     ...(full ? [{ href: "/settings/channels", label: "Channels" }] : []),
     ...(full ? [{ href: "/settings/account", label: "Account" }] : []),
+    { href: "/settings/privacy", label: "Privacy & data" },
     ...(full
       ? [{ href: "/settings/letterhead", label: "Practice branding" }]
       : []),

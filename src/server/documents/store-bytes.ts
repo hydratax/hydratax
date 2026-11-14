@@ -1,5 +1,4 @@
 import {
-  isBlobConfigured,
   isMemoryStore,
   isR2Configured,
   isSupabaseConfigured,
@@ -9,6 +8,7 @@ import {
   pdfFilenameFromImage,
   rasterImageToPdf,
 } from "@/lib/image-to-pdf";
+import { inspectUpload } from "@/lib/file-types";
 
 export type StoredClientDocument = {
   documentId: string;
@@ -33,8 +33,23 @@ export async function storeClientDocumentBytes(input: {
   folder?: string;
   asPdfIfImage?: boolean;
 }): Promise<StoredClientDocument> {
-  let filename = input.filename.replace(/[^\w.\- ()]/g, "_").slice(0, 180);
-  let contentType = input.contentType || "application/octet-stream";
+  // Never trust the sender's declared type/extension: allow-list + sniff magic
+  // bytes; anything else is stored as opaque application/octet-stream (.bin).
+  const inspected = inspectUpload({
+    filename: input.filename,
+    declaredType: input.contentType,
+    bytes: input.bytes,
+  });
+  if (!inspected.allowed && inspected.reason === "magic_mismatch") {
+    throw new Error(
+      "File content does not match its declared type and was rejected.",
+    );
+  }
+  if (!inspected.allowed && inspected.reason === "empty") {
+    throw new Error("File is empty.");
+  }
+  let filename = inspected.filename;
+  let contentType: string = inspected.contentType;
   let bytes = input.bytes;
 
   if (input.asPdfIfImage && isRasterImageType(contentType)) {
@@ -58,15 +73,9 @@ export async function storeClientDocumentBytes(input: {
       contentType,
     });
     blobUrl = uploaded.url;
-  } else if (isBlobConfigured()) {
-    const { put } = await import("@vercel/blob");
-    const blob = await put(objectKey, Buffer.from(bytes), {
-      access: "public",
-      contentType,
-      addRandomSuffix: true,
-    });
-    blobUrl = blob.url;
   } else if (isMemoryStore()) {
+    // Dev/demo only. The former `access: "public"` Vercel Blob fallback made
+    // client documents world-readable and has been removed.
     blobUrl = `data:${contentType};base64,${Buffer.from(bytes).toString("base64")}`;
   } else {
     throw new Error("Document storage is not configured.");

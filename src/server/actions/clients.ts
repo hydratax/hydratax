@@ -1,4 +1,5 @@
 "use server";
+import { safeErr } from "@/lib/redact";
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -126,7 +127,7 @@ async function safeAudit(
   try {
     await appendAuditEvent(input);
   } catch (err) {
-    console.warn("[audit] append failed", err);
+    console.warn("[audit] append failed", safeErr(err));
   }
 }
 
@@ -164,7 +165,7 @@ export async function listClientIdNames(): Promise<ClientIdName[]> {
         }));
       }
     } catch (err) {
-      console.warn("[clients] supabase id list error", err);
+      console.warn("[clients] supabase id list error", safeErr(err));
     }
   }
 
@@ -216,7 +217,7 @@ export async function fetchClientRecord(
         return mapSupabaseClient(data);
       }
     } catch (err) {
-      console.warn("[clients] supabase fetch error", err);
+      console.warn("[clients] supabase fetch error", safeErr(err));
     }
   }
 
@@ -326,7 +327,7 @@ export async function listClients(): Promise<ClientRecord[]> {
         return data.map((row) => mapSupabaseClient(row));
       }
     } catch (err) {
-      console.warn("[clients] supabase list error", err);
+      console.warn("[clients] supabase list error", safeErr(err));
     }
   }
 
@@ -912,7 +913,7 @@ export async function refreshStaleClientsCompaniesHouse(opts?: {
         console.warn(
           "[ch.refresh] client refresh failed",
           chunk[j]?.id,
-          result.reason,
+          safeErr(result.reason),
         );
       }
     }
@@ -971,7 +972,9 @@ function purgeDemoClientData(clientId: string) {
 /** Permanently remove a client and all workspace data for the practice. */
 export async function deleteClient(clientId: string) {
   const session = await requireSession();
-  if (session.role === "readonly") throw new Error("Forbidden");
+  // UK GDPR Art 17/32: permanent deletion is owner/admin only (full access).
+  const { assertPracticeAdmin } = await import("@/server/privacy/authz");
+  assertPracticeAdmin(session);
 
   const client = await getClient(clientId);
   if (!client || client.practiceId !== session.practiceId) {
@@ -984,7 +987,23 @@ export async function deleteClient(clientId: string) {
     );
     await deskDeleteBankTransactionsForClient(clientId);
   } catch (err) {
-    console.warn("[clients] desk bank cleanup failed", err);
+    console.warn("[clients] desk bank cleanup failed", safeErr(err));
+  }
+
+  // Remove everything else keyed to this client (D1 desk tables, R2 files,
+  // document rows, channel messages, set-null tables). Practice-scoped.
+  try {
+    const { purgeClientStores } = await import("@/server/privacy/client-purge");
+    const steps = await purgeClientStores(clientId, session.practiceId);
+    const failed = steps.filter((s) => !s.ok);
+    if (failed.length > 0) {
+      console.warn(
+        "[clients] erasure steps failed:",
+        failed.map((s) => s.step).join(", "),
+      );
+    }
+  } catch (err) {
+    console.warn("[clients] client purge failed", safeErr(err));
   }
 
   if (isDemoMode()) {
@@ -996,7 +1015,7 @@ export async function deleteClient(clientId: string) {
       action: "client.delete",
       entityType: "client",
       entityId: clientId,
-      detail: { name: client.name },
+      detail: { erased: true }, // no client name kept (data minimisation)
     });
     revalidatePath("/clients");
     revalidatePath("/dashboard");
@@ -1034,7 +1053,7 @@ export async function deleteClient(clientId: string) {
       action: "client.delete",
       entityType: "client",
       entityId: clientId,
-      detail: { name: client.name },
+      detail: { erased: true }, // no client name kept (data minimisation)
     });
     revalidatePath("/clients");
     revalidatePath("/dashboard");
@@ -1087,7 +1106,7 @@ export async function deleteClient(clientId: string) {
     action: "client.delete",
     entityType: "client",
     entityId: clientId,
-    detail: { name: client.name },
+    detail: { erased: true }, // no client name kept (data minimisation)
   });
   revalidatePath("/clients");
   revalidatePath("/dashboard");

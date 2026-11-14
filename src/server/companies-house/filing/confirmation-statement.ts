@@ -1,3 +1,4 @@
+import { safeErr } from "@/lib/redact";
 import { randomUUID } from "crypto";
 import { encryptSecret, decryptSecret } from "@/server/hmrc/crypto";
 import { isMemoryStore } from "@/lib/env";
@@ -126,7 +127,7 @@ export async function createCsFilingDraft(
     try {
       await insertCsFilingRecord(record);
     } catch (err) {
-      console.error("[cs.filing] supabase insert", err);
+      console.error("[cs.filing] supabase insert", safeErr(err));
       return {
         ok: false,
         error: "Could not save filing to Supabase.",
@@ -316,7 +317,7 @@ async function updateFilingStatus(
     try {
       await patchCsFilingRecord(id, patch);
     } catch (err) {
-      console.error("[cs.filing] supabase patch", err);
+      console.error("[cs.filing] supabase patch", safeErr(err));
     }
     return;
   }

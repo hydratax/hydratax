@@ -59,10 +59,11 @@ const COLUMNS = [
     links: [
       { href: "/terms", label: "Terms of Service" },
       { href: "/terms#free-trial", label: "Free trial policy" },
-      { href: "/terms#privacy", label: "Privacy Policy" },
-      { href: "/terms#cookies", label: "Cookie Policy" },
+      { href: "/privacy", label: "Privacy Notice" },
+      { href: "/legal/cookies", label: "Cookie notice" },
       { href: "/legal/dpa", label: "Data Processing Agreement" },
       { href: "/legal/sub-processors", label: "Sub-processors" },
+      { href: "/legal/security", label: "Security & breach policy" },
     ],
   },
 ] as const;
@@ -159,8 +160,11 @@ export function SiteFooter() {
             <Link href="/terms#free-trial" className="hover:text-sea">
               Free trial
             </Link>
-            <Link href="/terms#privacy" className="hover:text-sea">
+            <Link href="/privacy" className="hover:text-sea">
               Privacy
+            </Link>
+            <Link href="/legal/cookies" className="hover:text-sea">
+              Cookies
             </Link>
             <Link href="/legal/dpa" className="hover:text-sea">
               DPA

@@ -27,10 +27,22 @@ export async function applyDeviceTrustPolicy(trusted: boolean) {
   jar.set(SESSION_EXPIRES_COOKIE, expires, { ...base, maxAge: ttl });
   jar.set(DEVICE_TRUSTED_COOKIE, trusted ? "1" : "0", { ...base, maxAge: ttl });
 
-  // Keep MFA step-up cookie aligned with the same desk session.
-  const mfaOk = jar.get(MFA_OK_COOKIE)?.value;
-  if (mfaOk) {
-    jar.set(MFA_OK_COOKIE, mfaOk, { ...base, maxAge: ttl });
+  // Keep MFA step-up cookie aligned with the same desk session. The cookie is
+  // HMAC-signed and carries its own expiry, so it is re-issued (not just
+  // re-stamped) — and only when the current one is valid for this user.
+  if (jar.get(MFA_OK_COOKIE)?.value) {
+    try {
+      const { createClient } = await import("@/lib/supabase/server");
+      const supabase = await createClient();
+      const { data } = await supabase.auth.getClaims();
+      const sub = data?.claims?.sub;
+      if (typeof sub === "string" && sub) {
+        const { refreshMfaOkCookie } = await import("@/server/auth/mfa-core");
+        await refreshMfaOkCookie(sub, trusted);
+      }
+    } catch {
+      /* leave the existing signed cookie as-is */
+    }
   }
 }
 

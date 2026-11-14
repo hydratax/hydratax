@@ -1,3 +1,4 @@
+import { escapeHtml } from "@/lib/html-escape";
 import type { PracticeFilingRow } from "@/lib/practice-filings";
 import { filingKindLabel } from "@/lib/practice-filings";
 
@@ -77,14 +78,14 @@ function renderFilingRow(item: FilingReminderEmailItem) {
             </div>
           </td>
           <td valign="top" style="color:#e5e7eb;">
-            <div style="font-size:15px;font-weight:700;color:#fff;">${coLine}</div>
-            <div style="font-size:14px;font-weight:600;color:${filingTypeColor(item.urgency)};margin-top:4px;">${item.label}</div>
-            <div style="font-size:13px;color:#9ca3af;margin-top:6px;">${item.periodLabel}</div>
-            <div style="font-size:13px;color:#9ca3af;">${item.urgency === "overdue" ? "Was due" : "Due"} ${item.deadlineLabel}</div>
+            <div style="font-size:15px;font-weight:700;color:#fff;">${escapeHtml(coLine)}</div>
+            <div style="font-size:14px;font-weight:600;color:${filingTypeColor(item.urgency)};margin-top:4px;">${escapeHtml(item.label)}</div>
+            <div style="font-size:13px;color:#9ca3af;margin-top:6px;">${escapeHtml(item.periodLabel)}</div>
+            <div style="font-size:13px;color:#9ca3af;">${item.urgency === "overdue" ? "Was due" : "Due"} ${escapeHtml(item.deadlineLabel)}</div>
           </td>
           <td width="120" valign="top" align="right" style="padding-left:12px;">
-            <a href="${item.actionUrl}" style="display:inline-block;background:#15803d;color:#fff;text-decoration:none;padding:10px 14px;border-radius:6px;font-size:13px;font-weight:600;">${item.actionLabel}</a>
-            <div style="margin-top:8px;"><a href="${item.actionUrl}" style="color:#9ca3af;font-size:12px;">Filed elsewhere?</a></div>
+            <a href="${escapeHtml(item.actionUrl)}" style="display:inline-block;background:#15803d;color:#fff;text-decoration:none;padding:10px 14px;border-radius:6px;font-size:13px;font-weight:600;">${escapeHtml(item.actionLabel)}</a>
+            <div style="margin-top:8px;"><a href="${escapeHtml(item.actionUrl)}" style="color:#9ca3af;font-size:12px;">Filed elsewhere?</a></div>
           </td>
         </tr>
       </table>
@@ -142,8 +143,8 @@ Unsubscribe: ${opts.unsubscribeUrl}
     }</p>
     <div style="background:#1f2937;border-radius:12px;padding:24px;color:#e5e7eb;">
       <h1 style="margin:0 0 16px;font-size:28px;color:#fff;font-weight:700;">Filing Reminders</h1>
-      <p style="margin:0 0 20px;font-size:15px;line-height:1.5;">Hi ${opts.recipientName},</p>
-      <p style="margin:0 0 20px;font-size:15px;line-height:1.5;">${intro}</p>
+      <p style="margin:0 0 20px;font-size:15px;line-height:1.5;">Hi ${escapeHtml(opts.recipientName)},</p>
+      <p style="margin:0 0 20px;font-size:15px;line-height:1.5;">${escapeHtml(intro)}</p>
       <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
         ${rowsHtml}
       </table>

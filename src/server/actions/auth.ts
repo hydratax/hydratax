@@ -1,4 +1,5 @@
 "use server";
+import { safeErr } from "@/lib/redact";
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -6,6 +7,21 @@ import { createClient } from "@/lib/supabase/server";
 import { isMemoryStore, isSupabaseConfigured, isStripeConfigured } from "@/lib/env";
 import { memoryStore } from "@/server/demo/store";
 import { startPracticeTrial } from "@/server/billing/start-practice-trial";
+import { rateLimit, rateLimitByIp } from "@/lib/rate-limit";
+
+/** New passwords: >= 12 chars (Supabase/bcrypt caps usable length at 72 bytes). */
+const PASSWORD_MIN = 12;
+const newPasswordSchema = z
+  .string()
+  .min(PASSWORD_MIN, `Password must be at least ${PASSWORD_MIN} characters`)
+  .max(72, "Password must be 72 characters or fewer");
+
+const emailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .email("Enter a valid email address")
+  .max(254);
 
 const signUpSchema = z.object({
   orgType: z.enum(["company", "sole_trader", "partnership", "practice"]),
@@ -13,24 +29,38 @@ const signUpSchema = z.object({
   companyNumber: z.string().max(20).optional(),
   firstName: z.string().min(1, "Enter your first name").max(80),
   surname: z.string().min(1, "Enter your surname").max(80),
-  email: z.string().email("Enter a valid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters").max(200),
-  confirmPassword: z.string().min(8).max(200),
+  email: emailSchema,
+  password: newPasswordSchema,
+  confirmPassword: z.string().max(200),
   startTrial: z.boolean().optional(),
 });
 
 const signInSchema = z.object({
-  email: z.string().email("Enter a valid email address"),
-  password: z.string().min(1, "Enter your password"),
+  email: emailSchema,
+  password: z.string().min(1, "Enter your password").max(200),
 });
 
 const quickSignUpSchema = z.object({
-  email: z.string().email("Enter a valid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters").max(200),
-  confirmPassword: z.string().min(8).max(200),
+  email: emailSchema,
+  password: newPasswordSchema,
+  confirmPassword: z.string().max(200),
   /** Where to continue after signup (e.g. CS01 resume + pay) */
-  next: z.string().optional(),
+  next: z.string().max(2048).optional(),
 });
+
+const RATE_LIMITED_MESSAGE =
+  "Too many attempts. Wait a few minutes and try again.";
+
+function isAlreadyRegisteredError(raw: string): boolean {
+  const m = raw.toLowerCase();
+  return (
+    m.includes("already registered") ||
+    m.includes("already been registered") ||
+    m.includes("already exists") ||
+    m.includes("identity_already_exists") ||
+    m.includes("email address is already associated")
+  );
+}
 
 export type AuthActionResult =
   | { ok: true; redirectTo: string }
@@ -55,6 +85,12 @@ export async function signUpWithSupabase(
   if (data.password !== data.confirmPassword) {
     return { ok: false, error: "Passwords do not match" };
   }
+
+  const signUpLimit = await rateLimitByIp("signup", {
+    limit: 10,
+    windowMs: 60 * 60 * 1000,
+  });
+  if (!signUpLimit.ok) return { ok: false, error: RATE_LIMITED_MESSAGE };
 
   if (!isSupabaseConfigured()) {
     // Local fallback so the button always works without cloud keys
@@ -94,6 +130,10 @@ export async function signUpWithSupabase(
     });
 
     if (error) {
+      // Uniform response: never reveal whether an email is already registered.
+      if (isAlreadyRegisteredError(error.message)) {
+        return { ok: true, redirectTo: "/sign-in?confirm=1" };
+      }
       return { ok: false, error: friendlyAuthMessage(error.message) };
     }
 
@@ -156,7 +196,7 @@ export async function signUpWithSupabase(
         userId: user?.id ?? null,
       });
     } catch (err) {
-      console.error("[auth.signUp] signup emails failed", err);
+      console.error("[auth.signUp] signup emails failed", safeErr(err));
     }
 
     if (!authData.session) {
@@ -185,6 +225,12 @@ export async function quickSignUpWithSupabase(
   if (data.password !== data.confirmPassword) {
     return { ok: false, error: "Passwords do not match" };
   }
+
+  const quickLimit = await rateLimitByIp("quick-signup", {
+    limit: 10,
+    windowMs: 60 * 60 * 1000,
+  });
+  if (!quickLimit.ok) return { ok: false, error: RATE_LIMITED_MESSAGE };
 
   const { safeReturnPath } = await import("@/lib/auth-return");
   const continueTo = safeReturnPath(data.next, "/dashboard");
@@ -216,6 +262,12 @@ export async function quickSignUpWithSupabase(
     });
 
     if (error) {
+      if (isAlreadyRegisteredError(error.message)) {
+        return {
+          ok: true,
+          redirectTo: `/sign-in?confirm=1&next=${encodeURIComponent(continueTo)}`,
+        };
+      }
       return { ok: false, error: friendlyAuthMessage(error.message) };
     }
 
@@ -272,7 +324,7 @@ export async function quickSignUpWithSupabase(
         userId: user?.id ?? null,
       });
     } catch (err) {
-      console.error("[auth.quickSignUp] signup emails failed", err);
+      console.error("[auth.quickSignUp] signup emails failed", safeErr(err));
     }
 
     if (!authData.session) {
@@ -303,6 +355,36 @@ export async function signInWithSupabase(
     return { ok: true, redirectTo: "/dashboard" };
   }
 
+  // Brute-force brake: per client IP and per target account (best effort —
+  // in-memory per instance; add an edge/WAF rate rule for a hard guarantee).
+  const ipLimit = await rateLimitByIp("signin", {
+    limit: 30,
+    windowMs: 15 * 60 * 1000,
+  });
+  const acctLimit = rateLimit({
+    key: `signin-acct:${data.email}`,
+    limit: 10,
+    windowMs: 15 * 60 * 1000,
+  });
+  if (!ipLimit.ok || !acctLimit.ok) {
+    // No email / password in the event — only which brake tripped.
+    try {
+      const { getClientIp } = await import("@/lib/rate-limit");
+      const { logSecurityEvent } = await import("@/server/privacy/security-events");
+      const ip = await getClientIp();
+      await logSecurityEvent({
+        type: "auth.login_failed_burst",
+        severity: "medium",
+        ip,
+        throttleKey: `signin:${ip}`,
+        details: { limiter: !ipLimit.ok ? "ip" : "account" },
+      });
+    } catch {
+      /* best-effort */
+    }
+    return { ok: false, error: RATE_LIMITED_MESSAGE };
+  }
+
   try {
     const supabase = await createClient();
     const { data: signedIn, error } = await supabase.auth.signInWithPassword({
@@ -324,9 +406,14 @@ export async function signInWithSupabase(
       suggest2fa = login.suggest2fa;
       loginCount = login.loginCount;
 
-      const { beginMfaIfRequired } = await import("@/server/actions/mfa");
-      const mfa = await beginMfaIfRequired(userId);
-      if (mfa.required) {
+      const { beginMfaIfRequired } = await import("@/server/auth/mfa-core");
+      let mfaRequired = true; // fail closed
+      try {
+        mfaRequired = (await beginMfaIfRequired(userId)).required;
+      } catch (err) {
+        console.error("[auth.signIn] MFA begin failed", safeErr(err));
+      }
+      if (mfaRequired) {
         const { postLoginPath } = await import("@/lib/session-policy");
         return {
           ok: true,
@@ -379,9 +466,7 @@ function friendlyAuthMessage(raw: string): string {
 export async function requestPasswordReset(input: {
   email: string;
 }): Promise<AuthActionResult> {
-  const parsed = z
-    .object({ email: z.string().email("Enter a valid email address") })
-    .safeParse(input);
+  const parsed = z.object({ email: emailSchema }).safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: firstZodMessage(parsed.error) };
   }
@@ -391,6 +476,21 @@ export async function requestPasswordReset(input: {
       ok: false,
       error: "Password reset needs Supabase. Use a configured environment.",
     };
+  }
+
+  // Throttle (email-bombing + enumeration timing). When limited we answer
+  // exactly like a success so callers cannot tell the difference.
+  const resetIp = await rateLimitByIp("pw-reset", {
+    limit: 10,
+    windowMs: 15 * 60 * 1000,
+  });
+  const resetAcct = rateLimit({
+    key: `pw-reset-acct:${parsed.data.email}`,
+    limit: 3,
+    windowMs: 15 * 60 * 1000,
+  });
+  if (!resetIp.ok || !resetAcct.ok) {
+    return { ok: true, redirectTo: "/forgot-password?sent=1" };
   }
 
   try {
@@ -407,13 +507,17 @@ export async function requestPasswordReset(input: {
       },
     );
     if (error) {
-      return { ok: false, error: friendlyAuthMessage(error.message) };
+      // Log, but never surface provider errors that could differ per account.
+      console.warn("[auth.reset] resetPasswordForEmail failed", error.message);
     }
     // Always succeed from the UI's perspective to avoid email enumeration.
     return { ok: true, redirectTo: "/forgot-password?sent=1" };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Could not send reset email";
-    return { ok: false, error: friendlyAuthMessage(msg) };
+    console.warn(
+      "[auth.reset] failed",
+      err instanceof Error ? err.message : "unknown",
+    );
+    return { ok: true, redirectTo: "/forgot-password?sent=1" };
   }
 }
 
@@ -423,11 +527,8 @@ export async function updatePasswordWithSupabase(input: {
 }): Promise<AuthActionResult> {
   const parsed = z
     .object({
-      password: z
-        .string()
-        .min(8, "Password must be at least 8 characters")
-        .max(200),
-      confirmPassword: z.string().min(8).max(200),
+      password: newPasswordSchema,
+      confirmPassword: z.string().max(200),
     })
     .safeParse(input);
   if (!parsed.success) {

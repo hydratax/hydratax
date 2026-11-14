@@ -1,3 +1,4 @@
+import { safeErr } from "@/lib/redact";
 import { createHash } from "crypto";
 import { isDemoMode, isSupabaseConfigured } from "@/lib/env";
 import { demoStore } from "@/server/demo/store";
@@ -68,8 +69,14 @@ export async function appendAuditEvent(input: AuditInput): Promise<{ id: string;
   // Prefer Supabase when configured (production Netlify has no DATABASE_URL).
   if (isSupabaseConfigured()) {
     try {
-      const { createClient } = await import("@/lib/supabase/server");
-      const supabase = await createClient();
+      // audit_events is append-only and has NO client write policy: only the
+      // server (service role) may insert, so users cannot forge/alter the trail.
+      if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        console.warn("[audit] SUPABASE_SERVICE_ROLE_KEY not set — audit insert skipped");
+        return { id, eventHash };
+      }
+      const { getSupabaseAdmin } = await import("@/lib/supabase");
+      const supabase = getSupabaseAdmin();
       const { error } = await supabase.from("audit_events").insert({
         id,
         practice_id: input.practiceId ?? null,
@@ -93,7 +100,7 @@ export async function appendAuditEvent(input: AuditInput): Promise<{ id: string;
       }
       return { id, eventHash };
     } catch (err) {
-      console.warn("[audit] supabase insert error", err);
+      console.warn("[audit] supabase insert error", safeErr(err));
       return { id, eventHash };
     }
   }
@@ -176,7 +183,7 @@ export async function listAuditEvents(opts: {
         console.warn("[audit] supabase list failed", error.message);
       }
     } catch (err) {
-      console.warn("[audit] supabase list error", err);
+      console.warn("[audit] supabase list error", safeErr(err));
     }
   }
 

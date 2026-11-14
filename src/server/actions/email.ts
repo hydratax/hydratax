@@ -13,7 +13,7 @@ const sendSchema = z.object({
   toEmail: z.string().email(),
   subject: z.string().min(3).max(200),
   message: z.string().min(1).max(5000),
-  documentIds: z.array(z.string()).default([]),
+  documentIds: z.array(z.string().max(100)).max(50).default([]),
 });
 
 export async function sendClientDocumentEmail(input: z.infer<typeof sendSchema>) {

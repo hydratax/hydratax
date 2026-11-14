@@ -26,8 +26,14 @@ export function LegalShell({
             <Link href="/terms" className="hover:text-ink">
               Terms
             </Link>
-            <Link href="/terms#privacy" className="hover:text-ink">
+            <Link href="/privacy" className="hover:text-ink">
               Privacy
+            </Link>
+            <Link href="/legal/cookies" className="hover:text-ink">
+              Cookies
+            </Link>
+            <Link href="/legal/security" className="hover:text-ink">
+              Security
             </Link>
             <Link href="/legal/dpa" className="hover:text-ink">
               DPA

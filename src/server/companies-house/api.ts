@@ -302,6 +302,46 @@ export function humanizeFilingDescription(raw: string | undefined) {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/**
+ * SSRF guard for URLs that come back inside Companies House API responses.
+ * Only https URLs on the official Companies House document hosts (or the S3
+ * bucket host used for the signed content redirect) may be fetched.
+ */
+const CH_DOCUMENT_HOSTS = new Set([
+  "document-api.company-information.service.gov.uk",
+  "document-api-sandbox.company-information.service.gov.uk",
+  "frontend-doc-api.company-information.service.gov.uk",
+  "document-api.companieshouse.gov.uk",
+  "api.company-information.service.gov.uk",
+  "api-sandbox.company-information.service.gov.uk",
+]);
+
+export function assertCompaniesHouseUrl(
+  raw: string,
+  opts?: { allowS3?: boolean },
+): string {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new Error("Refusing to fetch an invalid Companies House URL");
+  }
+  const host = u.hostname.toLowerCase();
+  const hostOk =
+    CH_DOCUMENT_HOSTS.has(host) ||
+    (opts?.allowS3 === true && host.endsWith(".amazonaws.com"));
+  if (
+    u.protocol !== "https:" ||
+    u.username ||
+    u.password ||
+    (u.port && u.port !== "443") ||
+    !hostOk
+  ) {
+    throw new Error("Refusing to fetch a non-Companies House URL");
+  }
+  return u.toString();
+}
+
 function normalizeDocumentApiUrl(url: string) {
   return url
     .replace(
@@ -409,7 +449,9 @@ type ChDocumentMetadata = {
 
 async function fetchDocumentMetadata(documentMetadataUrl: string) {
   const auth = authHeader();
-  const metaUrl = normalizeDocumentApiUrl(documentMetadataUrl);
+  const metaUrl = assertCompaniesHouseUrl(
+    normalizeDocumentApiUrl(documentMetadataUrl),
+  );
   const metaRes = await fetch(metaUrl, {
     headers: {
       Authorization: auth,
@@ -475,7 +517,9 @@ export async function downloadFilingDocument(
     throw new Error("No downloadable document content on this filing");
   }
 
-  const contentUrl = normalizeDocumentApiUrl(meta.links.document);
+  const contentUrl = assertCompaniesHouseUrl(
+    normalizeDocumentApiUrl(meta.links.document),
+  );
   const contentRes = await fetch(contentUrl, {
     headers: {
       Authorization: auth,
@@ -491,8 +535,8 @@ export async function downloadFilingDocument(
     if (!location) {
       throw new Error("Companies House document redirect missing Location");
     }
-    // S3 signed URL — do not send API key
-    finalRes = await fetch(location, {
+    // S3 signed URL — do not send API key (only follow to https S3/CH hosts)
+    finalRes = await fetch(assertCompaniesHouseUrl(location, { allowS3: true }), {
       headers: { Accept: contentType },
       cache: "no-store",
     });

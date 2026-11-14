@@ -1,4 +1,5 @@
 "use server";
+import { safeErr } from "@/lib/redact";
 
 import { revalidatePath } from "next/cache";
 import {
@@ -276,7 +277,16 @@ export async function cancelPracticeSubscriptions(): Promise<
     }
   }
 
-  const { error } = await supabase
+  // Status changes are server-only (service role). Scoped to the caller's own
+  // practice, and requireOwner() above has already authorised this user.
+  const { getBillingWriteClient } = await import(
+    "@/server/billing/admin-client"
+  );
+  const writer = await getBillingWriteClient();
+  if (!writer) {
+    return { ok: false, error: "Billing storage is not configured." };
+  }
+  const { error } = await writer
     .from("practice_subscriptions")
     .update({ status: "canceling" })
     .eq("practice_id", session.practiceId)
@@ -385,7 +395,7 @@ async function sendTrialCancelledNotice(opts: {
       html: content.html,
     });
   } catch (err) {
-    console.error("[billing] trial cancelled email failed", err);
+    console.error("[billing] trial cancelled email failed", safeErr(err));
   }
 }
 

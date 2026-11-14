@@ -23,7 +23,7 @@ const artifactSchema = z.discriminatedUnion("type", [
     returnId: z.string().min(1),
     /** @deprecated prefer `docs` — kept for older call sites */
     doc: z.enum(["sa100", "sa302"]).optional(),
-    docs: z.array(z.enum(["sa100", "sa302"])).min(1).optional(),
+    docs: z.array(z.enum(["sa100", "sa302"])).min(1).max(2).optional(),
   }),
   z.object({
     type: z.literal("vat_summary"),

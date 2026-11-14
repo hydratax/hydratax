@@ -1,3 +1,4 @@
+import { escapeHtml } from "@/lib/html-escape";
 import { getEnv, isSupabaseConfigured } from "@/lib/env";
 import { sendTransactionalEmail } from "@/server/email/transactional";
 import {
@@ -114,7 +115,7 @@ Stop anytime: ${opts.unsub}
 
 — HydraTax
 `;
-  const html = `<p>Hi ${name},</p>
+  const html = `<p>Hi ${escapeHtml(name)},</p>
 <p>A quick weekly nudge for your limited company filings:</p>
 <ul>
 <li><strong>Confirmation statement (CS01)</strong> — <a href="${opts.appUrl}/companies-house/confirmation-statement">file CS01</a></li>

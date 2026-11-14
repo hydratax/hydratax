@@ -19,6 +19,9 @@ export function legalTradingAs(): string {
 }
 
 export const LEGAL_UPDATED = {
-  terms: "13 August 2026",
-  dpa: "8 August 2026",
+  terms: "13 November 2026",
+  dpa: "13 November 2026",
+  privacy: "13 November 2026",
+  cookies: "13 November 2026",
+  security: "13 November 2026",
 } as const;

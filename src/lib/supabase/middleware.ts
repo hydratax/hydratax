@@ -2,9 +2,29 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isSupabaseConfigured } from "@/lib/env";
 
+function isRateLimitedError(err: unknown): boolean {
+  if (!err || typeof err !== "object") {
+    return /rate limit|too many requests|over_request_rate_limit/i.test(
+      String(err ?? ""),
+    );
+  }
+  const status = Number((err as { status?: unknown }).status);
+  const msg = String((err as { message?: unknown }).message ?? "");
+  return (
+    status === 429 ||
+    /rate limit|too many requests|over_request_rate_limit/i.test(msg)
+  );
+}
+
 export async function updateSession(request: NextRequest): Promise<{
   response: NextResponse;
   userId: string | null;
+  /**
+   * True when Supabase Auth rate-limited us and the JWT could NOT be verified.
+   * userId is null in that case — callers must never fall back to the
+   * unverified cookie contents.
+   */
+  rateLimited: boolean;
 }> {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-pathname", request.nextUrl.pathname);
@@ -15,15 +35,13 @@ export async function updateSession(request: NextRequest): Promise<{
   });
 
   if (!isSupabaseConfigured()) {
-    return { response: supabaseResponse, userId: null };
+    return { response: supabaseResponse, userId: null, rateLimited: false };
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key =
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-  let userId: string | null = null;
 
   const supabase = createServerClient(url, key, {
     cookies: {
@@ -44,16 +62,21 @@ export async function updateSession(request: NextRequest): Promise<{
     },
   });
 
-  // Prefer local JWT claims when available; avoid hammering Auth on every hop.
+  let rateLimited = false;
+
+  // Prefer local JWT verification when asymmetric keys are enabled; avoid
+  // hammering Auth on every hop. getClaims() verifies the signature.
   try {
-    const { data: claimsData } = await supabase.auth.getClaims();
+    const { data: claimsData, error: claimsError } =
+      await supabase.auth.getClaims();
     const sub = claimsData?.claims?.sub;
     if (typeof sub === "string" && sub.length > 0) {
-      userId = sub;
-      return { response: supabaseResponse, userId };
+      return { response: supabaseResponse, userId: sub, rateLimited: false };
     }
-  } catch {
-    // Fall through to getUser / cookie session.
+    if (claimsError && isRateLimitedError(claimsError)) rateLimited = true;
+  } catch (err) {
+    if (isRateLimitedError(err)) rateLimited = true;
+    // Otherwise fall through to getUser (server-verified).
   }
 
   try {
@@ -62,39 +85,18 @@ export async function updateSession(request: NextRequest): Promise<{
       error,
     } = await supabase.auth.getUser();
     if (error) {
-      const rateLimited =
-        error.status === 429 ||
-        /rate limit|too many requests|over_request_rate_limit/i.test(
-          error.message ?? "",
-        );
-      if (rateLimited) {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        userId = session?.user?.id ?? null;
-      } else {
-        userId = null;
-      }
-    } else {
-      userId = user?.id ?? null;
+      if (isRateLimitedError(error)) rateLimited = true;
+      return { response: supabaseResponse, userId: null, rateLimited };
     }
+    return {
+      response: supabaseResponse,
+      userId: user?.id ?? null,
+      rateLimited: false,
+    };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err ?? "");
-    if (/rate limit|too many requests|over_request_rate_limit/i.test(msg)) {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        userId = session?.user?.id ?? null;
-      } catch {
-        userId = null;
-      }
-    } else {
-      userId = null;
-    }
+    if (isRateLimitedError(err)) rateLimited = true;
+    return { response: supabaseResponse, userId: null, rateLimited };
   }
-
-  return { response: supabaseResponse, userId };
 }
 
 export { isSupabaseConfigured };

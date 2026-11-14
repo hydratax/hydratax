@@ -4,8 +4,8 @@ import {
   taskInboxKeyFromPractice,
 } from "@/lib/practice-task-email";
 import type { PracticeTask } from "@/lib/practice-tasks";
+import { inspectUpload, sanitizeFilename } from "@/lib/file-types";
 import {
-  isBlobConfigured,
   isDemoMode,
   isMemoryStore,
   isR2Configured,
@@ -122,7 +122,8 @@ async function storeTaskAttachmentBytes(input: {
   contentType: string;
   bytes: Uint8Array;
 }): Promise<{ storageKey: string; byteSize: number }> {
-  const filename = input.filename.replace(/[^\w.\- ()]/g, "_").slice(0, 180);
+  // Callers pass already-inspected (allow-listed, sanitised) name + type.
+  const filename = sanitizeFilename(input.filename, "attachment");
   const objectKey = `practices/${input.practiceId}/tasks/${Date.now()}-${filename}`;
 
   if (isR2Configured()) {
@@ -134,15 +135,7 @@ async function storeTaskAttachmentBytes(input: {
     });
     return { storageKey: objectKey, byteSize: input.bytes.byteLength };
   }
-  if (isBlobConfigured()) {
-    const { put } = await import("@vercel/blob");
-    const blob = await put(objectKey, Buffer.from(input.bytes), {
-      access: "public",
-      contentType: input.contentType,
-      addRandomSuffix: true,
-    });
-    return { storageKey: blob.url, byteSize: input.bytes.byteLength };
-  }
+  // No public Vercel Blob fallback: it made inbound documents world-readable.
   if (isMemoryStore() || isDemoMode()) {
     const dataUrl = `data:${input.contentType};base64,${Buffer.from(input.bytes).toString("base64")}`;
     return { storageKey: dataUrl, byteSize: input.bytes.byteLength };
@@ -250,6 +243,16 @@ export async function storeInboundTaskEmail(input: {
   };
 
   for (const att of input.attachments) {
+    if (!att.bytes.byteLength || att.bytes.byteLength > 15 * 1024 * 1024) continue;
+    // Allow-list + magic-byte check; unknown types become opaque octet-stream.
+    const inspected = inspectUpload({
+      filename: att.filename,
+      declaredType: att.contentType,
+      bytes: att.bytes,
+    });
+    if (!inspected.allowed && inspected.reason !== "type_not_allowed") continue;
+    att.filename = inspected.filename;
+    att.contentType = inspected.contentType;
     const stored = await storeTaskAttachmentBytes({
       practiceId: input.practice.practiceId,
       filename: att.filename,

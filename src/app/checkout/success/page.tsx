@@ -1,3 +1,4 @@
+import { safeErr } from "@/lib/redact";
 import Link from "next/link";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -122,7 +123,7 @@ export default async function CheckoutSuccessPage({
       }
     } catch (err) {
       fulfillError = "fulfillment_failed";
-      console.error("[checkout.success] fulfillment failed", err);
+      console.error("[checkout.success] fulfillment failed", safeErr(err));
     }
   }
 

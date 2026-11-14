@@ -71,9 +71,11 @@ function isAuthRateLimited(err: unknown): boolean {
 }
 
 /**
- * Resolve the signed-in user without crashing the desk on Auth rate limits.
- * Prefer getClaims (local JWT when asymmetric keys are enabled); fall back to
- * getUser; on 429, read the cookie session so the user is not bounced to sign-in.
+ * Resolve the signed-in user from VERIFIED data only.
+ * Prefer getClaims (verifies the JWT signature locally when asymmetric keys are
+ * enabled); fall back to getUser (server-verified). On an Auth rate limit we
+ * return null (treated as signed out / retry) — we NEVER fall back to the
+ * unverified cookie session from getSession().
  */
 async function resolveSupabaseUser(
   supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>,
@@ -102,15 +104,9 @@ async function resolveSupabaseUser(
     } = await supabase.auth.getUser();
     if (error) {
       if (isAuthRateLimited(error)) {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (session?.user?.id) {
-          return {
-            id: session.user.id,
-            email: session.user.email ?? null,
-          };
-        }
+        console.warn(
+          "[session] Supabase Auth rate limited — session not verified, treating as signed out (retry)",
+        );
       }
       return null;
     }
@@ -118,20 +114,9 @@ async function resolveSupabaseUser(
     return { id: user.id, email: user.email ?? null };
   } catch (err) {
     if (isAuthRateLimited(err)) {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (session?.user?.id) {
-          return {
-            id: session.user.id,
-            email: session.user.email ?? null,
-          };
-        }
-      } catch {
-        /* ignore */
-      }
-      console.warn("[session] Supabase Auth rate limited — using cookie session if present");
+      console.warn(
+        "[session] Supabase Auth rate limited — session not verified, treating as signed out (retry)",
+      );
       return null;
     }
     console.error("[session] getUser failed", err);
@@ -282,28 +267,25 @@ export async function requireSession(
   }
 
   // Step-up MFA: password/OAuth succeeded but OTP not yet verified.
+  // NOTE: no path-based exemption. `x-pathname` follows the URL a Server Action
+  // is POSTed to, which a caller controls, so exempting /verify-2fa or /auth/
+  // here would let anyone skip step-up. The verify/secure-device pages use
+  // getOptionalSession, not requireSession.
   const h = await headers();
   const pathname = h.get("x-pathname") || "";
-  if (
-    pathname !== "/verify-2fa" &&
-    !pathname.startsWith("/verify-2fa/") &&
-    !pathname.startsWith("/auth/") &&
-    isSupabaseConfigured()
-  ) {
-    let needsStepUp = false;
+  if (isSupabaseConfigured() && !session.local) {
+    // Fail closed: if we cannot determine MFA state, require step-up.
+    let needsStepUp = true;
     try {
-      const { userNeedsMfaStepUp } = await import("@/server/actions/mfa");
+      const { userNeedsMfaStepUp } = await import("@/server/auth/mfa-core");
       needsStepUp = await userNeedsMfaStepUp(session.userId);
     } catch {
-      needsStepUp = false;
+      needsStepUp = true;
     }
     if (needsStepUp) {
-      const resume = nextPath || pathname || "/dashboard";
-      redirect(
-        `/verify-2fa?next=${encodeURIComponent(
-          resume.startsWith("/") ? resume : "/dashboard",
-        )}`,
-      );
+      const { safeReturnPath } = await import("@/lib/auth-return");
+      const resume = safeReturnPath(nextPath || pathname || "/dashboard");
+      redirect(`/verify-2fa?next=${encodeURIComponent(resume)}`);
     }
   }
 

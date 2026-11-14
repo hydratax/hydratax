@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { timingSafeEqual } from "node:crypto";
 import { normalizeWhatsAppPhone } from "./whatsapp";
 
 export type BotSessionStage =
@@ -74,7 +75,32 @@ export async function findClientByPhone(
 export async function verifyClientPin(
   clientId: string,
   input: string,
+  phone?: string,
 ): Promise<boolean> {
+  return (await verifyClientPinLimited(clientId, input, phone)).ok;
+}
+
+export type PinCheck =
+  | { ok: true; locked: false }
+  | { ok: false; locked: boolean; retryAfterMin: number };
+
+/**
+ * PIN check with brute-force protection. The PIN is only 4 digits, so after
+ * PIN_MAX_FAILURES wrong guesses (per phone and per client) further attempts
+ * are refused for PIN_LOCK_MS — even a correct PIN — and the counter resets
+ * only once that window has elapsed (NOT on HELP/CANCEL or session clears).
+ */
+export async function verifyClientPinLimited(
+  clientId: string,
+  input: string,
+  phone?: string,
+): Promise<PinCheck> {
+  const keys = pinScopeKeys(clientId, phone);
+  const lock = await pinLockStatus(keys);
+  if (lock.locked) {
+    return { ok: false, locked: true, retryAfterMin: lock.retryAfterMin };
+  }
+
   const { data, error } = await getSupabaseAdmin()
     .from("clients")
     .select("verification_pin")
@@ -82,13 +108,141 @@ export async function verifyClientPin(
     .maybeSingle();
 
   if (error) throw error;
-  if (!data?.verification_pin) return false;
 
-  const expected = String(data.verification_pin).replace(/\D/g, "").slice(-4);
+  const expected = String(data?.verification_pin ?? "")
+    .replace(/\D/g, "")
+    .slice(-4);
   const provided = input.replace(/\D/g, "").slice(-4);
-  if (expected.length !== 4 || provided.length !== 4) return false;
+  const valid =
+    expected.length === 4 &&
+    provided.length === 4 &&
+    timingSafeEqual(Buffer.from(expected), Buffer.from(provided));
 
-  return timingSafeEqual(expected, provided);
+  if (valid) {
+    await pinClear(keys);
+    return { ok: true, locked: false };
+  }
+
+  const after = await pinRecordFailure(keys);
+  return { ok: false, locked: after.locked, retryAfterMin: after.retryAfterMin };
+}
+
+export const PIN_MAX_FAILURES = 5;
+export const PIN_LOCK_MS = 60 * 60 * 1000;
+
+type PinState = { failures: number; windowStart: number; lockedUntil: number };
+
+const pinMemory = new Map<string, PinState>();
+
+function pinScopeKeys(clientId: string, phone?: string): string[] {
+  const keys = [`client:${clientId}`];
+  if (phone) keys.push(`phone:${normalizeWhatsAppPhone(phone)}`);
+  return keys;
+}
+
+async function pinLoad(key: string, now: number): Promise<PinState> {
+  const mem = pinMemory.get(key);
+  let db: PinState | null = null;
+  try {
+    const { data, error } = await getSupabaseAdmin()
+      .from("bot_pin_attempts")
+      .select("failures, window_started_at, locked_until")
+      .eq("scope_key", key)
+      .maybeSingle();
+    // Table missing (migration not applied) => silently fall back to memory.
+    if (!error && data) {
+      db = {
+        failures: Number(data.failures) || 0,
+        windowStart: Date.parse(String(data.window_started_at)) || now,
+        lockedUntil: data.locked_until ? Date.parse(String(data.locked_until)) : 0,
+      };
+    }
+  } catch {
+    /* memory fallback */
+  }
+  const merged: PinState = {
+    failures: Math.max(mem?.failures ?? 0, db?.failures ?? 0),
+    windowStart: Math.min(mem?.windowStart ?? now, db?.windowStart ?? now),
+    lockedUntil: Math.max(mem?.lockedUntil ?? 0, db?.lockedUntil ?? 0),
+  };
+  // Window elapsed => counters reset (the only way a lock-out clears).
+  if (merged.lockedUntil && merged.lockedUntil <= now) {
+    return { failures: 0, windowStart: now, lockedUntil: 0 };
+  }
+  if (!merged.lockedUntil && now - merged.windowStart > PIN_LOCK_MS) {
+    return { failures: 0, windowStart: now, lockedUntil: 0 };
+  }
+  return merged;
+}
+
+async function pinSave(key: string, state: PinState): Promise<void> {
+  pinMemory.set(key, state);
+  try {
+    await getSupabaseAdmin()
+      .from("bot_pin_attempts")
+      .upsert(
+        {
+          scope_key: key,
+          failures: state.failures,
+          window_started_at: new Date(state.windowStart).toISOString(),
+          locked_until: state.lockedUntil
+            ? new Date(state.lockedUntil).toISOString()
+            : null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "scope_key" },
+      );
+  } catch {
+    /* memory fallback */
+  }
+  if (pinMemory.size > 5000) {
+    const first = pinMemory.keys().next().value;
+    if (first) pinMemory.delete(first);
+  }
+}
+
+async function pinLockStatus(
+  keys: string[],
+): Promise<{ locked: boolean; retryAfterMin: number }> {
+  const now = Date.now();
+  let until = 0;
+  for (const key of keys) {
+    const s = await pinLoad(key, now);
+    if (s.lockedUntil > now) until = Math.max(until, s.lockedUntil);
+  }
+  return until
+    ? { locked: true, retryAfterMin: Math.max(1, Math.ceil((until - now) / 60_000)) }
+    : { locked: false, retryAfterMin: 0 };
+}
+
+async function pinRecordFailure(
+  keys: string[],
+): Promise<{ locked: boolean; retryAfterMin: number }> {
+  const now = Date.now();
+  let until = 0;
+  for (const key of keys) {
+    const s = await pinLoad(key, now);
+    const failures = s.failures + 1;
+    const lockedUntil =
+      failures >= PIN_MAX_FAILURES ? now + PIN_LOCK_MS : s.lockedUntil;
+    await pinSave(key, { failures, windowStart: s.windowStart, lockedUntil });
+    if (lockedUntil > now) until = Math.max(until, lockedUntil);
+  }
+  return until
+    ? { locked: true, retryAfterMin: Math.max(1, Math.ceil((until - now) / 60_000)) }
+    : { locked: false, retryAfterMin: 0 };
+}
+
+/** A correct PIN clears the counters (never reached while a lock is active). */
+async function pinClear(keys: string[]): Promise<void> {
+  for (const key of keys) {
+    pinMemory.delete(key);
+    try {
+      await getSupabaseAdmin().from("bot_pin_attempts").delete().eq("scope_key", key);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 export async function getBotSession(phone: string): Promise<BotSession | null> {
@@ -184,11 +338,3 @@ export async function createDocumentSignedUrl(
   return data.signedUrl;
 }
 
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let mismatch = 0;
-  for (let i = 0; i < a.length; i++) {
-    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return mismatch === 0;
-}

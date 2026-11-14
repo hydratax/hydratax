@@ -60,8 +60,8 @@ export const incorporationInputSchema = z
     shareCurrency: z.literal("GBP").default("GBP"),
     nominalValue: z.coerce.number().positive(),
     amountPaidPerShare: z.coerce.number().min(0).optional(),
-    directors: z.array(incorporationDirectorSchema).min(1),
-    subscribers: z.array(incorporationSubscriberSchema).min(1),
+    directors: z.array(incorporationDirectorSchema).min(1).max(50),
+    subscribers: z.array(incorporationSubscriberSchema).min(1).max(100),
     sameDay: z.boolean().default(false),
     lawfulPurposeConfirmed: z.boolean().refine((v) => v === true, {
       message: "You must confirm intended future activities are lawful",

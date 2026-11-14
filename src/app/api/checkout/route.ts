@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isStripeConfigured } from "@/lib/env";
+import {
+  clientIpFromHeaders,
+  rateLimit,
+  rateLimitHeaders,
+} from "@/lib/rate-limit";
 import { createStripeCheckoutSession } from "@/server/stripe/checkout-session";
+
+const NO_STORE = { "Cache-Control": "no-store" } as const;
 
 const bodySchema = z.object({
   planKey: z.string().min(1),
@@ -20,16 +27,29 @@ export async function POST(req: Request) {
     );
   }
 
+  // Public endpoint that creates Stripe sessions: throttle per client IP.
+  const limited = rateLimit({
+    key: `checkout:${clientIpFromHeaders(req.headers)}`,
+    limit: 20,
+    windowMs: 10 * 60_000,
+  });
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: "Too many checkout attempts. Please wait and try again." },
+      { status: 429, headers: { ...NO_STORE, ...rateLimitHeaders(limited) } },
+    );
+  }
+
   let json: unknown;
   try {
     json = await req.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400, headers: NO_STORE });
   }
 
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid plan" }, { status: 400, headers: NO_STORE });
   }
 
   // One-off CH filings must carry the request id so success/webhook can submit.
@@ -46,12 +66,47 @@ export async function POST(req: Request) {
   let practiceId = "";
   let userId = "";
   let sessionEmail = parsed.data.email;
-  const { getOptionalSession } = await import("@/server/auth/session");
-  const session = await getOptionalSession();
+  // Session is optional here (one-off CH filings), but when one exists it must
+  // satisfy desk expiry + MFA step-up like every other protected endpoint.
+  const { getApiSession, apiSessionErrorResponse } = await import(
+    "@/server/auth/api-session"
+  );
+  const auth = await getApiSession();
+  // Expired / missing sessions are treated as anonymous; MFA-pending is refused.
+  if (!auth.ok && auth.code === "mfa_required") {
+    return apiSessionErrorResponse(auth);
+  }
+  const session = auth.ok ? auth.session : null;
   if (session) {
     practiceId = session.practiceId;
     userId = session.userId;
     sessionEmail = sessionEmail || session.email || undefined;
+  }
+
+  // chRequestId must reference a real filing request; when signed in it must
+  // belong to the caller's practice (prevents attaching payment to, or probing,
+  // other practices' requests).
+  if (parsed.data.chRequestId) {
+    const { findChRequestPracticeId } = await import(
+      "@/server/stripe/ch-request-owner"
+    );
+    const ownerPracticeId = await findChRequestPracticeId(
+      parsed.data.chRequestId,
+    );
+    if (!ownerPracticeId) {
+      return NextResponse.json(
+        { error: "Filing request not found." },
+        { status: 404, headers: NO_STORE },
+      );
+    }
+    if (session && ownerPracticeId !== session.practiceId) {
+      return NextResponse.json(
+        { error: "Filing request not found." },
+        { status: 404, headers: NO_STORE },
+      );
+    }
+    // Anonymous one-off payment: bind to the request's own practice.
+    if (!session) practiceId = ownerPracticeId;
   }
 
   // Desk / module subscriptions always bind to a practice — create account first.
@@ -79,10 +134,10 @@ export async function POST(req: Request) {
       userId,
       chRequestId: parsed.data.chRequestId,
     });
-    return NextResponse.json(result);
+    return NextResponse.json(result, { headers: NO_STORE });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Checkout failed";
     const status = message.includes("Unknown plan") ? 404 : 500;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: message }, { status, headers: NO_STORE });
   }
 }

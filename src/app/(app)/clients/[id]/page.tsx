@@ -15,7 +15,7 @@ import { InvoiceSummaryCards } from "@/components/forms/invoice-workspace";
 import { refreshClientCompaniesHouse } from "@/server/actions/clients";
 import { listCt600Returns } from "@/server/actions/ct600";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
-import { DeleteClientButton } from "@/components/forms/delete-client-button";
+import { ClientPrivacyPanel } from "@/components/forms/client-privacy-panel";
 import { listPracticeDirectors } from "@/server/actions/sa-directors";
 import { SaOverviewDirectorsCard } from "@/components/forms/sa-overview-directors-card";
 import { ClientWorkStagePanel } from "@/components/forms/client-work-stage-panel";
@@ -438,7 +438,14 @@ export default async function ClientOverviewPage({
         />
 
         {session.role !== "readonly" && (
-          <DeleteClientButton clientId={clientId} clientName={client.name} />
+          <ClientPrivacyPanel
+            clientId={clientId}
+            clientName={client.name}
+            canManage={
+              (session.role === "owner" || session.role === "admin") &&
+              session.moduleAccess === "full"
+            }
+          />
         )}
       </div>
     </div>

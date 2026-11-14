@@ -1,3 +1,4 @@
+import { safeErr } from "@/lib/redact";
 import Link from "next/link";
 import {
   listClients,
@@ -193,7 +194,7 @@ export default async function ClientsPage({ searchParams }: Props) {
     try {
       await refreshStaleClientsCompaniesHouse({ force: false, limit: 15 });
     } catch (err) {
-      console.warn("[clients] CH refresh skipped", err);
+      console.warn("[clients] CH refresh skipped", safeErr(err));
     }
   }
 

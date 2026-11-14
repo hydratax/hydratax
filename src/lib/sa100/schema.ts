@@ -74,7 +74,7 @@ export const sa100DraftSchema = z.object({
   hasResidenceFig: yes,
   hasAdditionalInfoPages: yes,
 
-  employments: z.array(employmentRowSchema).default([]),
+  employments: z.array(employmentRowSchema).max(50).default([]),
 
   // —— SA103F business details ——
   /** Box 1 */

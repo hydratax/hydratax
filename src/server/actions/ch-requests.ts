@@ -1,4 +1,5 @@
 "use server";
+import { safeErr } from "@/lib/redact";
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -57,6 +58,18 @@ export async function submitCompaniesHouseRequest(
         needsAuth: true,
         error: "Please sign in to continue to payment.",
       };
+    }
+
+    // getOptionalSession does not enforce MFA step-up; do it here (fail closed).
+    if (isSupabaseConfigured() && !session.local) {
+      const { userNeedsMfaStepUp } = await import("@/server/auth/mfa-core");
+      if (await userNeedsMfaStepUp(session.userId).catch(() => true)) {
+        return {
+          ok: false,
+          needsAuth: true,
+          error: "Complete two-factor verification to continue.",
+        };
+      }
     }
 
     const service = getChService(data.serviceId);
@@ -171,7 +184,7 @@ export async function submitCompaniesHouseRequest(
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Could not start Companies House checkout";
-    console.error("[ch.request] submit failed", err);
+    console.error("[ch.request] submit failed", safeErr(err));
     return { ok: false, error: message };
   }
 }
@@ -202,7 +215,7 @@ async function persistChRequest(record: MemoryChRequest): Promise<boolean> {
       if (!error) return true;
       console.error("[ch.request] supabase insert", error.message);
     } catch (err) {
-      console.error("[ch.request] supabase persist", err);
+      console.error("[ch.request] supabase persist", safeErr(err));
     }
   }
 
@@ -225,7 +238,7 @@ async function persistChRequest(record: MemoryChRequest): Promise<boolean> {
     });
     return true;
   } catch (err) {
-    console.error("[ch.request] drizzle persist", err);
+    console.error("[ch.request] drizzle persist", safeErr(err));
     return false;
   }
 }
@@ -300,7 +313,7 @@ export async function listChRequestsAdmin() {
       }),
     );
   } catch (err) {
-    console.error("[ch.request] admin list failed", err);
+    console.error("[ch.request] admin list failed", safeErr(err));
     return [];
   }
 }

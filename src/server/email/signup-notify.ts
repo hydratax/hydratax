@@ -1,3 +1,4 @@
+import { safeErr } from "@/lib/redact";
 import { getEnv } from "@/lib/env";
 import { platformAdminEmails } from "@/server/auth/admin";
 import { sendTransactionalEmail } from "@/server/email/transactional";
@@ -80,7 +81,7 @@ Admin: ${appUrl}/admin
     });
     return { welcome, admin };
   } catch (err) {
-    console.error("[email] signup admin notify failed", err);
+    console.error("[email] signup admin notify failed", safeErr(err));
     return { welcome, admin: "skipped" };
   }
 }

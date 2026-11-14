@@ -4,11 +4,25 @@ import { getEnv } from "@/lib/env";
 const ALGO = "aes-256-gcm";
 const IV_LEN = 12;
 const TAG_LEN = 16;
+let warnedDemoKey = false;
 
 function getKey(): Buffer {
   const raw = getEnv().TOKEN_ENCRYPTION_KEY;
   if (!raw) {
-    // Deterministic demo key — replace in production
+    // The demo key is public (it is in the repo): anything encrypted with it is
+    // effectively plaintext. Never allow it outside local dev / tests.
+    const env = process.env.NODE_ENV;
+    if (env !== "development" && env !== "test") {
+      throw new Error(
+        "TOKEN_ENCRYPTION_KEY is not set. Refusing to encrypt/decrypt secrets with the built-in demo key.",
+      );
+    }
+    if (!warnedDemoKey) {
+      warnedDemoKey = true;
+      console.warn(
+        "[crypto] WARNING: TOKEN_ENCRYPTION_KEY is unset — using the insecure built-in DEMO key (dev/test only).",
+      );
+    }
     return createHash("sha256").update("hydratax-demo-token-key").digest();
   }
   if (/^[0-9a-fA-F]{64}$/.test(raw)) {

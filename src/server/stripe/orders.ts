@@ -1,3 +1,4 @@
+import { safeErr } from "@/lib/redact";
 import type Stripe from "stripe";
 import { isMemoryStore, isSupabaseConfigured } from "@/lib/env";
 import { memoryStore } from "@/server/demo/store";
@@ -76,7 +77,24 @@ export async function recordCheckoutEvent(event: Stripe.Event) {
     return;
   }
 
-  const session = event.data.object as Stripe.Checkout.Session;
+  let session = event.data.object as Stripe.Checkout.Session;
+
+  // Synthetic events come from fulfillCheckoutSession(), which has already
+  // retrieved the session from Stripe. Real webhook events are re-verified.
+  const isSynthetic = event.id.startsWith("evt_local_");
+  let alreadyRecorded = false;
+  if (!isSynthetic) {
+    // Idempotency: Stripe retries / duplicate deliveries of the same event.
+    if (processedEventIds.has(event.id)) return;
+    // Do not trust the event payload's metadata: re-read the session from
+    // Stripe by id and use the Stripe-side data (throws => 500 => Stripe retries).
+    const { getStripe } = await import("@/server/stripe/client");
+    session = await getStripe().checkout.sessions.retrieve(session.id);
+    // Async payment methods: only fulfil once the money has actually landed.
+    if (session.payment_status === "unpaid") return;
+    alreadyRecorded = Boolean(await getCheckoutBySessionId(session.id));
+  }
+
   const practiceId = session.metadata?.practiceId || undefined;
   const chRequestId = session.metadata?.chRequestId?.trim() || undefined;
   const record = toRecord(session);
@@ -100,14 +118,12 @@ export async function recordCheckoutEvent(event: Stripe.Event) {
 
   if (isSupabaseConfigured()) {
     try {
-      let supabase;
-      if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-        const { getSupabaseAdmin } = await import("@/lib/supabase");
-        supabase = getSupabaseAdmin();
-      } else {
-        const { createClient } = await import("@/lib/supabase/server");
-        supabase = await createClient();
-      }
+      // Server-only write (service role): browser clients have no write access.
+      const { getBillingWriteClient } = await import(
+        "@/server/billing/admin-client"
+      );
+      const supabase = await getBillingWriteClient();
+      if (!supabase) throw new Error("billing write client unavailable");
       await supabase.from("checkout_orders").upsert(
         {
           stripe_session_id: record.stripeSessionId,
@@ -125,7 +141,7 @@ export async function recordCheckoutEvent(event: Stripe.Event) {
         { onConflict: "stripe_session_id" },
       );
     } catch (err) {
-      console.warn("[stripe] checkout_orders upsert failed", err);
+      console.warn("[stripe] checkout_orders upsert failed", safeErr(err));
     }
   }
 
@@ -154,7 +170,19 @@ export async function recordCheckoutEvent(event: Stripe.Event) {
   }
 
   await activatePlanFromCheckout(record, practiceId, chRequestId);
-  await maybeSendSubscriptionWelcome(record);
+  // Duplicate deliveries must not re-send the welcome email.
+  if (!alreadyRecorded) await maybeSendSubscriptionWelcome(record);
+  if (!isSynthetic) rememberProcessedEvent(event.id);
+}
+
+/** In-process dedupe of recent webhook event ids (DB upserts cover the rest). */
+const processedEventIds = new Set<string>();
+function rememberProcessedEvent(id: string) {
+  processedEventIds.add(id);
+  if (processedEventIds.size > 2000) {
+    const first = processedEventIds.values().next().value;
+    if (first) processedEventIds.delete(first);
+  }
 }
 
 async function handleInvoicePaid(invoice: Stripe.Invoice) {
@@ -200,7 +228,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
       oneTime: invoice.billing_reason === "manual",
     });
   } catch (err) {
-    console.warn("[stripe] purchase invoice email failed", err);
+    console.warn("[stripe] purchase invoice email failed", safeErr(err));
   }
 }
 
@@ -226,7 +254,7 @@ async function maybeSendSubscriptionWelcome(record: CheckoutRecord) {
       trialEndsAt: record.trialEndsAt,
     });
   } catch (err) {
-    console.warn("[stripe] subscription welcome email failed", err);
+    console.warn("[stripe] subscription welcome email failed", safeErr(err));
   }
 }
 
@@ -283,8 +311,13 @@ async function activatePlanFromCheckout(
 
   if (isSupabaseConfigured() && targetPracticeId) {
     try {
-      const { createClient } = await import("@/lib/supabase/server");
-      const supabase = await createClient();
+      // Entitlement rows are written ONLY by the server (service role); the
+      // practice_id comes from verified Stripe metadata / an authorised caller.
+      const { getBillingWriteClient } = await import(
+        "@/server/billing/admin-client"
+      );
+      const supabase = await getBillingWriteClient();
+      if (!supabase) throw new Error("billing write client unavailable");
       const payload = {
         practice_id: targetPracticeId,
         plan_key: record.planKey,
@@ -309,7 +342,7 @@ async function activatePlanFromCheckout(
         console.warn("[stripe] practice_subscriptions upsert failed", error.message);
       }
     } catch (err) {
-      console.warn("[stripe] practice_subscriptions upsert error", err);
+      console.warn("[stripe] practice_subscriptions upsert error", safeErr(err));
     }
   }
 
@@ -327,7 +360,7 @@ async function activatePlanFromCheckout(
         stripeSessionId: record.stripeSessionId,
         stripeSubscriptionId: record.stripeSubscriptionId,
         trialEndsAt: record.trialEndsAt ? new Date(record.trialEndsAt) : null,
-      });
+      }).onConflictDoNothing();
 
       if (record.planKey.startsWith("companies-house:")) {
         const serviceId = record.planKey
@@ -373,7 +406,7 @@ async function activatePlanFromCheckout(
         stripeSessionId: record.stripeSessionId,
       });
     } catch (err) {
-      console.error("[stripe] ch request fulfillment failed", err);
+      console.error("[stripe] ch request fulfillment failed", safeErr(err));
     }
   }
 }
@@ -383,6 +416,16 @@ export async function attachCheckoutToPractice(
   sessionId: string,
   practiceId: string,
 ) {
+  // Real deployments: never rebind a paid session to a practice that does not
+  // own it (session ids leak via URLs/referrers). Local/memory desk is exempt.
+  if (!isMemoryStore()) {
+    try {
+      if (!(await mayAttachCheckout(sessionId, practiceId))) return;
+    } catch {
+      return;
+    }
+  }
+
   for (const s of memoryStore.subscriptions) {
     if (s.stripeSessionId === sessionId) {
       s.practiceId = practiceId;
@@ -396,8 +439,17 @@ export async function attachCheckoutToPractice(
 
   if (isSupabaseConfigured()) {
     try {
-      const { createClient } = await import("@/lib/supabase/server");
-      const supabase = await createClient();
+      // Authorised above (mayAttachCheckout) for real deployments; the service
+      // role bypasses RLS so this must stay behind that check.
+      if (isMemoryStore() && !(await mayAttachCheckout(sessionId, practiceId))) {
+        return;
+      }
+
+      const { getBillingWriteClient } = await import(
+        "@/server/billing/admin-client"
+      );
+      const supabase = await getBillingWriteClient();
+      if (!supabase) return;
       await supabase
         .from("practice_subscriptions")
         .update({ practice_id: practiceId })
@@ -406,6 +458,46 @@ export async function attachCheckoutToPractice(
       /* ignore */
     }
   }
+}
+
+/** Verified (confirmed) email of the signed-in user, lower-cased, or null. */
+async function verifiedSessionEmail(): Promise<string | null> {
+  try {
+    const { createClient } = await import("@/lib/supabase/server");
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user?.email || !(user.email_confirmed_at || user.confirmed_at)) {
+      return null;
+    }
+    return user.email.trim().toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+async function mayAttachCheckout(
+  sessionId: string,
+  practiceId: string,
+): Promise<boolean> {
+  const { isStripeConfigured } = await import("@/lib/env");
+  if (!isStripeConfigured()) return false;
+  const { getStripe } = await import("@/server/stripe/client");
+  const session = await getStripe().checkout.sessions.retrieve(sessionId);
+  const boundTo = session.metadata?.practiceId?.trim();
+  if (boundTo) return boundTo === practiceId;
+
+  const sessionEmail = (
+    session.customer_details?.email ??
+    session.customer_email ??
+    session.metadata?.email ??
+    ""
+  )
+    .trim()
+    .toLowerCase();
+  if (!sessionEmail) return false;
+  return sessionEmail === (await verifiedSessionEmail());
 }
 
 /**
@@ -444,6 +536,9 @@ export async function syncPaidCheckoutsForEmail(
     }
     const planKey = session.metadata?.planKey;
     if (!planKey) continue;
+    // A checkout already bound to another practice is never re-bound by email.
+    const boundTo = session.metadata?.practiceId?.trim();
+    if (boundTo && boundTo !== practiceId) continue;
 
     const record = toRecord(session);
     if (!orders().some((o) => o.stripeSessionId === record.stripeSessionId)) {

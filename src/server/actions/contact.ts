@@ -1,8 +1,9 @@
-﻿"use server";
+"use server";
 
 import { headers } from "next/headers";
 import { z } from "zod";
 import { LEGAL_CONTACT_EMAIL, LEGAL_COMPANY } from "@/lib/legal";
+import { rateLimitByIp } from "@/lib/rate-limit";
 import { sendTransactionalEmail } from "@/server/email/transactional";
 
 const contactSchema = z.object({
@@ -96,6 +97,18 @@ export async function submitContactForm(
   }
 
   const data = parsed.data;
+
+  // Shared per-IP throttle (in addition to the per-email limiter below).
+  const ipLimit = await rateLimitByIp("contact", {
+    limit: 10,
+    windowMs: 60 * 60_000,
+  });
+  if (!ipLimit.ok) {
+    return {
+      ok: false,
+      message: "Too many messages from this connection. Please try again later.",
+    };
+  }
 
   if (data.website.trim()) {
     return { ok: true, message: "Thanks — your message was received." };

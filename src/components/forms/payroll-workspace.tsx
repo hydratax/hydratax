@@ -19,6 +19,7 @@ import {
 } from "@/server/actions/payroll";
 import { defaultPayPeriod } from "@/lib/payroll";
 import { money } from "@/lib/format";
+import { maskNino } from "@/lib/mask-identifiers";
 import type { PayFrequency, PayLine } from "@/server/hmrc/payroll";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { messageFromUnknown } from "@/lib/action-error";
@@ -746,7 +747,7 @@ function EmployeesPanel({
                 {!e.active && <span className="text-xs font-normal text-ink-soft">leaver</span>}
               </p>
               <p className="font-mono text-xs text-ink-soft">
-                {e.payrollId} · {e.nino} · {e.taxCode} ·{" "}
+                {e.payrollId} · {maskNino(e.nino)} · {e.taxCode} ·{" "}
                 {e.payFrequency === "W1" ? "Weekly" : "Monthly"} ·{" "}
                 {e.payBasis === "hourly" ? "hourly" : "salary"} ·{" "}
                 {money(e.annualSalaryPence)}/yr

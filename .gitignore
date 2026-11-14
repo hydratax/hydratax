@@ -54,6 +54,9 @@ next-env.d.ts
 .netlify-status.json
 
 .cursor/
+# Persist shared agent skills in-repo (rules/mcp stay local)
+!.cursor/skills/
+!.cursor/skills/**
 
 
 tmp-ct-schema/
@@ -63,3 +66,15 @@ tmp-ct-schema/
 public/digitus-pack-preview.html
 .tmp-ye2024-xlsx.txt
 .tmp-accounts-2024.txt
+
+# Local scratch / probe output (may contain credentials or client data — never commit)
+.tmp-*
+.ct-test-*
+.test-output.txt
+.netlify-deploys-err.txt
+SDSHMRC/
+scripts/*probe*
+scripts/ct600-ets-try-passwords.cjs
+scripts/fulfill-*-now.cjs
+scripts/*-now.cjs
+*.local.cjs

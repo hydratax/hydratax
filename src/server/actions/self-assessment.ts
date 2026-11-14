@@ -125,7 +125,7 @@ export async function submitSaUpdate(
   const fraudHeaders = buildFraudPreventionHeaders(data.fraudMetadata);
   const draft = await prepareSaUpdate(data);
   const record = digitalIncomeRecordSchema.parse(draft);
-  const accessToken = await getValidAccessToken(data.clientId);
+  const accessToken = await getValidAccessToken(data.clientId, session.practiceId);
   const cfg = getHmrcConfig();
 
   if (!accessToken || !cfg.clientId) {

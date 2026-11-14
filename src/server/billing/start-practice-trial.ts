@@ -1,3 +1,4 @@
+import { safeErr } from "@/lib/redact";
 import { practiceTrialEndsAt } from "@/lib/trial";
 import { isMemoryStore, isSupabaseConfigured } from "@/lib/env";
 import { memoryStore } from "@/server/demo/store";
@@ -41,8 +42,17 @@ export async function startPracticeTrial(
         };
       }
 
+      // Entitlement writes are server-only (service role): the browser has no
+      // INSERT/UPDATE policy on practice_subscriptions. `practiceId` is always
+      // the caller's own authorised practice (see callers).
+      const { getBillingWriteClient } = await import(
+        "@/server/billing/admin-client"
+      );
+      const writer = await getBillingWriteClient();
+      if (!writer) throw new Error("billing write client unavailable");
+
       let error = (
-        await supabase.from("practice_subscriptions").insert({
+        await writer.from("practice_subscriptions").insert({
           practice_id: practiceId,
           plan_key: planKey,
           status: "trialing",
@@ -53,7 +63,7 @@ export async function startPracticeTrial(
       // Column may be missing before migration — retry without it
       if (error && /trial_ends_at/i.test(error.message)) {
         error = (
-          await supabase.from("practice_subscriptions").insert({
+          await writer.from("practice_subscriptions").insert({
             practice_id: practiceId,
             plan_key: planKey,
             status: "trialing",
@@ -70,7 +80,7 @@ export async function startPracticeTrial(
         return { trialEndsAt: ends, created: true };
       }
     } catch (err) {
-      console.error("[trial] supabase path failed", err);
+      console.error("[trial] supabase path failed", safeErr(err));
     }
   }
 
@@ -131,7 +141,7 @@ export async function startPracticeTrial(
     });
     return { trialEndsAt: ends, created: true };
   } catch (err) {
-    console.error("[trial] drizzle startPracticeTrial failed", err);
+    console.error("[trial] drizzle startPracticeTrial failed", safeErr(err));
     return { trialEndsAt: ends, created: false };
   }
 }

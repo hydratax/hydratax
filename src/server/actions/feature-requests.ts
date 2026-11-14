@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { isMemoryStore } from "@/lib/env";
+import { rateLimitByIp } from "@/lib/rate-limit";
 import { memoryStore, type MemoryFeatureRequest } from "@/server/demo/store";
 import { getSupabaseSessionUser } from "@/server/actions/auth";
 
@@ -150,6 +151,14 @@ export async function createFeatureRequest(input: {
   authorName: string;
   authorEmail?: string;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const ipLimit = await rateLimitByIp("feature-create", {
+    limit: 10,
+    windowMs: 60 * 60_000,
+  });
+  if (!ipLimit.ok) {
+    return { ok: false, error: "Too many requests — please try again later." };
+  }
+
   const parsed = createSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -239,6 +248,14 @@ export async function toggleFeatureVote(
 > {
   if (!z.string().uuid().safeParse(requestId).success && !requestId.startsWith("fr-")) {
     return { ok: false, error: "Invalid request." };
+  }
+
+  const voteLimit = await rateLimitByIp("feature-vote", {
+    limit: 60,
+    windowMs: 10 * 60_000,
+  });
+  if (!voteLimit.ok) {
+    return { ok: false, error: "Too many votes — please slow down." };
   }
 
   const voterKey = await getVoterKey("write");

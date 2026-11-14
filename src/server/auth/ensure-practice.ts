@@ -8,6 +8,8 @@ import { isSupabaseConfigured } from "@/lib/env";
 export async function ensureSupabasePractice(user: {
   id: string;
   email?: string | null;
+  email_confirmed_at?: string | null;
+  confirmed_at?: string | null;
   user_metadata?: Record<string, unknown> | null;
 }): Promise<{ practiceId: string; practiceName: string; role: string }> {
   const { createClient } = await import("@/lib/supabase/server");
@@ -55,7 +57,38 @@ export async function ensureSupabasePractice(user: {
     user.email?.split("@")[0] ||
     "Your practice";
 
-  const { data: practice, error: practiceError } = await supabase
+  // Practice + owner membership are provisioned server-side (service role):
+  // RLS no longer lets the browser create practices or self-insert as owner of
+  // an arbitrary practice. Falls back to the user client only when no service
+  // key is configured (local dev against a pre-hardening schema).
+  const provisioner = await provisioningClient(supabase);
+
+  // The signup trigger (handle_new_user) normally already created a practice +
+  // owner membership. With the service role we can see it even when this call
+  // has no user session (e.g. signup before email confirmation), so re-check
+  // here to avoid creating a duplicate orphan practice.
+  if (provisioner !== supabase) {
+    const { data: existing } = await provisioner
+      .from("practice_members")
+      .select("practice_id, role, practices(id, name)")
+      .eq("user_id", user.id)
+      .limit(1)
+      .maybeSingle();
+    if (existing?.practice_id) {
+      const rel = existing.practices as
+        | { id: string; name: string }
+        | { id: string; name: string }[]
+        | null;
+      const relRow = Array.isArray(rel) ? rel[0] : rel;
+      return {
+        practiceId: existing.practice_id as string,
+        practiceName: relRow?.name ?? "Your practice",
+        role: (existing.role as string) ?? "owner",
+      };
+    }
+  }
+
+  const { data: practice, error: practiceError } = await provisioner
     .from("practices")
     .insert({
       name: practiceName,
@@ -75,11 +108,13 @@ export async function ensureSupabasePractice(user: {
     );
   }
 
-  const { error: memberError } = await supabase.from("practice_members").insert({
-    practice_id: practice.id,
-    user_id: user.id,
-    role: "owner",
-  });
+  const { error: memberError } = await provisioner
+    .from("practice_members")
+    .insert({
+      practice_id: practice.id,
+      user_id: user.id,
+      role: "owner",
+    });
 
   if (memberError) {
     // Race: another request created membership — re-read
@@ -130,26 +165,56 @@ export async function ensureSupabasePractice(user: {
 
 async function acceptPendingTeamInvite(
   supabase: Awaited<ReturnType<typeof import("@/lib/supabase/server").createClient>>,
-  user: { id: string; email?: string | null },
+  user: {
+    id: string;
+    email?: string | null;
+    email_confirmed_at?: string | null;
+    confirmed_at?: string | null;
+  },
 ): Promise<{ practiceId: string; practiceName: string; role: string } | null> {
   const email = user.email?.trim().toLowerCase();
   if (!email) return null;
 
-  const { data: invite } = await supabase
+  // Joining a practice grants access to its data, so the invite is only
+  // honoured for a VERIFIED email address and is applied server-side (the
+  // browser can no longer self-insert into practice_members).
+  if (!(await isEmailVerified(supabase, user))) return null;
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    console.warn(
+      "[ensurePractice] invite join skipped: SUPABASE_SERVICE_ROLE_KEY not set",
+    );
+    return null;
+  }
+  const { getSupabaseAdmin } = await import("@/lib/supabase");
+  const admin = getSupabaseAdmin();
+
+  const oldest = new Date(Date.now() - INVITE_MAX_AGE_MS).toISOString();
+  const { data: invite } = await admin
     .from("practice_team_invites")
     .select("id, practice_id, display_name, module_access")
     .is("accepted_at", null)
-    .ilike("email", email)
+    .eq("email", email)
+    .gte("created_at", oldest)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (!invite?.practice_id) return null;
 
+  // Claim the invite first so concurrent requests cannot double-join.
+  const claimedAt = new Date().toISOString();
+  const { data: claimed } = await admin
+    .from("practice_team_invites")
+    .update({ accepted_at: claimedAt })
+    .eq("id", invite.id)
+    .is("accepted_at", null)
+    .select("id");
+  if (!claimed?.length) return null;
+
   const moduleAccess = (invite.module_access as string) || "payroll";
   const role = moduleAccess === "full" ? "admin" : "practitioner";
 
-  const { error: memberError } = await supabase.from("practice_members").insert({
+  const { error: memberError } = await admin.from("practice_members").insert({
     practice_id: invite.practice_id,
     user_id: user.id,
     role,
@@ -159,19 +224,18 @@ async function acceptPendingTeamInvite(
   });
 
   if (memberError) {
-    // Already a member of this practice
+    // Already a member of this practice is fine; anything else: release the invite.
     if (!/duplicate|unique/i.test(memberError.message)) {
       console.error("[ensurePractice] invite join failed", memberError.message);
+      await admin
+        .from("practice_team_invites")
+        .update({ accepted_at: null })
+        .eq("id", invite.id);
       return null;
     }
   }
 
-  await supabase
-    .from("practice_team_invites")
-    .update({ accepted_at: new Date().toISOString() })
-    .eq("id", invite.id);
-
-  const { data: practiceRow } = await supabase
+  const { data: practiceRow } = await admin
     .from("practices")
     .select("id, name")
     .eq("id", invite.practice_id)
@@ -182,6 +246,43 @@ async function acceptPendingTeamInvite(
     practiceName: practiceRow?.name ?? "Practice",
     role,
   };
+}
+
+const INVITE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+type UserSupabase = Awaited<
+  ReturnType<typeof import("@/lib/supabase/server").createClient>
+>;
+
+/** Service-role client for provisioning when configured, else the user client. */
+async function provisioningClient(userClient: UserSupabase) {
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const { getSupabaseAdmin } = await import("@/lib/supabase");
+    return getSupabaseAdmin();
+  }
+  return userClient;
+}
+
+/** Verified email only (confirmation timestamp present). Never trusts unverified claims. */
+async function isEmailVerified(
+  supabase: UserSupabase,
+  user: {
+    id: string;
+    email_confirmed_at?: string | null;
+    confirmed_at?: string | null;
+  },
+): Promise<boolean> {
+  if (user.email_confirmed_at || user.confirmed_at) return true;
+  try {
+    const {
+      data: { user: fresh },
+    } = await supabase.auth.getUser();
+    return Boolean(
+      fresh && fresh.id === user.id && (fresh.email_confirmed_at || fresh.confirmed_at),
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** Assign a dedicated Tasks email when the practice is first created. */

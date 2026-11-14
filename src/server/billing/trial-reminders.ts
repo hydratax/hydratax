@@ -1,3 +1,4 @@
+import { safeErr } from "@/lib/redact";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMemoryStore, isSupabaseConfigured, getEnv } from "@/lib/env";
 import { memoryStore } from "@/server/demo/store";
@@ -117,7 +118,7 @@ async function listTrialEndingSoon(windowEndMs: number): Promise<Candidate[]> {
       }
       return out;
     } catch (err) {
-      console.error("[trial-reminders] supabase list failed", err);
+      console.error("[trial-reminders] supabase list failed", safeErr(err));
     }
   }
 
@@ -207,7 +208,7 @@ async function markReminderSent(subscriptionId: string, practiceId: string) {
         .eq("id", subscriptionId);
       return;
     } catch (err) {
-      console.error("[trial-reminders] mark sent failed", err);
+      console.error("[trial-reminders] mark sent failed", safeErr(err));
     }
   }
 

@@ -53,12 +53,12 @@ export default function TermsPage() {
           </li>
           <li>
             <a href="#privacy" className="text-sea hover:underline">
-              2. Privacy Policy
+              2. Privacy
             </a>
           </li>
           <li>
             <a href="#cookies" className="text-sea hover:underline">
-              3. Cookie Policy
+              3. Cookies
             </a>
           </li>
           <li>
@@ -94,7 +94,11 @@ export default function TermsPage() {
           By using {brand} services, you agree to these Terms of Service. If
           you&apos;re using {brand} on behalf of an organisation, you&apos;re
           agreeing to these terms for that organisation. These Terms of Service
-          incorporate by reference our Privacy Policy,{" "}
+          incorporate by reference our{" "}
+          <Link href="/privacy" className="font-semibold text-sea">
+            Privacy Notice
+          </Link>
+          ,{" "}
           <Link href="/legal/dpa" className="font-semibold text-sea">
             Data Processing Agreement
           </Link>
@@ -273,270 +277,58 @@ export default function TermsPage() {
       </section>
 
       <section id="privacy" className="scroll-mt-24 space-y-4">
-        <LegalH2>2. Privacy Policy</LegalH2>
+        <LegalH2>2. Privacy</LegalH2>
         <p>
-          For UK GDPR purposes, the data controller of personal data relating
-          to your account and use of the website is{" "}
-          {LEGAL_COMPANY.legalName} (company number{" "}
-          {LEGAL_COMPANY.companyNumber}), trading as {brand}. Where you use{" "}
-          {brand} to process your clients&apos; personal data, you are typically
-          the controller of that client data and we act as your processor under
-          our{" "}
+          How we use personal data — who the controller is, what we collect,
+          lawful bases, retention, recipients, international transfers and your
+          rights — is set out in our{" "}
+          <Link href="/privacy" className="font-semibold text-sea">
+            Privacy Notice
+          </Link>
+          . Where you use {brand} to process your clients&apos; personal data,
+          you are typically the controller and we are your processor under our{" "}
           <Link href="/legal/dpa" className="font-semibold text-sea">
             Data Processing Agreement
           </Link>
-          .
-        </p>
-
-        <LegalH3>2.1 Information We Collect</LegalH3>
-        <p>We collect information you provide directly to us, including:</p>
-        <ul className="list-disc space-y-1 pl-5">
-          <li>Company and practice information (name, number, address)</li>
-          <li>
-            Financial and payroll data necessary for accounts, tax and RTI
-            returns
-          </li>
-          <li>Contact information (email, name)</li>
-          <li>
-            HMRC and Companies House credentials (used for the submission you
-            authorise; stored only as required to provide the service and in
-            accordance with our security measures)
-          </li>
-        </ul>
-
-        <LegalH3>2.2 How We Use Your Information</LegalH3>
-        <p>We use the information we collect to:</p>
-        <ul className="list-disc space-y-1 pl-5">
-          <li>Provide, maintain, and improve our services</li>
-          <li>
-            Process and submit your filings to HMRC and Companies House on your
-            instruction
-          </li>
-          <li>Send you technical notices and support messages</li>
-          <li>Respond to your comments and questions</li>
-          <li>Comply with legal obligations</li>
-        </ul>
-
-        <LegalH3>2.3 Information Sharing</LegalH3>
-        <p>
-          We do not sell, trade, or rent your personal information. We share
-          data only:
-        </p>
-        <ul className="list-disc space-y-1 pl-5">
-          <li>
-            With statutory recipients — HMRC and Companies House — to make
-            filings on your instruction
-          </li>
-          <li>
-            With our sub-processors — service providers we engage to deliver the
-            platform (hosting, database, payment processing, email delivery).
-            Each is bound by a written agreement with terms equivalent to those
-            in our Data Processing Agreement. See{" "}
-            <Link href="/legal/sub-processors" className="font-semibold text-sea">
-              Sub-processors
-            </Link>
-            .
-          </li>
-          <li>With your consent or at your direction</li>
-          <li>
-            To comply with legal obligations or to protect our rights, privacy,
-            safety, or property
-          </li>
-        </ul>
-
-        <LegalH3>2.4 Retention</LegalH3>
-        <p>
-          We retain your data for the periods set out below. After the relevant
-          period, data is deleted or anonymised. We retain longer where required
-          by law (for example, accounting records under HMRC and Companies Act
-          2006 requirements).
-        </p>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] border-collapse text-left text-xs">
-            <thead>
-              <tr className="border-b border-line text-ink">
-                <th className="py-2 pr-3 font-semibold">Data type</th>
-                <th className="py-2 pr-3 font-semibold">Retention period</th>
-                <th className="py-2 font-semibold">Reason</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b border-line/70">
-                <td className="py-2 pr-3">
-                  Filings (returns, accounts, computations, supporting documents)
-                </td>
-                <td className="py-2 pr-3">
-                  7 years from the end of the accounting period
-                </td>
-                <td className="py-2">
-                  HMRC record-keeping (Finance Act 1998 Sch. 18)
-                </td>
-              </tr>
-              <tr className="border-b border-line/70">
-                <td className="py-2 pr-3">Account and billing records</td>
-                <td className="py-2 pr-3">7 years from account closure</td>
-                <td className="py-2">Companies Act 2006 / VAT record-keeping</td>
-              </tr>
-              <tr className="border-b border-line/70">
-                <td className="py-2 pr-3">Support tickets and correspondence</td>
-                <td className="py-2 pr-3">3 years from ticket resolution</td>
-                <td className="py-2">Service quality and dispute resolution</td>
-              </tr>
-              <tr className="border-b border-line/70">
-                <td className="py-2 pr-3">Marketing communications</td>
-                <td className="py-2 pr-3">
-                  Until you unsubscribe, then up to 30 days
-                </td>
-                <td className="py-2">PECR / GDPR compliance</td>
-              </tr>
-              <tr>
-                <td className="py-2 pr-3">Server and audit logs</td>
-                <td className="py-2 pr-3">90 days</td>
-                <td className="py-2">
-                  Security monitoring and operational diagnostics
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <LegalH3>2.5 Deletion</LegalH3>
-        <p>
-          You can request deletion of your account and associated data at any
-          time by emailing{" "}
-          <a className="font-semibold text-sea" href={`mailto:${email}`}>
-            {email}
-          </a>
-          . We will:
-        </p>
-        <ul className="list-disc space-y-1 pl-5">
-          <li>Acknowledge your request within 5 working days</li>
-          <li>
-            Delete or anonymise your account, profile, and any data not subject
-            to a legal retention obligation, within 30 days
-          </li>
-          <li>
-            Retain only categories required by law (typically filing records for
-            the statutory period), with identifiers redacted where possible
-          </li>
-          <li>
-            Confirm completion in writing, including a summary of what was
-            deleted and what was retained
-          </li>
-        </ul>
-
-        <LegalH3>2.6 Security</LegalH3>
-        <p>
-          We implement appropriate technical and organisational measures to
-          protect your data, including encryption in transit (TLS 1.2+), access
-          controls, regular backups, and monitored production hosting.
+          ; our providers are listed on the{" "}
+          <Link href="/legal/sub-processors" className="font-semibold text-sea">
+            Sub-processors
+          </Link>{" "}
+          page. The Privacy Notice forms part of these Terms.
         </p>
       </section>
 
       <section id="cookies" className="scroll-mt-24 space-y-4">
-        <LegalH2>3. Cookie Policy</LegalH2>
-
-        <LegalH3>3.1 What Are Cookies</LegalH3>
+        <LegalH2>3. Cookies</LegalH2>
         <p>
-          Cookies are small text files stored on your device when you visit our
-          website. We use cookies to provide essential functionality and to
-          measure how the service is used.
-        </p>
-
-        <LegalH3>3.2 Cookies We Use</LegalH3>
-        <p>
-          <strong className="text-ink">Essential cookies:</strong> required for
-          the website to function properly — session cookies, security cookies
-          (including CSRF protection), and preference cookies.
-        </p>
-        <p>
-          <strong className="text-ink">Measurement cookies:</strong> we may use
-          analytics or conversion-tracking tools to understand how visitors find
-          and use the service. Providers are listed on our{" "}
-          <Link href="/legal/sub-processors" className="font-semibold text-sea">
-            Sub-processors
+          We use only strictly necessary cookies and browser storage. See the{" "}
+          <Link href="/legal/cookies" className="font-semibold text-sea">
+            Cookie notice
           </Link>{" "}
-          page.
-        </p>
-
-        <LegalH3>3.3 Managing Cookies</LegalH3>
-        <p>
-          You can control or block cookies through your browser settings.
-          Disabling essential cookies may prevent you from using certain
-          features of our service.
+          for the full list.
         </p>
       </section>
 
       <section id="gdpr" className="scroll-mt-24 space-y-4">
         <LegalH2>4. Data Protection Rights (UK GDPR)</LegalH2>
         <p>
-          Under UK data protection law you have the following rights in respect
-          of your personal data:
-        </p>
-        <ul className="list-disc space-y-1 pl-5">
-          <li>
-            <strong className="text-ink">Access</strong> — request a copy of
-            your personal data
-          </li>
-          <li>
-            <strong className="text-ink">Rectification</strong> — request
-            correction of inaccurate data
-          </li>
-          <li>
-            <strong className="text-ink">Erasure</strong> — request deletion,
-            subject to legal retention requirements (see §2.4 and §2.5)
-          </li>
-          <li>
-            <strong className="text-ink">Restriction</strong> — request that we
-            limit processing
-          </li>
-          <li>
-            <strong className="text-ink">Portability</strong> — request your
-            data in a portable format
-          </li>
-          <li>
-            <strong className="text-ink">Objection</strong> — object to certain
-            types of processing
-          </li>
-        </ul>
-        <p>
-          To exercise any of these rights, contact{" "}
+          You can access, correct, erase, restrict, object to or port your
+          personal data. Signed-in users can download or delete their data at{" "}
+          <Link href="/settings/privacy" className="font-semibold text-sea">
+            Settings → Privacy &amp; data
+          </Link>
+          ; other requests go to{" "}
           <a className="font-semibold text-sea" href={`mailto:${email}`}>
             {email}
           </a>
-          .
-        </p>
-
-        <LegalH3>4.1 Lawful Basis for Processing</LegalH3>
-        <ul className="list-disc space-y-1 pl-5">
-          <li>
-            <strong className="text-ink">Contract</strong> — processing
-            necessary to provide our services to you
-          </li>
-          <li>
-            <strong className="text-ink">Legal obligation</strong> — compliance
-            with HMRC, Companies House and tax legislation
-          </li>
-          <li>
-            <strong className="text-ink">Legitimate interests</strong> —
-            business operations, service improvement, fraud prevention and
-            conversion measurement (where this does not override your rights)
-          </li>
-          <li>
-            <strong className="text-ink">Consent</strong> — for non-essential
-            cookies and marketing communications, withdrawable at any time
-          </li>
-        </ul>
-
-        <LegalH3>4.2 International Transfers</LegalH3>
-        <p>
-          Production infrastructure may be provided by hosting and data
-          providers in the UK, EEA or other countries. Transfers outside the UK
-          rely on UK adequacy regulations (for EEA countries) or the UK
-          International Data Transfer Agreement / UK Addendum to the EU Standard
-          Contractual Clauses (or another approved mechanism). See{" "}
-          <Link href="/legal/sub-processors" className="font-semibold text-sea">
-            Sub-processors
+          . Details, response times and your right to complain to the ICO are in
+          the{" "}
+          <Link href="/privacy#rights" className="font-semibold text-sea">
+            Privacy Notice
+          </Link>
+          . Breach handling:{" "}
+          <Link href="/legal/security" className="font-semibold text-sea">
+            security &amp; breach policy
           </Link>
           .
         </p>

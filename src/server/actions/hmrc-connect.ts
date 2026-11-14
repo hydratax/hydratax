@@ -11,14 +11,16 @@ import { appendAuditEvent } from "@/server/audit/log";
 import { getHmrcConfig } from "@/server/hmrc/config";
 
 export async function getConnectionStatus(clientId: string) {
+  const session = await requireSession();
   await getClient(clientId);
-  return getHmrcConnectionStatus(clientId);
+  return getHmrcConnectionStatus(clientId, session.practiceId);
 }
 
 export async function disconnectHmrcAction(clientId: string) {
   const session = await requireSession();
+  if (session.role === "readonly") throw new Error("Forbidden");
   await getClient(clientId);
-  await disconnectHmrc(clientId);
+  await disconnectHmrc(clientId, session.practiceId);
   await appendAuditEvent({
     practiceId: session.practiceId,
     clientId,

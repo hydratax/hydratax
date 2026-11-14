@@ -45,5 +45,8 @@ export function logChGatewayXmlPayload(label: string, xml: string) {
     gatewayTest: /<GatewayTest>1<\/GatewayTest>/i.test(xml),
   },
   );
-  console.info(`[ch.gateway.xml] ${label} payload:\n${redacted}`);
+  // Full payload carries officer names/DOBs/addresses (personal data): never in production.
+  if (process.env.NODE_ENV !== "production") {
+    console.info(`[ch.gateway.xml] ${label} payload:\n${redacted}`);
+  }
 }

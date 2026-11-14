@@ -27,7 +27,7 @@ export const sa800DraftSchema = z.object({
   staffCosts: money,
   premisesCosts: money,
   otherExpenses: money,
-  partners: z.array(sa800PartnerSchema).default([]),
+  partners: z.array(sa800PartnerSchema).max(100).default([]),
   declarationName: z.string().default(""),
   declarationCapacity: z.string().default("Partner"),
   declarationDate: z.string().default(""),

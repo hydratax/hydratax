@@ -6,6 +6,18 @@ export function generateUnsubscribeToken(): string {
   return randomBytes(TOKEN_BYTES).toString("hex");
 }
 
+/**
+ * Cheap pre-DB sanity/entropy check. Real tokens are 24 random bytes as hex
+ * (48 chars, 192 bits). Reject short, odd-charset or low-diversity values
+ * (e.g. "aaaa…", "0000…") before touching the database.
+ */
+export function isPlausibleUnsubscribeToken(token: unknown): token is string {
+  if (typeof token !== "string") return false;
+  const t = token.trim();
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(t)) return false;
+  return new Set(t).size >= 10;
+}
+
 export function unsubscribeUrl(token: string, appUrl: string): string {
   const base = appUrl.replace(/\/$/, "");
   return `${base}/unsubscribe?token=${encodeURIComponent(token)}`;

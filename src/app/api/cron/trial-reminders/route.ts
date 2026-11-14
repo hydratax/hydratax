@@ -1,32 +1,41 @@
 import { NextResponse } from "next/server";
 import { sendTrialEndingReminders } from "@/server/billing/trial-reminders";
+import { authorizeBearer } from "@/lib/webhook-auth";
+import { clientIpFromHeaders } from "@/lib/rate-limit";
+import { logSecurityEvent } from "@/server/privacy/security-events";
+
+const NO_STORE = { "Cache-Control": "no-store" } as const;
 
 /**
  * Manual / platform cron endpoint for day-7 trial ending emails.
- * Protect with CRON_SECRET (Authorization: Bearer … or ?secret=).
+ * Auth: `Authorization: Bearer $CRON_SECRET` only. Fails closed (503) when
+ * CRON_SECRET is not configured.
  */
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = req.headers.get("authorization") ?? "";
-    const url = new URL(req.url);
-    const ok =
-      auth === `Bearer ${secret}` || url.searchParams.get("secret") === secret;
-    if (!ok) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const auth = authorizeBearer(req, process.env.CRON_SECRET, "Cron");
+  if (!auth.ok) {
+    const ip = clientIpFromHeaders(req.headers);
+    await logSecurityEvent({
+      type: "webhook.unauthorised",
+      severity: auth.status === 401 ? "medium" : "low",
+      ip,
+      throttleKey: `cron.trial-reminders:${ip}`,
+      details: { route: "cron.trial-reminders", status: auth.status },
+    });
+    return NextResponse.json(
+      { error: auth.error },
+      { status: auth.status, headers: NO_STORE },
+    );
   }
 
   try {
     const result = await sendTrialEndingReminders();
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({ ok: true, ...result }, { headers: NO_STORE });
   } catch (err) {
+    console.error("[cron trial-reminders]", err instanceof Error ? err.message : err);
     return NextResponse.json(
-      {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      },
-      { status: 500 },
+      { ok: false, error: "Cron job failed" },
+      { status: 500, headers: NO_STORE },
     );
   }
 }

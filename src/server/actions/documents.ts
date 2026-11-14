@@ -1,10 +1,9 @@
 "use server";
 
-import { put } from "@vercel/blob";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { inspectUpload } from "@/lib/file-types";
 import {
-  isBlobConfigured,
   isMemoryStore,
   isR2Configured,
   isSupabaseConfigured,
@@ -17,16 +16,6 @@ import { uploadToR2 } from "@/server/storage/r2";
 import { tryGetDb } from "@/server/db";
 
 const MAX_BYTES = 15 * 1024 * 1024;
-
-const allowedTypes = new Set([
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "text/csv",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-excel",
-]);
 
 const categorySchema = z
   .string()
@@ -112,38 +101,37 @@ export async function uploadClientDocument(formData: FormData) {
   if (file.size > MAX_BYTES) {
     throw new Error("File exceeds 15 MB limit");
   }
-  if (file.type && !allowedTypes.has(file.type)) {
+  const fileBytes = new Uint8Array(await file.arrayBuffer());
+  const inspected = inspectUpload({
+    filename: file.name,
+    declaredType: file.type,
+    bytes: fileBytes,
+  });
+  if (!inspected.allowed) {
     throw new Error(
-      "Unsupported file type. Use PDF, JPG, PNG, WebP, CSV, or Excel.",
+      "Unsupported file type. Use PDF, JPG, PNG, WebP, CSV, Excel, Word or text.",
     );
   }
 
-  const filename = file.name.replace(/[^\w.\- ()]/g, "_").slice(0, 180);
-  const contentType = file.type || "application/octet-stream";
+  const filename = inspected.filename;
+  const contentType = inspected.contentType;
   let blobUrl: string;
   const objectKey = `practices/${session.practiceId}/clients/${clientId}/${Date.now()}-${filename}`;
 
   if (isR2Configured()) {
-    const buf = Buffer.from(await file.arrayBuffer());
     const uploaded = await uploadToR2({
       key: objectKey,
-      body: buf,
+      body: Buffer.from(fileBytes),
       contentType,
     });
     blobUrl = uploaded.url;
-  } else if (isBlobConfigured()) {
-    const blob = await put(objectKey, file, {
-      access: "public",
-      contentType,
-      addRandomSuffix: true,
-    });
-    blobUrl = blob.url;
   } else if (isMemoryStore()) {
-    const buf = Buffer.from(await file.arrayBuffer());
-    blobUrl = `data:${contentType};base64,${buf.toString("base64")}`;
+    blobUrl = `data:${contentType};base64,${Buffer.from(fileBytes).toString("base64")}`;
   } else {
+    // The former public Vercel Blob fallback exposed client documents to
+    // anyone with the URL and has been removed.
     throw new Error(
-      "Document storage is not configured. Set Cloudflare R2 keys (preferred) or BLOB_READ_WRITE_TOKEN.",
+      "Document storage is not configured. Set Cloudflare R2 keys.",
     );
   }
 

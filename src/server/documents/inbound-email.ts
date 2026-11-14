@@ -9,7 +9,10 @@ import {
   isMemoryStore,
   isSupabaseConfigured,
 } from "@/lib/env";
+import { inspectUpload } from "@/lib/file-types";
 import { storeClientDocumentBytes } from "@/server/documents/store-bytes";
+
+const MAX_INBOUND_ATTACHMENTS = 10;
 
 export type ResolvedDocumentInbox = {
   clientId: string;
@@ -196,16 +199,31 @@ export async function storeInboundEmailAttachments(input: {
     contentType: string;
     bytes: Uint8Array;
   }>;
-}): Promise<{ stored: StoredMeta[] }> {
+}): Promise<{ stored: StoredMeta[]; skipped: number }> {
   const stored: StoredMeta[] = [];
-  for (const att of input.attachments) {
+  let skipped = 0;
+  for (const att of input.attachments.slice(0, MAX_INBOUND_ATTACHMENTS)) {
     if (!att.bytes.byteLength) continue;
-    if (att.bytes.byteLength > 15 * 1024 * 1024) continue;
+    if (att.bytes.byteLength > 15 * 1024 * 1024) {
+      skipped++;
+      continue;
+    }
+    // Only allow-listed document types whose bytes match their declared type
+    // are filed; html/svg/js/etc. from senders are dropped, never stored.
+    const inspected = inspectUpload({
+      filename: att.filename || "attachment.bin",
+      declaredType: att.contentType,
+      bytes: att.bytes,
+    });
+    if (!inspected.allowed) {
+      skipped++;
+      continue;
+    }
     const result = await storeClientDocumentBytes({
       practiceId: input.client.practiceId,
       clientId: input.client.clientId,
-      filename: att.filename || "attachment.bin",
-      contentType: att.contentType || "application/octet-stream",
+      filename: inspected.filename,
+      contentType: inspected.contentType,
       bytes: att.bytes,
       category: "general",
       uploadedBy: "email-inbound",
@@ -240,7 +258,7 @@ export async function storeInboundEmailAttachments(input: {
     /* audit is best-effort */
   }
 
-  return { stored };
+  return { stored, skipped };
 }
 
 type StoredMeta = {

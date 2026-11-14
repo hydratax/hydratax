@@ -10,6 +10,7 @@ import {
   LEGAL_UPDATED,
   legalTradingAs,
 } from "@/lib/legal";
+import { LEGAL_ENTITY } from "@/lib/legal-entity";
 
 export const metadata = {
   title: "Data Processing Agreement — HydraTax",
@@ -183,10 +184,36 @@ export default function DpaPage() {
       <p>
         We implement appropriate technical and organisational measures to
         protect Personal Data against accidental or unlawful destruction, loss,
-        alteration, unauthorised disclosure or access. Measures include
-        encryption in transit, restricted production access, monitored hosting,
-        regular backups and time-bound retention of authentication credentials.
+        alteration, unauthorised disclosure or access. Measures include:
       </p>
+      <ul className="list-disc space-y-1 pl-5">
+        <li>encryption in transit (TLS);</li>
+        <li>
+          row-level security on database tables and server-side practice-scoped
+          authorisation on every action, so one practice cannot read another&apos;s
+          data;
+        </li>
+        <li>
+          two-step verification for user accounts, time-limited sessions and
+          role / module-based access within a practice;
+        </li>
+        <li>
+          encryption of HMRC and similar submission credentials at rest
+          (AES-256-GCM) and exclusion of secrets from exports and logs;
+        </li>
+        <li>
+          append-only audit trails and security-event logging, and masking of
+          tax identifiers in list views;
+        </li>
+        <li>
+          restricted production access, monitored hosting, regular backups and
+          time-bound retention (see the{" "}
+          <Link href="/privacy#client-data" className="font-semibold text-sea">
+            retention table
+          </Link>
+          ).
+        </li>
+      </ul>
       <p>
         We may update these measures from time to time provided that the level
         of protection is not materially decreased.
@@ -221,8 +248,19 @@ export default function DpaPage() {
         Taking into account the nature of the processing, we will assist you
         with appropriate technical and organisational measures, insofar as
         possible, to fulfil your obligation to respond to requests from Data
-        Subjects exercising their rights under the UK GDPR. For data export,
-        rectification or other rights requests, contact{" "}
+        Subjects exercising their rights under the UK GDPR. If a Data Subject
+        contacts us directly about data you control, we will not respond on the
+        substance and will pass the request to you without undue delay (where
+        we can identify you as the Controller).
+      </p>
+      <p>
+        You can self-serve most requests: from each client&apos;s page an owner
+        or administrator can{" "}
+        <strong className="text-ink">export all data we hold for that client</strong>{" "}
+        (JSON) and{" "}
+        <strong className="text-ink">erase that client</strong> across our
+        systems. Each export or erasure is recorded in the practice audit
+        trail. For anything else, contact{" "}
         <a className="font-semibold text-sea" href={`mailto:${email}`}>
           {email}
         </a>
@@ -231,10 +269,25 @@ export default function DpaPage() {
 
       <LegalH2>9. Assistance with breach notification, DPIA and prior consultation</LegalH2>
       <p>
-        We will notify you without undue delay, and in any event within 72 hours
-        of becoming aware, of any Personal Data Breach affecting your data, and
-        provide information reasonably required for you to comply with Articles
-        33 and 34 of the UK GDPR.
+        We will notify you without undue delay, and in any event within{" "}
+        {LEGAL_ENTITY.processorBreachNoticeHours} hours of becoming aware, of
+        any Personal Data Breach affecting your data. This is deliberately
+        shorter than the 72 hours you have to notify the ICO under Article
+        33(1), so that you have time to assess and report. Our notice will, as
+        far as known, describe the nature of the breach, the categories and
+        approximate number of data subjects and records, the likely
+        consequences, and the measures taken or proposed, and we will keep
+        you updated as facts emerge. We will provide the information
+        reasonably required for you to comply with Articles 33 and 34 of the UK
+        GDPR. Our process is described in our{" "}
+        <Link href="/legal/security" className="font-semibold text-sea">
+          security &amp; breach policy
+        </Link>
+        .
+      </p>
+      <p>
+        We will also notify you promptly if we believe an instruction you give
+        infringes data protection law.
       </p>
       <p>
         Taking into account the nature of the processing and the information
@@ -251,13 +304,19 @@ export default function DpaPage() {
         <a className="font-semibold text-sea" href={`mailto:${email}`}>
           {email}
         </a>
-        . As a self-serve subscription product we do not accommodate on-site
-        audits or third-party audit firms at the standard subscription tier.
+        . If that information is not sufficient to demonstrate compliance with
+        Article 28, or a regulator requires it, we will allow and contribute to
+        an audit (including an inspection) by you or an auditor you appoint, on
+        at least 30 days&apos; written notice, no more than once in any 12
+        months unless a breach has occurred, during business hours, subject to
+        confidentiality undertakings and without access to other customers&apos;
+        data. Reasonable costs of our assistance may be charged.
       </p>
 
       <LegalH2>11. End of agreement</LegalH2>
       <p>
-        On termination, you may request an export of your data by emailing{" "}
+        On termination, you may export client data yourself (per-client export)
+        or request an export by emailing{" "}
         <a className="font-semibold text-sea" href={`mailto:${email}`}>
           {email}
         </a>{" "}
@@ -269,8 +328,11 @@ export default function DpaPage() {
       </p>
       <p>
         We will retain the minimum Personal Data required by law (typically
-        filing records for the periods set out in Privacy Policy §2.4) and
-        confirm completion in writing.
+        filing records for the periods set out in the{" "}
+        <Link href="/privacy#client-data" className="font-semibold text-sea">
+          Privacy Notice
+        </Link>
+        ) and confirm completion in writing.
       </p>
 
       <LegalH2>12. International transfers</LegalH2>
@@ -326,8 +388,13 @@ export default function DpaPage() {
           </Link>
         </li>
         <li>
-          <Link href="/terms#privacy" className="font-semibold text-sea">
-            Privacy Policy
+          <Link href="/privacy" className="font-semibold text-sea">
+            Privacy Notice
+          </Link>
+        </li>
+        <li>
+          <Link href="/legal/security" className="font-semibold text-sea">
+            Security &amp; breach policy
           </Link>
         </li>
         <li>

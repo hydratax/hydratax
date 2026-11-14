@@ -1,5 +1,7 @@
 "use server";
 
+import { escapeHtml } from "@/lib/html-escape";
+
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireSession } from "@/server/auth/session";
@@ -191,7 +193,7 @@ export async function addTeamMember(input: z.infer<typeof addSchema>) {
       to: email,
       subject: `${session.practiceName} invited you to HydraTax`,
       text: `${name}, you have been invited to join ${session.practiceName} on HydraTax.\n\nCreate your account with this email address:\n${signupUrl}\n\nAfter you sign up you will join the practice automatically. You can then turn on two-factor authentication from Account settings.`,
-      html: `<p>Hi ${name},</p><p>You have been invited to join <strong>${session.practiceName}</strong> on HydraTax.</p><p><a href="${signupUrl}">Create your account</a> using <strong>${email}</strong>.</p><p>After you sign up you will join the practice automatically. You can then turn on two-factor authentication from Account settings.</p>`,
+      html: `<p>Hi ${escapeHtml(name)},</p><p>You have been invited to join <strong>${escapeHtml(session.practiceName)}</strong> on HydraTax.</p><p><a href="${escapeHtml(signupUrl)}">Create your account</a> using <strong>${escapeHtml(email)}</strong>.</p><p>After you sign up you will join the practice automatically. You can then turn on two-factor authentication from Account settings.</p>`,
     });
 
     await appendAuditEvent({
@@ -275,6 +277,8 @@ export async function updateTeamMemberAccess(
       .update({ module_access: moduleAccess, role })
       .eq("id", memberId)
       .eq("practice_id", session.practiceId)
+      // Never rewrite an owner's role/access from this screen (would demote them).
+      .neq("role", "owner")
       .select("id, email, display_name, role, module_access, created_at")
       .single();
     if (error) throw new Error(error.message);

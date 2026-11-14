@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { isDemoMode, isMemoryStore, isSupabaseConfigured } from "@/lib/env";
+import { inspectUpload } from "@/lib/file-types";
 import type { PracticeLetterhead } from "@/lib/desk-profile";
 import { requireSession } from "@/server/auth/session";
 import { memoryStore } from "@/server/demo/store";
@@ -120,14 +121,9 @@ export async function savePracticeLetterhead(
   return letterhead;
 }
 
-const LOGO_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/jpg",
-  "image/webp",
-  "image/svg+xml",
-  "image/gif",
-]);
+// SVG is deliberately NOT accepted: it can carry script and is served from our
+// own origin via /api/documents/download.
+const LOGO_KINDS = new Set(["png", "jpeg", "webp", "gif"]);
 const LOGO_MAX_BYTES = 2 * 1024 * 1024;
 
 /** Upload a firm logo and return a URL suitable for letterhead / print. */
@@ -144,17 +140,21 @@ export async function uploadPracticeLogo(formData: FormData): Promise<{
   if (file.size > LOGO_MAX_BYTES) {
     throw new Error("Logo must be 2 MB or smaller");
   }
-  const contentType = file.type || "application/octet-stream";
-  if (contentType && !LOGO_TYPES.has(contentType)) {
-    throw new Error("Use PNG, JPG, WebP, GIF or SVG");
-  }
-
-  const filename = file.name.replace(/[^\w.\- ()]/g, "_").slice(0, 120);
-  const objectKey = `practices/${session.practiceId}/branding/${Date.now()}-${filename}`;
   const buf = Buffer.from(await file.arrayBuffer());
+  const inspected = inspectUpload({
+    filename: file.name,
+    declaredType: file.type,
+    bytes: buf,
+  });
+  if (!inspected.allowed || !LOGO_KINDS.has(inspected.kind)) {
+    throw new Error("Use a PNG, JPG, WebP or GIF image");
+  }
+  const contentType = inspected.contentType;
+  const filename = inspected.filename.slice(0, 120);
+  const objectKey = `practices/${session.practiceId}/branding/${Date.now()}-${filename}`;
 
   const { isR2Configured, uploadToR2 } = await import("@/server/storage/r2");
-  const { isBlobConfigured, isMemoryStore: mem } = await import("@/lib/env");
+  const { isMemoryStore: mem } = await import("@/lib/env");
 
   let logoUrl: string;
   if (isR2Configured()) {
@@ -166,20 +166,10 @@ export async function uploadPracticeLogo(formData: FormData): Promise<{
     logoUrl = uploaded.url.startsWith("r2://")
       ? `/api/documents/download?key=${encodeURIComponent(objectKey)}`
       : uploaded.url;
-  } else if (isBlobConfigured()) {
-    const { put } = await import("@vercel/blob");
-    const blob = await put(objectKey, file, {
-      access: "public",
-      contentType,
-      addRandomSuffix: true,
-    });
-    logoUrl = blob.url;
   } else if (mem() || isDemoMode()) {
     logoUrl = `data:${contentType};base64,${buf.toString("base64")}`;
   } else {
-    throw new Error(
-      "Logo storage is not configured. Set Cloudflare R2 or BLOB_READ_WRITE_TOKEN.",
-    );
+    throw new Error("Logo storage is not configured. Set Cloudflare R2.");
   }
 
   const current = await getPracticeLetterhead();

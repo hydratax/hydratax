@@ -15,7 +15,12 @@ const ORG_TYPES = new Set([
 
 function readIntentCookie(request: NextRequest, name: string): string | null {
   const raw = request.cookies.get(name)?.value;
-  return raw ? decodeURIComponent(raw) : null;
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -229,11 +234,14 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-      const { beginMfaIfRequired } = await import("@/server/actions/mfa");
+      const { beginMfaIfRequired } = await import("@/server/auth/mfa-core");
       const mfa = await beginMfaIfRequired(user.id);
       mfaRequired = mfa.required;
-    } catch {
-      /* continue without MFA gate if settings table missing */
+    } catch (err) {
+      // Fail closed: if MFA state/challenge could not be established, send the
+      // user to /verify-2fa (which re-checks and refuses to wave them through).
+      console.error("[auth/callback] MFA begin failed", err);
+      mfaRequired = true;
     }
   }
 

@@ -120,7 +120,11 @@ export async function getPracticeEntitlements() {
         const {
           data: { user },
         } = await supabase.auth.getUser();
-        email = user?.email ?? null;
+        // Only a VERIFIED email may claim email-matched Stripe purchases.
+        email =
+          user?.email && (user.email_confirmed_at || user.confirmed_at)
+            ? user.email
+            : null;
       }
       if (email) {
         const { syncPaidCheckoutsForEmail } = await import(

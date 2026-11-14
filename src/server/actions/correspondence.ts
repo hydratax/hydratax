@@ -678,6 +678,11 @@ export async function ingestInboundMessage(input: {
 export async function dedupePracticeClients() {
   const session = await requireSession();
   if (session.role === "readonly") throw new Error("Forbidden");
+  // Each duplicate is permanently erased via deleteClient(), which is
+  // owner / full-access-admin only. Check up front so a practitioner gets one
+  // clear error instead of failing part-way through the sweep.
+  const { assertPracticeAdmin } = await import("@/server/privacy/authz");
+  assertPracticeAdmin(session);
 
   const clients = await listClients();
   const byCo = new Map<string, Array<{ id: string; createdAt: string | Date }>>();

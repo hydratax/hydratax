@@ -1,3 +1,4 @@
+import { safeJsonLd } from "@/lib/json-ld";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
@@ -85,7 +86,7 @@ export default async function BlogPostPage({
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(
+          __html: safeJsonLd(
             blogPostJsonLd({
               slug: post.slug,
               title: post.title,
@@ -99,7 +100,7 @@ export default async function BlogPostPage({
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(
+          __html: safeJsonLd(
             breadcrumbJsonLd([
               { name: "Home", path: "/" },
               { name: "Guides", path: "/blog" },
@@ -112,7 +113,7 @@ export default async function BlogPostPage({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify(faqJsonLd(post.faq)),
+            __html: safeJsonLd(faqJsonLd(post.faq)),
           }}
         />
       )}

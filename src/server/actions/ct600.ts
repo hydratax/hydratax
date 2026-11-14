@@ -1,4 +1,5 @@
 "use server";
+import { safeErr } from "@/lib/redact";
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -502,7 +503,7 @@ export async function submitCt600(
         html: content.html,
       });
     } catch (err) {
-      console.error("[ct600.submit] confirmation email failed", err);
+      console.error("[ct600.submit] confirmation email failed", safeErr(err));
     }
   }
 

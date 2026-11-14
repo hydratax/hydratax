@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { parseCompanyNumberStrict } from "@/lib/company-number";
+import { limitCompaniesHouseRoute } from "@/server/companies-house/route-guard";
 import {
   getCompaniesHouseEnvLabel,
   isCompaniesHouseApiConfigured,
@@ -8,10 +10,26 @@ import {
 } from "@/server/companies-house/api";
 
 export async function GET(req: Request) {
+  const limited = limitCompaniesHouseRoute(req, "search", 120);
+  if (limited) return limited;
+
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q")?.trim() ?? "";
-  const companyNumber = searchParams.get("company_number")?.trim();
+  const rawCompanyNumber = searchParams.get("company_number")?.trim();
   const chEnv = getCompaniesHouseEnvLabel();
+
+  if (q.length > 120) {
+    return NextResponse.json({ error: "Search text is too long." }, { status: 400 });
+  }
+  const companyNumber = rawCompanyNumber
+    ? parseCompanyNumberStrict(rawCompanyNumber)
+    : undefined;
+  if (rawCompanyNumber && !companyNumber) {
+    return NextResponse.json(
+      { error: "Company number must be 8 letters/digits (e.g. 01234567 or SC123456)." },
+      { status: 400 },
+    );
+  }
 
   try {
     if (companyNumber) {
@@ -65,6 +83,7 @@ export async function GET(req: Request) {
     });
   } catch (err) {
     const raw = err instanceof Error ? err.message : "Companies House lookup failed";
+    console.error("[ch.search] lookup failed:", raw.slice(0, 200));
     const needsLiveKey =
       /401/.test(raw) && chEnv === "live"
         ? " This looks like a Test API key on the live host — create a Live REST key at developer.company-information.service.gov.uk, or set COMPANIES_HOUSE_ENV=test for sandbox only."
@@ -72,7 +91,7 @@ export async function GET(req: Request) {
           ? " Auth failed on the Companies House sandbox — use a Test API key, or set COMPANIES_HOUSE_ENV=live with a Live REST key."
           : "";
     return NextResponse.json(
-      { error: `${raw}${needsLiveKey}`, env: chEnv },
+      { error: `Companies House lookup failed.${needsLiveKey}`, env: chEnv },
       { status: 502 },
     );
   }

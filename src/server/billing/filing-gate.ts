@@ -1,3 +1,4 @@
+import { safeErr } from "@/lib/redact";
 import { revalidatePath } from "next/cache";
 import { isMemoryStore, isStripeConfigured, isSupabaseConfigured } from "@/lib/env";
 import {
@@ -87,9 +88,14 @@ async function markSubscriptionActive(practiceId: string) {
 
   if (isSupabaseConfigured()) {
     try {
-      const { createClient } = await import("@/lib/supabase/server");
-      const supabase = await createClient();
-      await supabase
+      // Server-only entitlement write (service role); scoped to practiceId,
+      // which callers authorise (owner confirmation / Stripe-confirmed charge).
+      const { getBillingWriteClient } = await import(
+        "@/server/billing/admin-client"
+      );
+      const writer = await getBillingWriteClient();
+      if (!writer) throw new Error("billing write client unavailable");
+      await writer
         .from("practice_subscriptions")
         .update({
           status: "active",
@@ -98,7 +104,7 @@ async function markSubscriptionActive(practiceId: string) {
         .eq("practice_id", practiceId)
         .eq("status", "trialing");
     } catch (err) {
-      console.warn("[filing-gate] mark active failed", err);
+      console.warn("[filing-gate] mark active failed", safeErr(err));
     }
   }
 
@@ -188,7 +194,7 @@ export async function endTrialAndChargeNow(
     await markSubscriptionActive(practiceId);
     return { ok: true, charged: true };
   } catch (err) {
-    console.error("[filing-gate] endTrialAndChargeNow", err);
+    console.error("[filing-gate] endTrialAndChargeNow", safeErr(err));
     return {
       ok: false,
       code: "PAYMENT_FAILED",

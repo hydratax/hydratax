@@ -11,17 +11,20 @@ import {
   findClientDocument,
   getBotSession,
   upsertBotSession,
-  verifyClientPin,
+  verifyClientPinLimited,
 } from "../../src/lib/supabase";
 import {
   normalizeWhatsAppPhone,
   sendWhatsAppMessage,
 } from "../../src/lib/whatsapp";
+import { safeEqual, verifyMetaSignature } from "../../src/lib/webhook-auth";
+import { logWebhookRejection } from "../../src/server/privacy/webhook-events";
 
 type NetlifyEvent = {
   httpMethod: string;
   queryStringParameters: Record<string, string | undefined> | null;
   body: string | null;
+  headers?: Record<string, string | undefined>;
   isBase64Encoded?: boolean;
 };
 
@@ -65,7 +68,13 @@ function verifyWebhook(event: NetlifyEvent): NetlifyResponse {
   const challenge = params["hub.challenge"];
   const expected = process.env.WHATSAPP_VERIFY_TOKEN;
 
-  if (mode === "subscribe" && token && expected && token === expected && challenge) {
+  if (
+    mode === "subscribe" &&
+    token &&
+    expected &&
+    safeEqual(token, expected) &&
+    challenge
+  ) {
     return {
       statusCode: 200,
       headers: { "Content-Type": "text/plain" },
@@ -76,10 +85,41 @@ function verifyWebhook(event: NetlifyEvent): NetlifyResponse {
   return { statusCode: 403, body: "Forbidden" };
 }
 
+/** Adapter so shared webhook logging can read Netlify's plain-object headers. */
+function headerGetter(event: NetlifyEvent) {
+  const lower = new Map(
+    Object.entries(event.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]),
+  );
+  return { headers: { get: (name: string) => lower.get(name.toLowerCase()) ?? null } };
+}
+
 async function handleIncoming(event: NetlifyEvent): Promise<NetlifyResponse> {
-  const raw = event.isBase64Encoded
-    ? Buffer.from(event.body ?? "", "base64").toString("utf8")
-    : (event.body ?? "");
+  // Verify Meta's X-Hub-Signature-256 over the RAW body BEFORE parsing.
+  // Fails closed when WHATSAPP_APP_SECRET is not configured.
+  const appSecret = process.env.WHATSAPP_APP_SECRET;
+  if (!appSecret) {
+    console.error("whatsapp-webhook: WHATSAPP_APP_SECRET is not set; refusing event");
+    return { statusCode: 503, body: "Webhook not configured" };
+  }
+  const rawBytes = event.isBase64Encoded
+    ? Buffer.from(event.body ?? "", "base64")
+    : Buffer.from(event.body ?? "", "utf8");
+  const signature =
+    event.headers?.["x-hub-signature-256"] ??
+    event.headers?.["X-Hub-Signature-256"] ??
+    null;
+  if (rawBytes.length > 1024 * 1024) {
+    return { statusCode: 413, body: "Payload too large" };
+  }
+  if (!verifyMetaSignature(rawBytes, signature, appSecret)) {
+    await logWebhookRejection(
+      headerGetter(event),
+      "whatsapp",
+      signature ? "invalid_signature" : "missing_signature",
+    );
+    return { statusCode: 401, body: "Invalid signature" };
+  }
+  const raw = rawBytes.toString("utf8");
 
   let payload: unknown;
   try {
@@ -161,8 +201,15 @@ async function handleVerification(
     return;
   }
 
-  const ok = await verifyClientPin(clientId, pinInput);
-  if (!ok) {
+  const check = await verifyClientPinLimited(clientId, pinInput, phone);
+  if (!check.ok && check.locked) {
+    await safeReply(
+      phone,
+      `Too many incorrect attempts. For your security verification is locked for about ${check.retryAfterMin} minute(s). Please contact your accountant if you need help.`,
+    );
+    return;
+  }
+  if (!check.ok) {
     await safeReply(
       phone,
       "That PIN didn’t match. Please try again with the last 4 digits of your tax ID, or reply HELP to cancel.",
@@ -325,7 +372,8 @@ async function safeReply(to: string, message: string): Promise<void> {
   try {
     const result = await sendWhatsAppMessage(to, message);
     if (!result.ok) {
-      console.error("WhatsApp send failed", result.status, result.body);
+      // Status only: the response body can echo the recipient's phone number.
+      console.error("WhatsApp send failed", result.status);
     }
   } catch (err) {
     console.error("WhatsApp send error", err);

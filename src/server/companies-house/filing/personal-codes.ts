@@ -17,7 +17,7 @@ export const csStatementOfCapitalSchema = z.object({
   totalAmountUnpaid: z.number().nonnegative().default(0),
   totalNumberOfIssuedShares: z.number().int().nonnegative(),
   totalAggregateNominalValue: z.number().nonnegative(),
-  shares: z.array(csStatementOfCapitalShareSchema).min(1),
+  shares: z.array(csStatementOfCapitalShareSchema).min(1).max(100),
 });
 
 /** Companies House personal codes are 11 characters (letters + digits). */
@@ -71,7 +71,7 @@ export const csFilingInputSchema = z.object({
     .array(z.string().regex(/^\d{5}$/, "SIC codes must be 5 digits"))
     .default([]),
   statementOfCapital: csStatementOfCapitalSchema.optional(),
-  directors: z.array(directorVerificationSchema).min(1, "Add at least one director"),
+  directors: z.array(directorVerificationSchema).min(1, "Add at least one director").max(50),
   clientId: z.string().uuid().optional().or(z.literal("")),
   practiceId: z.string().uuid().optional().or(z.literal("")),
 });

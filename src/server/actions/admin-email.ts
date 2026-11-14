@@ -12,6 +12,7 @@ import {
 import { buildPracticeFilings, type PracticeClientLite } from "@/lib/practice-filings";
 import {
   generateUnsubscribeToken,
+  isPlausibleUnsubscribeToken,
   unsubscribeUrl,
   type EmailPreferenceRow,
 } from "@/server/email/unsubscribe";
@@ -247,8 +248,17 @@ export async function unsubscribeByToken(token: string): Promise<{
   ok: boolean;
   message: string;
 }> {
-  if (!token.trim()) {
+  if (!isPlausibleUnsubscribeToken(token)) {
     return { ok: false, message: "Invalid unsubscribe link." };
+  }
+  // Public endpoint: throttle token guessing per client IP.
+  const { rateLimitByIp } = await import("@/lib/rate-limit");
+  const limited = await rateLimitByIp("unsubscribe", {
+    limit: 20,
+    windowMs: 10 * 60_000,
+  });
+  if (!limited.ok) {
+    return { ok: false, message: "Too many attempts. Please try again later." };
   }
   if (!isSupabaseConfigured() || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return { ok: false, message: "Unsubscribe is not available right now." };

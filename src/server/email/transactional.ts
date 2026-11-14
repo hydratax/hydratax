@@ -1,4 +1,5 @@
 import { PRACTICE_TRIAL_DAYS } from "@/lib/trial";
+import { isProduction, maskEmails } from "@/lib/redact";
 import { PRACTICE_PLAN_PRICE_POUNDS, formatGBP } from "@/lib/pricing";
 import { describeCheckoutPlan } from "@/lib/checkout-plan-copy";
 import { getCheckoutPlan } from "@/lib/checkout-plans";
@@ -36,7 +37,13 @@ export async function sendTransactionalEmail(opts: {
   if (resendKey) {
     const headers: Record<string, string> = {};
     if (opts.listUnsubscribeUrl) {
-      headers["List-Unsubscribe"] = `<${opts.listUnsubscribeUrl}>`;
+      // RFC 8058 one-click needs a POST-capable endpoint: point the header at
+      // /api/unsubscribe (the visible link keeps using the /unsubscribe page).
+      const oneClick = opts.listUnsubscribeUrl.replace(
+        /\/unsubscribe\?/,
+        "/api/unsubscribe?",
+      );
+      headers["List-Unsubscribe"] = `<${oneClick}>`;
       headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
     }
     const res = await fetch("https://api.resend.com/emails", {
@@ -74,11 +81,12 @@ export async function sendTransactionalEmail(opts: {
   console.warn(
     "[email:logged] RESEND_API_KEY is unset — email was not sent. Set RESEND_API_KEY (and EMAIL_FROM) in Netlify/production env.",
     {
-      to: opts.to,
+      // Recipients masked; body preview only outside production (it can hold
+      // magic links / personal data).
+      to: maskEmails(opts.to),
       subject: opts.subject,
-      replyTo: opts.replyTo,
-      text: opts.text.slice(0, 200),
-      attachments: opts.attachments?.map((a) => a.filename) ?? [],
+      ...(isProduction() ? {} : { text: opts.text.slice(0, 200) }),
+      attachments: opts.attachments?.length ?? 0,
     },
   );
   return "logged";

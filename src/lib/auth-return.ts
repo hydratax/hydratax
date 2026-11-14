@@ -30,12 +30,38 @@ export function authEntryHref(
   return `/${page}?next=${encodeURIComponent(destination)}`;
 }
 
+const MAX_RETURN_PATH_LENGTH = 2048;
+const LOCAL_PATH_START = /^\/(?![\/\\])/;
+// eslint-disable-next-line no-control-regex
+const FORBIDDEN_CHARS = /[\u0000-\u001f\u007f\\]/;
+
+/**
+ * Only same-origin, absolute-path return targets are allowed. Rejects
+ * protocol-relative (`//evil.com`), backslash tricks (`/\evil.com`), control
+ * characters (browsers strip tab/CR/LF inside URLs, so `/\t/evil.com` becomes
+ * `//evil.com`), and encoded slashes/backslashes in the path portion.
+ */
 export function safeReturnPath(
   next: string | null | undefined,
   fallback = "/dashboard",
 ): string {
-  if (!next) return fallback;
-  if (!next.startsWith("/") || next.startsWith("//")) return fallback;
+  if (typeof next !== "string" || next.length === 0) return fallback;
+  if (next.length > MAX_RETURN_PATH_LENGTH) return fallback;
+  if (!LOCAL_PATH_START.test(next)) return fallback;
+  if (FORBIDDEN_CHARS.test(next)) return fallback;
+
+  const pathPart = next.split(/[?#]/, 1)[0] ?? "";
+  if (/%2f|%5c/i.test(pathPart)) return fallback;
+
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathPart);
+  } catch {
+    return fallback;
+  }
+  if (!LOCAL_PATH_START.test(decoded) || FORBIDDEN_CHARS.test(decoded)) {
+    return fallback;
+  }
   return next;
 }
 

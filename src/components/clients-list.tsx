@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { PendingLink } from "@/components/pending-link";
+import { maskUtr } from "@/lib/mask-identifiers";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import {
   filingStatusFromSnapshot,
@@ -292,7 +293,7 @@ export function ClientsList({
               <p className="mono mt-auto pt-4 text-xs text-ink-soft">
                 {[
                   c.vrn && `VRN ${c.vrn}`,
-                  c.utr && `UTR ${c.utr}`,
+                  c.utr && `UTR ${maskUtr(c.utr)}`,
                   c.companyNumber,
                 ]
                   .filter(Boolean)

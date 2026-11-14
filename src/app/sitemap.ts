@@ -35,6 +35,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/terms",
     "/privacy",
     "/legal/dpa",
+    "/legal/cookies",
+    "/legal/security",
+    "/legal/sub-processors",
     ...CH_SERVICE_DETAILS.filter(
       (s) =>
         s.id !== "incorporation" &&

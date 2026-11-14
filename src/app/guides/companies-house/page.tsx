@@ -1,3 +1,4 @@
+import { safeJsonLd } from "@/lib/json-ld";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { SiteFooter } from "@/components/site-footer";
@@ -43,7 +44,7 @@ export default function CompaniesHouseComplianceGuidePage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(
+          __html: safeJsonLd(
             breadcrumbJsonLd([
               { name: "Home", path: "/" },
               { name: "Guides", path: "/blog" },
@@ -55,7 +56,7 @@ export default function CompaniesHouseComplianceGuidePage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(faqJsonLd(faqs)),
+          __html: safeJsonLd(faqJsonLd(faqs)),
         }}
       />
 

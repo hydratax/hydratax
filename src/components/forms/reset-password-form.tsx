@@ -49,10 +49,11 @@ export function ResetPasswordForm() {
           name="password"
           type="password"
           required
-          minLength={8}
+          minLength={12}
+          maxLength={72}
           autoComplete="new-password"
           className="mt-1.5 w-full rounded-lg border border-line px-3 py-2.5 font-normal"
-          placeholder="At least 8 characters"
+          placeholder="At least 12 characters"
         />
       </label>
 
@@ -62,7 +63,8 @@ export function ResetPasswordForm() {
           name="confirmPassword"
           type="password"
           required
-          minLength={8}
+          minLength={12}
+          maxLength={72}
           autoComplete="new-password"
           className="mt-1.5 w-full rounded-lg border border-line px-3 py-2.5 font-normal"
           placeholder="Repeat password"

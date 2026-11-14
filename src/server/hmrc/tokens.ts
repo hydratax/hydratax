@@ -1,5 +1,6 @@
 import { isDemoMode } from "@/lib/env";
 import { demoStore } from "@/server/demo/store";
+import { assertClientInPractice } from "./client-ownership";
 import { getHmrcConfig } from "./config";
 import {
   decryptAccessToken,
@@ -9,7 +10,12 @@ import {
   type TokenSet,
 } from "./oauth";
 
-export async function saveHmrcConnection(clientId: string, tokens: TokenSet) {
+export async function saveHmrcConnection(
+  clientId: string,
+  tokens: TokenSet,
+  practiceId: string,
+) {
+  await assertClientInPractice(clientId, practiceId);
   const cfg = getHmrcConfig();
   const encrypted = encryptTokenSet(tokens);
 
@@ -70,7 +76,11 @@ export async function saveHmrcConnection(clientId: string, tokens: TokenSet) {
   }
 }
 
-export async function getHmrcConnectionStatus(clientId: string) {
+export async function getHmrcConnectionStatus(
+  clientId: string,
+  practiceId: string,
+) {
+  await assertClientInPractice(clientId, practiceId);
   if (isDemoMode()) {
     const c = demoStore.hmrcConnections.find((x) => x.clientId === clientId);
     return {
@@ -104,7 +114,11 @@ export async function getHmrcConnectionStatus(clientId: string) {
   };
 }
 
-export async function getValidAccessToken(clientId: string): Promise<string | null> {
+export async function getValidAccessToken(
+  clientId: string,
+  practiceId: string,
+): Promise<string | null> {
+  await assertClientInPractice(clientId, practiceId);
   if (isDemoMode()) {
     const c = demoStore.hmrcConnections.find((x) => x.clientId === clientId) as
       | (typeof demoStore.hmrcConnections)[number] & {
@@ -140,11 +154,12 @@ export async function getValidAccessToken(clientId: string): Promise<string | nu
   const refreshed = await refreshAccessToken(
     decryptRefreshToken(row.encryptedRefreshToken),
   );
-  await saveHmrcConnection(clientId, refreshed);
+  await saveHmrcConnection(clientId, refreshed, practiceId);
   return refreshed.accessToken;
 }
 
-export async function disconnectHmrc(clientId: string) {
+export async function disconnectHmrc(clientId: string, practiceId: string) {
+  await assertClientInPractice(clientId, practiceId);
   if (isDemoMode()) {
     const c = demoStore.hmrcConnections.find((x) => x.clientId === clientId);
     if (c) {

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { escapeHtml } from "@/lib/html-escape";
 import { requireModule } from "@/server/auth/session";
 import { getClient } from "@/server/actions/clients";
 import {
@@ -378,7 +379,7 @@ export async function sendClientInvoiceEmail(input: {
       message: cover,
       html: `${cover
         .split("\n")
-        .map((l) => `<p>${l ? l.replace(/&/g, "&amp;").replace(/</g, "&lt;") : "&nbsp;"}</p>`)
+        .map((l) => `<p>${l ? escapeHtml(l) : "&nbsp;"}</p>`)
         .join("")}<hr/>${html}`,
       kind: "invoice",
       documentCount: 1,

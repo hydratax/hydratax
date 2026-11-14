@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
-import { isSupabaseConfigured } from "@/lib/env";
+import { isProductionRuntime, isSupabaseConfigured } from "@/lib/env";
 import { isClientUuid } from "@/lib/client-slug";
+import { safeReturnPath } from "@/lib/auth-return";
 
 const PUBLIC_PREFIXES = [
   "/",
@@ -27,7 +28,9 @@ const PUBLIC_PREFIXES = [
   "/privacy",
   "/legal",
   "/blog",
-  "/api/hmrc/callback",
+  // NOTE: /api/hmrc/callback is intentionally NOT public — the user returns from
+  // HMRC with their session cookie (SameSite=Lax top-level GET) and the route
+  // enforces its own session + signed-state checks.
   "/api/checkout",
   "/api/stripe/webhook",
   "/api/cron",
@@ -116,16 +119,13 @@ function oauthCodeHandoff(request: NextRequest): NextResponse | null {
         try {
           return decodeURIComponent(intentNext);
         } catch {
-          return intentNext;
+          return null;
         }
       })()
     : null;
+  // Same strict validation as every other redirect target (no //, \, control chars).
   const resumeFromIntent =
-    decodedIntent &&
-    decodedIntent.startsWith("/") &&
-    !decodedIntent.startsWith("//")
-      ? decodedIntent
-      : null;
+    decodedIntent && safeReturnPath(decodedIntent, "") ? decodedIntent : null;
 
   const resume =
     resumeFromIntent ??
@@ -134,9 +134,7 @@ function oauthCodeHandoff(request: NextRequest): NextResponse | null {
     pathname === "/create-account" ||
     pathname === "/quick-signup"
       ? "/dashboard"
-      : qs
-        ? `${pathname}?${qs}`
-        : pathname);
+      : safeReturnPath(qs ? `${pathname}?${qs}` : pathname));
   url.searchParams.set("next", resume);
 
   return NextResponse.redirect(url);
@@ -175,7 +173,7 @@ export default async function proxy(request: NextRequest) {
     cleanSearch.delete("error");
     cleanSearch.delete("error_description");
     const qs = cleanSearch.toString();
-    const returnTo = qs ? `${pathname}?${qs}` : pathname;
+    const returnTo = safeReturnPath(qs ? `${pathname}?${qs}` : pathname);
     url.searchParams.set("next", returnTo);
     return NextResponse.redirect(url);
   }
@@ -190,7 +188,7 @@ export default async function proxy(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = "/sign-in";
       url.search = "";
-      url.searchParams.set("next", pathname);
+      url.searchParams.set("next", safeReturnPath(pathname));
       url.searchParams.set("expired", "1");
       const redirectResponse = NextResponse.redirect(url);
       for (const c of request.cookies.getAll()) {
@@ -223,29 +221,35 @@ export default async function proxy(request: NextRequest) {
     url.search = "";
     url.searchParams.set(
       "next",
-      `${pathname}${request.nextUrl.search || ""}`,
+      safeReturnPath(`${pathname}${request.nextUrl.search || ""}`),
     );
     return NextResponse.redirect(url);
   }
 
   // Local / demo: skip remote Supabase JWT refresh in middleware (pages still
   // call requireSession). Removes a 1–3s network hop on every navigation.
+  // Never in production: MEMORY_STORE / DEMO_MODE must not be able to skip validation there.
   if (
-    process.env.NODE_ENV === "development" ||
-    process.env.MEMORY_STORE === "true" ||
-    process.env.DEMO_MODE === "true"
+    !isProductionRuntime() &&
+    (process.env.NODE_ENV === "development" ||
+      process.env.MEMORY_STORE === "true" ||
+      process.env.DEMO_MODE === "true")
   ) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // Refresh Supabase session cookies and validate JWT
-  const { response, userId } = await updateSession(request);
+  const { response, userId, rateLimited } = await updateSession(request);
 
+  // On an Auth rate limit we could not verify the JWT. Do NOT trust cookie
+  // contents; just let the request through — every page/action re-verifies
+  // via requireSession — instead of bouncing a possibly valid user to sign-in.
   if (
     isSupabaseConfigured() &&
     !isPublicPath(pathname) &&
     !pathname.startsWith("/api/") &&
-    !userId
+    !userId &&
+    !rateLimited
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/sign-in";
@@ -256,7 +260,7 @@ export default async function proxy(request: NextRequest) {
     cleanSearch.delete("error");
     cleanSearch.delete("error_description");
     const qs = cleanSearch.toString();
-    const returnTo = qs ? `${pathname}?${qs}` : pathname;
+    const returnTo = safeReturnPath(qs ? `${pathname}?${qs}` : pathname);
     url.searchParams.set("next", returnTo);
     const redirectResponse = NextResponse.redirect(url);
     copyCookies(response, redirectResponse);

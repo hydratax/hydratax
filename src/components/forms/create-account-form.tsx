@@ -302,8 +302,10 @@ export function CreateAccountForm() {
                 name="password"
                 type="password"
                 required
-                minLength={8}
-                placeholder="Min. 8 characters"
+                minLength={12}
+                maxLength={72}
+                autoComplete="new-password"
+                placeholder="Min. 12 characters"
                 className="mt-1.5 w-full rounded-lg border border-line px-3 py-2.5 font-normal"
               />
             </label>
@@ -313,7 +315,9 @@ export function CreateAccountForm() {
                 name="confirmPassword"
                 type="password"
                 required
-                minLength={8}
+                minLength={12}
+                maxLength={72}
+                autoComplete="new-password"
                 placeholder="Re-enter password"
                 className="mt-1.5 w-full rounded-lg border border-line px-3 py-2.5 font-normal"
               />

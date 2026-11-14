@@ -1,3 +1,4 @@
+import { safeJsonLd } from "@/lib/json-ld";
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 import { SiteFooter } from "@/components/site-footer";
@@ -96,7 +97,7 @@ export default async function PublicCompanyPage({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify(
+            __html: safeJsonLd(
               companyOrganizationJsonLd({
                 name: facts.companyName,
                 companyNumber: facts.companyNumber,
@@ -112,7 +113,7 @@ export default async function PublicCompanyPage({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
+            __html: safeJsonLd({
               "@context": "https://schema.org",
               "@type": "FAQPage",
               mainEntity: [

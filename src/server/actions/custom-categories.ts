@@ -1,4 +1,5 @@
 "use server";
+import { safeErr } from "@/lib/redact";
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -82,7 +83,7 @@ export async function createCustomBankCategory(
       label: row.label,
     };
   } catch (err) {
-    console.error("[custom-categories] create failed", err);
+    console.error("[custom-categories] create failed", safeErr(err));
     return {
       ok: false as const,
       error:

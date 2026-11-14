@@ -1,5 +1,8 @@
 "use server";
 
+import { rateLimitByIp } from "@/lib/rate-limit";
+import { inspectUpload } from "@/lib/file-types";
+
 import { randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
 import { isDemoMode, isSupabaseConfigured } from "@/lib/env";
@@ -251,6 +254,9 @@ export async function publishOnboardingForm(input: {
 
 /** Public: record that the client opened the form link. */
 export async function recordFormOpened(token: string) {
+  if (!(await rateLimitByIp("form-open", { limit: 60, windowMs: 10 * 60_000, extraKey: String(token).slice(0, 64) })).ok) {
+    return { ok: false as const };
+  }
   const found = await findFormByShareToken(token);
   if (!found) return { ok: false as const };
   if (found.form.status === "draft" || found.form.status === "submitted") {
@@ -446,11 +452,20 @@ async function storePublicUpload(input: {
     "@/server/documents/store-bytes"
   );
   const bytes = new Uint8Array(await input.file.arrayBuffer());
+  // Allow-list + magic-byte check (declared MIME is attacker-controlled).
+  const inspected = inspectUpload({
+    filename: input.file.name,
+    declaredType: input.file.type,
+    bytes,
+  });
+  if (!inspected.allowed) {
+    throw new Error("Unsupported or mismatched file type.");
+  }
   const stored = await storeClientDocumentBytes({
     practiceId: input.practiceId,
     clientId: input.clientId,
     filename: input.file.name,
-    contentType: input.file.type || "application/octet-stream",
+    contentType: inspected.contentType,
     bytes,
     category: input.category,
     uploadedBy: input.uploadedBy,
@@ -467,6 +482,15 @@ async function storePublicUpload(input: {
 export async function submitOnboardingForm(formData: FormData) {
   try {
     const token = String(formData.get("token") ?? "");
+    // Public (token-only) endpoint: throttle per client IP + token.
+    const throttle = await rateLimitByIp("form-submit", {
+      limit: 15,
+      windowMs: 10 * 60_000,
+      extraKey: token.slice(0, 64),
+    });
+    if (!throttle.ok) {
+      return { ok: false as const, error: "Too many submissions. Please wait a few minutes and try again." };
+    }
     const found = await findFormByShareToken(token);
     if (!found) return { ok: false as const, error: "Form link not found." };
     if (found.form.status === "submitted") {

@@ -1,5 +1,7 @@
 "use server";
 
+import { rateLimitByIp } from "@/lib/rate-limit";
+
 import { headers } from "next/headers";
 import { z } from "zod";
 import { LEGAL_CONTACT_EMAIL, LEGAL_COMPANY } from "@/lib/legal";
@@ -106,6 +108,18 @@ export async function submitDemoBooking(
   _prev: DemoBookingState | null,
   formData: FormData,
 ): Promise<DemoBookingState> {
+  // Shared per-IP throttle (in addition to the per-email limiter below).
+  const ipLimit = await rateLimitByIp("demo-booking", {
+    limit: 10,
+    windowMs: 60 * 60_000,
+  });
+  if (!ipLimit.ok) {
+    return {
+      ok: false,
+      message: "Too many booking attempts from this connection. Please try again later.",
+    };
+  }
+
   const parsed = bookingSchema.safeParse({
     name: formData.get("name"),
     email: formData.get("email"),

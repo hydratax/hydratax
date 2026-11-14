@@ -1,3 +1,5 @@
+import { escapeHtml } from "@/lib/html-escape";
+
 function formatPeriod(start: string, end: string) {
   const fmt = (iso: string) =>
     new Date(`${iso}T12:00:00`).toLocaleDateString("en-GB", {
@@ -62,14 +64,14 @@ ${opts.appUrl}`;
 <html><body style="font-family:Georgia,serif;color:#0a0a0a;line-height:1.5;max-width:560px;margin:0 auto;padding:24px;">
   <p style="font-size:13px;letter-spacing:0.12em;text-transform:uppercase;color:#0f766e;font-weight:700;">HydraTax</p>
   <h1 style="font-size:26px;margin:8px 0 16px;color:${statusColour};">${statusHeading}</h1>
-  <p>CT600 for <strong>${opts.companyName}</strong> (${period}) has been <strong>${statusLabel}</strong>.</p>
+  <p>CT600 for <strong>${escapeHtml(opts.companyName)}</strong> (${period}) has been <strong>${statusLabel}</strong>.</p>
   <table style="font-size:14px;color:#3a4248;margin:16px 0;border-collapse:collapse;">
-    <tr><td style="padding:4px 12px 4px 0;">Company number</td><td><strong>${opts.companyNumber}</strong></td></tr>
-    <tr><td style="padding:4px 12px 4px 0;">UTR</td><td><strong>${opts.utr}</strong></td></tr>
-    ${opts.correlationId ? `<tr><td style="padding:4px 12px 4px 0;">Correlation ID</td><td><strong>${opts.correlationId}</strong></td></tr>` : ""}
+    <tr><td style="padding:4px 12px 4px 0;">Company number</td><td><strong>${escapeHtml(opts.companyNumber)}</strong></td></tr>
+    <tr><td style="padding:4px 12px 4px 0;">UTR</td><td><strong>${escapeHtml(opts.utr)}</strong></td></tr>
+    ${opts.correlationId ? `<tr><td style="padding:4px 12px 4px 0;">Correlation ID</td><td><strong>${escapeHtml(opts.correlationId)}</strong></td></tr>` : ""}
   </table>
   ${opts.demo ? `<p style="font-size:14px;color:#3a4248;">Demo mode — no return was sent to HMRC.</p>` : ""}
-  ${!opts.accepted && opts.errorMessage ? `<p style="font-size:14px;color:#b91c1c;">${opts.errorMessage}</p>` : ""}
+  ${!opts.accepted && opts.errorMessage ? `<p style="font-size:14px;color:#b91c1c;">${escapeHtml(opts.errorMessage)}</p>` : ""}
   <p style="margin-top:24px;"><a href="${deskUrl}" style="display:inline-block;background:#0f766e;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:600;">Open Corporation Tax desk</a></p>
 </body></html>`;
 

@@ -16,3 +16,14 @@ export function looksLikeCompanyNumber(raw: string): boolean {
 export function normalizeCompanyNumber(raw: string): string {
   return raw.trim().toUpperCase().replace(/\s+/g, "");
 }
+
+/**
+ * Strict, SSRF/path-safe company number for outbound API paths. Digit-only
+ * numbers are zero-padded to 8; everything must match /^[A-Z0-9]{8}$/.
+ * Returns null when invalid.
+ */
+export function parseCompanyNumberStrict(raw: string | null | undefined): string | null {
+  const n = normalizeCompanyNumber(raw ?? "");
+  const padded = /^\d{1,8}$/.test(n) ? n.padStart(8, "0") : n;
+  return /^[A-Z0-9]{8}$/.test(padded) ? padded : null;
+}

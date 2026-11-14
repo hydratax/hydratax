@@ -1,6 +1,7 @@
 "use client";
 
 import { PendingLink } from "@/components/pending-link";
+import { maskUtr } from "@/lib/mask-identifiers";
 
 export type PartnershipDeskItem = {
   id: string;
@@ -35,7 +36,7 @@ export function PartnershipDeskList({
                     </p>
                     <p className="display mt-1 text-lg text-ink">{p.name}</p>
                     <p className="mt-1 text-sm text-ink-soft">
-                      {p.utr ? `UTR ${p.utr}` : "Partnership return (SA800)"}
+                      {p.utr ? `UTR ${maskUtr(p.utr)}` : "Partnership return (SA800)"}
                     </p>
                   </div>
                   <span

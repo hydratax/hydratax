@@ -1,8 +1,12 @@
 "use server";
 
+import { escapeHtml } from "@/lib/html-escape";
+
 import { randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
 import { isDemoMode, isSupabaseConfigured } from "@/lib/env";
+import { inspectUpload, type FileKind } from "@/lib/file-types";
+import { rateLimitByIp } from "@/lib/rate-limit";
 import {
   DEFAULT_PORTAL_REQUESTS,
   portalApprovalMissing,
@@ -279,7 +283,20 @@ export async function setClientWorkStage(input: {
   return { ok: true as const, stage, label };
 }
 
+/** Public portal actions: throttle per client IP + token prefix. */
+async function portalThrottled(scope: string, token: string) {
+  const r = await rateLimitByIp(scope, {
+    limit: 60,
+    windowMs: 10 * 60_000,
+    extraKey: String(token ?? "").slice(0, 64),
+  });
+  return !r.ok;
+}
+
 export async function recordPortalOpened(token: string) {
+  if (await portalThrottled("portal-open", token)) {
+    return { ok: false as const };
+  }
   const client = await findClientByPortalToken(token);
   if (!client?.deskProfile?.portal) return { ok: false as const };
   const { appendAuditEvent } = await import("@/server/audit/log");
@@ -352,6 +369,9 @@ export async function updatePortalFromClient(input: {
   approveCt600?: boolean;
   approveVat?: boolean;
 }) {
+  if (await portalThrottled("portal-update", input.token)) {
+    return { ok: false as const, error: "Too many requests. Please wait and retry." };
+  }
   const client = await findClientByPortalToken(input.token);
   if (!client?.deskProfile?.portal) return { ok: false as const, error: "Link not found" };
   const portal = { ...client.deskProfile.portal };
@@ -414,14 +434,14 @@ export async function updatePortalFromClient(input: {
   return { ok: true as const };
 }
 
-const PORTAL_FILE_TYPES = new Set([
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "text/csv",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-excel",
+const PORTAL_FILE_KINDS = new Set<FileKind>([
+  "pdf",
+  "jpeg",
+  "png",
+  "webp",
+  "csv",
+  "xlsx",
+  "xls",
 ]);
 
 function categoryForPortalRequest(requestId: string): string {
@@ -441,7 +461,30 @@ export async function uploadPortalPaper(formData: FormData) {
   if (file.size > 15 * 1024 * 1024) {
     return { ok: false as const, error: "File exceeds 15 MB." };
   }
-  if (file.type && !PORTAL_FILE_TYPES.has(file.type)) {
+  // Public (token-only) endpoint: throttle per token + client IP.
+  const limited = await rateLimitByIp("portal-upload", {
+    limit: 20,
+    windowMs: 10 * 60_000,
+    extraKey: token.slice(0, 64),
+  });
+  if (!limited.ok) {
+    return {
+      ok: false as const,
+      error: "Too many uploads. Please wait a few minutes and try again.",
+    };
+  }
+
+  // Never trust the client-declared MIME: allow-list + sniff magic bytes.
+  const fileBytes = new Uint8Array(await file.arrayBuffer());
+  const inspected = inspectUpload({
+    filename: file.name,
+    declaredType: file.type,
+    bytes: fileBytes,
+  });
+  if (
+    !inspected.allowed ||
+    !PORTAL_FILE_KINDS.has(inspected.kind)
+  ) {
     return {
       ok: false as const,
       error: "Use PDF, JPG, PNG, WebP, CSV, or Excel.",
@@ -461,32 +504,23 @@ export async function uploadPortalPaper(formData: FormData) {
   const docCategory = requestId
     ? categoryForPortalRequest(requestId)
     : "general";
-  const filename = file.name.replace(/[^\w.\- ()]/g, "_").slice(0, 180);
-  const contentType = file.type || "application/octet-stream";
+  const filename = inspected.filename;
+  const contentType = inspected.contentType;
   const objectKey = `practices/${practiceId}/clients/${client.id}/portal/${Date.now()}-${filename}`;
 
-  const { isR2Configured, isBlobConfigured, isMemoryStore } = await import(
-    "@/lib/env"
-  );
+  const { isR2Configured, isMemoryStore } = await import("@/lib/env");
   let blobUrl: string;
   if (isR2Configured()) {
     const { uploadToR2 } = await import("@/server/storage/r2");
     const uploaded = await uploadToR2({
       key: objectKey,
-      body: Buffer.from(await file.arrayBuffer()),
+      body: Buffer.from(fileBytes),
       contentType,
     });
     blobUrl = uploaded.url;
-  } else if (isBlobConfigured()) {
-    const { put } = await import("@vercel/blob");
-    const blob = await put(objectKey, file, {
-      access: "public",
-      contentType,
-      addRandomSuffix: true,
-    });
-    blobUrl = blob.url;
   } else if (isMemoryStore()) {
-    blobUrl = `data:${contentType};base64,${Buffer.from(await file.arrayBuffer()).toString("base64")}`;
+    // No public Vercel Blob fallback: it made client papers world-readable.
+    blobUrl = `data:${contentType};base64,${Buffer.from(fileBytes).toString("base64")}`;
   } else {
     return {
       ok: false as const,
@@ -816,7 +850,7 @@ export async function createPortalSignRequest(input: {
         to,
         subject: `Please sign: ${req.title}`,
         text: `Hi,\n\nYour accountant has asked you to sign “${req.title}” on HydraTax.\n\nOpen your client link to review and sign:\n${link}\n\n— HydraTax\n`,
-        html: `<p>Your accountant has asked you to sign <strong>${req.title}</strong>.</p><p><a href="${link}">Open your client link to sign</a></p>`,
+        html: `<p>Your accountant has asked you to sign <strong>${escapeHtml(req.title)}</strong>.</p><p><a href="${escapeHtml(link)}">Open your client link to sign</a></p>`,
       });
     } catch {
       // non-fatal
@@ -835,6 +869,9 @@ export async function completePortalSignRequest(input: {
   signatureDataUrl?: string;
   decline?: boolean;
 }) {
+  if (await portalThrottled("portal-sign", input.token)) {
+    return { ok: false as const, error: "Too many requests. Please wait and retry." };
+  }
   const client = await findClientByPortalToken(input.token);
   if (!client?.deskProfile?.portal) {
     return { ok: false as const, error: "Link not found" };

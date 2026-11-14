@@ -1,3 +1,4 @@
+import { safeErr } from "@/lib/redact";
 import {
   addIsoCalendarYears,
   enrichLimitedCompanyFromCh,
@@ -186,7 +187,7 @@ export async function syncPracticeClientsFromCompaniesHouse(opts: {
     updated = result.length;
     return { updated, companyNumber };
   } catch (err) {
-    console.warn("[ch.sync] practice client refresh failed", err);
+    console.warn("[ch.sync] practice client refresh failed", safeErr(err));
     return { updated: 0, companyNumber };
   }
 }

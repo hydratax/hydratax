@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { parseCompanyNumberStrict } from "@/lib/company-number";
+import { limitCompaniesHouseRoute } from "@/server/companies-house/route-guard";
 import {
   displayProposedName,
   evaluateNameAvailability,
@@ -11,12 +13,18 @@ import {
 } from "@/server/companies-house/api";
 
 export async function GET(req: Request) {
+  const limited = limitCompaniesHouseRoute(req, "name", 60);
+  if (limited) return limited;
+
   const { searchParams } = new URL(req.url);
   const rawName = searchParams.get("name")?.trim() ?? "";
   const excludeCompanyNumber =
-    searchParams.get("exclude_company_number")?.trim() ?? "";
+    parseCompanyNumberStrict(searchParams.get("exclude_company_number")) ?? "";
   const chEnv = getCompaniesHouseEnvLabel();
 
+  if (rawName.length > 160) {
+    return NextResponse.json({ error: "Company name is too long." }, { status: 400 });
+  }
   if (rawName.length < 3) {
     return NextResponse.json(
       { error: "Enter at least 3 characters to check a name." },
@@ -51,7 +59,13 @@ export async function GET(req: Request) {
       ...result,
     });
   } catch (err) {
-    const raw = err instanceof Error ? err.message : "Name check failed";
-    return NextResponse.json({ error: raw, env: chEnv }, { status: 502 });
+    console.error(
+      "[ch.name-availability] check failed:",
+      (err instanceof Error ? err.message : "unknown").slice(0, 200),
+    );
+    return NextResponse.json(
+      { error: "Name check failed. Please try again.", env: chEnv },
+      { status: 502 },
+    );
   }
 }

@@ -87,7 +87,7 @@ export function isMemoryStore(): boolean {
   return false;
 }
 
-function isProductionRuntime(): boolean {
+export function isProductionRuntime(): boolean {
   return (
     process.env.NODE_ENV === "production" ||
     process.env.NETLIFY === "true" ||

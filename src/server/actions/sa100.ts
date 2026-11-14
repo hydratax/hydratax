@@ -1,4 +1,5 @@
 "use server";
+import { safeErr } from "@/lib/redact";
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -290,7 +291,7 @@ export async function saveSa100Draft(input: {
       row,
     });
   } catch (err) {
-    console.warn("[sa100] draft PDF persist failed", err);
+    console.warn("[sa100] draft PDF persist failed", safeErr(err));
   }
 
   revalidatePath(`/clients/${input.clientId}/self-assessment`);
@@ -400,7 +401,7 @@ export async function submitSa100Return(
   const calculation = calculateSa302(draft);
   const attachedSupplements = supplementCodesForDraft(draft);
   const fraudHeaders = buildFraudPreventionHeaders(data.fraudMetadata);
-  const accessToken = await getValidAccessToken(data.clientId);
+  const accessToken = await getValidAccessToken(data.clientId, session.practiceId);
   const cfg = getHmrcConfig();
   const now = new Date().toISOString();
   const demo = isDemoMode() || !accessToken || !cfg.clientId;

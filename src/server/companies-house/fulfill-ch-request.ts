@@ -1,3 +1,5 @@
+import { safeErr } from "@/lib/redact";
+import { escapeHtml } from "@/lib/html-escape";
 import { isMemoryStore, isSupabaseConfigured } from "@/lib/env";
 import { publicCheckoutError } from "@/lib/user-facing-errors";
 import { getChService } from "@/lib/ch-services";
@@ -61,7 +63,7 @@ async function loadChRequest(requestId: string): Promise<LoadedRequest | null> {
         };
       }
     } catch (err) {
-      console.error("[ch.fulfill] supabase load", err);
+      console.error("[ch.fulfill] supabase load", safeErr(err));
     }
     return null;
   }
@@ -133,7 +135,7 @@ async function persistRequestPatch(
         .eq("id", requestId);
       if (error) console.error("[ch.fulfill] supabase update", error.message);
     } catch (err) {
-      console.error("[ch.fulfill] supabase update", err);
+      console.error("[ch.fulfill] supabase update", safeErr(err));
     }
     return;
   }
@@ -156,7 +158,7 @@ async function persistRequestPatch(
       })
       .where(eq(companiesHouseRequests.id, requestId));
   } catch (err) {
-    console.error("[ch.fulfill] drizzle update", err);
+    console.error("[ch.fulfill] drizzle update", safeErr(err));
   }
 }
 
@@ -186,10 +188,10 @@ ${opts.appUrl}`;
   const html = `<!DOCTYPE html>
 <html><body style="font-family:Georgia,serif;color:#0a0a0a;line-height:1.5;max-width:560px;margin:0 auto;padding:24px;">
   <p style="font-size:13px;letter-spacing:0.12em;text-transform:uppercase;color:#0f766e;font-weight:700;">HydraTax</p>
-  <h1 style="font-size:26px;margin:8px 0 16px;">${opts.serviceTitle} submitted</h1>
-  <p>Your filing for <strong>${opts.companyName}</strong> (<strong>${opts.companyNumber}</strong>) has been sent to Companies House.</p>
-  <p>Please allow a few minutes for the register to update. You can check at the <a href="https://find-and-update.company-information.service.gov.uk/company/${opts.companyNumber}">Companies House record</a>.</p>
-  ${opts.submissionNumber ? `<p style="font-size:14px;color:#3a4248;">Reference: <strong>${opts.submissionNumber}</strong></p>` : ""}
+  <h1 style="font-size:26px;margin:8px 0 16px;">${escapeHtml(opts.serviceTitle)} submitted</h1>
+  <p>Your filing for <strong>${escapeHtml(opts.companyName)}</strong> (<strong>${escapeHtml(opts.companyNumber)}</strong>) has been sent to Companies House.</p>
+  <p>Please allow a few minutes for the register to update. You can check at the <a href="https://find-and-update.company-information.service.gov.uk/company/${escapeHtml(opts.companyNumber)}">Companies House record</a>.</p>
+  ${opts.submissionNumber ? `<p style="font-size:14px;color:#3a4248;">Reference: <strong>${escapeHtml(opts.submissionNumber)}</strong></p>` : ""}
   <p style="font-size:14px;color:#3a4248;">If you paid by card, Stripe will email a separate payment receipt.</p>
 </body></html>`;
 
@@ -216,7 +218,7 @@ ${opts.appUrl}`;
 <html><body style="font-family:Georgia,serif;color:#0a0a0a;line-height:1.5;max-width:560px;margin:0 auto;padding:24px;">
   <p style="font-size:13px;letter-spacing:0.12em;text-transform:uppercase;color:#0f766e;font-weight:700;">HydraTax</p>
   <h1 style="font-size:26px;margin:8px 0 16px;">Payment received</h1>
-  <p>We received your payment for <strong>${opts.serviceTitle}</strong> for <strong>${opts.companyName}</strong> (<strong>${opts.companyNumber}</strong>).</p>
+  <p>We received your payment for <strong>${escapeHtml(opts.serviceTitle)}</strong> for <strong>${escapeHtml(opts.companyName)}</strong> (<strong>${escapeHtml(opts.companyNumber)}</strong>).</p>
   <p>We are submitting this to Companies House now. You will receive another email once the filing is accepted.</p>
   <p style="font-size:14px;color:#3a4248;">If you paid by card, Stripe will email a separate payment receipt.</p>
 </body></html>`;
@@ -378,7 +380,7 @@ export async function fulfillPaidChRequest(opts: {
         html: content.html,
       });
     } catch (err) {
-      console.error("[ch.fulfill] email failed", err);
+      console.error("[ch.fulfill] email failed", safeErr(err));
       emailDelivery = "skipped";
     }
   }

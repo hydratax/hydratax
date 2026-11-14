@@ -251,7 +251,7 @@ export async function submitPreparedVatReturn(
     }));
 
   const boxes = draft.boxes as ReturnType<typeof draftVatBoxesFromLedger>;
-  const accessToken = await getValidAccessToken(data.clientId);
+  const accessToken = await getValidAccessToken(data.clientId, session.practiceId);
   const cfg = getHmrcConfig();
 
   if (!accessToken || !cfg.clientId) {

@@ -1264,8 +1264,8 @@ export async function sendPayrollPack(input: z.infer<typeof sendPackSchema>) {
       }),
     });
     if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Email provider error: ${err.slice(0, 200)}`);
+      console.error("[payroll.sendPack] email provider error, status", res.status);
+      throw new Error(`Email provider error (${res.status}). Please try again.`);
     }
     delivery = "resend";
   }

@@ -1,3 +1,4 @@
+import { safeJsonLd } from "@/lib/json-ld";
 import Link from "next/link";
 import { LandingHeader } from "@/components/landing/landing-header";
 import { DynamicHero } from "@/components/landing/dynamic-hero";
@@ -61,25 +62,25 @@ export default function HomePage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(organizationJsonLd()),
+          __html: safeJsonLd(organizationJsonLd()),
         }}
       />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(webSiteJsonLd()),
+          __html: safeJsonLd(webSiteJsonLd()),
         }}
       />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(serviceJsonLd()),
+          __html: safeJsonLd(serviceJsonLd()),
         }}
       />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(accountantReviewsJsonLd(ACCOUNTANT_REVIEWS)),
+          __html: safeJsonLd(accountantReviewsJsonLd(ACCOUNTANT_REVIEWS)),
         }}
       />
 

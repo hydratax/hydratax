@@ -17,6 +17,21 @@
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
+# Security headers. The authoritative set (including the CSP) lives in
+# next.config.ts `headers()` and is applied by the Next.js runtime to every
+# page / API response. Netlify [[headers]] only apply to files served directly
+# from the CDN (static assets under /_next/static, /public), so this block
+# mirrors the non-CSP headers there as defence in depth.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()"
+    Cross-Origin-Opener-Policy = "same-origin"
+
 # Keep auth cookies + OAuth PKCE on one host (apex).
 [[redirects]]
   from = "https://www.hydratax.uk/*"
