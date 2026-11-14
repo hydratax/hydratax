@@ -179,11 +179,14 @@ export function CreateAccountForm() {
                 );
                 return;
               }
-              router.push(
-                result.redirectTo.startsWith("/sign-in")
-                  ? `${result.redirectTo}&next=${encodeURIComponent(returnPath)}`
-                  : result.redirectTo || returnPath,
-              );
+              // Prefer the pricing/plan resume path so checkout continues after
+              // signup — never drop the chosen plan by hard-routing to /dashboard.
+              const dest = result.redirectTo.startsWith("/sign-in")
+                ? `${result.redirectTo}${result.redirectTo.includes("?") ? "&" : "?"}next=${encodeURIComponent(returnPath)}`
+                : returnPath !== "/dashboard"
+                  ? returnPath
+                  : result.redirectTo || returnPath;
+              router.push(dest);
               router.refresh();
             } catch (err) {
               setError(

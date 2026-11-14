@@ -27,6 +27,7 @@ import { FaqSection } from "@/components/faq-section";
 import { faqsForProduct } from "@/lib/product-faqs";
 import { PRACTICE_TRIAL } from "@/lib/trial";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { accountFirstCheckoutUrl } from "@/lib/checkout-auth";
 
 type Section = (typeof PRICING_SECTIONS)[number];
 type Plan = Section["plans"][number];
@@ -53,17 +54,13 @@ export function PricingExplorer({
     [activeId],
   );
 
-  function accountFirstUrl(planKey: string) {
-    const plan = encodeURIComponent(planKey);
-    return `/create-account?next=${encodeURIComponent(`/pricing?plan=${plan}`)}&plan=${plan}`;
-  }
-
   function checkout(key: string) {
     setError(null);
     setPendingKey(key);
     // Desk/module plans: create the HydraTax account before Stripe — never skip this.
+    // Prefer a full navigation (works even if fetch is patched / JS partially fails).
     if (!signedIn) {
-      window.location.href = accountFirstUrl(key);
+      window.location.assign(accountFirstCheckoutUrl(key));
       return;
     }
     startTransition(async () => {
@@ -80,7 +77,7 @@ export function PricingExplorer({
           planKey?: string;
         };
         if (res.status === 401 || data.needsAuth) {
-          window.location.href = accountFirstUrl(data.planKey || key);
+          window.location.assign(accountFirstCheckoutUrl(data.planKey || key));
           return;
         }
         if (!res.ok || !data.url) {
@@ -88,7 +85,24 @@ export function PricingExplorer({
           setPendingKey(null);
           return;
         }
-        window.location.href = data.url;
+        // Only Stripe Checkout hosts are accepted — never trust an open redirect.
+        let checkoutHost = "";
+        try {
+          checkoutHost = new URL(data.url).hostname;
+        } catch {
+          setError("Checkout failed");
+          setPendingKey(null);
+          return;
+        }
+        if (
+          checkoutHost !== "checkout.stripe.com" &&
+          !checkoutHost.endsWith(".stripe.com")
+        ) {
+          setError("Checkout failed");
+          setPendingKey(null);
+          return;
+        }
+        window.location.assign(data.url);
       } catch {
         setError("Network error starting checkout");
         setPendingKey(null);
@@ -161,6 +175,7 @@ export function PricingExplorer({
               ) : (
                 <PlanCards
                   section={section}
+                  signedIn={signedIn}
                   onCheckout={checkout}
                   pendingKey={pendingKey}
                   busy={isPending}
@@ -224,11 +239,13 @@ function BillingPeriodToggle({
 
 function PlanCards({
   section,
+  signedIn,
   onCheckout,
   pendingKey,
   busy,
 }: {
   section: Section;
+  signedIn: boolean;
   onCheckout: (key: string) => void;
   pendingKey: string | null;
   busy: boolean;
@@ -251,6 +268,7 @@ function PlanCards({
             <CustomPlanCard
               key={plan.name}
               plan={plan}
+              signedIn={signedIn}
               onCheckout={onCheckout}
               pendingKey={pendingKey}
               busy={busy}
@@ -264,6 +282,7 @@ function PlanCards({
             section={section}
             plan={plan}
             perCardBilling={perCardBilling}
+            signedIn={signedIn}
             onCheckout={onCheckout}
             pendingKey={pendingKey}
             busy={busy}
@@ -278,6 +297,7 @@ function FixedPlanCard({
   section,
   plan,
   perCardBilling,
+  signedIn,
   onCheckout,
   pendingKey,
   busy,
@@ -285,6 +305,7 @@ function FixedPlanCard({
   section: Section;
   plan: Plan;
   perCardBilling: boolean;
+  signedIn: boolean;
   onCheckout: (key: string) => void;
   pendingKey: string | null;
   busy: boolean;
@@ -295,6 +316,7 @@ function FixedPlanCard({
   const checkoutKey = yearly ? withYearlyPlanKey(monthlyKey) : monthlyKey;
   const loading = busy && pendingKey === checkoutKey;
   const isLink = "href" in plan && Boolean(plan.href);
+  const accountHref = accountFirstCheckoutUrl(checkoutKey);
   const yearlyTotal = yearlyAmountPoundsFromMonthly(plan.price);
   const yearlySave = yearlySavingsPoundsFromMonthly(plan.price);
   const isSmallFirm =
@@ -379,6 +401,13 @@ function FixedPlanCard({
           >
             {plan.cta}
           </Link>
+        ) : !signedIn ? (
+          <Link
+            href={accountHref}
+            className="btn btn-primary w-full px-3 py-2.5 text-sm leading-snug"
+          >
+            {yearly ? `${plan.cta} · yearly` : plan.cta}
+          </Link>
         ) : (
           <button
             type="button"
@@ -400,11 +429,13 @@ function FixedPlanCard({
 
 function CustomPlanCard({
   plan,
+  signedIn,
   onCheckout,
   pendingKey,
   busy,
 }: {
   plan: Plan;
+  signedIn: boolean;
   onCheckout: (key: string) => void;
   pendingKey: string | null;
   busy: boolean;
@@ -585,20 +616,37 @@ function CustomPlanCard({
       </fieldset>
 
       <div className="mt-auto space-y-2 pt-6">
-        <button
-          type="button"
-          disabled={busy || !canCheckout}
-          onClick={() => onCheckout(key)}
-          className="btn btn-primary w-full px-3 py-2.5 text-sm leading-snug disabled:opacity-60"
-        >
-          {loading
-            ? "Redirecting…"
-            : !canCheckout
-              ? "Select a service"
+        {!canCheckout ? (
+          <button
+            type="button"
+            disabled
+            className="btn btn-primary w-full px-3 py-2.5 text-sm leading-snug disabled:opacity-60"
+          >
+            Select a service
+          </button>
+        ) : !signedIn ? (
+          <Link
+            href={accountFirstCheckoutUrl(key)}
+            className="btn btn-primary w-full px-3 py-2.5 text-sm leading-snug"
+          >
+            {billing === "year"
+              ? `Start free trial · ${formatGBP(total)}/yr after`
+              : `Start free trial · ${formatGBP(total)}/mo after`}
+          </Link>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onCheckout(key)}
+            className="btn btn-primary w-full px-3 py-2.5 text-sm leading-snug disabled:opacity-60"
+          >
+            {loading
+              ? "Redirecting…"
               : billing === "year"
                 ? `Start free trial · ${formatGBP(total)}/yr after`
                 : `Start free trial · ${formatGBP(total)}/mo after`}
-        </button>
+          </button>
+        )}
       </div>
     </article>
   );

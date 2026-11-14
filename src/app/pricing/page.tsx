@@ -5,6 +5,9 @@ import { SiteHeader } from "@/components/site-header";
 import { isStripeConfigured } from "@/lib/env";
 import { getOptionalSession } from "@/server/auth/session";
 
+/** Always resolve session per request — never bake signedIn into a shared cache. */
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Pricing — CT600, VAT, Self Assessment, PAYE & Companies House",
   description:

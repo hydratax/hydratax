@@ -6,6 +6,7 @@ import {
   rateLimit,
   rateLimitHeaders,
 } from "@/lib/rate-limit";
+import { resolveDeskCheckoutAuth } from "@/lib/checkout-auth";
 import { createStripeCheckoutSession } from "@/server/stripe/checkout-session";
 
 const NO_STORE = { "Cache-Control": "no-store" } as const;
@@ -63,9 +64,6 @@ export async function POST(req: Request) {
     );
   }
 
-  let practiceId = "";
-  let userId = "";
-  let sessionEmail = parsed.data.email;
   // Session is optional here (one-off CH filings), but when one exists it must
   // satisfy desk expiry + MFA step-up like every other protected endpoint.
   const { getApiSession, apiSessionErrorResponse } = await import(
@@ -80,44 +78,49 @@ export async function POST(req: Request) {
   // for desk plans (account creation must come first).
   const session =
     auth.ok && auth.session && !auth.session.local ? auth.session : null;
-  if (session) {
-    practiceId = session.practiceId;
-    userId = session.userId;
-    sessionEmail = sessionEmail || session.email || undefined;
-  }
 
-  // chRequestId must reference a real filing request; when signed in it must
-  // belong to the caller's practice (prevents attaching payment to, or probing,
-  // other practices' requests).
+  let chOwnerPracticeId: string | null | undefined;
   if (parsed.data.chRequestId) {
     const { findChRequestPracticeId } = await import(
       "@/server/stripe/ch-request-owner"
     );
-    const ownerPracticeId = await findChRequestPracticeId(
-      parsed.data.chRequestId,
-    );
-    if (!ownerPracticeId) {
-      return NextResponse.json(
-        { error: "Filing request not found." },
-        { status: 404, headers: NO_STORE },
-      );
-    }
-    if (session && ownerPracticeId !== session.practiceId) {
-      return NextResponse.json(
-        { error: "Filing request not found." },
-        { status: 404, headers: NO_STORE },
-      );
-    }
-    // Anonymous one-off payment: bind to the request's own practice.
-    if (!session) practiceId = ownerPracticeId;
+    chOwnerPracticeId = await findChRequestPracticeId(parsed.data.chRequestId);
   }
 
-  // Desk / module subscriptions always bind to a practice — create account first.
-  // Companies House one-offs already carry chRequestId from an authenticated wizard.
-  const isChFiling =
-    parsed.data.planKey.startsWith("companies-house:") &&
-    Boolean(parsed.data.chRequestId);
-  if (!session && !isChFiling) {
+  const resolved = resolveDeskCheckoutAuth({
+    session: session
+      ? {
+          local: session.local,
+          practiceId: session.practiceId,
+          userId: session.userId,
+          email: session.email,
+        }
+      : null,
+    planKey: parsed.data.planKey,
+    chRequestId: parsed.data.chRequestId,
+    chOwnerPracticeId,
+  });
+
+  if (!resolved.ok) {
+    if ("needsAuth" in resolved) {
+      return NextResponse.json(
+        {
+          error:
+            "Create your HydraTax account first so we can unlock this plan after payment.",
+          needsAuth: true,
+          planKey: resolved.planKey,
+        },
+        { status: 401, headers: NO_STORE },
+      );
+    }
+    return NextResponse.json(
+      { error: resolved.error },
+      { status: resolved.status, headers: NO_STORE },
+    );
+  }
+
+  // Hard assert: never create Stripe Checkout with an empty practice binding.
+  if (!resolved.practiceId.trim()) {
     return NextResponse.json(
       {
         error:
@@ -125,16 +128,16 @@ export async function POST(req: Request) {
         needsAuth: true,
         planKey: parsed.data.planKey,
       },
-      { status: 401 },
+      { status: 401, headers: NO_STORE },
     );
   }
 
   try {
     const result = await createStripeCheckoutSession({
       planKey: parsed.data.planKey,
-      email: sessionEmail,
-      practiceId,
-      userId,
+      email: parsed.data.email || resolved.email || undefined,
+      practiceId: resolved.practiceId,
+      userId: resolved.userId,
       chRequestId: parsed.data.chRequestId,
     });
     return NextResponse.json(result, { headers: NO_STORE });
