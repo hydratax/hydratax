@@ -15,7 +15,6 @@ import {
   buildFraudPreventionHeaders,
   clientFraudMetadataSchema,
 } from "@/server/hmrc/fraud-headers";
-import { getValidAccessToken } from "@/server/hmrc/tokens";
 import { getHmrcConfig } from "@/server/hmrc/config";
 
 export type Sa100Stored = {
@@ -52,21 +51,205 @@ function sameTaxpayer(
   return a === b;
 }
 
+function rowKey(r: Pick<Sa100Stored, "taxYear" | "taxpayerId">) {
+  return `${r.taxYear}:${r.taxpayerId ?? ""}`;
+}
+
+/** desk_profile.sa100BlankStarts key — blocks income re-seed after delete. */
+function sa100BlankStartKey(
+  taxpayerId: string | null | undefined,
+  taxYear: string,
+): string {
+  return `${taxpayerId ?? ""}:${taxYear}`;
+}
+
+export async function isSa100BlankStart(
+  clientId: string,
+  taxYear: string,
+  taxpayerId?: string | null,
+): Promise<boolean> {
+  const client = await getClient(clientId);
+  const keys = client.deskProfile?.sa100BlankStarts ?? [];
+  return keys.includes(sa100BlankStartKey(taxpayerId, taxYear));
+}
+
+function hydrateStored(raw: unknown): Sa100Stored | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Sa100Stored;
+  if (!r.id || !r.clientId || !r.taxYear || !r.draft) return null;
+  try {
+    return {
+      ...r,
+      draft: sa100DraftSchema.parse(r.draft),
+      calculation:
+        r.calculation ??
+        calculateSa302(sa100DraftSchema.parse(r.draft)),
+      attachedSupplements:
+        r.attachedSupplements ??
+        supplementCodesForDraft(sa100DraftSchema.parse(r.draft)),
+      status: r.status ?? "draft",
+      createdAt: r.createdAt || new Date().toISOString(),
+      updatedAt: r.updatedAt || new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Load durable SA100 rows from clients.desk_profile (survives serverless). */
+async function loadDurableReturns(clientId: string): Promise<Sa100Stored[]> {
+  const client = await getClient(clientId);
+  const raw = client.deskProfile?.sa100Returns ?? [];
+  return raw
+    .map((r) => hydrateStored(r))
+    .filter((r): r is Sa100Stored => Boolean(r));
+}
+
+async function writeDurableReturns(
+  clientId: string,
+  rows: Sa100Stored[],
+  extraProfile?: Record<string, unknown>,
+): Promise<void> {
+  const session = await requireSession();
+  const client = await getClient(clientId);
+  if (client.practiceId !== session.practiceId) {
+    throw new Error("Client not found");
+  }
+  const profile = {
+    ...(client.deskProfile ?? {}),
+    ...(extraProfile ?? {}),
+    sa100Returns: rows.map((r) => ({
+      id: r.id,
+      clientId: r.clientId,
+      taxpayerId: r.taxpayerId ?? null,
+      taxYear: r.taxYear,
+      status: r.status,
+      draft: r.draft,
+      calculation: r.calculation,
+      attachedSupplements: r.attachedSupplements,
+      hmrcCorrelationId: r.hmrcCorrelationId,
+      submittedAt: r.submittedAt,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    })),
+  };
+
+  if (isDemoMode()) {
+    const row = demoStore.clients.find((c) => c.id === clientId);
+    if (row) {
+      row.deskProfile = profile;
+      row.updatedAt = new Date().toISOString();
+    }
+    return;
+  }
+
+  const { isSupabaseConfigured } = await import("@/lib/env");
+  if (isSupabaseConfigured()) {
+    const { createClient } = await import("@/lib/supabase/server");
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("clients")
+      .update({
+        desk_profile: profile,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", clientId)
+      .eq("practice_id", session.practiceId);
+    if (error) throw new Error(error.message);
+    return;
+  }
+
+  const { getDb, hasDatabase } = await import("@/server/db");
+  if (!hasDatabase()) return;
+  const { eq, and } = await import("drizzle-orm");
+  const { clients } = await import("@/server/db/schema");
+  await getDb()
+    .update(clients)
+    .set({ deskProfile: profile, updatedAt: new Date() })
+    .where(
+      and(eq(clients.id, clientId), eq(clients.practiceId, session.practiceId)),
+    );
+}
+
+async function upsertDurableReturn(row: Sa100Stored): Promise<void> {
+  const all = await loadDurableReturns(row.clientId);
+  const idx = all.findIndex(
+    (r) =>
+      r.taxYear === row.taxYear &&
+      sameTaxpayer(r, row.taxpayerId) &&
+      (r.status === "draft" || r.id === row.id),
+  );
+  // Replace matching draft for same year/person; keep other years / filed rows.
+  const next = all.filter(
+    (r) =>
+      !(
+        r.taxYear === row.taxYear &&
+        sameTaxpayer(r, row.taxpayerId) &&
+        r.status === "draft" &&
+        row.status === "draft"
+      ),
+  );
+  if (idx >= 0 && all[idx] && all[idx]!.status !== "draft") {
+    next.push(row);
+  } else {
+    next.push(row);
+  }
+  // De-dupe by id
+  const byId = new Map<string, Sa100Stored>();
+  for (const r of next) byId.set(r.id, r);
+  // Also ensure one draft per year+taxpayer
+  const drafts = new Map<string, Sa100Stored>();
+  const filed: Sa100Stored[] = [];
+  for (const r of byId.values()) {
+    if (r.status === "draft") drafts.set(rowKey(r), r);
+    else filed.push(r);
+  }
+  const blankKey = sa100BlankStartKey(row.taxpayerId, row.taxYear);
+  const client = await getClient(row.clientId);
+  const blankPrev = client.deskProfile?.sa100BlankStarts ?? [];
+  await writeDurableReturns(
+    row.clientId,
+    [...drafts.values(), ...filed],
+    {
+      sa100BlankStarts: blankPrev.filter((k) => k !== blankKey),
+    },
+  );
+}
+
 export async function getSa100Draft(
   clientId: string,
   taxYear = "2025-26",
   taxpayerId?: string | null,
 ) {
   await getClient(clientId);
-  return (
-    returns().find(
+  const durable = await loadDurableReturns(clientId);
+  const hit =
+    durable.find(
       (r) =>
-        r.clientId === clientId &&
         r.taxYear === taxYear &&
         r.status === "draft" &&
         sameTaxpayer(r, taxpayerId),
-    ) ?? null
-  );
+    ) ?? null;
+
+  const list = returns();
+  // Durable desk_profile is source of truth — drop stale in-memory drafts
+  // that survive after delete on another serverless instance.
+  for (let i = list.length - 1; i >= 0; i--) {
+    const r = list[i]!;
+    if (
+      r.clientId === clientId &&
+      r.taxYear === taxYear &&
+      r.status === "draft" &&
+      sameTaxpayer(r, taxpayerId)
+    ) {
+      if (!hit || r.id !== hit.id) list.splice(i, 1);
+    }
+  }
+  if (hit) {
+    if (!list.some((r) => r.id === hit.id)) list.push(hit);
+    return hit;
+  }
+  return null;
 }
 
 export async function listSa100Returns(
@@ -74,7 +257,26 @@ export async function listSa100Returns(
   taxpayerId?: string | null,
 ) {
   await getClient(clientId);
-  const fromMemory = returns().filter(
+  const fromDurable = (await loadDurableReturns(clientId)).filter(
+    (r) => taxpayerId === undefined || sameTaxpayer(r, taxpayerId),
+  );
+  const durableIds = new Set(fromDurable.map((r) => r.id));
+  const durableDraftKeys = new Set(
+    fromDurable.filter((r) => r.status === "draft").map((r) => rowKey(r)),
+  );
+
+  // Drop in-memory drafts that were deleted from desk_profile.
+  const mem = returns();
+  for (let i = mem.length - 1; i >= 0; i--) {
+    const r = mem[i]!;
+    if (r.clientId !== clientId) continue;
+    if (taxpayerId !== undefined && !sameTaxpayer(r, taxpayerId)) continue;
+    if (r.status === "draft" && !durableDraftKeys.has(rowKey(r))) {
+      mem.splice(i, 1);
+    }
+  }
+
+  const fromMemory = mem.filter(
     (r) =>
       r.clientId === clientId &&
       (taxpayerId === undefined || sameTaxpayer(r, taxpayerId)),
@@ -86,10 +288,13 @@ export async function listSa100Returns(
   );
 
   const byYear = new Map<string, Sa100Stored>();
-  for (const r of fromDocs) byYear.set(`${r.taxYear}:${r.taxpayerId ?? ""}`, r);
+  for (const r of fromDocs) byYear.set(rowKey(r), r);
+  for (const r of fromDurable) byYear.set(rowKey(r), r);
   for (const r of fromMemory) {
-    // In-memory drafts / live HMRC submits win over document placeholders.
-    byYear.set(`${r.taxYear}:${r.taxpayerId ?? ""}`, r);
+    // Memory may hold a just-saved draft not yet re-read from durable.
+    if (r.status === "draft" || durableIds.has(r.id)) {
+      byYear.set(rowKey(r), r);
+    }
   }
   return Array.from(byYear.values()).sort((a, b) =>
     b.createdAt.localeCompare(a.createdAt),
@@ -147,9 +352,14 @@ export async function listSaFiledDocuments(
 ) {
   await getClient(clientId);
   const { listClientDocuments } = await import("@/server/actions/documents");
-  const { parseSaFiledCategory, isLegacySaUploadCategory } = await import(
-    "@/lib/sa-filed-docs"
-  );
+  const {
+    parseSaFiledCategory,
+    isUnassignedSaUpload,
+    isLegacySaUploadCategory,
+    isSystemGeneratedSaFilename,
+    isSaDraftsStoragePath,
+    SA_DISCARDED_CATEGORY,
+  } = await import("@/lib/sa-filed-docs");
   const docs = await listClientDocuments(clientId);
   const filed: Array<{
     id: string;
@@ -159,6 +369,8 @@ export async function listSaFiledDocuments(
     kind: "return" | "sa302" | "unassigned";
     createdAt: string;
   }> = [];
+
+  const discardIds: string[] = [];
 
   for (const d of docs) {
     const createdAt =
@@ -182,7 +394,17 @@ export async function listSaFiledDocuments(
       });
       continue;
     }
-    if (isLegacySaUploadCategory(d.category)) {
+    // Soft-delete leftover system drafts that were retagged to self_assessment.
+    if (
+      isLegacySaUploadCategory(d.category) &&
+      (isSystemGeneratedSaFilename(d.filename) ||
+        isSaDraftsStoragePath(d.blobUrl))
+    ) {
+      discardIds.push(d.id);
+      continue;
+    }
+    // Only accountant uploads — never system draft SA100/SA302 PDFs.
+    if (isUnassignedSaUpload(d.category, d.filename, d.blobUrl)) {
       filed.push({
         id: d.id,
         filename: d.filename,
@@ -191,6 +413,19 @@ export async function listSaFiledDocuments(
         kind: "unassigned",
         createdAt,
       });
+    }
+  }
+
+  if (discardIds.length) {
+    const { updateClientDocumentCategory } = await import(
+      "@/server/actions/documents"
+    );
+    for (const documentId of discardIds) {
+      await updateClientDocumentCategory({
+        clientId,
+        documentId,
+        category: SA_DISCARDED_CATEGORY,
+      }).catch(() => undefined);
     }
   }
   return filed.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -210,6 +445,8 @@ export async function saveSa100Draft(input: {
   clientId: string;
   draft: Sa100Draft;
   taxpayerId?: string | null;
+  /** Skip SA100/SA302 PDF build — keeps Continue snappy between wizard steps. */
+  skipPdfs?: boolean;
 }) {
   const session = await requireSession();
   const client = await getClient(input.clientId);
@@ -219,7 +456,31 @@ export async function saveSa100Draft(input: {
     );
   }
 
-  const draft = sa100DraftSchema.parse(input.draft);
+  const { listSaTaxpayers } = await import("@/server/actions/sa-taxpayers");
+  const { saIdentifiersComplete, saIdentifiersMissing } = await import(
+    "@/lib/sa-taxpayer"
+  );
+  const people = await listSaTaxpayers(input.clientId);
+  const person =
+    (input.taxpayerId
+      ? people.find((p) => p.id === input.taxpayerId)
+      : null) ??
+    (people.length === 1 ? people[0] : null);
+
+  if (!person || !saIdentifiersComplete(person)) {
+    const missing = saIdentifiersMissing(person ?? {});
+    throw new Error(
+      `Enter ${missing.join(", ")} on the person’s Identifiers before saving the SA100.`,
+    );
+  }
+
+  const draftIn = {
+    ...input.draft,
+    utr: person.utr || input.draft.utr,
+    nino: person.nino || input.draft.nino,
+  };
+
+  const draft = sa100DraftSchema.parse(draftIn);
   const calculation = calculateSa302(draft);
   const attachedSupplements = supplementCodesForDraft(draft);
   const now = new Date().toISOString();
@@ -261,6 +522,9 @@ export async function saveSa100Draft(input: {
     });
   }
 
+  // Persist to desk_profile (also clears blank-start flag for this year).
+  await upsertDurableReturn(row);
+
   // People-list filter: saved SA100 → Drafted (do not downgrade later stages).
   try {
     const { normalizeWorkStage, mergeSaWorkStage } = await import(
@@ -280,23 +544,28 @@ export async function saveSa100Draft(input: {
     /* best-effort */
   }
 
-  // Persist SA100 pack + SA302 PDF alongside every draft save.
-  try {
-    await persistSaDraftPdfs({
-      practiceId: session.practiceId,
-      userId: session.userId,
-      clientId: input.clientId,
-      taxpayerId: input.taxpayerId,
-      client,
-      row,
-    });
-  } catch (err) {
-    console.warn("[sa100] draft PDF persist failed", safeErr(err));
+  // PDF pack is expensive — only when explicitly requested (Save draft / submit).
+  if (!input.skipPdfs) {
+    try {
+      await persistSaDraftPdfs({
+        practiceId: session.practiceId,
+        userId: session.userId,
+        clientId: input.clientId,
+        taxpayerId: input.taxpayerId,
+        client,
+        row,
+      });
+    } catch (err) {
+      console.warn("[sa100] draft PDF persist failed", safeErr(err));
+    }
   }
 
+  // Avoid full /clients revalidation on every step — that stalls Continue.
   revalidatePath(`/clients/${input.clientId}/self-assessment`);
   revalidatePath("/self-assessment", "layout");
-  revalidatePath("/clients");
+  if (!input.skipPdfs) {
+    revalidatePath("/clients");
+  }
   return row;
 }
 
@@ -313,16 +582,73 @@ async function persistSaDraftPdfs(input: {
   const { storeClientDocumentBytes } = await import(
     "@/server/documents/store-bytes"
   );
-  const { saFiledCategory } = await import("@/lib/sa-filed-docs");
+  const {
+    saFiledCategory,
+    parseSaFiledCategory,
+    SA_DISCARDED_CATEGORY,
+  } = await import("@/lib/sa-filed-docs");
 
-  const taxpayerName =
+  let taxpayerName =
     input.row.draft.declarationName?.trim() ||
     (input.client.type === "limited_company" ? "" : input.client.name);
+  let taxpayerAddress: string | null = null;
+  if (input.taxpayerId) {
+    try {
+      const { listSaTaxpayers } = await import("@/server/actions/sa-taxpayers");
+      const person = (await listSaTaxpayers(input.clientId)).find(
+        (p) => p.id === input.taxpayerId,
+      );
+      taxpayerAddress = person?.address?.trim() || null;
+      if (person?.fullName?.trim()) {
+        taxpayerName =
+          input.row.draft.declarationName?.trim() || person.fullName.trim();
+      }
+    } catch {
+      /* optional */
+    }
+  }
   const meta = {
     submissionRef: input.row.hmrcCorrelationId ?? null,
     status: input.row.status,
     taxYear: input.row.taxYear,
+    address: taxpayerAddress || input.client.address || null,
   };
+
+  const returnCat = saFiledCategory(
+    input.row.taxYear,
+    "return",
+    input.taxpayerId,
+  );
+  const sa302Cat = saFiledCategory(
+    input.row.taxYear,
+    "sa302",
+    input.taxpayerId,
+  );
+
+  // Replace prior auto-drafts for this year — do not stack copies into Documents.
+  try {
+    const { listClientDocuments, updateClientDocumentCategory } = await import(
+      "@/server/actions/documents"
+    );
+    const existing = await listClientDocuments(input.clientId);
+    for (const d of existing) {
+      const parsed = parseSaFiledCategory(d.category);
+      if (!parsed || parsed.taxYear !== input.row.taxYear) continue;
+      if (input.taxpayerId) {
+        if (parsed.taxpayerId && parsed.taxpayerId !== input.taxpayerId) continue;
+      } else if (parsed.taxpayerId) {
+        continue;
+      }
+      if (parsed.kind !== "return" && parsed.kind !== "sa302") continue;
+      await updateClientDocumentCategory({
+        clientId: input.clientId,
+        documentId: d.id,
+        category: SA_DISCARDED_CATEGORY,
+      }).catch(() => undefined);
+    }
+  } catch {
+    /* best-effort */
+  }
 
   const sa302 = await buildSa302Pdf(
     input.row.calculation,
@@ -335,14 +661,10 @@ async function persistSaDraftPdfs(input: {
   await storeClientDocumentBytes({
     practiceId: input.practiceId,
     clientId: input.clientId,
-    filename: `SA100-${input.row.taxYear}-draft.pdf`,
+    filename: `SA100-${input.row.taxYear}-${(taxpayerName || "taxpayer").trim().replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "taxpayer"}.pdf`,
     contentType: "application/pdf",
     bytes: pack.bytes,
-    category: saFiledCategory(
-      input.row.taxYear,
-      "return",
-      input.taxpayerId,
-    ),
+    category: returnCat,
     uploadedBy: input.userId,
     folder: "sa-drafts",
   });
@@ -352,11 +674,7 @@ async function persistSaDraftPdfs(input: {
     filename: `SA302-${input.row.taxYear}-draft.pdf`,
     contentType: "application/pdf",
     bytes: sa302,
-    category: saFiledCategory(
-      input.row.taxYear,
-      "sa302",
-      input.taxpayerId,
-    ),
+    category: sa302Cat,
     uploadedBy: input.userId,
     folder: "sa-drafts",
   });
@@ -367,6 +685,18 @@ const submitSchema = z.object({
   draft: sa100DraftSchema,
   fraudMetadata: clientFraudMetadataSchema,
   taxpayerId: z.string().optional().nullable(),
+  /** Government Gateway — required for live SA Online submit. */
+  senderId: z.string().optional(),
+  senderPassword: z.string().optional(),
+  useSavedPassword: z.boolean().optional(),
+  rememberPassword: z.boolean().optional(),
+  /** Force demo accept (local/demo only). */
+  demo: z.boolean().optional(),
+  /**
+   * When true, submit live to HMRC Transaction Engine even in local demo mode
+   * (uses Government Gateway + ETS/live endpoints from HMRC_ENV).
+   */
+  live: z.boolean().optional(),
 });
 
 export async function submitSa100Return(
@@ -389,29 +719,110 @@ export async function submitSa100Return(
   if (!data.draft.declarationAccepted) {
     throw new Error("Accept the TR8 declaration before submitting.");
   }
+  if (!data.draft.declarationDate?.trim()) {
+    throw new Error("Enter the declaration date before submitting.");
+  }
+
+  const { listSaTaxpayers } = await import("@/server/actions/sa-taxpayers");
+  const { saIdentifiersComplete, saIdentifiersMissing } = await import(
+    "@/lib/sa-taxpayer"
+  );
+  const people = await listSaTaxpayers(data.clientId);
+  const person =
+    (data.taxpayerId
+      ? people.find((p) => p.id === data.taxpayerId)
+      : null) ??
+    (people.length === 1 ? people[0] : null);
+  if (!person || !saIdentifiersComplete(person)) {
+    const missing = saIdentifiersMissing(person ?? {});
+    throw new Error(
+      `Enter ${missing.join(", ")} on the person’s Identifiers before submitting.`,
+    );
+  }
+
+  // Personal UTR only — never fall back to a limited company UTR.
+  const personalUtr =
+    data.draft.utr?.replace(/\s/g, "") ||
+    person.utr?.replace(/\s/g, "") ||
+    (client.type === "limited_company"
+      ? ""
+      : (client.utr || "").replace(/\s/g, ""));
+  const personalNino =
+    data.draft.nino?.replace(/\s/g, "") ||
+    person.nino?.replace(/\s/g, "") ||
+    (client.type === "limited_company"
+      ? ""
+      : (client.nino || "").replace(/\s/g, ""));
 
   const draft = sa100DraftSchema.parse({
     ...data.draft,
-    utr: data.draft.utr || client.utr || "",
-    nino: data.draft.nino || client.nino || "",
+    utr: personalUtr,
+    nino: personalNino,
   });
-  if (!draft.utr) throw new Error("UTR is required to submit.");
+  if (!draft.utr) {
+    throw new Error(
+      "A personal UTR is required to submit Self Assessment (not a company UTR).",
+    );
+  }
   if (!draft.nino) throw new Error("National Insurance number is required.");
+
+  let taxpayerName =
+    draft.declarationName.trim() ||
+    person.fullName?.trim() ||
+    (client.type === "limited_company" ? "" : client.name);
 
   const calculation = calculateSa302(draft);
   const attachedSupplements = supplementCodesForDraft(draft);
-  const fraudHeaders = buildFraudPreventionHeaders(data.fraudMetadata);
-  const accessToken = await getValidAccessToken(data.clientId, session.practiceId);
+  const { fraudOptsFromRequest } = await import("@/server/hmrc/fraud-headers");
+  const fraudHeaders = buildFraudPreventionHeaders(
+    data.fraudMetadata,
+    await fraudOptsFromRequest(),
+  );
+  void fraudHeaders;
   const cfg = getHmrcConfig();
   const now = new Date().toISOString();
-  const demo = isDemoMode() || !accessToken || !cfg.clientId;
-  const correlationId = demo
-    ? `demo-sa100-${Date.now()}`
-    : `sa100-${Date.now()}`;
 
-  // HMRC path: MTD Individual Calculations final declaration (and legacy SA Online XML).
-  // We always persist the SA302 computation and issue SA100/SA302 PDFs for the practice.
-  void fraudHeaders;
+  // Live SA Online uses Government Gateway + Transaction Engine (not MTD OAuth).
+  const wantDemo =
+    data.demo === true || (isDemoMode() && data.live !== true);
+  let senderId = "";
+  let senderPassword = "";
+  if (!wantDemo) {
+    const { resolveGatewayCredentialsForSubmit } = await import(
+      "@/server/hmrc/gateway-credentials"
+    );
+    const resolved = await resolveGatewayCredentialsForSubmit({
+      clientId: data.clientId,
+      senderId: data.senderId,
+      senderPassword: data.senderPassword,
+      useSavedPassword: data.useSavedPassword,
+      rememberPassword: data.rememberPassword,
+    });
+    senderId = resolved.senderId;
+    senderPassword = resolved.senderPassword;
+  }
+
+  const { submitSa100ToHmrc } = await import("@/server/hmrc/sa100/submit");
+  const hmrc = await submitSa100ToHmrc({
+    draft,
+    taxpayerName: taxpayerName || "Taxpayer",
+    senderId,
+    senderPassword,
+    actorId: session.userId,
+    clientId: data.clientId,
+    practiceId: session.practiceId,
+    demo: wantDemo,
+  });
+
+  if (!hmrc.ok) {
+    throw new Error(
+      hmrc.errorMessage ||
+        "HMRC did not accept this Self Assessment return. Check Gateway credentials and return details.",
+    );
+  }
+
+  const correlationId = hmrc.correlationId;
+  const demo = hmrc.demo;
 
   let row = await getSa100Draft(data.clientId, draft.taxYear, data.taxpayerId);
   if (!row) {
@@ -439,6 +850,8 @@ export async function submitSa100Return(
   row.submittedAt = now;
   row.updatedAt = now;
 
+  await upsertDurableReturn(row);
+
   await appendAuditEvent({
     practiceId: session.practiceId,
     clientId: data.clientId,
@@ -454,9 +867,10 @@ export async function submitSa100Return(
       refundDue: calculation.refundDue,
       attachedSupplements,
       demo,
+      env: cfg.env,
       note: demo
-        ? "Demo / sandbox accept — connect HMRC agent OAuth for live final declaration"
-        : "Submitted — confirm final declaration in HMRC Individual Calculations when live",
+        ? "Demo accept — use live submit with Government Gateway for HMRC"
+        : "Submitted to HMRC Transaction Engine (HMRC-SA-SA100)",
     },
   });
 
@@ -507,17 +921,44 @@ export async function deleteSa100Return(input: {
       ? input.statuses
       : (["draft", "submitted", "accepted"] as const),
   );
+  function matchesDelete(r: Sa100Stored): boolean {
+    if (r.clientId !== input.clientId) return false;
+    if (r.taxYear !== input.taxYear) return false;
+    if (!allowed.has(r.status)) return false;
+    // Exact taxpayer match, or orphan year draft (null taxpayerId) when
+    // deleting for a specific person — both must go so figures cannot linger.
+    if (sameTaxpayer(r, input.taxpayerId)) return true;
+    if (input.taxpayerId && (r.taxpayerId ?? null) === null) return true;
+    return false;
+  }
+
   const list = returns();
-  const idx = list.findIndex(
-    (r) =>
-      r.clientId === input.clientId &&
-      r.taxYear === input.taxYear &&
-      allowed.has(r.status) &&
-      sameTaxpayer(r, input.taxpayerId),
-  );
   let removed: Sa100Stored | undefined;
-  if (idx >= 0) {
-    [removed] = list.splice(idx, 1);
+  // Purge every matching in-memory row (not just the first).
+  for (let i = list.length - 1; i >= 0; i--) {
+    const r = list[i]!;
+    if (matchesDelete(r)) {
+      list.splice(i, 1);
+      removed = r;
+    }
+  }
+  try {
+    const client = await getClient(input.clientId);
+    const durable = await loadDurableReturns(input.clientId);
+    const hit = durable.find((r) => matchesDelete(r));
+    const next = durable.filter((r) => !matchesDelete(r));
+    const blankKey = sa100BlankStartKey(input.taxpayerId, input.taxYear);
+    const blankPrev = client.deskProfile?.sa100BlankStarts ?? [];
+    // Clear returns + mark blank start in one write (avoid profile race).
+    await writeDurableReturns(input.clientId, next, {
+      sa100BlankStarts: blankPrev.includes(blankKey)
+        ? blankPrev
+        : [...blankPrev, blankKey],
+    });
+    if (!removed && hit) removed = hit;
+  } catch (err) {
+    console.warn("[sa100] durable delete failed", safeErr(err));
+    throw new Error("Could not delete the saved return. Try again.");
   }
 
   const filedBefore = await listSaFiledDocuments(
@@ -534,11 +975,12 @@ export async function deleteSa100Return(input: {
     const { updateClientDocumentCategory } = await import(
       "@/server/actions/documents"
     );
+    const { SA_DISCARDED_CATEGORY } = await import("@/lib/sa-filed-docs");
     for (const d of yearDocs) {
       await updateClientDocumentCategory({
         clientId: input.clientId,
         documentId: d.id,
-        category: "self_assessment",
+        category: SA_DISCARDED_CATEGORY,
       }).catch(() => undefined);
     }
   } catch {

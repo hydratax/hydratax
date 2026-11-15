@@ -122,7 +122,11 @@ export async function submitSaUpdate(
   const client = await getClient(data.clientId);
   if (!client.nino) throw new Error("Client NINO required for Self Assessment");
 
-  const fraudHeaders = buildFraudPreventionHeaders(data.fraudMetadata);
+  const { fraudOptsFromRequest } = await import("@/server/hmrc/fraud-headers");
+  const fraudHeaders = buildFraudPreventionHeaders(
+    data.fraudMetadata,
+    await fraudOptsFromRequest(),
+  );
   const draft = await prepareSaUpdate(data);
   const record = digitalIncomeRecordSchema.parse(draft);
   const accessToken = await getValidAccessToken(data.clientId, session.practiceId);

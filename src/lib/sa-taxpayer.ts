@@ -7,6 +7,10 @@
  */
 
 import type { SaCompanyIncome, SaOtherIncome } from "@/lib/sa-income";
+import {
+  addressIdentityComplete,
+  parseAddressParts,
+} from "@/lib/address-parts";
 
 export const SA_TAXPAYER_ROLES = [
   "director",
@@ -18,6 +22,50 @@ export const SA_TAXPAYER_ROLES = [
 ] as const;
 
 export type SaTaxpayerRole = (typeof SA_TAXPAYER_ROLES)[number];
+
+/** Roles shown in add/edit dropdowns — "other" / Taxpayer is legacy only. */
+export const SA_TAXPAYER_ROLE_OPTIONS = [
+  "director",
+  "shareholder",
+  "director_shareholder",
+  "partner",
+  "sole_trader",
+] as const satisfies readonly SaTaxpayerRole[];
+
+export function roleNeedsCompanyLink(role: SaTaxpayerRole): boolean {
+  return (
+    role === "director" ||
+    role === "shareholder" ||
+    role === "director_shareholder"
+  );
+}
+
+/** NINO, personal UTR and address (with postcode) required before any SA100 filing. */
+export function saIdentifiersComplete(t: {
+  nino?: string | null;
+  utr?: string | null;
+  address?: string | null;
+}): boolean {
+  return Boolean(
+    t.nino?.replace(/\s/g, "").trim() &&
+      t.utr?.replace(/\s/g, "").trim() &&
+      addressIdentityComplete(t.address),
+  );
+}
+
+export function saIdentifiersMissing(t: {
+  nino?: string | null;
+  utr?: string | null;
+  address?: string | null;
+}): string[] {
+  const missing: string[] = [];
+  if (!t.nino?.replace(/\s/g, "").trim()) missing.push("NINO");
+  if (!t.utr?.replace(/\s/g, "").trim()) missing.push("Personal UTR");
+  const parts = parseAddressParts(t.address);
+  if (!parts.street.trim()) missing.push("Street address");
+  if (!parts.postcode.trim()) missing.push("Postcode");
+  return missing;
+}
 
 export type SaTaxpayer = {
   id: string;

@@ -75,6 +75,7 @@ export const employeeInputSchema = z.object({
     .string()
     .regex(/^[A-CEGHJ-PR-TW-Z]{2}\d{6}[A-D]$/i, "Invalid NINO")
     .transform((s) => s.toUpperCase()),
+  gender: z.enum(["M", "F"]),
   taxCode: z.string().min(1).max(10).default("1257L"),
   annualSalaryPence: penceSchema,
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),

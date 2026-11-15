@@ -28,6 +28,7 @@ import { enrichAccountsDraftFromLedger } from "@/server/accounts/enrich-accounts
 import { summariseForYearEndAccounts } from "@/server/accounts/year-end-from-bank";
 import type { CategorisedLine } from "@/server/bank/categorise";
 import { companiesHouseAccountsPeriod } from "@/lib/accounting-periods";
+import { addressIdentityComplete } from "@/lib/address-parts";
 import { parseComparatives } from "@/lib/accounting-periods";
 
 function mergeProfile(
@@ -225,7 +226,14 @@ const propertySchema = z.object({
   clientId: z.string().min(1),
   id: z.string().optional(),
   name: z.string().trim().min(1).max(120),
-  address: z.string().max(300).optional(),
+  address: z
+    .string()
+    .max(500)
+    .optional()
+    .or(z.literal(""))
+    .refine((v) => !v?.trim() || addressIdentityComplete(v), {
+      message: "Street address and postcode are required",
+    }),
   acquiredOn: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)

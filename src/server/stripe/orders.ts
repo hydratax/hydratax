@@ -99,6 +99,24 @@ export async function recordCheckoutEvent(event: Stripe.Event) {
   const chRequestId = session.metadata?.chRequestId?.trim() || undefined;
   const record = toRecord(session);
 
+  // Client invoices paid via Stripe Connect destination Checkout
+  if (session.metadata?.kind === "client_invoice" && session.metadata.invoiceId) {
+    const { markClientInvoicePaidFromStripe } = await import(
+      "@/server/actions/invoices"
+    );
+    await markClientInvoicePaidFromStripe({
+      invoiceId: session.metadata.invoiceId,
+      practiceId: session.metadata.practiceId || practiceId || "",
+      stripeCheckoutSessionId: session.id,
+    });
+    if (isMemoryStore()) {
+      if (!orders().some((o) => o.stripeSessionId === record.stripeSessionId)) {
+        orders().push(record);
+      }
+    }
+    return;
+  }
+
   if (isMemoryStore()) {
     if (!orders().some((o) => o.stripeSessionId === record.stripeSessionId)) {
       orders().push(record);

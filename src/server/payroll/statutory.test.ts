@@ -21,6 +21,7 @@ const emp = {
   forename: "Sam",
   surname: "Taylor",
   nino: "AB123456C",
+  gender: "M" as const,
   taxCode: "1257L",
   annualSalaryPence: 3600000,
   startDate: "2026-04-06",

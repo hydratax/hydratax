@@ -21,16 +21,24 @@ production secrets, Netlify env vars, or shipping to production.
 
 - **Never print secret values** (tokens, keys, whsec, salts, ENCRYPTION keys).
   Report **names only** and whether they were already set / newly generated / skipped.
+- **Deploy rate limit (owner-paid credits):** at most **one production deploy per
+  rolling 24 hours**. Before any `git push` to `main`, `netlify deploy --prod`,
+  or production rebuild/retry, list recent production deploys. If any production
+  attempt (ready / building / error / skipped) is within 24h, **do not deploy** —
+  report the last deploy time and wait unless the user explicitly overrides
+  (“deploy now anyway” / “ignore the 24h limit”). Batch changes; never ship
+  mid-task repeatedly. Preview rebuild spam is also forbidden.
 - Prefer **`git push origin HEAD`** (or `git push -u origin HEAD`) to main so
-  Netlify builds from Git. Local `netlify deploy` often fails on Windows with
-  **EPERM** — avoid it unless the user insists.
+  Netlify builds from Git — **only when the 24h slot is free** (or overridden).
+  Local `netlify deploy` often fails on Windows with **EPERM** — avoid it unless
+  the user insists.
 - Token for Netlify API may be in `%APPDATA%\netlify\Config\config.json` —
   read it for API calls; **never print** it.
 - Do **not** ask the user to set env vars or click Deploy if you can do it via
-  CLI/API and git.
+  CLI/API and git — but still obey the 24h deploy cap.
 - Follow git safety: no `git config` changes, no `--no-verify`, no force push to
   main, no committing `.env*` or real secrets. Commit only when the user
-  authorized deploy/commit.
+  authorized deploy/commit. Local commits without push are fine anytime.
 - When present, follow `docs/security/deploy-checklist.md` for env names, smoke
   tests, and migration order.
 
@@ -91,15 +99,20 @@ skip if already listed.
 
 ## 4. Commit + push (when user authorized)
 
-1. Parallel: `git status`, `git diff`, `git log -5`
-2. Stage intentional changes. Exclude `.env*`, secrets, scratch `.tmp-*`,
+1. **24h gate:** list production deploys; abort push if one already ran in 24h
+   (unless user overrode). Prefer commit-only and tell the user when the next
+   deploy window opens.
+2. Parallel: `git status`, `git diff`, `git log -5`
+3. Stage intentional changes. Exclude `.env*`, secrets, scratch `.tmp-*`,
    personal probe scripts. **Do** commit `.cursor/skills/netbee` and
    `.cursor/skills/supabee` when present.
-3. Commit with a clear message (PowerShell: use `git commit -m "…"` or a temp
+4. Commit with a clear message (PowerShell: use `git commit -m "…"` or a temp
    file — bash HEREDOC is unavailable).
-4. `git push -u origin HEAD` (or `origin main`).
-5. Poll deploy state via Netlify API until ready/error. On build failure: fetch
-   logs, fix, commit again, push.
+5. `git push -u origin HEAD` (or `origin main`) — **once**, only if the gate
+   passed.
+6. Poll deploy state via Netlify API until ready/error. On build failure: fix
+   locally; **do not** push again inside 24h unless the user explicitly asks to
+   finish that same ship and no successful publish landed.
 
 ## 5. Post-deploy smoke (no secrets in output)
 

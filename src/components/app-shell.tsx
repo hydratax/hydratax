@@ -17,6 +17,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
             label: "Confirmation Statement",
           },
           { href: "/filings/annual-accounts", label: "Annual accounts" },
+          { href: "/company-secretarial", label: "Company Secretarial" },
           { href: "/companies-house", label: "Companies House" },
         ]
       : []),

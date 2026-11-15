@@ -74,7 +74,7 @@ export function validateCt600Package(
       issues.push(
         issue(
           `supplementary_${page.toLowerCase()}`,
-          `${page} is required for this return but is not yet supported in HydraTax. File via an agent tool or contact support.`,
+          `${page} is required for this return but HydraTax only supports the simple CT600 path (no A/C/L supplements). Remove the need for ${page}, or file that return in another CT Online product.`,
         ),
       );
     }

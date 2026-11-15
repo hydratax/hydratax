@@ -206,6 +206,22 @@ export function AppShellHeader({
                   >
                     Account
                   </Link>
+                  <Link
+                    href="/settings/payments"
+                    role="menuitem"
+                    className="block px-4 py-2 text-ink-soft hover:bg-sand hover:text-ink"
+                    onClick={() => setAccountOpen(false)}
+                  >
+                    Payment gateways
+                  </Link>
+                  <Link
+                    href="/settings/letterhead"
+                    role="menuitem"
+                    className="block px-4 py-2 text-ink-soft hover:bg-sand hover:text-ink"
+                    onClick={() => setAccountOpen(false)}
+                  >
+                    Practice branding
+                  </Link>
                   {canViewLogs ? (
                     <Link
                       href="/settings/logs"
@@ -345,6 +361,20 @@ export function AppShellHeader({
                 onClick={closeMobile}
               >
                 Account
+              </Link>
+              <Link
+                href="/settings/payments"
+                className="rounded-lg px-3 py-3 text-ink hover:bg-sand"
+                onClick={closeMobile}
+              >
+                Payment gateways
+              </Link>
+              <Link
+                href="/settings/letterhead"
+                className="rounded-lg px-3 py-3 text-ink hover:bg-sand"
+                onClick={closeMobile}
+              >
+                Practice branding
               </Link>
               {canViewLogs ? (
                 <Link

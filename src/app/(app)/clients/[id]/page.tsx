@@ -15,13 +15,13 @@ import { InvoiceSummaryCards } from "@/components/forms/invoice-workspace";
 import { refreshClientCompaniesHouse } from "@/server/actions/clients";
 import { listCt600Returns } from "@/server/actions/ct600";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
-import { ClientPrivacyPanel } from "@/components/forms/client-privacy-panel";
 import { listPracticeDirectors } from "@/server/actions/sa-directors";
 import { SaOverviewDirectorsCard } from "@/components/forms/sa-overview-directors-card";
 import { ClientWorkStagePanel } from "@/components/forms/client-work-stage-panel";
 import { ClientWorkingLogs } from "@/components/client-working-logs";
 import { listClientEmailLogs } from "@/server/actions/client-communications";
 import { normalizeWorkStage } from "@/lib/client-work-stage";
+import { addressPartsDisplay } from "@/lib/address-parts";
 
 function urgencyText(u: FilingUrgency) {
   if (u === "overdue") return "text-danger font-semibold";
@@ -100,6 +100,15 @@ export default async function ClientOverviewPage({
       label: "Accounts Office",
       value: client.accountsOfficeRef,
     },
+    {
+      label: "Address",
+      value:
+        "address" in client
+          ? addressPartsDisplay(
+              (client as { address?: string | null }).address ?? null,
+            ) || null
+          : null,
+    },
     { label: "Email", value: client.contactEmail },
     {
       label: "Phone",
@@ -171,7 +180,7 @@ export default async function ClientOverviewPage({
                     <dt className="text-ink-soft">{row.label}</dt>
                     <dd
                       className={`truncate text-right font-medium ${
-                        mono ? "mono" : ""
+                        mono ? "figures tracking-wide" : ""
                       } ${empty ? "text-ink-soft" : "text-ink"}`}
                       title={row.value || undefined}
                     >
@@ -437,16 +446,6 @@ export default async function ClientOverviewPage({
           stage={workStage}
         />
 
-        {session.role !== "readonly" && (
-          <ClientPrivacyPanel
-            clientId={clientId}
-            clientName={client.name}
-            canManage={
-              (session.role === "owner" || session.role === "admin") &&
-              session.moduleAccess === "full"
-            }
-          />
-        )}
       </div>
     </div>
   );

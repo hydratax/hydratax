@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   getSa100Draft,
+  isSa100BlankStart,
   listSa100Returns,
   listSaFiledDocuments,
 } from "@/server/actions/sa100";
@@ -22,6 +23,8 @@ import {
   personKeyFromParam,
   personKeySlug,
   roleFromCompanyLinks,
+  saIdentifiersComplete,
+  saIdentifiersMissing,
 } from "@/lib/sa-taxpayer";
 import { accumulateSa100FromIncome } from "@/lib/sa-income";
 import { filingSaTaxYear, parseSaTaxYearLabel } from "@/lib/sa-tax-year";
@@ -62,20 +65,32 @@ export default async function PersonSelfAssessmentPage({
   const saClientId = workspace.person.homeClientId;
   const homeClient = await getClient(saClientId).catch(() => null);
 
-  const [sa100Draft, sa100Returns, documents, saFiledDocs, bankTxs, customCats] =
-    await Promise.all([
-      getSa100Draft(saClientId, activeYear, selected.id).catch(() => null),
-      listSa100Returns(saClientId, selected.id).catch(() => []),
-      listClientDocuments(saClientId).catch(() => []),
-      listSaFiledDocuments(saClientId, selected.id).catch(() => []),
-      listBankTransactions(saClientId).catch(() => []),
-      listCustomBankCategories().catch(() => []),
-    ]);
+  const [
+    sa100Draft,
+    sa100Returns,
+    documents,
+    saFiledDocs,
+    bankTxs,
+    customCats,
+    blankStart,
+  ] = await Promise.all([
+    getSa100Draft(saClientId, activeYear, selected.id).catch(() => null),
+    listSa100Returns(saClientId, selected.id).catch(() => []),
+    listClientDocuments(saClientId).catch(() => []),
+    listSaFiledDocuments(saClientId, selected.id).catch(() => []),
+    listBankTransactions(saClientId).catch(() => []),
+    listCustomBankCategories().catch(() => []),
+    isSa100BlankStart(saClientId, activeYear, selected.id).catch(() => false),
+  ]);
 
-  const accumulated = accumulateSa100FromIncome(selected, {
-    ...(sa100Draft?.draft ?? {}),
-    taxYear: activeYear,
-  });
+  // After delete, do not re-seed SA100 boxes from income desk figures.
+  const accumulated =
+    sa100Draft || !blankStart
+      ? accumulateSa100FromIncome(selected, {
+          ...(sa100Draft?.draft ?? {}),
+          taxYear: activeYear,
+        })
+      : null;
 
   const yearHrefBase = `/self-assessment/${personKeySlug(person.key)}`;
 
@@ -98,23 +113,27 @@ export default async function PersonSelfAssessmentPage({
         </Link>
       </div>
 
-      <SaPersonProfile
-        key={`${selected.id}-profile`}
-        clientId={saClientId}
-        taxpayer={selected}
-        lockedRole={roleFromCompanyLinks({
-          directorOf: workspace.person.directorOf,
-          shareholderOf: workspace.person.shareholderOf,
-        })}
-      />
+      {(!yearParam || !saIdentifiersComplete(selected)) ? (
+        <SaPersonProfile
+          key={`${selected.id}-profile`}
+          clientId={saClientId}
+          taxpayer={selected}
+          lockedRole={roleFromCompanyLinks({
+            directorOf: workspace.person.directorOf,
+            shareholderOf: workspace.person.shareholderOf,
+          })}
+        />
+      ) : null}
 
-      <SaDirectorIncomeDesk
-        key={selected.id}
-        homeClientId={workspace.person.homeClientId}
-        person={workspace.person}
-        initialTaxpayer={workspace.taxpayer}
-        taxYear={activeYear}
-      />
+      {!yearParam ? (
+        <SaDirectorIncomeDesk
+          key={selected.id}
+          homeClientId={workspace.person.homeClientId}
+          person={workspace.person}
+          initialTaxpayer={workspace.taxpayer}
+          taxYear={activeYear}
+        />
+      ) : null}
 
       <SaTaxYearWorkspace
         baseHref={yearHrefBase}
@@ -127,9 +146,11 @@ export default async function PersonSelfAssessmentPage({
         filedDocs={saFiledDocs}
         clientId={saClientId}
         taxpayerId={selected.id}
+        identifiersReady={saIdentifiersComplete(selected)}
+        identifiersMissing={saIdentifiersMissing(selected)}
       >
         <Sa100Wizard
-          key={`${selected.id}-sa100-${activeYear}`}
+          key={`${selected.id}-sa100-${activeYear}-${sa100Draft?.id ?? "new"}`}
           clientId={saClientId}
           clientName={selected.fullName}
           contactEmail={selected.email || homeClient?.contactEmail || null}
@@ -140,7 +161,15 @@ export default async function PersonSelfAssessmentPage({
           taxYear={activeYear}
           initialReturnId={sa100Draft?.id ?? null}
           initial={{
-            ...accumulated,
+            ...(sa100Draft
+              ? accumulated
+              : blankStart || !accumulated
+                ? {
+                    taxYear: activeYear,
+                    utr: selected.utr,
+                    nino: selected.nino,
+                  }
+                : accumulated),
             phone: selected.phone || accumulated?.phone || "",
             email: selected.email || "",
             dateOfBirth: selected.dateOfBirth || accumulated?.dateOfBirth || "",
@@ -148,35 +177,37 @@ export default async function PersonSelfAssessmentPage({
         />
       </SaTaxYearWorkspace>
 
-      <SaPersonalBooks
-        clientId={saClientId}
-        taxpayerId={selected.id}
-        taxpayerName={selected.fullName}
-        occupation={selected.occupation ?? ""}
-        documents={documents.map((d) => ({
-          id: d.id,
-          filename: d.filename,
-          category: d.category,
-          sizeBytes: d.sizeBytes,
-          blobUrl: d.blobUrl,
-          createdAt:
-            typeof d.createdAt === "string"
-              ? d.createdAt
-              : new Date(d.createdAt).toISOString(),
-        }))}
-        transactions={bankTxs.map((t) => ({
-          id: t.id,
-          dated: t.dated,
-          description: t.description,
-          amountPence: t.amountPence,
-          category: t.category,
-          confidence: t.confidence,
-        }))}
-        customCategories={customCats.map((c) => ({
-          id: c.id,
-          label: c.label,
-        }))}
-      />
+      {!yearParam ? (
+        <SaPersonalBooks
+          clientId={saClientId}
+          taxpayerId={selected.id}
+          taxpayerName={selected.fullName}
+          occupation={selected.occupation ?? ""}
+          documents={documents.map((d) => ({
+            id: d.id,
+            filename: d.filename,
+            category: d.category,
+            sizeBytes: d.sizeBytes,
+            blobUrl: d.blobUrl,
+            createdAt:
+              typeof d.createdAt === "string"
+                ? d.createdAt
+                : new Date(d.createdAt).toISOString(),
+          }))}
+          transactions={bankTxs.map((t) => ({
+            id: t.id,
+            dated: t.dated,
+            description: t.description,
+            amountPence: t.amountPence,
+            category: t.category,
+            confidence: t.confidence,
+          }))}
+          customCategories={customCats.map((c) => ({
+            id: c.id,
+            label: c.label,
+          }))}
+        />
+      ) : null}
     </div>
   );
 }

@@ -131,6 +131,27 @@ export async function getClientIp(): Promise<string> {
   }
 }
 
+/**
+ * Best-effort client public port for HMRC fraud headers
+ * (`Gov-Client-Public-Port`). Prefer Netlify / proxy headers when present.
+ */
+export async function getClientPublicPort(): Promise<string | undefined> {
+  try {
+    const { headers } = await import("next/headers");
+    const h = await headers();
+    const raw =
+      h.get("x-nf-client-connection-port") ??
+      h.get("x-forwarded-port")?.split(",")[0]?.trim() ??
+      h.get("x-real-port");
+    if (!raw) return undefined;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 1 || n > 65535) return undefined;
+    return String(n);
+  } catch {
+    return undefined;
+  }
+}
+
 /** Convenience: limit by client IP inside a Server Action. */
 export async function rateLimitByIp(
   scope: string,

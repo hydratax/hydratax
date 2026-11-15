@@ -26,6 +26,7 @@ import {
   type BroughtForwardYtd,
 } from "@/lib/payroll";
 import { ensurePayrollSchema } from "@/server/db/ensure-payroll-schema";
+import { addressIdentityComplete } from "@/lib/address-parts";
 import {
   matchTimesheetRow,
   parseTimesheetBuffer,
@@ -57,8 +58,15 @@ const addEmployeeForm = z.object({
   forename: z.string().min(1),
   surname: z.string().min(1),
   nino: z.string().min(1),
+  gender: z.enum(["M", "F"]),
   dateOfBirth: z.string().optional(),
-  address: z.string().optional(),
+  address: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .refine((v) => !v?.trim() || addressIdentityComplete(v), {
+      message: "Street address and postcode are required",
+    }),
   taxCode: z.string().default("1257L"),
   annualSalaryPounds: z.string().optional(),
   startDate: z.string(),
@@ -95,6 +103,7 @@ function asEmployee(row: Record<string, unknown> | MemoryEmployee): PayrollEmplo
     forename: String(r.forename),
     surname: String(r.surname),
     nino: String(r.nino),
+    gender: r.gender === "M" || r.gender === "F" ? r.gender : null,
     dateOfBirth: r.dateOfBirth ? String(r.dateOfBirth) : null,
     address: r.address ? String(r.address) : null,
     taxCode: String(r.taxCode ?? "1257L"),
@@ -179,6 +188,7 @@ export async function addEmployee(input: z.input<typeof addEmployeeForm>) {
     forename: data.forename,
     surname: data.surname,
     nino: data.nino,
+    gender: data.gender,
     taxCode: data.taxCode,
     annualSalaryPence,
     startDate: data.startDate,
@@ -195,10 +205,13 @@ export async function addEmployee(input: z.input<typeof addEmployeeForm>) {
 
   const existing = await listEmployees(data.clientId, { includeLeavers: true });
   const activeCount = existing.filter((e) => e.active).length;
-  const { PAYE_EMPLOYEES_PER_EMPLOYER } = await import("@/lib/pricing");
-  if (activeCount >= PAYE_EMPLOYEES_PER_EMPLOYER) {
+  const { payeEmployeesPerEmployerCap } = await import("@/lib/pricing");
+  const { getPracticeEntitlements } = await import("@/server/actions/account");
+  const { planKeys } = await getPracticeEntitlements();
+  const employeeCap = payeEmployeesPerEmployerCap(planKeys);
+  if (employeeCap != null && activeCount >= employeeCap) {
     throw new Error(
-      `Your plan allows up to ${PAYE_EMPLOYEES_PER_EMPLOYER} employees per employer. Upgrade on Pricing to add more.`,
+      `Your plan allows up to ${employeeCap} employees per employer. Upgrade to Enterprise PAYE on Pricing for unlimited employees.`,
     );
   }
   const payrollId =
@@ -235,6 +248,7 @@ export async function addEmployee(input: z.input<typeof addEmployeeForm>) {
     forename: parsed.forename,
     surname: parsed.surname,
     nino: parsed.nino,
+    gender: parsed.gender,
     dateOfBirth,
     address,
     taxCode: parsed.taxCode,
@@ -269,6 +283,7 @@ export async function addEmployee(input: z.input<typeof addEmployeeForm>) {
       forename: emp.forename,
       surname: emp.surname,
       nino: emp.nino,
+      gender: emp.gender,
       date_of_birth: emp.dateOfBirth,
       address: emp.address,
       tax_code: emp.taxCode,
@@ -302,6 +317,7 @@ export async function addEmployee(input: z.input<typeof addEmployeeForm>) {
       forename: emp.forename,
       surname: emp.surname,
       nino: emp.nino,
+      gender: emp.gender,
       dateOfBirth: emp.dateOfBirth,
       address: emp.address,
       taxCode: emp.taxCode,
@@ -491,6 +507,13 @@ function adjustmentsForEmployee(
     irregularHours: hit.irregularHours,
     maternityWeeks: hit.maternityWeeks,
     maternityWeekFrom: hit.maternityWeekFrom,
+    paternityWeeks: hit.paternityWeeks,
+    adoptionWeeks: hit.adoptionWeeks,
+    sharedParentalWeeks: hit.sharedParentalWeeks,
+    parentalBereavementWeeks: hit.parentalBereavementWeeks,
+    neonatalCareWeeks: hit.neonatalCareWeeks,
+    unpaidAbsence: hit.unpaidAbsence,
+    onStrike: hit.onStrike,
     hourlyRatePence: hit.hourlyRatePence,
   };
 }
@@ -565,7 +588,10 @@ async function buildPayRunPackage(
     periodStart: data.periodStart,
     periodEnd: data.periodEnd,
     frequency: data.frequency,
-    employees: inPeriod,
+    employees: inPeriod.map((e) => ({
+      ...e,
+      jobTitle: e.jobTitle ?? null,
+    })),
   });
 
   const lines = inPeriod
@@ -580,6 +606,9 @@ async function buildPayRunPackage(
           forename: e.forename,
           surname: e.surname,
           nino: e.nino,
+          gender: e.gender,
+          dateOfBirth: e.dateOfBirth,
+          address: e.address,
           taxCode: e.taxCode,
           annualSalaryPence: e.annualSalaryPence,
           startDate: e.startDate,

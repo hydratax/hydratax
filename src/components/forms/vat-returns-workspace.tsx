@@ -1,15 +1,19 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import {
   prepareVatReturn,
   prepareVatReturnFromBoxes,
+  refreshVatObligationsFromHmrc,
   submitPreparedVatReturn,
 } from "@/server/actions/vat";
 import { disconnectHmrcAction } from "@/server/actions/hmrc-connect";
-import { gatherFraudMetadata } from "@/components/fraud-metadata";
+import {
+  gatherFraudMetadata,
+  warmFraudHeaders,
+} from "@/components/fraud-metadata";
 import { HmrcVatConnectModal } from "@/components/forms/hmrc-vat-connect-modal";
 import { VAT_BOX_DEFINITIONS } from "@/lib/hmrc/filing-guides";
 import { money } from "@/lib/format";
@@ -164,16 +168,53 @@ export function VatReturnsWorkspace({
   const [connectOpen, setConnectOpen] = useState(false);
   const [pending, start] = useTransition();
   const trialGate = useTrialSubmitGate();
-  const openObligations = obligations.filter((o) => o.status === "O");
+  const [periodList, setPeriodList] = useState<Obligation[]>(obligations);
+  const [hmrcPeriods, setHmrcPeriods] = useState(false);
+  const openObligations = periodList.filter((o) => o.status === "O");
   const [selected, setSelected] = useState(
-    openObligations[0]?.periodKey ?? obligations[0]?.periodKey ?? "",
+    openObligations[0]?.periodKey ?? periodList[0]?.periodKey ?? "",
   );
   const [boxes, setBoxes] = useState<BoxInputs>({ ...EMPTY_BOXES });
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploadName, setUploadName] = useState<string | null>(null);
 
-  const obligation = obligations.find((o) => o.periodKey === selected);
+  const obligation = periodList.find((o) => o.periodKey === selected);
+
+  useEffect(() => {
+    warmFraudHeaders();
+  }, []);
+
+  useEffect(() => {
+    if (!connected) return;
+    let cancelled = false;
+    start(async () => {
+      try {
+        const live = await refreshVatObligationsFromHmrc({
+          clientId,
+          fraudMetadata: gatherFraudMetadata(),
+        });
+        if (cancelled || live.length === 0) return;
+        setPeriodList(live);
+        setHmrcPeriods(true);
+        const open = live.find((o) => o.status === "O") ?? live[0];
+        if (open) setSelected(open.periodKey);
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Could not load VAT periods from HMRC",
+          );
+        }
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Intentional: refresh once when connection becomes available.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, clientId]);
 
   const derived = useMemo(() => {
     const b1 = parsePounds(boxes.vatDueSales);
@@ -229,38 +270,72 @@ export function VatReturnsWorkspace({
               VAT periods
             </h2>
             {connected ? (
-              <ul className="mt-3 space-y-2">
-                {obligations.map((o) => {
-                  const active = o.periodKey === selected;
-                  return (
-                    <li key={o.periodKey}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelected(o.periodKey);
-                          setMessage(null);
-                          setError(null);
-                        }}
-                        className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm transition ${
-                          active
-                            ? "border-sea bg-sea/5"
-                            : "border-line hover:border-sea/40"
-                        }`}
-                      >
-                        <span className="font-semibold text-ink">
-                          {o.periodKey}
-                        </span>
-                        <span className="mt-0.5 block text-xs text-ink-soft">
-                          {prettyDate(o.start)} – {prettyDate(o.end)}
-                        </span>
-                        <span className="mt-1 inline-block text-[10px] font-bold uppercase tracking-wide text-sea">
-                          {o.status === "O" ? "Open" : "Fulfilled"}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+              <>
+                {!hmrcPeriods ? (
+                  <p className="mt-3 text-xs text-ink-soft">
+                    Loading periods from HMRC…
+                  </p>
+                ) : null}
+                <ul className="mt-3 space-y-2">
+                  {periodList.map((o) => {
+                    const active = o.periodKey === selected;
+                    return (
+                      <li key={o.periodKey}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelected(o.periodKey);
+                            setMessage(null);
+                            setError(null);
+                          }}
+                          className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                            active
+                              ? "border-sea bg-sea/5"
+                              : "border-line hover:border-sea/40"
+                          }`}
+                        >
+                          <span className="font-semibold text-ink">
+                            {o.periodKey}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-ink-soft">
+                            {prettyDate(o.start)} – {prettyDate(o.end)}
+                          </span>
+                          <span className="mt-1 inline-block text-[10px] font-bold uppercase tracking-wide text-sea">
+                            {o.status === "O" ? "Open" : "Fulfilled"}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <button
+                  type="button"
+                  className="btn btn-ghost mt-3 w-full text-xs"
+                  disabled={pending}
+                  onClick={() =>
+                    start(async () => {
+                      setError(null);
+                      try {
+                        const live = await refreshVatObligationsFromHmrc({
+                          clientId,
+                          fraudMetadata: gatherFraudMetadata(),
+                        });
+                        setPeriodList(live);
+                        setHmrcPeriods(true);
+                        setMessage("VAT periods refreshed from HMRC");
+                      } catch (err) {
+                        setError(
+                          err instanceof Error
+                            ? err.message
+                            : "Could not refresh VAT periods",
+                        );
+                      }
+                    })
+                  }
+                >
+                  Refresh from HMRC
+                </button>
+              </>
             ) : (
               <p className="mt-3 text-sm text-ink-soft">
                 After you connect, your real VAT obligation periods come

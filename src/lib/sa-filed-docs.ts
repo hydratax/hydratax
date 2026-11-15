@@ -50,8 +50,47 @@ export function parseSaFiledCategory(
   return null;
 }
 
+/** Soft-deleted system SA PDFs — never show in Unassigned. */
+export const SA_DISCARDED_CATEGORY = "sa_discarded";
+
 export function isLegacySaUploadCategory(category: string): boolean {
   return category === "self_assessment";
+}
+
+/**
+ * HydraTax auto-saved SA pack / draft filenames (not accountant uploads).
+ * These must never appear in Unassigned even if miscategorised as self_assessment.
+ */
+export function isSystemGeneratedSaFilename(filename: string): boolean {
+  const name = filename.trim();
+  return (
+    /^SA100-\d{4}-\d{2}([.-]|$)/i.test(name) ||
+    /^SA302-\d{4}-\d{2}(-draft)?(\.pdf)?$/i.test(name) ||
+    /^SA102-\d{4}-\d{2}/i.test(name) ||
+    /^SA103[FS]?-\d{4}-\d{2}/i.test(name) ||
+    /^SA105-\d{4}-\d{2}/i.test(name) ||
+    /-draft\.pdf$/i.test(name)
+  );
+}
+
+/** Draft PDFs live under …/sa-drafts/… even after a category retag. */
+export function isSaDraftsStoragePath(blobUrl: string | null | undefined): boolean {
+  return Boolean(blobUrl && /sa-drafts/i.test(blobUrl));
+}
+
+/**
+ * User-uploaded SA docs awaiting year tagging.
+ * Never includes system draft packs (filename or sa-drafts storage).
+ */
+export function isUnassignedSaUpload(
+  category: string,
+  filename: string,
+  blobUrl?: string | null,
+): boolean {
+  if (category === SA_DISCARDED_CATEGORY) return false;
+  if (!isLegacySaUploadCategory(category)) return false;
+  if (isSaDraftsStoragePath(blobUrl)) return false;
+  return !isSystemGeneratedSaFilename(filename);
 }
 
 /** Guess tax year / kind from a filename like "SA302 2024-25.pdf" or "Forms(2023-24).pdf". */

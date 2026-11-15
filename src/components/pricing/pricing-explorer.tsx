@@ -22,6 +22,15 @@ import {
   type CustomModuleId,
   type CustomModuleSelection,
 } from "@/lib/pricing";
+import {
+  SECRETARIAL_BAND_SIZE,
+  SECRETARIAL_PRICE_PER_BAND_POUNDS,
+  SECRETARIAL_SCALE_MAX_COMPANIES,
+  SECRETARIAL_SCALE_MIN_COMPANIES,
+  formatSecretarialPriceLine,
+  secretarialMonthlyPounds,
+  secretarialScalePlanKey,
+} from "@/lib/company-secretarial";
 import Link from "next/link";
 import { FaqSection } from "@/components/faq-section";
 import { faqsForProduct } from "@/lib/product-faqs";
@@ -31,6 +40,12 @@ import { accountFirstCheckoutUrl } from "@/lib/checkout-auth";
 
 type Section = (typeof PRICING_SECTIONS)[number];
 type Plan = Section["plans"][number];
+
+function sectionIdFromHash(hash: string): string | null {
+  const id = hash.replace(/^#/, "").trim();
+  if (!id) return null;
+  return PRICING_SECTIONS.some((s) => s.id === id) ? id : null;
+}
 
 export function PricingExplorer({
   stripeReady,
@@ -43,10 +58,25 @@ export function PricingExplorer({
   const searchParams = useSearchParams();
   const resumePlan = (searchParams.get("plan") ?? "").trim();
   const resumedRef = useRef(false);
-  const [activeId, setActiveId] = useState<string>(PRICING_SECTIONS[0].id);
+  const [activeId, setActiveId] = useState<string>(() => {
+    if (typeof window === "undefined") return PRICING_SECTIONS[0].id;
+    return (
+      sectionIdFromHash(window.location.hash) ?? PRICING_SECTIONS[0].id
+    );
+  });
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    const apply = () => {
+      const fromHash = sectionIdFromHash(window.location.hash);
+      if (fromHash) setActiveId(fromHash);
+    };
+    apply();
+    window.addEventListener("hashchange", apply);
+    return () => window.removeEventListener("hashchange", apply);
+  }, []);
 
   const section = useMemo(
     () =>
@@ -137,7 +167,12 @@ export function PricingExplorer({
                     type="button"
                     role="tab"
                     aria-selected={active}
-                    onClick={() => setActiveId(s.id)}
+                    onClick={() => {
+                      setActiveId(s.id);
+                      if (typeof window !== "undefined") {
+                        window.history.replaceState(null, "", `#${s.id}`);
+                      }
+                    }}
                     className={`pricing-rail__item ${active ? "is-active" : ""}`}
                   >
                     {s.title}
@@ -266,6 +301,20 @@ function PlanCards({
         if (isCustom) {
           return (
             <CustomPlanCard
+              key={plan.name}
+              plan={plan}
+              signedIn={signedIn}
+              onCheckout={onCheckout}
+              pendingKey={pendingKey}
+              busy={busy}
+            />
+          );
+        }
+        const isSecretarialScale =
+          "secretarialScaleBuilder" in plan && plan.secretarialScaleBuilder;
+        if (isSecretarialScale) {
+          return (
+            <SecretarialScalePlanCard
               key={plan.name}
               plan={plan}
               signedIn={signedIn}
@@ -645,6 +694,118 @@ function CustomPlanCard({
               : billing === "year"
                 ? `Start free trial · ${formatGBP(total)}/yr after`
                 : `Start free trial · ${formatGBP(total)}/mo after`}
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function SecretarialScalePlanCard({
+  plan,
+  signedIn,
+  onCheckout,
+  pendingKey,
+  busy,
+}: {
+  plan: Plan;
+  signedIn: boolean;
+  onCheckout: (key: string) => void;
+  pendingKey: string | null;
+  busy: boolean;
+}) {
+  const [companies, setCompanies] = useState(SECRETARIAL_SCALE_MIN_COMPANIES);
+  const monthly = secretarialMonthlyPounds(companies);
+  const checkoutKey = secretarialScalePlanKey(companies);
+  const loading = busy && pendingKey === checkoutKey;
+  const accountHref = accountFirstCheckoutUrl(checkoutKey);
+
+  return (
+    <article className="pricing-plan h-full">
+      <div className="pricing-plan__badge-slot">
+        <span
+          className="pricing-plan__badge pricing-plan__badge--ghost"
+          aria-hidden
+        >
+          &nbsp;
+        </span>
+      </div>
+      <h3 className="display text-2xl text-ink">{plan.name}</h3>
+      {plan.blurb ? (
+        <p className="pricing-plan__blurb mt-2 text-sm leading-relaxed text-ink-soft">
+          {plan.blurb}
+        </p>
+      ) : null}
+      <div className="pricing-plan__price mt-4">
+        <p className="price-figure">
+          <span className="price-amount">{formatGBP(monthly)}</span>
+          <span className="price-period">/month</span>
+        </p>
+        <p className="pricing-plan__price-note mt-1 text-xs text-ink-soft">
+          {formatSecretarialPriceLine(companies)}
+        </p>
+      </div>
+
+      <label className="mt-6 block text-sm text-ink-soft">
+        Limited companies
+        <input
+          type="number"
+          min={SECRETARIAL_SCALE_MIN_COMPANIES}
+          max={SECRETARIAL_SCALE_MAX_COMPANIES}
+          step={1}
+          value={companies}
+          onChange={(e) => {
+            const n = Math.floor(Number(e.target.value));
+            if (!Number.isFinite(n)) return;
+            setCompanies(
+              Math.max(
+                SECRETARIAL_SCALE_MIN_COMPANIES,
+                Math.min(SECRETARIAL_SCALE_MAX_COMPANIES, n),
+              ),
+            );
+          }}
+          className="mt-1.5 w-full rounded-lg border border-line bg-white px-3 py-2 text-ink"
+        />
+      </label>
+      <p className="mt-2 text-xs leading-relaxed text-ink-soft">
+        Band size {SECRETARIAL_BAND_SIZE}: each band is{" "}
+        {formatGBP(SECRETARIAL_PRICE_PER_BAND_POUNDS)}/month. Formula{" "}
+        <span className="mono">
+          ceil(n ÷ {SECRETARIAL_BAND_SIZE}) × £
+          {SECRETARIAL_PRICE_PER_BAND_POUNDS}
+        </span>
+        .
+      </p>
+
+      <ul className="pricing-plan__features mt-6 flex-1 space-y-3 text-sm text-ink-soft">
+        {plan.features.map((f) => (
+          <li key={f} className="flex gap-2.5">
+            <span className="mt-0.5 text-sea" aria-hidden>
+              ✓
+            </span>
+            <span>{f}</span>
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-auto pt-6">
+        {!signedIn ? (
+          <Link
+            href={accountHref}
+            className="btn btn-primary w-full px-3 py-2.5 text-sm leading-snug"
+          >
+            {plan.cta} · {formatGBP(monthly)}/mo
+          </Link>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onCheckout(checkoutKey)}
+            className="btn btn-primary w-full px-3 py-2.5 text-sm leading-snug disabled:opacity-60"
+          >
+            {loading
+              ? "Redirecting…"
+              : `${plan.cta} · ${formatGBP(monthly)}/mo`}
           </button>
         )}
       </div>

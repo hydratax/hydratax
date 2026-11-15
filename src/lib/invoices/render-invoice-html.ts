@@ -44,6 +44,13 @@ export type InvoiceRenderModel = {
   reference?: string | null;
   notes?: string | null;
   paymentInstructions?: string | null;
+  subject?: string | null;
+  termsConditions?: string | null;
+  discountPence?: number;
+  shippingPence?: number;
+  adjustmentPence?: number;
+  /** Absolute URL for public card pay */
+  payUrl?: string | null;
   subtotalPence: number;
   vatPence: number;
   totalPence: number;
@@ -126,10 +133,40 @@ export function renderInvoiceHtml(input: {
     )
     .join("");
 
+  const subject = inv.subject?.trim()
+    ? `<p class="meta"><strong>Subject:</strong> ${escapeHtml(inv.subject)}</p>`
+    : "";
+
   const notes = inv.notes?.trim()
     ? `<section class="block">
-        <h2>Notes</h2>
+        <h2>Customer notes</h2>
         <p class="pre">${escapeHtml(inv.notes)}</p>
+      </section>`
+    : "";
+
+  const terms = inv.termsConditions?.trim()
+    ? `<section class="block">
+        <h2>Terms &amp; conditions</h2>
+        <p class="pre">${escapeHtml(inv.termsConditions)}</p>
+      </section>`
+    : "";
+
+  const extrasRows = [
+    inv.discountPence
+      ? `<tr><td colspan="4">Discount</td><td class="num">−${escapeHtml(gbp(inv.discountPence))}</td></tr>`
+      : "",
+    inv.shippingPence
+      ? `<tr><td colspan="4">Shipping</td><td class="num">${escapeHtml(gbp(inv.shippingPence))}</td></tr>`
+      : "",
+    inv.adjustmentPence
+      ? `<tr><td colspan="4">Adjustment</td><td class="num">${escapeHtml(gbp(inv.adjustmentPence))}</td></tr>`
+      : "",
+  ].join("");
+
+  const payOnline = inv.payUrl?.trim()
+    ? `<section class="block payment">
+        <h2>Pay online</h2>
+        <p><a href="${escapeHtml(inv.payUrl)}">${escapeHtml(inv.payUrl)}</a></p>
       </section>`
     : "";
 
@@ -343,8 +380,8 @@ export function renderInvoiceHtml(input: {
 </head>
 <body>
   <div class="toolbar print-hide">
-    <span>Invoice ${escapeHtml(inv.invoiceNumber)} · use Print to save as PDF</span>
-    <button type="button" onclick="window.print()">Print / PDF</button>
+    <span>Invoice ${escapeHtml(inv.invoiceNumber)} · choose “Save as PDF” in the print dialog</span>
+    <button type="button" onclick="window.print()">Download PDF</button>
   </div>
   <div class="sheet">
     ${brandingBanner}
@@ -382,6 +419,7 @@ export function renderInvoiceHtml(input: {
         ${addressBlock}
       </div>
     </div>
+    ${subject}
     <table class="lines">
       <thead>
         <tr>
@@ -392,16 +430,21 @@ export function renderInvoiceHtml(input: {
           <th class="num">Net</th>
         </tr>
       </thead>
-      <tbody>${linesHtml}</tbody>
+      <tbody>${linesHtml}${extrasRows}</tbody>
     </table>
     <div class="totals-wrap">
       <div class="totals">
         <div class="row"><span>Net</span><span>${escapeHtml(gbp(inv.subtotalPence))}</span></div>
+        ${inv.discountPence ? `<div class="row"><span>Discount</span><span>−${escapeHtml(gbp(inv.discountPence))}</span></div>` : ""}
+        ${inv.shippingPence ? `<div class="row"><span>Shipping</span><span>${escapeHtml(gbp(inv.shippingPence))}</span></div>` : ""}
+        ${inv.adjustmentPence ? `<div class="row"><span>Adjustment</span><span>${escapeHtml(gbp(inv.adjustmentPence))}</span></div>` : ""}
         <div class="row"><span>VAT</span><span>${escapeHtml(gbp(inv.vatPence))}</span></div>
         <div class="row grand"><span>Total due</span><span>${escapeHtml(gbp(inv.totalPence))}</span></div>
       </div>
     </div>
     ${notes}
+    ${terms}
+    ${payOnline}
     ${payment}
     ${footer ? `<footer class="footer">${footer}</footer>` : `<footer class="footer"><p class="placeholder">Footer / regulatory lines — add in Practice branding</p></footer>`}
   </div>

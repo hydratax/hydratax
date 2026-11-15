@@ -25,6 +25,9 @@ export const TAX_YEAR_2026_27 = {
   niPtMonthlyPence: 1_048_00,
   niStWeeklyPence: 96_00,
   niStMonthlyPence: 417_00,
+  /** Upper Earnings Limit — NI band ceiling (aligned with AE upper). */
+  niUelWeeklyPence: 967_00,
+  niUelMonthlyPence: 4_189_00,
 } as const;
 
 /** 5.6 / 46.4 — GOV.UK irregular-hours rolled-up holiday pay. */
@@ -40,6 +43,20 @@ export type TimesheetAdjustments = {
   irregularHours?: boolean;
   maternityWeeks?: number;
   maternityWeekFrom?: number;
+  /** Statutory paternity weeks in this period (maps to SPPYTD on FPS). */
+  paternityWeeks?: number;
+  /** Statutory adoption weeks (SAPYTD). */
+  adoptionWeeks?: number;
+  /** Shared parental weeks (ShPPYTD). */
+  sharedParentalWeeks?: number;
+  /** Parental bereavement weeks (SPBPYTD). */
+  parentalBereavementWeeks?: number;
+  /** Neonatal care weeks (SNCPYTD). */
+  neonatalCareWeeks?: number;
+  /** Unpaid absence this period → FPS Payment/UnpaidAbsence. */
+  unpaidAbsence?: boolean;
+  /** On strike this period → FPS Payment/OnStrike. */
+  onStrike?: boolean;
   hourlyRatePence?: number;
 };
 
@@ -172,6 +189,21 @@ export function autoEnrolmentPension(opts: {
   };
 }
 
+/** Flat-rate statutory family leave (SPP/SAP/ShPP/SPBP/SNCP) — lower of standard weekly rate or 90% AWE. */
+export function statutoryFlatWeeksPence(opts: {
+  awePence: number;
+  weeks: number;
+}): number {
+  const weeks = Math.max(0, Math.floor(opts.weeks));
+  if (weeks === 0) return 0;
+  if (opts.awePence < TAX_YEAR_2026_27.lelWeeklyPence) return 0;
+  const ninety = Number(
+    multiplyPence(opts.awePence, TAX_YEAR_2026_27.smpAweBps / 10_000),
+  );
+  const weekly = Math.min(TAX_YEAR_2026_27.smpStandardWeeklyPence, ninety);
+  return weekly * weeks;
+}
+
 export function buildStatutoryElements(opts: {
   frequency: PayFrequency;
   annualSalaryPence: number;
@@ -187,6 +219,13 @@ export function buildStatutoryElements(opts: {
   holidayPence: number;
   sspPence: number;
   smpPence: number;
+  sppPence: number;
+  sapPence: number;
+  shppPence: number;
+  spbpPence: number;
+  sncpPence: number;
+  unpaidAbsence: boolean;
+  onStrike: boolean;
   notes: string[];
 } {
   const notes: string[] = [];
@@ -270,12 +309,47 @@ export function buildStatutoryElements(opts: {
     );
   }
 
+  const sppPence = statutoryFlatWeeksPence({
+    awePence: awe,
+    weeks: adj.paternityWeeks ?? 0,
+  });
+  const sapPence = statutoryFlatWeeksPence({
+    awePence: awe,
+    weeks: adj.adoptionWeeks ?? 0,
+  });
+  const shppPence = statutoryFlatWeeksPence({
+    awePence: awe,
+    weeks: adj.sharedParentalWeeks ?? 0,
+  });
+  const spbpPence = statutoryFlatWeeksPence({
+    awePence: awe,
+    weeks: adj.parentalBereavementWeeks ?? 0,
+  });
+  const sncpPence = statutoryFlatWeeksPence({
+    awePence: awe,
+    weeks: adj.neonatalCareWeeks ?? 0,
+  });
+  if (sppPence > 0) notes.push("Statutory paternity pay included this period.");
+  if (sapPence > 0) notes.push("Statutory adoption pay included this period.");
+  if (shppPence > 0) notes.push("Shared parental pay included this period.");
+  if (spbpPence > 0) notes.push("Statutory parental bereavement pay included this period.");
+  if (sncpPence > 0) notes.push("Statutory neonatal care pay included this period.");
+  if (adj.unpaidAbsence) notes.push("Unpaid absence flagged for FPS.");
+  if (adj.onStrike) notes.push("On strike flagged for FPS.");
+
   return {
     ordinaryPence: Number(pence(ordinaryPence)),
     overtimePence: Number(pence(overtimePence)),
     holidayPence: Number(pence(holidayPence)),
     sspPence: Number(pence(ssp.periodPence)),
     smpPence: Number(pence(smp.periodPence)),
+    sppPence: Number(pence(sppPence)),
+    sapPence: Number(pence(sapPence)),
+    shppPence: Number(pence(shppPence)),
+    spbpPence: Number(pence(spbpPence)),
+    sncpPence: Number(pence(sncpPence)),
+    unpaidAbsence: Boolean(adj.unpaidAbsence),
+    onStrike: Boolean(adj.onStrike),
     notes,
   };
 }

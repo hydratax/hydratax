@@ -21,6 +21,15 @@ import {
   chServiceTotal,
   formatChServicePrice,
 } from "@/lib/ch-services";
+import {
+  SECRETARIAL_SECTION_ID,
+  formatSecretarialPriceLine,
+  isCompanySecretarialPlan,
+  parseSecretarialScaleCount,
+  secretarialMonthlyPounds,
+  secretarialScalePlanKey,
+  secretarialStarterPlanKey,
+} from "@/lib/company-secretarial";
 
 export type CheckoutPlan = {
   key: string;
@@ -48,6 +57,9 @@ export function listCheckoutPlans(): CheckoutPlan[] {
     if (section.id === "companies-house") continue;
     for (const plan of section.plans) {
       if ("customBuilder" in plan && plan.customBuilder) continue;
+      if ("secretarialScaleBuilder" in plan && plan.secretarialScaleBuilder) {
+        continue;
+      }
       const oneTime =
         plan.period.includes("filing") ||
         plan.period.includes("return") ||
@@ -107,6 +119,34 @@ export function listCheckoutPlans(): CheckoutPlan[] {
 export function getCheckoutPlan(key: string): CheckoutPlan | undefined {
   const listed = listCheckoutPlans().find((p) => p.key === key);
   if (listed) return listed;
+
+  if (isCompanySecretarialPlan(key)) {
+    if (key === secretarialStarterPlanKey()) {
+      const monthly = secretarialMonthlyPounds(10);
+      return {
+        key,
+        sectionId: SECRETARIAL_SECTION_ID,
+        name: "Company Secretarial — Up to 10 companies",
+        amountPence: monthly * 100,
+        interval: "month",
+        description: formatSecretarialPriceLine(10),
+        monthlyListPounds: monthly,
+      };
+    }
+    const count = parseSecretarialScaleCount(key);
+    if (count != null) {
+      const monthly = secretarialMonthlyPounds(count);
+      return {
+        key: secretarialScalePlanKey(count),
+        sectionId: SECRETARIAL_SECTION_ID,
+        name: `Company Secretarial — ${count} companies`,
+        amountPence: monthly * 100,
+        interval: "month",
+        description: formatSecretarialPriceLine(count),
+        monthlyListPounds: monthly,
+      };
+    }
+  }
 
   if (key.startsWith("companies-house:")) {
     const tier: DeskPlanTier = key.endsWith(":desk") ? "desk" : "solo";

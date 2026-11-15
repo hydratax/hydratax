@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import {
-  SA_TAXPAYER_ROLES,
+  SA_TAXPAYER_ROLE_OPTIONS,
   roleLabel,
+  roleNeedsCompanyLink,
   type SaTaxpayer,
   type SaTaxpayerRole,
 } from "@/lib/sa-taxpayer";
@@ -14,7 +15,16 @@ import {
   syncSaTaxpayersFromCompaniesHouse,
   upsertSaTaxpayer,
 } from "@/server/actions/sa-taxpayers";
+import { deleteClient } from "@/server/actions/clients";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { AddressFields } from "@/components/forms/address-fields";
+import { addressIdentityComplete } from "@/lib/address-parts";
+import { OrgChTypeahead } from "@/components/forms/org-ch-typeahead";
+
+function isPlanPeopleLimitError(message: string | null): boolean {
+  if (!message) return false;
+  return /plan allows|upgrade on pricing/i.test(message);
+}
 
 export function SaTaxpayerManager({
   clientId,
@@ -23,6 +33,7 @@ export function SaTaxpayerManager({
   selectedId,
   isLimitedCompany,
   canSyncFromCh,
+  maxPeople = null,
 }: {
   clientId: string;
   clientSlug: string;
@@ -30,6 +41,8 @@ export function SaTaxpayerManager({
   selectedId: string | null;
   isLimitedCompany: boolean;
   canSyncFromCh: boolean;
+  /** From plan entitlements — Solo = 1. null = unlimited. */
+  maxPeople?: number | null;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -37,6 +50,9 @@ export function SaTaxpayerManager({
   const [ok, setOk] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(taxpayers.length === 0);
   const [editing, setEditing] = useState<SaTaxpayer | null>(null);
+
+  const atPeopleCap =
+    maxPeople != null && taxpayers.length >= maxPeople && !editing;
 
   function hrefFor(id: string) {
     return `/clients/${clientSlug}/self-assessment?person=${encodeURIComponent(id)}`;
@@ -54,7 +70,7 @@ export function SaTaxpayerManager({
           <p className="mt-1 max-w-2xl text-sm text-ink-soft">
             {isLimitedCompany
               ? "Personal SA100 returns belong to individuals — not the limited company. Add each director or shareholder with their NINO and personal UTR, then file their return."
-              : "Confirm NINO and UTR, then complete the SA100 year-end return and keep personal books below."}
+              : "Confirm NINO and personal UTR, then complete the SA100 year-end return."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -85,20 +101,44 @@ export function SaTaxpayerManager({
               Sync from Companies House
             </button>
           ) : null}
-          <button
-            type="button"
-            className="btn btn-primary text-sm"
-            onClick={() => {
-              setEditing(null);
-              setShowForm(true);
-            }}
-          >
-            Add person
-          </button>
+          {atPeopleCap ? (
+            <Link href="/pricing" className="btn btn-primary text-sm">
+              Upgrade plan to add more people
+            </Link>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-primary text-sm"
+              onClick={() => {
+                setEditing(null);
+                setError(null);
+                setShowForm(true);
+              }}
+            >
+              Add person
+            </button>
+          )}
         </div>
       </div>
 
-      <FormErrorBanner error={error} />
+      <FormErrorBanner
+        error={error}
+        title={
+          isPlanPeopleLimitError(error) ? "Plan limit reached" : undefined
+        }
+      >
+        {isPlanPeopleLimitError(error) ? (
+          <p className="mt-2 text-sm">
+            <Link
+              href="/pricing"
+              className="font-semibold text-sea underline hover:no-underline"
+            >
+              View pricing plans
+            </Link>{" "}
+            to upgrade and add more individuals.
+          </p>
+        ) : null}
+      </FormErrorBanner>
       {ok ? <p className="text-sm text-ok">{ok}</p> : null}
 
       {taxpayers.length === 0 ? (
@@ -112,7 +152,11 @@ export function SaTaxpayerManager({
         <ul className="grid gap-3 sm:grid-cols-2">
           {taxpayers.map((t) => {
             const active = t.id === selectedId;
-            const ready = Boolean(t.nino.trim() && t.utr.trim());
+            const ready = Boolean(
+              t.nino.trim() &&
+                t.utr.trim() &&
+                addressIdentityComplete(t.address),
+            );
             return (
               <li key={t.id}>
                 <Link
@@ -137,13 +181,20 @@ export function SaTaxpayerManager({
                           : "bg-amber-50 text-amber-800"
                       }`}
                     >
-                      {ready ? "Ready" : "Need NINO/UTR"}
+                      {ready ? "Ready" : "Need NINO/UTR/address"}
                     </span>
                   </div>
                   <p className="mt-3 mono text-xs text-ink-soft">
                     NINO {t.nino || "—"} · UTR {t.utr || "—"}
                   </p>
-                  {t.shareholdingNote ? (
+                  {t.companyIncomes && t.companyIncomes.length > 0 ? (
+                    <p className="mt-1 line-clamp-2 text-xs text-ink-soft">
+                      {t.companyIncomes
+                        .map((c) => c.companyName || c.companyNumber)
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  ) : t.shareholdingNote ? (
                     <p className="mt-1 line-clamp-2 text-xs text-ink-soft">
                       {t.shareholdingNote}
                     </p>
@@ -155,6 +206,7 @@ export function SaTaxpayerManager({
                     className="text-xs font-semibold text-sea hover:underline"
                     onClick={() => {
                       setEditing(t);
+                      setError(null);
                       setShowForm(true);
                     }}
                   >
@@ -199,7 +251,10 @@ export function SaTaxpayerManager({
 
       {showForm ? (
         <TaxpayerForm
+          key={editing?.id ?? "new-person"}
           clientId={clientId}
+          clientSlug={clientSlug}
+          isLimitedCompany={isLimitedCompany}
           initial={editing}
           pending={pending}
           onCancel={() => {
@@ -213,6 +268,10 @@ export function SaTaxpayerManager({
             router.push(hrefFor(row.id));
             router.refresh();
           }}
+          onRemoved={() => {
+            setShowForm(false);
+            setEditing(null);
+          }}
           onError={setError}
           start={start}
         />
@@ -223,21 +282,44 @@ export function SaTaxpayerManager({
 
 function TaxpayerForm({
   clientId,
+  clientSlug,
+  isLimitedCompany,
   initial,
   pending,
   onCancel,
   onSave,
+  onRemoved,
   onError,
   start,
 }: {
   clientId: string;
+  clientSlug: string;
+  isLimitedCompany: boolean;
   initial: SaTaxpayer | null;
   pending: boolean;
   onCancel: () => void;
   onSave: (row: SaTaxpayer) => void;
+  onRemoved: () => void;
   onError: (msg: string | null) => void;
   start: (fn: () => Promise<void>) => void;
 }) {
+  const router = useRouter();
+  const defaultRole = (initial?.role &&
+  SA_TAXPAYER_ROLE_OPTIONS.includes(
+    initial.role as (typeof SA_TAXPAYER_ROLE_OPTIONS)[number],
+  )
+    ? initial.role
+    : "sole_trader") as SaTaxpayerRole;
+  const [role, setRole] = useState<SaTaxpayerRole>(defaultRole);
+  const needsCompany = roleNeedsCompanyLink(role);
+  const isPartner = role === "partner";
+
+  const linkedHint = useMemo(() => {
+    const first = initial?.companyIncomes?.[0];
+    if (!first) return null;
+    return `${first.companyName}${first.companyNumber ? ` (${first.companyNumber})` : ""}`;
+  }, [initial]);
+
   return (
     <form
       className="gloss-card relative overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-5"
@@ -245,23 +327,54 @@ function TaxpayerForm({
         e.preventDefault();
         onError(null);
         const fd = new FormData(e.currentTarget);
+        const orgSearch = String(fd.get("orgSearch") ?? "").trim();
+        const pickedNumber = String(fd.get("companyNumber") ?? "").trim();
+        const fromParen = orgSearch.match(/\(([A-Z0-9]{2,8})\)\s*$/i)?.[1];
+        const companyNumber = needsCompany
+          ? pickedNumber || fromParen || ""
+          : "";
+        const companyName = needsCompany
+          ? orgSearch.replace(/\s*\([A-Z0-9]+\)\s*$/i, "").trim() ||
+            companyNumber
+          : "";
+        if (needsCompany && !companyNumber) {
+          onError("Search and select the company from Companies House.");
+          return;
+        }
+        const nino = String(fd.get("nino") || "");
+        const utr = String(fd.get("utr") || "");
+        const address = String(fd.get("address") || "");
+        if (
+          !nino.replace(/\s/g, "").trim() ||
+          !utr.replace(/\s/g, "").trim() ||
+          !addressIdentityComplete(address)
+        ) {
+          onError(
+            "NINO, personal UTR, street address and postcode are required.",
+          );
+          return;
+        }
         start(async () => {
           try {
             const row = await upsertSaTaxpayer({
               clientId,
               id: initial?.id,
               fullName: String(fd.get("fullName") || ""),
-              role: String(fd.get("role") || "sole_trader") as SaTaxpayerRole,
-              nino: String(fd.get("nino") || ""),
-              utr: String(fd.get("utr") || ""),
+              role,
+              nino,
+              utr,
               dateOfBirth: String(fd.get("dateOfBirth") || ""),
               email: String(fd.get("email") || ""),
               phone: String(fd.get("phone") || ""),
-              address: String(fd.get("address") || ""),
+              address,
               occupation: String(fd.get("occupation") || ""),
-              tradingAs: String(fd.get("tradingAs") || ""),
+              tradingAs: isPartner
+                ? String(fd.get("partnershipName") || "")
+                : String(fd.get("tradingAs") || ""),
               shareholdingNote: String(fd.get("shareholdingNote") || ""),
               appointedOn: initial?.appointedOn ?? null,
+              linkedCompanyNumber: companyNumber || undefined,
+              linkedCompanyName: companyName || undefined,
             });
             onSave(row);
           } catch (err) {
@@ -287,29 +400,70 @@ function TaxpayerForm({
           Role
           <select
             name="role"
-            defaultValue={initial?.role ?? "sole_trader"}
+            value={role}
+            onChange={(e) => setRole(e.target.value as SaTaxpayerRole)}
             className="input mt-1.5 w-full"
           >
-            {SA_TAXPAYER_ROLES.map((r) => (
+            {SA_TAXPAYER_ROLE_OPTIONS.map((r) => (
               <option key={r} value={r}>
                 {roleLabel(r)}
               </option>
             ))}
           </select>
         </label>
+
+        {needsCompany ? (
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-semibold">
+              {role === "shareholder"
+                ? "Which company are you a shareholder of?"
+                : role === "director_shareholder"
+                  ? "Which company are you a director & shareholder of?"
+                  : "Which company are you a director of?"}
+            </label>
+            <OrgChTypeahead
+              key={`ch-${initial?.id ?? "new"}-${role}`}
+              name="orgSearch"
+              placeholder="Search company name or number…"
+              required
+              enabled
+            />
+            {linkedHint ? (
+              <p className="mt-1 text-xs text-ink-soft">
+                Currently linked: {linkedHint}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {isPartner ? (
+          <label className="block text-sm font-semibold sm:col-span-2">
+            Name of partnership
+            <input
+              name="partnershipName"
+              required
+              defaultValue={initial?.tradingAs ?? ""}
+              placeholder="Partnership trading name"
+              className="input mt-1.5 w-full"
+            />
+          </label>
+        ) : null}
+
         <label className="block text-sm font-semibold">
-          NINO
+          NINO *
           <input
             name="nino"
+            required
             defaultValue={initial?.nino ?? ""}
             placeholder="QQ123456C"
             className="input mono mt-1.5 w-full"
           />
         </label>
         <label className="block text-sm font-semibold">
-          Personal UTR
+          Personal UTR *
           <input
             name="utr"
+            required
             defaultValue={initial?.utr ?? ""}
             placeholder="10-digit personal UTR (not company CT)"
             className="input mono mt-1.5 w-full"
@@ -342,14 +496,16 @@ function TaxpayerForm({
             className="input mt-1.5 w-full"
           />
         </label>
-        <label className="block text-sm font-semibold sm:col-span-2">
-          Address
-          <input
-            name="address"
-            defaultValue={initial?.address ?? ""}
-            className="input mt-1.5 w-full"
-          />
-        </label>
+        <div className="sm:col-span-2">
+          <p className="text-sm font-semibold">Address *</p>
+          <div className="mt-1.5">
+            <AddressFields
+              name="address"
+              required
+              defaultValue={initial?.address}
+            />
+          </div>
+        </div>
         <label className="block text-sm font-semibold">
           Occupation
           <input
@@ -359,15 +515,17 @@ function TaxpayerForm({
             className="input mt-1.5 w-full"
           />
         </label>
-        <label className="block text-sm font-semibold">
-          Trading as
-          <input
-            name="tradingAs"
-            defaultValue={initial?.tradingAs ?? ""}
-            placeholder="Sole trader business name"
-            className="input mt-1.5 w-full"
-          />
-        </label>
+        {!isPartner ? (
+          <label className="block text-sm font-semibold">
+            Trading as
+            <input
+              name="tradingAs"
+              defaultValue={initial?.tradingAs ?? ""}
+              placeholder="Sole trader business name"
+              className="input mt-1.5 w-full"
+            />
+          </label>
+        ) : null}
         <label className="block text-sm font-semibold sm:col-span-2">
           Shareholding / notes
           <input
@@ -378,13 +536,50 @@ function TaxpayerForm({
           />
         </label>
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
         <button type="submit" className="btn btn-primary" disabled={pending}>
           {pending ? "Saving…" : "Save person"}
         </button>
         <button type="button" className="btn btn-ghost" onClick={onCancel}>
           Cancel
         </button>
+        {initial ? (
+          <button
+            type="button"
+            className="btn btn-ghost ml-auto text-amber-800 hover:text-amber-950"
+            disabled={pending}
+            onClick={() => {
+              const removeWholeClient =
+                !isLimitedCompany || initial.id === `client-${clientId}`;
+              const label = removeWholeClient
+                ? `Remove client ${initial.fullName}? This permanently deletes their desk data.`
+                : `Remove ${initial.fullName} from Self Assessment?`;
+              if (!confirm(label)) return;
+              onError(null);
+              start(async () => {
+                try {
+                  if (removeWholeClient) {
+                    await deleteClient(clientId);
+                    onRemoved();
+                    router.push("/clients");
+                    router.refresh();
+                    return;
+                  }
+                  await deleteSaTaxpayer(clientId, initial.id);
+                  onRemoved();
+                  router.push(`/clients/${clientSlug}/self-assessment`);
+                  router.refresh();
+                } catch (err) {
+                  onError(
+                    err instanceof Error ? err.message : "Could not remove",
+                  );
+                }
+              });
+            }}
+          >
+            Remove client
+          </button>
+        ) : null}
       </div>
     </form>
   );

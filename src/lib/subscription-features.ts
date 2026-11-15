@@ -52,11 +52,19 @@ export function featuresForPlanKey(planKey: string): {
     for (const mod of selection.modules) {
       const meta = CUSTOM_PLAN_MODULES.find((m) => m.id === mod.id);
       if (meta) {
-        features.push(
-          mod.clients == null
-            ? `${meta.label}: unlimited clients`
-            : `${meta.label}: up to ${mod.clients} client${mod.clients === 1 ? "" : "s"}`,
-        );
+        if (mod.clients == null) {
+          features.push(
+            meta.id === "payroll"
+              ? `${meta.label}: unlimited clients · unlimited employees per company`
+              : `${meta.label}: unlimited clients`,
+          );
+        } else {
+          features.push(
+            meta.id === "payroll"
+              ? `${meta.label}: up to ${mod.clients} client${mod.clients === 1 ? "" : "s"} · unlimited employees per company`
+              : `${meta.label}: up to ${mod.clients} client${mod.clients === 1 ? "" : "s"}`,
+          );
+        }
       }
     }
     if (selection.modules.length === 0) {

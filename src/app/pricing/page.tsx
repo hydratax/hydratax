@@ -9,15 +9,17 @@ import { getOptionalSession } from "@/server/auth/session";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Pricing — CT600, VAT, Self Assessment, PAYE & Companies House",
+  title:
+    "Pricing — CT600, VAT, Self Assessment, PAYE, Company Secretarial & Companies House",
   description:
-    "Transparent HydraTax pricing for accountants and directors: practice desk plans (Practice & Custom include a 7-day free trial), MTD VAT, CT600, Self Assessment, PAYE RTI, and Companies House filings.",
+    "Transparent HydraTax pricing for accountants and directors: practice desk plans (Practice & Custom include a 7-day free trial), MTD VAT, CT600, Self Assessment, PAYE RTI, Company Secretarial, and Companies House filings.",
   keywords: [
     "HydraTax pricing",
     "CT600 software pricing",
     "MTD VAT filing cost",
     "Self Assessment software UK",
     "PAYE RTI software",
+    "company secretarial software UK",
     "confirmation statement filing cost",
     "Companies House filing service",
     "accountant tax software UK",
@@ -27,7 +29,7 @@ export const metadata = {
   openGraph: {
     title: "HydraTax Pricing",
     description:
-      "Interactive pricing for practice desk, VAT, CT600, SA, payroll, and Companies House. Practice & Custom include a 7-day free trial.",
+      "Interactive pricing for practice desk, VAT, CT600, SA, payroll, Company Secretarial, and Companies House. Practice & Custom include a 7-day free trial.",
     type: "website",
     images: [
       {

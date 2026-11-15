@@ -33,6 +33,8 @@ const PUBLIC_PREFIXES = [
   // enforces its own session + signed-state checks.
   "/api/checkout",
   "/api/stripe/webhook",
+  "/api/pay",
+  "/pay",
   "/api/cron",
   "/api/unsubscribe",
   "/unsubscribe",

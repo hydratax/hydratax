@@ -6,6 +6,11 @@ import { formatChServicePrice } from "@/lib/ch-services";
 import { searchSicCodes, type SicCode } from "@/lib/sic-codes";
 import { submitCompaniesHouseRequest } from "@/server/actions/ch-requests";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { AddressFields } from "@/components/forms/address-fields";
+import {
+  addressIdentityComplete,
+  addressPartsDisplay,
+} from "@/lib/address-parts";
 
 type Director = {
   fullName: string;
@@ -193,12 +198,25 @@ export function IncorporationForm({
       setError("Confirm personal codes are ready for filing.");
       return;
     }
+    if (!addressIdentityComplete(registeredOffice)) {
+      setError("Registered office needs a street address and postcode.");
+      return;
+    }
+    if (
+      shareholders.some(
+        (s) => s.fullName.trim() && !addressIdentityComplete(s.address),
+      )
+    ) {
+      setError("Each shareholder address needs a street and postcode.");
+      return;
+    }
 
     const shareCapital = `${totalShares} ${shareClass.toLowerCase()} shares of £${nominalValue} each`;
 
     const fields: Record<string, string | boolean> = {
       proposedName: proposedName.trim(),
-      registeredOffice: registeredOffice.trim(),
+      registeredOffice:
+        addressPartsDisplay(registeredOffice) || registeredOffice.trim(),
       modeOfBusiness: modeOfBusiness.trim(),
       sicCodes: selectedSic.map((s) => s.code).join(", "),
       shareClass,
@@ -206,10 +224,17 @@ export function IncorporationForm({
       totalShares: String(totalShares),
       shareCapital,
       directorCount: String(directors.length),
-      directorsJson: JSON.stringify(directors),
+      directorsJson: JSON.stringify(
+        directors.map((d) => ({
+          ...d,
+          serviceAddress:
+            addressPartsDisplay(d.serviceAddress) || d.serviceAddress,
+        })),
+      ),
       shareholdersJson: JSON.stringify(
         shareholders.map((s) => ({
           ...s,
+          address: addressPartsDisplay(s.address) || s.address,
           percentage:
             totalShares > 0
               ? (((Number(s.shares) || 0) / totalShares) * 100).toFixed(2)
@@ -294,17 +319,17 @@ export function IncorporationForm({
         )}
       </section>
 
-      <label className="block text-sm font-semibold text-ink">
-        Registered office address
-        <span className="text-danger"> *</span>
-        <textarea
+      <div className="space-y-1.5">
+        <p className="text-sm font-semibold text-ink">
+          Registered office address
+          <span className="text-danger"> *</span>
+        </p>
+        <AddressFields
           value={registeredOffice}
-          onChange={(e) => setRegisteredOffice(e.target.value)}
+          onChange={setRegisteredOffice}
           required
-          rows={3}
-          className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 font-normal"
         />
-      </label>
+      </div>
 
       <section className="space-y-3">
         <label className="block text-sm font-semibold text-ink">
@@ -477,24 +502,19 @@ export function IncorporationForm({
                 />
               </label>
             </div>
-            <label className="block text-sm font-semibold text-ink">
-              Service address
-              <textarea
+            <div className="space-y-1.5">
+              <p className="text-sm font-semibold text-ink">Service address</p>
+              <AddressFields
                 value={director.serviceAddress}
-                onChange={(e) =>
+                onChange={(serviceAddress) =>
                   setDirectors((d) => {
                     const next = [...d];
-                    next[index] = {
-                      ...next[index],
-                      serviceAddress: e.target.value,
-                    };
+                    next[index] = { ...next[index], serviceAddress };
                     return next;
                   })
                 }
-                rows={2}
-                className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 font-normal"
               />
-            </label>
+            </div>
             <label className="block text-sm font-semibold text-ink">
               Companies House personal code
               <span className="text-danger"> *</span>
@@ -588,21 +608,20 @@ export function IncorporationForm({
                   className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 font-normal"
                 />
               </label>
-              <label className="block text-sm font-semibold text-ink">
-                Address
-                <textarea
+              <div className="space-y-1.5">
+                <p className="text-sm font-semibold text-ink">Address</p>
+                <AddressFields
                   value={shareholder.address}
-                  onChange={(e) =>
+                  onChange={(address) =>
                     setShareholders((s) => {
                       const next = [...s];
-                      next[index] = { ...next[index], address: e.target.value };
+                      next[index] = { ...next[index], address };
                       return next;
                     })
                   }
-                  rows={2}
-                  className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 font-normal"
+                  required
                 />
-              </label>
+              </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block text-sm font-semibold text-ink">
                   Number of shares

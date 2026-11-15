@@ -179,9 +179,7 @@ export async function submitAndPollRtiXml(opts: {
 
   if (!opts.senderId?.trim() || !opts.senderPassword?.trim()) {
     throw new Error(
-      cfg.env === "production"
-        ? "Enter the employer's Government Gateway User ID and password to submit PAYE RTI."
-        : "RTI test credentials missing — set HMRC_CT_TEST_SENDER_ID / PASSWORD or enter them at submit.",
+      "Enter your Government Gateway User ID and password to submit PAYE RTI. Credentials are per accountant (and optional per-client save) — not from server env.",
     );
   }
 
@@ -247,10 +245,19 @@ export async function submitAndPollRtiXml(opts: {
   });
 
   if (!ok) {
-    throw new Error(
+    const base =
       errorText?.trim() ||
-        `HMRC rejected the ${opts.kind} (qualifier: ${qualifier ?? "unknown"}). Check PAYE enrolment and Gateway credentials.`,
-    );
+      `HMRC rejected the ${opts.kind} (qualifier: ${qualifier ?? "unknown"}). Check PAYE enrolment and Gateway credentials.`;
+    const is1046 =
+      /\(1046\)/.test(base) ||
+      /Authentication Failure/i.test(base) ||
+      /credentials failed validation/i.test(base);
+    if (is1046 && cfg.env !== "production") {
+      throw new Error(
+        `${base} This server is on HMRC_ENV=${cfg.env} (test Transaction Engine). Live accountant/employer Gateway logins will not authenticate there. Set HMRC_ENV=production for live PAYE — each accountant still enters their own GG on submit (never in env).`,
+      );
+    }
+    throw new Error(base);
   }
 
   return {

@@ -30,6 +30,7 @@ const categorySchema = z
         "corporation_tax",
         "self_assessment",
         "companies_house",
+        "sa_discarded",
       ].includes(v) ||
       /^sa:[^:]+:(invoice|receipt|p60|bank_statement|books|other)$/.test(v) ||
       // Prior-year filed SA100 / SA302: sa_filed:2024-25:return[:taxpayerId]

@@ -2,10 +2,18 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/server/actions/clients";
 import { OrgChTypeahead } from "@/components/forms/org-ch-typeahead";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { AddressFields } from "@/components/forms/address-fields";
+import { addressIdentityComplete } from "@/lib/address-parts";
 import { looksLikeCompanyNumber } from "@/lib/company-number";
+
+function isPlanClientLimitError(message: string | null): boolean {
+  if (!message) return false;
+  return /plan allows|upgrade on pricing/i.test(message);
+}
 
 export function CreateClientForm({
   defaultVat = true,
@@ -23,6 +31,8 @@ export function CreateClientForm({
   const [type, setType] = useState<
     "sole_trader" | "limited_company" | "partnership"
   >("limited_company");
+  const [vatRegistered, setVatRegistered] = useState(defaultVat);
+  const [payeRegistered, setPayeRegistered] = useState(defaultEmployer);
 
   const isLtd = type === "limited_company";
 
@@ -33,6 +43,11 @@ export function CreateClientForm({
         e.preventDefault();
         const fd = new FormData(e.currentTarget);
         setError(null);
+        const address = String(fd.get("address") || "");
+        if (!addressIdentityComplete(address)) {
+          setError("Street address and postcode are required.");
+          return;
+        }
         start(async () => {
           try {
             const orgSearch = String(fd.get("orgSearch") ?? "").trim();
@@ -56,15 +71,21 @@ export function CreateClientForm({
               type,
               companyNumber,
               utr: String(fd.get("utr") || "") || undefined,
-              vrn: String(fd.get("vrn") || "") || undefined,
+              vrn: vatRegistered
+                ? String(fd.get("vrn") || "") || undefined
+                : undefined,
               nino: String(fd.get("nino") || "") || undefined,
-              payeRef: String(fd.get("payeRef") || "") || undefined,
-              accountsOfficeRef:
-                String(fd.get("accountsOfficeRef") || "") || undefined,
+              payeRef: payeRegistered
+                ? String(fd.get("payeRef") || "") || undefined
+                : undefined,
+              accountsOfficeRef: payeRegistered
+                ? String(fd.get("accountsOfficeRef") || "") || undefined
+                : undefined,
+              address,
               contactEmail: String(fd.get("contactEmail") || "") || undefined,
               contactPhone: String(fd.get("contactPhone") || "") || undefined,
-              isEmployer: fd.get("isEmployer") === "on",
-              isVatRegistered: fd.get("isVatRegistered") === "on",
+              isEmployer: payeRegistered,
+              isVatRegistered: vatRegistered,
             });
             router.push(`/clients/${client.id}`);
           } catch (err) {
@@ -109,6 +130,13 @@ export function CreateClientForm({
         </div>
       )}
 
+      <div>
+        <p className="label">Address *</p>
+        <div className="mt-1.5">
+          <AddressFields name="address" required />
+        </div>
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="label" htmlFor="utr">
@@ -117,22 +145,10 @@ export function CreateClientForm({
           <input id="utr" name="utr" className="input" />
         </div>
         <div>
-          <label className="label" htmlFor="vrn">
-            VRN
-          </label>
-          <input id="vrn" name="vrn" className="input" />
-        </div>
-        <div>
           <label className="label" htmlFor="nino">
             NINO
           </label>
           <input id="nino" name="nino" className="input" />
-        </div>
-        <div>
-          <label className="label" htmlFor="payeRef">
-            PAYE ref
-          </label>
-          <input id="payeRef" name="payeRef" className="input" />
         </div>
         <div>
           <label className="label" htmlFor="contactEmail">
@@ -165,23 +181,15 @@ export function CreateClientForm({
             placeholder="07…"
           />
         </div>
-        <div>
-          <label className="label" htmlFor="accountsOfficeRef">
-            Accounts Office ref
-          </label>
-          <input
-            id="accountsOfficeRef"
-            name="accountsOfficeRef"
-            className="input"
-          />
-        </div>
       </div>
-      <div className="flex gap-6 text-sm">
+
+      <div className="flex flex-wrap gap-6 text-sm">
         <label className="flex items-center gap-2">
           <input
             type="checkbox"
             name="isVatRegistered"
-            defaultChecked={defaultVat}
+            checked={vatRegistered}
+            onChange={(e) => setVatRegistered(e.target.checked)}
           />
           VAT registered
         </label>
@@ -189,12 +197,74 @@ export function CreateClientForm({
           <input
             type="checkbox"
             name="isEmployer"
-            defaultChecked={defaultEmployer}
+            checked={payeRegistered}
+            onChange={(e) => setPayeRegistered(e.target.checked)}
           />
-          Employer (PAYE)
+          PAYE registered
         </label>
       </div>
-      <FormErrorBanner error={error} />
+
+      {(vatRegistered || payeRegistered) && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {vatRegistered ? (
+            <div>
+              <label className="label" htmlFor="vrn">
+                VAT registration number
+              </label>
+              <input
+                id="vrn"
+                name="vrn"
+                className="input"
+                placeholder="GB…"
+              />
+            </div>
+          ) : null}
+          {payeRegistered ? (
+            <>
+              <div>
+                <label className="label" htmlFor="payeRef">
+                  PAYE reference number
+                </label>
+                <input
+                  id="payeRef"
+                  name="payeRef"
+                  className="input"
+                  placeholder="123/AB456"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="accountsOfficeRef">
+                  Accounts Office reference
+                </label>
+                <input
+                  id="accountsOfficeRef"
+                  name="accountsOfficeRef"
+                  className="input"
+                />
+              </div>
+            </>
+          ) : null}
+        </div>
+      )}
+
+      <FormErrorBanner
+        error={error}
+        title={
+          isPlanClientLimitError(error) ? "Plan limit reached" : undefined
+        }
+      >
+        {isPlanClientLimitError(error) ? (
+          <p className="mt-2 text-sm">
+            <Link
+              href="/pricing"
+              className="font-semibold text-sea underline hover:no-underline"
+            >
+              View pricing plans
+            </Link>{" "}
+            to upgrade and add more clients.
+          </p>
+        ) : null}
+      </FormErrorBanner>
       <button type="submit" className="btn btn-primary" disabled={pending}>
         {pending
           ? isLtd

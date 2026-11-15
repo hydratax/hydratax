@@ -1,9 +1,12 @@
+import Link from "next/link";
 import { AddClientChooser } from "@/components/forms/add-client-chooser";
 import { listClients } from "@/server/actions/clients";
+import { getPracticeEntitlements } from "@/server/actions/account";
 import { clientSlugFor } from "@/lib/client-slug";
 import { requireSession } from "@/server/auth/session";
 import { basePlanKey } from "@/lib/pricing";
 import { isSupabaseConfigured, isMemoryStore } from "@/lib/env";
+import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 type Props = {
   searchParams: Promise<{ desk?: string }>;
@@ -56,7 +59,10 @@ export default async function NewClientPage({ searchParams }: Props) {
   const desk =
     sp.desk === "vat" || sp.desk === "payroll" ? sp.desk : ("all" as const);
 
-  const clients = await listClients();
+  const [clients, entitlements] = await Promise.all([
+    listClients(),
+    getPracticeEntitlements().catch(() => null),
+  ]);
   const peers = clients.map((c) => ({ id: c.id, name: c.name }));
   const companies = clients
     .filter((c) => c.type === "limited_company")
@@ -76,6 +82,9 @@ export default async function NewClientPage({ searchParams }: Props) {
   const solo = await practicePlanIsSolo(session.practiceId);
   // Solo desks and empty practices go straight to the new-client form.
   const skipChooser = solo || companies.length === 0;
+  const maxClients = entitlements?.maxClients ?? null;
+  const atClientCap =
+    maxClients != null && clients.length >= maxClients;
 
   const title =
     desk === "vat"
@@ -89,17 +98,41 @@ export default async function NewClientPage({ searchParams }: Props) {
       <div>
         <h1 className="display text-4xl text-ink">{title}</h1>
         <p className="mt-1 text-ink-soft">
-          {skipChooser
-            ? "Enter the client details below to open their desk."
-            : "Pick a company already on your practice, or open the new client form."}
+          {atClientCap
+            ? "Your current plan is at its client limit."
+            : skipChooser
+              ? "Enter the client details below to open their desk."
+              : "Pick a company already on your practice, or open the new client form."}
         </p>
       </div>
-      <AddClientChooser
-        companies={companies}
-        desk={desk}
-        defaultContactEmail={session.email}
-        skipChooser={skipChooser}
-      />
+      {atClientCap ? (
+        <div className="space-y-4">
+          <FormErrorBanner
+            error={`Your plan allows ${maxClients} client${maxClients === 1 ? "" : "s"}. Upgrade on Pricing to add more clients.`}
+            title="Plan limit reached"
+          >
+            <p className="mt-2 text-sm">
+              <Link
+                href="/pricing"
+                className="font-semibold text-sea underline hover:no-underline"
+              >
+                View pricing plans
+              </Link>{" "}
+              to upgrade and add more clients.
+            </p>
+          </FormErrorBanner>
+          <Link href="/pricing" className="btn btn-primary inline-flex">
+            Upgrade plan
+          </Link>
+        </div>
+      ) : (
+        <AddClientChooser
+          companies={companies}
+          desk={desk}
+          defaultContactEmail={session.email}
+          skipChooser={skipChooser}
+        />
+      )}
     </div>
   );
 }

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { updateClient } from "@/server/actions/clients";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { AddressFields } from "@/components/forms/address-fields";
+import { addressIdentityComplete } from "@/lib/address-parts";
 
 export type EditClientValues = {
   id: string;
@@ -18,6 +20,7 @@ export type EditClientValues = {
   nino: string | null;
   payeRef: string | null;
   accountsOfficeRef: string | null;
+  address: string | null;
   contactEmail: string | null;
   contactPhone: string | null;
   isEmployer: boolean;
@@ -28,6 +31,8 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [vatRegistered, setVatRegistered] = useState(client.isVatRegistered);
+  const [payeRegistered, setPayeRegistered] = useState(client.isEmployer);
   const isLtd = client.type === "limited_company";
 
   return (
@@ -37,6 +42,11 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
         e.preventDefault();
         const fd = new FormData(e.currentTarget);
         setError(null);
+        const address = String(fd.get("address") || "");
+        if (!addressIdentityComplete(address)) {
+          setError("Street address and postcode are required.");
+          return;
+        }
         start(async () => {
           try {
             await updateClient({
@@ -47,15 +57,21 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
               companyAuthCode:
                 String(fd.get("companyAuthCode") || "") || undefined,
               utr: String(fd.get("utr") || "") || undefined,
-              vrn: String(fd.get("vrn") || "") || undefined,
+              vrn: vatRegistered
+                ? String(fd.get("vrn") || "") || undefined
+                : "",
               nino: String(fd.get("nino") || "") || undefined,
-              payeRef: String(fd.get("payeRef") || "") || undefined,
-              accountsOfficeRef:
-                String(fd.get("accountsOfficeRef") || "") || undefined,
+              payeRef: payeRegistered
+                ? String(fd.get("payeRef") || "") || undefined
+                : "",
+              accountsOfficeRef: payeRegistered
+                ? String(fd.get("accountsOfficeRef") || "") || undefined
+                : "",
+              address,
               contactEmail: String(fd.get("contactEmail") || "") || undefined,
               contactPhone: String(fd.get("contactPhone") || "") || undefined,
-              isEmployer: fd.get("isEmployer") === "on",
-              isVatRegistered: fd.get("isVatRegistered") === "on",
+              isEmployer: payeRegistered,
+              isVatRegistered: vatRegistered,
             });
             router.push(`/clients/${client.slug}`);
             router.refresh();
@@ -76,6 +92,17 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
           required
           defaultValue={client.name}
         />
+      </div>
+
+      <div>
+        <p className="label">Address *</p>
+        <div className="mt-1.5">
+          <AddressFields
+            name="address"
+            required
+            defaultValue={client.address}
+          />
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -157,39 +184,6 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
             defaultValue={client.utr ?? ""}
           />
         </div>
-        <div>
-          <label className="label" htmlFor="vrn">
-            VRN
-          </label>
-          <input
-            id="vrn"
-            name="vrn"
-            className="input"
-            defaultValue={client.vrn ?? ""}
-          />
-        </div>
-        <div>
-          <label className="label" htmlFor="payeRef">
-            PAYE ref
-          </label>
-          <input
-            id="payeRef"
-            name="payeRef"
-            className="input"
-            defaultValue={client.payeRef ?? ""}
-          />
-        </div>
-        <div>
-          <label className="label" htmlFor="accountsOfficeRef">
-            Accounts Office ref
-          </label>
-          <input
-            id="accountsOfficeRef"
-            name="accountsOfficeRef"
-            className="input"
-            defaultValue={client.accountsOfficeRef ?? ""}
-          />
-        </div>
       </div>
 
       <div className="flex flex-wrap gap-6 text-sm">
@@ -197,7 +191,8 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
           <input
             type="checkbox"
             name="isVatRegistered"
-            defaultChecked={client.isVatRegistered}
+            checked={vatRegistered}
+            onChange={(e) => setVatRegistered(e.target.checked)}
           />
           VAT registered
         </label>
@@ -205,11 +200,58 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
           <input
             type="checkbox"
             name="isEmployer"
-            defaultChecked={client.isEmployer}
+            checked={payeRegistered}
+            onChange={(e) => setPayeRegistered(e.target.checked)}
           />
-          Employer (PAYE)
+          PAYE registered
         </label>
       </div>
+
+      {(vatRegistered || payeRegistered) && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {vatRegistered ? (
+            <div>
+              <label className="label" htmlFor="vrn">
+                VAT registration number
+              </label>
+              <input
+                id="vrn"
+                name="vrn"
+                className="input"
+                placeholder="GB…"
+                defaultValue={client.vrn ?? ""}
+              />
+            </div>
+          ) : null}
+          {payeRegistered ? (
+            <>
+              <div>
+                <label className="label" htmlFor="payeRef">
+                  PAYE reference number
+                </label>
+                <input
+                  id="payeRef"
+                  name="payeRef"
+                  className="input"
+                  placeholder="123/AB456"
+                  defaultValue={client.payeRef ?? ""}
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="accountsOfficeRef">
+                  Accounts Office reference
+                </label>
+                <input
+                  id="accountsOfficeRef"
+                  name="accountsOfficeRef"
+                  className="input"
+                  defaultValue={client.accountsOfficeRef ?? ""}
+                />
+              </div>
+            </>
+          ) : null}
+        </div>
+      )}
 
       <FormErrorBanner error={error} />
 

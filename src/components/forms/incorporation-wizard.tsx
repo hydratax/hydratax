@@ -217,7 +217,7 @@ function AddressFields({
         />
       </label>
       <label className="block text-sm font-semibold text-ink">
-        Postcode
+        Postcode *
         <input
           id={`${idPrefix}-postcode`}
           className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 font-normal uppercase"

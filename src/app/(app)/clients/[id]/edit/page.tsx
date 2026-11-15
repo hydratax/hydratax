@@ -39,6 +39,10 @@ export default async function EditClientPage({
             nino: client.nino,
             payeRef: client.payeRef,
             accountsOfficeRef: client.accountsOfficeRef,
+            address:
+              "address" in client
+                ? ((client as { address?: string | null }).address ?? null)
+                : null,
             contactEmail: client.contactEmail ?? null,
             contactPhone:
               "contactPhone" in client

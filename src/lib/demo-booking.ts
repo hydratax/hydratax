@@ -1,4 +1,4 @@
-/** Public demo booking — Capium-style services & London business-hours slots. */
+/** Public demo booking — services & London business-hours slots. */
 
 export const DEMO_BOOKING_TZ = "Europe/London";
 

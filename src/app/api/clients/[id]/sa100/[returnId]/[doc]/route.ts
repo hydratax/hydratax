@@ -82,11 +82,16 @@ export async function GET(
       taxpayerName,
       meta,
     );
-    const suffix = supplements.length ? `+${supplements.join("+")}` : "";
+    const userSlug =
+      taxpayerName
+        .trim()
+        .replace(/[^a-zA-Z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 40) || "taxpayer";
     return lockedResponse(
       id,
       bytes,
-      `SA100-${row.taxYear}${suffix}.pdf`,
+      `SA100-${row.taxYear}-${userSlug}.pdf`,
       row.draft.dateOfBirth,
       { "X-HydraTax-SA-Supplements": supplements.join(",") },
     );

@@ -114,7 +114,7 @@ export function OrgChTypeahead({
     <div className="relative mt-1.5" ref={wrapRef}>
       <div className="relative">
         <span
-          className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-ink-soft"
+          className="pointer-events-none absolute right-3 top-1/2 z-10 -translate-y-1/2 text-ink-soft"
           aria-hidden
         >
           ⌕
@@ -127,7 +127,7 @@ export function OrgChTypeahead({
           aria-controls={listId}
           aria-expanded={open}
           role="combobox"
-          className="input w-full pl-9 pr-3"
+          className="input w-full pl-3 pr-9"
           placeholder={placeholder}
           required={required}
           onChange={(e) => {

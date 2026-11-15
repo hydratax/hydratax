@@ -391,7 +391,7 @@ export function BookDemoWizard({
               minLength={2}
               rows={3}
               className="input mt-1.5 w-full resize-y font-normal"
-              placeholder="e.g. Xero, Capium, FreeAgent, spreadsheets…"
+              placeholder="e.g. spreadsheets, another practice system…"
             />
           </label>
 

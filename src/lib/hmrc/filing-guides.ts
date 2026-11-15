@@ -30,7 +30,7 @@ export type Ct600Question = {
   ifYesRequires?: string;
 };
 
-/** Core questions every CT600 filing path must answer (QuickBooks/Capium-style checklist). */
+/** Core questions every CT600 filing path must answer. */
 export const CT600_ESSENTIAL_QUESTIONS: Ct600Question[] = [
   {
     id: "period_dates",

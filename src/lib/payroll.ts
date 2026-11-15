@@ -79,10 +79,18 @@ export function preflightPayRun(opts: {
   periodStart: string;
   periodEnd: string;
   frequency: PayFrequency;
+  /** When true, block FPS — product does not emit Directors NIC figures. */
+  hasDirectorEmployees?: boolean;
+  /** When true, block FPS — student loan YTD/period fields not in FPS builder. */
+  hasStudentLoanEmployees?: boolean;
   employees: Array<{
     id: string;
     payrollId: string;
     nino: string;
+    gender?: "M" | "F" | null;
+    forename?: string;
+    surname?: string;
+    jobTitle?: string | null;
     startDate: string;
     leaveDate?: string | null;
     active: boolean;
@@ -144,7 +152,34 @@ export function preflightPayRun(opts: {
         "RTI must be sent on or before payday. This pay date is in the past — HMRC may treat the FPS as late.",
     });
   }
+  const directorLike = paid.some((e) =>
+    /director/i.test(String(e.jobTitle ?? "")),
+  );
+  if (opts.hasDirectorEmployees || directorLike) {
+    checks.push({
+      level: "error",
+      code: "directors_nic_unsupported",
+      message:
+        "Directors’ NIC is not supported on FPS yet. Remove director employees from this run or file via another RTI product until HydraTax supports Directors NIC.",
+    });
+  }
+  if (opts.hasStudentLoanEmployees) {
+    checks.push({
+      level: "error",
+      code: "student_loan_unsupported",
+      message:
+        "Student loan deductions are not supported on FPS yet. Clear student loan flags or file via another RTI product.",
+    });
+  }
   for (const e of paid) {
+    if (e.gender !== "M" && e.gender !== "F") {
+      const who = [e.forename, e.surname].filter(Boolean).join(" ") || e.payrollId;
+      checks.push({
+        level: "error",
+        code: "gender",
+        message: `Gender (M/F) is required for HMRC FPS — set it for ${who} before submitting.`,
+      });
+    }
     if (e.startDate > opts.payDate && !e.firstFpsSent) {
       checks.push({
         level: "warn",
@@ -185,6 +220,13 @@ export function ytdFromRuns(
     taxablePence: 0,
     taxPence: 0,
     employeeNiPence: 0,
+    employerNiPence: 0,
+    smpPence: 0,
+    sppPence: 0,
+    sapPence: 0,
+    shppPence: 0,
+    spbpPence: 0,
+    sncpPence: 0,
   };
   for (const run of runs) {
     const status = String(run.status ?? "");
@@ -198,6 +240,13 @@ export function ytdFromRuns(
       (acc.taxablePence ?? 0) + (line.taxablePence ?? line.grossPence);
     acc.taxPence += line.taxPence;
     acc.employeeNiPence += line.employeeNiPence;
+    acc.employerNiPence = (acc.employerNiPence ?? 0) + (line.employerNiPence ?? 0);
+    acc.smpPence = (acc.smpPence ?? 0) + (line.smpPence ?? 0);
+    acc.sppPence = (acc.sppPence ?? 0) + (line.sppPence ?? 0);
+    acc.sapPence = (acc.sapPence ?? 0) + (line.sapPence ?? 0);
+    acc.shppPence = (acc.shppPence ?? 0) + (line.shppPence ?? 0);
+    acc.spbpPence = (acc.spbpPence ?? 0) + (line.spbpPence ?? 0);
+    acc.sncpPence = (acc.sncpPence ?? 0) + (line.sncpPence ?? 0);
   }
   return acc;
 }
@@ -227,6 +276,13 @@ export function mergeYtdWithBroughtForward(
     taxablePence: (bf?.taxablePence ?? 0) + runTaxable,
     taxPence: (bf?.taxPence ?? 0) + fromRuns.taxPence,
     employeeNiPence: (bf?.employeeNiPence ?? 0) + fromRuns.employeeNiPence,
+    employerNiPence: fromRuns.employerNiPence ?? 0,
+    smpPence: fromRuns.smpPence ?? 0,
+    sppPence: fromRuns.sppPence ?? 0,
+    sapPence: fromRuns.sapPence ?? 0,
+    shppPence: fromRuns.shppPence ?? 0,
+    spbpPence: fromRuns.spbpPence ?? 0,
+    sncpPence: fromRuns.sncpPence ?? 0,
   };
 }
 
@@ -238,7 +294,7 @@ export function renderPayslipHtml(opts: {
   periodEnd: string;
   frequency: string;
   line: PayLine;
-  /** Capium-style theme id from payroll settings. */
+  /** Payslip theme id from payroll settings. */
   template?: string;
 }) {
   const gbp = (n: number) =>

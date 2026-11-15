@@ -5,12 +5,14 @@ import {
   ENTERPRISE_MODULE_PACK_FLOORS,
   ENTERPRISE_PACK_FLOOR_RATIO,
   ENTERPRISE_VOLUME_ANCHOR_CLIENTS,
+  PAYE_EMPLOYEES_PER_EMPLOYER,
   PRACTICE_PLAN_CLIENT_LIMIT,
   basePlanKey,
   customModuleAmountPounds,
   customPlanAmountPounds,
   customPlanKey,
   parseCustomPlanSelection,
+  payeEmployeesPerEmployerCap,
   withYearlyPlanKey,
   yearlyAmountPoundsFromMonthly,
   yearlySavingsPoundsFromMonthly,
@@ -73,6 +75,37 @@ describe("enterprise volume pricing", () => {
         ],
       }),
     ).toBe("practice:Custom:payroll:15+vat:11");
+  });
+});
+
+describe("PAYE employees per employer cap", () => {
+  it("keeps Solo / Small Firm / PAYE add-ons at 10", () => {
+    expect(payeEmployeesPerEmployerCap(["practice:Solo"])).toBe(
+      PAYE_EMPLOYEES_PER_EMPLOYER,
+    );
+    expect(payeEmployeesPerEmployerCap(["practice:Practice"])).toBe(
+      PAYE_EMPLOYEES_PER_EMPLOYER,
+    );
+    expect(payeEmployeesPerEmployerCap(["payroll:Practice PAYE"])).toBe(
+      PAYE_EMPLOYEES_PER_EMPLOYER,
+    );
+  });
+
+  it("lifts the cap on Enterprise when PAYE is selected", () => {
+    expect(
+      payeEmployeesPerEmployerCap(["practice:Custom:payroll:15"]),
+    ).toBeNull();
+    expect(
+      payeEmployeesPerEmployerCap([
+        "practice:Custom:payroll:100+vat:50:yearly",
+      ]),
+    ).toBeNull();
+  });
+
+  it("does not lift the cap on Enterprise without the PAYE module", () => {
+    expect(payeEmployeesPerEmployerCap(["practice:Custom:vat:20"])).toBe(
+      PAYE_EMPLOYEES_PER_EMPLOYER,
+    );
   });
 });
 

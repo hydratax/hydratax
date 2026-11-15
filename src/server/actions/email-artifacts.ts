@@ -191,11 +191,16 @@ export async function emailClientArtifact(
           taxpayerName,
           meta,
         );
-        const suffix = supplements.length ? `+${supplements.join("+")}` : "";
+        const userSlug =
+          taxpayerName
+            .trim()
+            .replace(/[^a-zA-Z0-9]+/g, "-")
+            .replace(/^-|-$/g, "")
+            .slice(0, 40) || "taxpayer";
         const protectedPdf = await protectClientPdf({
           clientId: data.clientId,
           pdfBytes: bytes,
-          pdfFilename: `SA100-${row.taxYear}${suffix}.pdf`,
+          pdfFilename: `SA100-${row.taxYear}-${userSlug}.pdf`,
           dateOfBirth: row.draft.dateOfBirth,
         });
         if (protectedPdf.locked) {

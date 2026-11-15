@@ -28,6 +28,7 @@ export type SecurityEventType =
   | "auth.mfa_failed"
   | "auth.mfa_locked"
   | "auth.hmrc_oauth_rejected"
+  | "auth.stripe_connect_rejected"
   | "auth.api_denied"
   | "auth.admin_denied"
   | "webhook.signature_failed"

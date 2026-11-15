@@ -8,11 +8,20 @@ import {
 import type { PracticeLetterhead } from "@/lib/desk-profile";
 import { messageFromUnknown } from "@/lib/action-error";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { AddressFields } from "@/components/forms/address-fields";
+import {
+  addressIdentityComplete,
+  addressLinesFromParts,
+  formatAddressParts,
+  parseAddressParts,
+} from "@/lib/address-parts";
 
 export function LetterheadForm({ initial }: { initial: PracticeLetterhead }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [practiceName, setPracticeName] = useState(initial.practiceName);
-  const [address, setAddress] = useState(initial.addressLines.join("\n"));
+  const [address, setAddress] = useState(() =>
+    formatAddressParts(parseAddressParts(initial.addressLines.join("\n"))),
+  );
   const [phone, setPhone] = useState(initial.phone ?? "");
   const [email, setEmail] = useState(initial.email ?? "");
   const [website, setWebsite] = useState(initial.website ?? "");
@@ -38,11 +47,15 @@ export function LetterheadForm({ initial }: { initial: PracticeLetterhead }) {
       onSubmit={(e) => {
         e.preventDefault();
         setErr(null);
+        if (!addressIdentityComplete(address)) {
+          setErr("Street address and postcode are required.");
+          return;
+        }
         start(async () => {
           try {
             await savePracticeLetterhead({
               practiceName,
-              addressLines: address.split("\n"),
+              addressLines: addressLinesFromParts(parseAddressParts(address)),
               phone: phone || undefined,
               email: email || undefined,
               website: website || undefined,
@@ -151,15 +164,16 @@ export function LetterheadForm({ initial }: { initial: PracticeLetterhead }) {
         </label>
       </div>
 
-      <label className="block">
-        <span className="label">Address (one line per row)</span>
-        <textarea
-          className="input mt-1 min-h-[5rem]"
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-          placeholder={"1 High Street\nLondon\nEC1A 1BB"}
-        />
-      </label>
+      <div>
+        <p className="label">Address *</p>
+        <div className="mt-1">
+          <AddressFields
+            required
+            value={address}
+            onChange={setAddress}
+          />
+        </div>
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="block">

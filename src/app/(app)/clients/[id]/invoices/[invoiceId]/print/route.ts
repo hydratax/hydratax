@@ -6,16 +6,17 @@ import { loadClientPage } from "@/server/clients/resolve-client-page";
 import { renderInvoiceHtml } from "@/lib/invoices/render-invoice-html";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string; invoiceId: string }> },
 ) {
   try {
     await requireModule("invoices");
   } catch {
-    return NextResponse.redirect(new URL("/clients", _request.url));
+    return NextResponse.redirect(new URL("/clients", request.url));
   }
 
   const { id: ref, invoiceId } = await context.params;
+  const autoPrint = new URL(request.url).searchParams.has("download");
   const { client, clientId } = await loadClientPage(ref, "invoices");
 
   let invoice;
@@ -30,6 +31,9 @@ export async function GET(
   }
 
   const letterhead = await getPracticeLetterhead();
+  const appUrl = (
+    process.env.NEXT_PUBLIC_APP_URL || "https://hydratax.uk"
+  ).replace(/\/$/, "");
   const html = renderInvoiceHtml({
     letterhead,
     invoice: {
@@ -40,6 +44,15 @@ export async function GET(
       reference: invoice.reference,
       notes: invoice.notes,
       paymentInstructions: invoice.paymentInstructions,
+      subject: invoice.subject,
+      termsConditions: invoice.termsConditions,
+      discountPence: invoice.discountPence,
+      shippingPence: invoice.shippingPence,
+      adjustmentPence: invoice.adjustmentPence,
+      payUrl:
+        invoice.enableOnlinePay && invoice.payToken
+          ? `${appUrl}/pay/${invoice.payToken}`
+          : null,
       subtotalPence: invoice.subtotalPence,
       vatPence: invoice.vatPence,
       totalPence: invoice.totalPence,
@@ -52,6 +65,7 @@ export async function GET(
       companyNumber: client.companyNumber,
     },
     brandingSettingsHref: "/settings/letterhead",
+    autoPrint,
   });
 
   return new NextResponse(html, {

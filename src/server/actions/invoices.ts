@@ -13,6 +13,7 @@ import {
 import { poundsToPence, vatOnNet } from "@/server/money/pence";
 import { appendAuditEvent } from "@/server/audit/log";
 import { isSupabaseConfigured } from "@/lib/env";
+import { computeInvoiceTotals } from "@/lib/invoices/compute-totals";
 
 const lineSchema = z.object({
   description: z.string().min(1).max(300),
@@ -25,10 +26,26 @@ const createSchema = z.object({
   clientId: z.string().min(1),
   issueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  notes: z.string().max(1000).optional(),
+  notes: z.string().max(2000).optional(),
   reference: z.string().max(120).optional(),
   paymentInstructions: z.string().max(1000).optional(),
   status: z.enum(["draft", "sent", "due"]).default("due"),
+  subject: z.string().max(300).optional(),
+  orderNumber: z.string().max(120).optional(),
+  paymentTerms: z.string().max(80).optional(),
+  salesperson: z.string().max(120).optional(),
+  arAccount: z.string().max(120).optional(),
+  discountPounds: z.string().optional(),
+  discountPercent: z.string().optional(),
+  shippingPounds: z.string().optional(),
+  adjustmentPounds: z.string().optional(),
+  termsConditions: z.string().max(5000).optional(),
+  enableOnlinePay: z.boolean().optional(),
+  recurringEnabled: z.boolean().optional(),
+  recurringInterval: z
+    .enum(["weekly", "monthly", "quarterly", "yearly"])
+    .optional()
+    .nullable(),
   lines: z.array(lineSchema).min(1).max(50),
 });
 
@@ -40,11 +57,37 @@ const templateSchema = z.object({
   vatRateBps: z.union([z.literal(0), z.literal(500), z.literal(2000)]),
 });
 
-function nextInvoiceNumber(practiceId: string) {
-  const count =
-    memoryStore.invoices.filter((i) => i.practiceId === practiceId).length + 1;
-  const year = new Date().getFullYear();
-  return `INV-${year}-${String(count).padStart(4, "0")}`;
+async function nextInvoiceNumber(practiceId: string): Promise<string> {
+  memoryStore.invoiceNumberPrefix ??= {};
+  memoryStore.invoiceNumberNext ??= {};
+  const prefix = memoryStore.invoiceNumberPrefix[practiceId] ?? "INV";
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { createClient } = await import("@/lib/supabase/server");
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("practices")
+        .select("invoice_number_prefix, invoice_number_next")
+        .eq("id", practiceId)
+        .maybeSingle();
+      if (data) {
+        const p = String(data.invoice_number_prefix ?? "INV");
+        const n = Number(data.invoice_number_next ?? 1);
+        await supabase
+          .from("practices")
+          .update({ invoice_number_next: n + 1 })
+          .eq("id", practiceId);
+        return `${p}-${String(n).padStart(6, "0")}`;
+      }
+    } catch {
+      /* memory */
+    }
+  }
+
+  const n = memoryStore.invoiceNumberNext[practiceId] ?? 1;
+  memoryStore.invoiceNumberNext[practiceId] = n + 1;
+  return `${prefix}-${String(n).padStart(6, "0")}`;
 }
 
 function mapInvoiceRow(r: Record<string, unknown>): MemoryInvoice {
@@ -63,6 +106,26 @@ function mapInvoiceRow(r: Record<string, unknown>): MemoryInvoice {
     notes: (r.notes as string | null) ?? null,
     reference: (r.reference as string | null) ?? null,
     paymentInstructions: (r.payment_instructions as string | null) ?? null,
+    subject: (r.subject as string | null) ?? null,
+    orderNumber: (r.order_number as string | null) ?? null,
+    paymentTerms: (r.payment_terms as string | null) ?? null,
+    salesperson: (r.salesperson as string | null) ?? null,
+    arAccount: (r.ar_account as string | null) ?? null,
+    discountPence: Number(r.discount_pence ?? 0),
+    discountPercentBps:
+      r.discount_percent_bps == null
+        ? null
+        : Number(r.discount_percent_bps),
+    shippingPence: Number(r.shipping_pence ?? 0),
+    adjustmentPence: Number(r.adjustment_pence ?? 0),
+    termsConditions: (r.terms_conditions as string | null) ?? null,
+    enableOnlinePay: Boolean(r.enable_online_pay),
+    recurringEnabled: Boolean(r.recurring_enabled),
+    recurringInterval: (r.recurring_interval as MemoryInvoice["recurringInterval"]) ?? null,
+    payToken: (r.pay_token as string | null) ?? null,
+    stripeCheckoutSessionId:
+      (r.stripe_checkout_session_id as string | null) ?? null,
+    paidAt: (r.paid_at as string | null) ?? null,
     lines: (r.line_items as MemoryInvoice["lines"]) ?? [],
     createdBy: String(r.created_by ?? ""),
     createdAt: String(r.created_at),
@@ -133,25 +196,62 @@ export async function createClientInvoice(input: z.infer<typeof createSchema>) {
     };
   });
 
-  const subtotalPence = lines.reduce((s, l) => s + l.lineNetPence, 0);
-  const vatPence = lines.reduce((s, l) => s + l.lineVatPence, 0);
+  const lineNet = lines.reduce((s, l) => s + l.lineNetPence, 0);
+  const lineVat = lines.reduce((s, l) => s + l.lineVatPence, 0);
+  const discountPercentBps = data.discountPercent
+    ? Math.round(Number.parseFloat(data.discountPercent) * 100)
+    : null;
+  const discountPenceInput = data.discountPounds
+    ? Number(poundsToPence(data.discountPounds))
+    : 0;
+  const totals = computeInvoiceTotals({
+    lineNetPence: lineNet,
+    lineVatPence: lineVat,
+    discountPence: discountPenceInput,
+    discountPercentBps:
+      discountPenceInput > 0 ? null : discountPercentBps,
+    shippingPence: data.shippingPounds
+      ? Number(poundsToPence(data.shippingPounds))
+      : 0,
+    adjustmentPence: data.adjustmentPounds
+      ? Number(poundsToPence(data.adjustmentPounds))
+      : 0,
+  });
   const now = new Date().toISOString();
+  const payToken = crypto.randomUUID();
 
   const invoice: MemoryInvoice = {
     id: crypto.randomUUID(),
     practiceId: session.practiceId,
     clientId: data.clientId,
-    invoiceNumber: nextInvoiceNumber(session.practiceId),
+    invoiceNumber: await nextInvoiceNumber(session.practiceId),
     status: data.status,
     issueDate: data.issueDate,
     dueDate: data.dueDate,
     currency: "gbp",
-    subtotalPence,
-    vatPence,
-    totalPence: subtotalPence + vatPence,
+    subtotalPence: totals.subtotalPence,
+    vatPence: totals.vatPence,
+    totalPence: totals.totalPence,
     notes: data.notes?.trim() || null,
     reference: data.reference?.trim() || null,
     paymentInstructions: data.paymentInstructions?.trim() || null,
+    subject: data.subject?.trim() || null,
+    orderNumber: data.orderNumber?.trim() || null,
+    paymentTerms: data.paymentTerms?.trim() || null,
+    salesperson: data.salesperson?.trim() || null,
+    arAccount: data.arAccount?.trim() || "Accounts Receivable",
+    discountPence: totals.discountPence,
+    discountPercentBps:
+      discountPenceInput > 0 ? null : discountPercentBps,
+    shippingPence: totals.shippingPence,
+    adjustmentPence: totals.adjustmentPence,
+    termsConditions: data.termsConditions?.trim() || null,
+    enableOnlinePay: Boolean(data.enableOnlinePay),
+    recurringEnabled: Boolean(data.recurringEnabled),
+    recurringInterval: data.recurringEnabled
+      ? (data.recurringInterval ?? "monthly")
+      : null,
+    payToken,
     lines,
     createdBy: session.userId,
     createdAt: now,
@@ -179,6 +279,20 @@ export async function createClientInvoice(input: z.infer<typeof createSchema>) {
         notes: invoice.notes,
         reference: invoice.reference,
         payment_instructions: invoice.paymentInstructions,
+        subject: invoice.subject,
+        order_number: invoice.orderNumber,
+        payment_terms: invoice.paymentTerms,
+        salesperson: invoice.salesperson,
+        ar_account: invoice.arAccount,
+        discount_pence: invoice.discountPence,
+        discount_percent_bps: invoice.discountPercentBps,
+        shipping_pence: invoice.shippingPence,
+        adjustment_pence: invoice.adjustmentPence,
+        terms_conditions: invoice.termsConditions,
+        enable_online_pay: invoice.enableOnlinePay,
+        recurring_enabled: invoice.recurringEnabled,
+        recurring_interval: invoice.recurringInterval,
+        pay_token: invoice.payToken,
         line_items: invoice.lines,
         created_by: session.userId,
       });
@@ -201,9 +315,109 @@ export async function createClientInvoice(input: z.infer<typeof createSchema>) {
     },
   });
 
+  // Remember product/service lines for next-time suggestions (practice-scoped).
+  await rememberInvoiceLineItems({
+    practiceId: session.practiceId,
+    userId: session.userId,
+    lines: invoice.lines.map((l) => ({
+      description: l.description,
+      quantity: l.quantity,
+      unitPricePence: l.unitPricePence,
+      vatRateBps: l.vatRateBps as 0 | 500 | 2000,
+    })),
+  });
+
   revalidatePath(`/clients/${data.clientId}`);
   revalidatePath(`/clients/${data.clientId}/invoices`);
   return invoice;
+}
+
+/** Upsert line descriptions so they appear in Item details suggestions. */
+async function rememberInvoiceLineItems(opts: {
+  practiceId: string;
+  userId: string;
+  lines: Array<{
+    description: string;
+    quantity: number;
+    unitPricePence: number;
+    vatRateBps: 0 | 500 | 2000;
+  }>;
+}) {
+  const now = new Date().toISOString();
+  const seen = new Set<string>();
+
+  for (const line of opts.lines) {
+    const description = line.description.trim();
+    if (!description) continue;
+    const key = description.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const existing = memoryStore.invoiceLineTemplates.find(
+      (t) =>
+        t.practiceId === opts.practiceId &&
+        t.description.trim().toLowerCase() === key,
+    );
+
+    if (existing) {
+      existing.quantity = line.quantity;
+      existing.unitPricePence = line.unitPricePence;
+      existing.vatRateBps = line.vatRateBps;
+      existing.updatedAt = now;
+      if (isSupabaseConfigured()) {
+        try {
+          const { createClient } = await import("@/lib/supabase/server");
+          const supabase = await createClient();
+          await supabase
+            .from("invoice_line_templates")
+            .update({
+              quantity: existing.quantity,
+              unit_price_pence: existing.unitPricePence,
+              vat_rate_bps: existing.vatRateBps,
+              updated_at: now,
+            })
+            .eq("id", existing.id)
+            .eq("practice_id", opts.practiceId);
+        } catch {
+          /* memory ok */
+        }
+      }
+      continue;
+    }
+
+    const template: MemoryInvoiceLineTemplate = {
+      id: crypto.randomUUID(),
+      practiceId: opts.practiceId,
+      label: null,
+      description,
+      quantity: line.quantity,
+      unitPricePence: line.unitPricePence,
+      vatRateBps: line.vatRateBps,
+      createdBy: opts.userId,
+      createdAt: now,
+      updatedAt: now,
+    };
+    memoryStore.invoiceLineTemplates.push(template);
+
+    if (isSupabaseConfigured()) {
+      try {
+        const { createClient } = await import("@/lib/supabase/server");
+        const supabase = await createClient();
+        await supabase.from("invoice_line_templates").insert({
+          id: template.id,
+          practice_id: template.practiceId,
+          label: template.label,
+          description: template.description,
+          quantity: template.quantity,
+          unit_price_pence: template.unitPricePence,
+          vat_rate_bps: template.vatRateBps,
+          created_by: opts.userId,
+        });
+      } catch {
+        /* memory ok */
+      }
+    }
+  }
 }
 
 export async function setInvoiceStatus(
@@ -326,6 +540,9 @@ export async function sendClientInvoiceEmail(input: {
   const { renderInvoiceHtml } = await import(
     "@/lib/invoices/render-invoice-html"
   );
+  const appUrl = (
+    process.env.NEXT_PUBLIC_APP_URL || "https://hydratax.uk"
+  ).replace(/\/$/, "");
   const html = renderInvoiceHtml({
     letterhead,
     invoice: {
@@ -336,6 +553,15 @@ export async function sendClientInvoiceEmail(input: {
       reference: invoice.reference,
       notes: invoice.notes,
       paymentInstructions: invoice.paymentInstructions,
+      subject: invoice.subject,
+      termsConditions: invoice.termsConditions,
+      discountPence: invoice.discountPence,
+      shippingPence: invoice.shippingPence,
+      adjustmentPence: invoice.adjustmentPence,
+      payUrl:
+        invoice.enableOnlinePay && invoice.payToken
+          ? `${appUrl}/pay/${invoice.payToken}`
+          : null,
       subtotalPence: invoice.subtotalPence,
       vatPence: invoice.vatPence,
       totalPence: invoice.totalPence,
@@ -523,4 +749,145 @@ export async function deleteInvoiceLineTemplate(templateId: string) {
 
   revalidatePath("/clients");
   return { ok: true as const };
+}
+
+/** Public pay-link lookup — no session; only non-sensitive fields. */
+export async function getInvoiceByPayToken(
+  payToken: string,
+): Promise<MemoryInvoice | null> {
+  const token = payToken.trim();
+  if (!token) return null;
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { getBillingWriteClient } = await import(
+        "@/server/billing/admin-client"
+      );
+      const supabase = await getBillingWriteClient();
+      if (supabase) {
+        const { data } = await supabase
+          .from("client_invoices")
+          .select("*")
+          .eq("pay_token", token)
+          .maybeSingle();
+        if (data) return mapInvoiceRow(data as Record<string, unknown>);
+      }
+    } catch {
+      /* memory */
+    }
+  }
+
+  return (
+    memoryStore.invoices.find((i) => i.payToken === token) ?? null
+  );
+}
+
+export async function markClientInvoicePaidFromStripe(input: {
+  invoiceId: string;
+  practiceId: string;
+  stripeCheckoutSessionId: string;
+}): Promise<void> {
+  const now = new Date().toISOString();
+  const mem = memoryStore.invoices.find(
+    (i) =>
+      i.id === input.invoiceId && i.practiceId === input.practiceId,
+  );
+  if (mem && mem.status !== "paid" && mem.status !== "void") {
+    mem.status = "paid";
+    mem.paidAt = now;
+    mem.stripeCheckoutSessionId = input.stripeCheckoutSessionId;
+    mem.updatedAt = now;
+  }
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { getBillingWriteClient } = await import(
+        "@/server/billing/admin-client"
+      );
+      const supabase = await getBillingWriteClient();
+      if (supabase) {
+        await supabase
+          .from("client_invoices")
+          .update({
+            status: "paid",
+            paid_at: now,
+            stripe_checkout_session_id: input.stripeCheckoutSessionId,
+            updated_at: now,
+          })
+          .eq("id", input.invoiceId)
+          .eq("practice_id", input.practiceId)
+          .neq("status", "void");
+      }
+    } catch {
+      /* memory */
+    }
+  }
+}
+
+export async function getInvoiceNumberSettings(): Promise<{
+  prefix: string;
+  next: number;
+}> {
+  const session = await requireModule("invoices");
+  memoryStore.invoiceNumberPrefix ??= {};
+  memoryStore.invoiceNumberNext ??= {};
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { createClient } = await import("@/lib/supabase/server");
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("practices")
+        .select("invoice_number_prefix, invoice_number_next")
+        .eq("id", session.practiceId)
+        .maybeSingle();
+      if (data) {
+        return {
+          prefix: String(data.invoice_number_prefix ?? "INV"),
+          next: Number(data.invoice_number_next ?? 1),
+        };
+      }
+    } catch {
+      /* memory */
+    }
+  }
+
+  return {
+    prefix: memoryStore.invoiceNumberPrefix[session.practiceId] ?? "INV",
+    next: memoryStore.invoiceNumberNext[session.practiceId] ?? 1,
+  };
+}
+
+export async function saveInvoiceNumberSettings(input: {
+  prefix: string;
+  next: number;
+}) {
+  const session = await requireModule("invoices");
+  if (session.role === "readonly") throw new Error("Forbidden");
+  const prefix = input.prefix.trim().slice(0, 20) || "INV";
+  const next = Math.max(1, Math.floor(input.next) || 1);
+
+  memoryStore.invoiceNumberPrefix ??= {};
+  memoryStore.invoiceNumberNext ??= {};
+  memoryStore.invoiceNumberPrefix[session.practiceId] = prefix;
+  memoryStore.invoiceNumberNext[session.practiceId] = next;
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { createClient } = await import("@/lib/supabase/server");
+      const supabase = await createClient();
+      await supabase
+        .from("practices")
+        .update({
+          invoice_number_prefix: prefix,
+          invoice_number_next: next,
+        })
+        .eq("id", session.practiceId);
+    } catch {
+      /* memory */
+    }
+  }
+
+  revalidatePath("/settings/payments");
+  return { prefix, next };
 }

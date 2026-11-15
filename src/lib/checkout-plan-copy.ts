@@ -57,10 +57,16 @@ export function describeCheckoutPlan(planKey: string): CheckoutPlanCopy {
       const meta = CUSTOM_PLAN_MODULES.find((m) => m.id === mod.id);
       if (!meta) continue;
       if (mod.clients == null) {
-        lines.push(`${meta.label} — unlimited clients`);
+        lines.push(
+          meta.id === "payroll"
+            ? `${meta.label} — unlimited clients · unlimited employees per company`
+            : `${meta.label} — unlimited clients`,
+        );
       } else {
         lines.push(
-          `${meta.label} — up to ${mod.clients.toLocaleString("en-GB")} clients`,
+          meta.id === "payroll"
+            ? `${meta.label} — up to ${mod.clients.toLocaleString("en-GB")} clients · unlimited employees per company`
+            : `${meta.label} — up to ${mod.clients.toLocaleString("en-GB")} clients`,
         );
       }
     }

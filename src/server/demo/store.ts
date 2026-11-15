@@ -16,6 +16,7 @@ export type MemoryClient = {
   companyAuthCode: string | null;
   payeRef: string | null;
   accountsOfficeRef: string | null;
+  address?: string | null;
   isEmployer: boolean;
   isVatRegistered: boolean;
   contactEmail?: string | null;
@@ -49,6 +50,8 @@ export type MemoryEmployee = {
   forename: string;
   surname: string;
   nino: string;
+  /** HMRC FPS EmployeeDetails.Gender — required for live FPS */
+  gender: "M" | "F" | null;
   /** ISO date — used to match SA person identity before pulling PAYE into SA */
   dateOfBirth: string | null;
   /** Home address — used with NINO + DOB to match SA person identity */
@@ -204,10 +207,33 @@ export type MemoryInvoice = {
   reference: string | null;
   /** Bank details / how to pay */
   paymentInstructions: string | null;
+  subject?: string | null;
+  orderNumber?: string | null;
+  paymentTerms?: string | null;
+  salesperson?: string | null;
+  arAccount?: string | null;
+  discountPence?: number;
+  discountPercentBps?: number | null;
+  shippingPence?: number;
+  adjustmentPence?: number;
+  termsConditions?: string | null;
+  enableOnlinePay?: boolean;
+  recurringEnabled?: boolean;
+  recurringInterval?: "weekly" | "monthly" | "quarterly" | "yearly" | null;
+  payToken?: string | null;
+  stripeCheckoutSessionId?: string | null;
+  paidAt?: string | null;
   lines: MemoryInvoiceLine[];
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type MemoryStripeConnect = {
+  accountId: string | null;
+  chargesEnabled: boolean;
+  detailsSubmitted: boolean;
+  connectedAt: string | null;
 };
 
 /** Practice-level reusable invoice line (description + amount + VAT). */
@@ -327,6 +353,11 @@ type MemoryStore = {
     string,
     import("@/lib/desk-profile").PracticeLetterhead
   >;
+  /** Stripe Connect status keyed by practice id */
+  stripeConnect: Record<string, MemoryStripeConnect>;
+  /** Next invoice sequence keyed by practice id */
+  invoiceNumberNext: Record<string, number>;
+  invoiceNumberPrefix: Record<string, string>;
   practiceTasks: MemoryPracticeTask[];
   practiceTaskComments: MemoryPracticeTaskComment[];
 };
@@ -409,6 +440,9 @@ function emptyStore(): MemoryStore {
     hmrcConnections: [],
     auditEvents: [],
     letterheads: {},
+    stripeConnect: {},
+    invoiceNumberNext: {},
+    invoiceNumberPrefix: {},
     practiceTasks: [],
     practiceTaskComments: [],
   };

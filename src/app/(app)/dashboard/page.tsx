@@ -46,6 +46,12 @@ function buildRailLinks(): {
       href: "/clients?desk=payroll",
       blurb: "Employers · FPS & EPS",
     },
+    {
+      module: "company_secretarial",
+      title: "Company Secretarial",
+      href: "/company-secretarial",
+      blurb: "Ltd companies · CH web filings",
+    },
   ];
 }
 

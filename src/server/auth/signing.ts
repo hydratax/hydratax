@@ -14,12 +14,17 @@ import { isProductionRuntime } from "@/lib/env";
  * verify() returns false. A per-purpose sub-key is derived with HMAC so a
  * signature minted for one purpose can never validate for another.
  */
-export type SigningPurpose = "mfa-cookie" | "mfa-otp" | "hmrc-oauth-state";
+export type SigningPurpose =
+  | "mfa-cookie"
+  | "mfa-otp"
+  | "hmrc-oauth-state"
+  | "stripe-connect-oauth-state";
 
 const PURPOSE_ENV: Record<SigningPurpose, string> = {
   "mfa-cookie": "MFA_COOKIE_SECRET",
   "mfa-otp": "MFA_COOKIE_SECRET",
   "hmrc-oauth-state": "HMRC_STATE_SECRET",
+  "stripe-connect-oauth-state": "STRIPE_CONNECT_STATE_SECRET",
 };
 
 const globalForDevKey = globalThis as unknown as {

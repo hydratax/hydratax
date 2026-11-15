@@ -42,21 +42,41 @@ describe("fraud headers", () => {
         windowSize: "width=1&height=1",
         localIps: "127.0.0.1",
         localIpsTimestamp: new Date().toISOString(),
+        deviceId: "00000000-0000-0000-0000-000000000001",
+        doNotTrack: "false",
+        browserPlugins: "",
+        userIds: "hydratax=test",
+        multiFactor: "",
       }),
     ).toThrow(/incomplete fraud prevention/i);
   });
 
-  it("builds complete header set", () => {
-    const headers = buildFraudPreventionHeaders({
-      browserJsUserAgent: "Mozilla/5.0",
-      timezone: "UTC+00:00",
-      screens: "width=1920&height=1080&scaling-factor=1&colour-depth=24",
-      windowSize: "width=1200&height=800",
-      localIps: "127.0.0.1",
-      localIpsTimestamp: "2026-03-01T12:00:00.000Z",
-    });
+  it("builds complete WEB_APP_VIA_SERVER header set", () => {
+    const headers = buildFraudPreventionHeaders(
+      {
+        browserJsUserAgent: "Mozilla/5.0",
+        timezone: "UTC+00:00",
+        screens: "width=1920&height=1080&scaling-factor=1&colour-depth=24",
+        windowSize: "width=1200&height=800",
+        localIps: "10.0.0.5",
+        localIpsTimestamp: "2026-03-01T12:00:00.000Z",
+        deviceId: "beec798b-b366-47fa-b1f8-92cede14a1ce",
+        doNotTrack: "false",
+        browserPlugins: "",
+        userIds: "hydratax=tester",
+        multiFactor: "",
+      },
+      {
+        clientPublicIp: "203.0.113.10",
+        clientPublicPort: "443",
+        vendorForwarded: "by=198.51.100.20&for=203.0.113.10",
+      },
+    );
     expect(headers["Gov-Client-Connection-Method"]).toBe("WEB_APP_VIA_SERVER");
-    expect(headers["Gov-Vendor-Version"]).toBeTruthy();
+    expect(headers["Gov-Client-Device-ID"]).toBeTruthy();
+    expect(headers["Gov-Client-Public-IP"]).toBe("203.0.113.10");
+    expect(headers["Gov-Client-Public-Port"]).toBe("443");
+    expect(headers["Gov-Vendor-Product-Name"]).toBeTruthy();
   });
 });
 
@@ -135,6 +155,7 @@ describe("ct600 + payroll builders", () => {
       forename: "Sam",
       surname: "Taylor",
       nino: "AB123456C",
+      gender: "M",
       taxCode: "1257L",
       annualSalaryPence: 3600000,
     });
@@ -155,8 +176,13 @@ describe("ct600 + payroll builders", () => {
     );
     expect(fps.bodyInner).toContain("<PayeRef>AB45678</PayeRef>");
     expect(fps.irmark.length).toBeGreaterThan(10);
-    expect(fps.xml).toContain("TaxablePayToDate");
+    expect(fps.xml).toContain("<FiguresToDate>");
+    expect(fps.xml).toContain("<Fore>Sam</Fore>");
+    expect(fps.xml).toContain("<Gender>M</Gender>");
+    expect(fps.xml).toContain("<HoursWorked>");
     expect(fps.xml).toContain("<PayFreq>M1</PayFreq>");
+    expect(fps.xml).not.toContain("TaxablePayToDate");
+    expect(fps.xml).not.toContain("<EmpPayment>");
     const live = buildFpsXml({
       employerPayeRef: "123/AB45678",
       accountsOfficeRef: "123PA00045678",

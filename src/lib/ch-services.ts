@@ -722,6 +722,72 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     ],
   },
   {
+    id: "change-registered-office",
+    title: "Change of registered office",
+    summary:
+      "Notify Companies House of a new registered office address (AD01).",
+    channel: "Digital",
+    chFeePounds: 0,
+    whatYouNeed: [
+      "Company number and authentication code",
+      "New UK registered office address (appropriate address rules)",
+      "Effective date of the change",
+    ],
+    importantNotes: [
+      "The registered office must be an appropriate UK address where documents can be delivered and acknowledged.",
+      "PO Box-only arrangements that fail Companies House tests are not acceptable.",
+    ],
+    govUkLinks: [
+      {
+        label: "Change your registered office address",
+        url: "https://www.gov.uk/file-changes-to-a-company-with-companies-house",
+      },
+      {
+        label: "Registered office address requirements",
+        url: "https://www.gov.uk/guidance/registered-office-address-requirements",
+      },
+      { label: "Companies House fees", url: CH_FEE_SOURCE.url },
+    ],
+    formFields: [
+      {
+        name: "companyNumber",
+        label: "Company number",
+        type: "text",
+        required: true,
+      },
+      {
+        name: "companyAuthCode",
+        label: "Company authentication code",
+        type: "text",
+        required: true,
+        sensitive: true,
+      },
+      {
+        name: "companyName",
+        label: "Company name",
+        type: "text",
+        required: true,
+      },
+      {
+        name: "newRegisteredOffice",
+        label: "New registered office address",
+        type: "textarea",
+        required: true,
+      },
+      {
+        name: "effectiveDate",
+        label: "Effective date",
+        type: "date",
+        required: true,
+      },
+      {
+        name: "notes",
+        label: "Notes",
+        type: "textarea",
+      },
+    ],
+  },
+  {
     id: "dissolve-company",
     title: "Dissolve company",
     summary:

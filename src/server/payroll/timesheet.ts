@@ -11,6 +11,13 @@ export type TimesheetRow = {
   irregularHours?: boolean;
   maternityWeeks?: number;
   maternityWeekFrom?: number;
+  paternityWeeks?: number;
+  adoptionWeeks?: number;
+  sharedParentalWeeks?: number;
+  parentalBereavementWeeks?: number;
+  neonatalCareWeeks?: number;
+  unpaidAbsence?: boolean;
+  onStrike?: boolean;
   hourlyRatePence?: number;
   raw: Record<string, unknown>;
 };
@@ -55,6 +62,20 @@ const HEADER_MAP: Record<string, keyof Omit<TimesheetRow, "raw">> = {
   maternityweekfrom: "maternityWeekFrom",
   smpfrom: "maternityWeekFrom",
   smpweekfrom: "maternityWeekFrom",
+  paternityweeks: "paternityWeeks",
+  sppweeks: "paternityWeeks",
+  adoptionweeks: "adoptionWeeks",
+  sapweeks: "adoptionWeeks",
+  sharedparentalweeks: "sharedParentalWeeks",
+  shppweeks: "sharedParentalWeeks",
+  parentalbereavementweeks: "parentalBereavementWeeks",
+  spbpweeks: "parentalBereavementWeeks",
+  neonatalcareweeks: "neonatalCareWeeks",
+  sncpweeks: "neonatalCareWeeks",
+  unpaidabsence: "unpaidAbsence",
+  unpaid: "unpaidAbsence",
+  onstrike: "onStrike",
+  strike: "onStrike",
   hourlyrate: "hourlyRatePence",
   rate: "hourlyRatePence",
   rateph: "hourlyRatePence",
@@ -116,9 +137,10 @@ export function parseTimesheetBuffer(buffer: ArrayBuffer | Buffer): ParsedTimesh
         }
         continue;
       }
-      if (key === "irregularHours") {
-        row.irregularHours = asBool(value);
-        if (row.irregularHours) any = true;
+      if (key === "irregularHours" || key === "unpaidAbsence" || key === "onStrike") {
+        const b = asBool(value);
+        row[key] = b;
+        if (b) any = true;
         continue;
       }
       if (key === "hourlyRatePence") {

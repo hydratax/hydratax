@@ -130,8 +130,34 @@ export const SHARED_ADDON_FEATURES = [
   "Easy upgrade to add more features",
 ] as const;
 
-/** PAYE employee cap per employer on add-on plans. */
+/**
+ * PAYE employee cap per employer on Solo, Small Firm, and PAYE add-on packs.
+ * Enterprise (Custom) with the PAYE module is unlimited — see
+ * {@link payeEmployeesPerEmployerCap}.
+ */
 export const PAYE_EMPLOYEES_PER_EMPLOYER = 10;
+
+/**
+ * Headcount cap for a practice’s plan keys.
+ * `null` = unlimited employees per employer (Enterprise PAYE).
+ */
+export function payeEmployeesPerEmployerCap(
+  planKeys: string[] | null | undefined,
+): number | null {
+  if (!planKeys?.length) return PAYE_EMPLOYEES_PER_EMPLOYER;
+  for (const raw of planKeys) {
+    const key = basePlanKey(raw);
+    if (!key.startsWith("practice:Custom")) continue;
+    const selection = parseCustomPlanSelection(key);
+    if (selection.modules.some((m) => m.id === "payroll")) {
+      return null;
+    }
+    // Bare Custom desk key (modules chosen later) still marketed as unlimited PAYE
+    // once payroll is on the desk; if payroll entitlement is not in the key yet,
+    // keep the standard cap until the module is purchased.
+  }
+  return PAYE_EMPLOYEES_PER_EMPLOYER;
+}
 
 /**
  * Billable HMRC modules on Enterprise — priced per client with volume discounts.
@@ -154,7 +180,7 @@ export const CUSTOM_PLAN_MODULES = [
     unlimitedPricePounds: 190,
     pricePerClient: 7,
     weight: 0.25,
-    blurb: `1 company up to ${PAYE_EMPLOYEES_PER_EMPLOYER} employees · FPS & EPS`,
+    blurb: "Unlimited employees per company · FPS & EPS",
     entitlement: "payroll" as const,
   },
   {
@@ -457,6 +483,7 @@ export function formatGBP(n: number) {
 
 const DESK_CH_FEATURES = [
   "New company incorporation",
+  "Company Secretarial desk for ltd clients",
   "Confirmation statement — unlimited on desk",
   "CH annual accounts — unlimited on desk",
 ] as const;
@@ -535,7 +562,7 @@ export const PRICING_SECTIONS = [
           "7-day free trial",
           "No desk fee after trial — modules only",
           "Cheaper per client as volume grows",
-          `PAYE: 1 client up to ${PAYE_EMPLOYEES_PER_EMPLOYER} employees`,
+          "PAYE: unlimited employees per company",
           ...DESK_CH_FEATURES,
           "Pay only for HMRC modules you need",
           ...SHARED_ADDON_FEATURES,
@@ -738,6 +765,50 @@ export const PRICING_SECTIONS = [
         cta: "View CH services",
         highlighted: false,
         href: "/companies-house",
+      },
+    ],
+  },
+  {
+    id: "company-secretarial",
+    title: "Company Secretarial",
+    subtitle:
+      "Companies House web-filing desk for your limited companies — £5 per month per 10 companies.",
+    plans: [
+      {
+        name: "Up to 10 companies",
+        price: 5,
+        period: "/month",
+        blurb:
+          "Company Secretarial desk for up to 10 limited companies — name, officers, PSC, CS01 and more.",
+        features: [
+          "Up to 10 limited companies",
+          "£5 / month flat",
+          "Change of name, directors & PSC",
+          "Confirmation statement desk",
+          "Practice Solo / Small Firm already include this desk",
+          ...SHARED_ADDON_FEATURES,
+        ],
+        cta: "Add Company Secretarial",
+        highlighted: true,
+      },
+      {
+        name: "More than 10 companies",
+        checkoutKey: "Scale",
+        price: 10,
+        period: "/month",
+        blurb:
+          "Same £5 per 10 companies — price scales with company count (ceil(n ÷ 10) × £5).",
+        features: [
+          "From 11 companies upward",
+          "Formula: ceil(companies ÷ 10) × £5 / month",
+          "Example: 25 companies → £15 / month",
+          "Example: 100 companies → £50 / month",
+          "Choose company count at checkout",
+          ...SHARED_ADDON_FEATURES,
+        ],
+        cta: "Choose company count",
+        highlighted: false,
+        secretarialScaleBuilder: true,
       },
     ],
   },

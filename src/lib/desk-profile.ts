@@ -141,6 +141,30 @@ export type DeskProfile = {
    * record matching the client.
    */
   saTaxpayers?: SaTaxpayer[];
+  /**
+   * Durable SA100 draft / filed return rows for this desk (survive refresh).
+   * Keyed in actions by taxYear + taxpayerId.
+   */
+  sa100Returns?: Array<{
+    id: string;
+    clientId: string;
+    taxpayerId?: string | null;
+    taxYear: string;
+    status: "draft" | "submitted" | "accepted";
+    draft: Record<string, unknown>;
+    calculation?: Record<string, unknown>;
+    attachedSupplements?: string[];
+    hmrcCorrelationId?: string;
+    submittedAt?: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  /**
+   * After an SA100 draft is deleted, suppress income-desk / accumulate re-seed
+   * for that taxpayer+year until the accountant saves a new draft.
+   * Keys: `${taxpayerId ?? ""}:${taxYear}`
+   */
+  sa100BlankStarts?: string[];
   /** Accounts / SA prep pipeline stage for filters and WIP. */
   workStage?: ClientWorkStage;
   /** Timestamped working log (stages, emails, notes). Newest last. */
@@ -148,7 +172,7 @@ export type DeskProfile = {
   /** Set when seeded for sales demos (Admin → Load presentation clients). */
   presentationDemo?: string;
   presentationPitch?: string;
-  /** Capium-parity PAYE / payroll desk settings for this employer. */
+  /** PAYE / payroll desk settings for this employer. */
   payrollSettings?: PayrollDeskSettings;
 };
 

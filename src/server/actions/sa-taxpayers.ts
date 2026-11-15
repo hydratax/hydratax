@@ -12,6 +12,7 @@ import {
   type SaTaxpayer,
   type SaTaxpayerRole,
 } from "@/lib/sa-taxpayer";
+import { addressIdentityComplete } from "@/lib/address-parts";
 import { requireSession } from "@/server/auth/session";
 import { demoStore } from "@/server/demo/store";
 import { getClient } from "@/server/actions/clients";
@@ -79,12 +80,46 @@ const taxpayerInput = z.object({
   dateOfBirth: z.string().default(""),
   email: z.string().default(""),
   phone: z.string().default(""),
-  address: z.string().default(""),
+  address: z
+    .string()
+    .default("")
+    .refine((v) => !v.trim() || addressIdentityComplete(v), {
+      message: "Street address and postcode are required",
+    }),
   occupation: z.string().default(""),
   tradingAs: z.string().default(""),
   appointedOn: z.string().nullable().optional(),
   shareholdingNote: z.string().optional(),
+  /** Companies House company when role is director / shareholder */
+  linkedCompanyNumber: z.string().optional(),
+  linkedCompanyName: z.string().optional(),
 });
+
+function syntheticTaxpayerFromClient(client: {
+  id: string;
+  name: string;
+  type: string;
+  nino: string | null;
+  utr: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  address?: string | null;
+}): SaTaxpayer {
+  const now = new Date().toISOString();
+  return {
+    id: `client-${client.id}`,
+    fullName: client.name,
+    role: client.type === "partnership" ? "partner" : "sole_trader",
+    nino: client.nino ?? "",
+    utr: client.utr ?? "",
+    dateOfBirth: "",
+    email: client.contactEmail ?? "",
+    phone: client.contactPhone ?? "",
+    address: client.address ?? "",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
 
 export async function listSaTaxpayers(clientId: string): Promise<SaTaxpayer[]> {
   const client = await getClient(clientId);
@@ -93,25 +128,22 @@ export async function listSaTaxpayers(clientId: string): Promise<SaTaxpayer[]> {
 
   // Sole traders / partners default to one taxpayer from the client record.
   if (client.type === "sole_trader" || client.type === "partnership") {
-    const now = new Date().toISOString();
-    return [
-      {
-        id: `client-${client.id}`,
-        fullName: client.name,
-        role: client.type === "partnership" ? "partner" : "sole_trader",
-        nino: client.nino ?? "",
-        utr: client.utr ?? "",
-        dateOfBirth: "",
-        email: client.contactEmail ?? "",
-        phone: client.contactPhone ?? "",
-        address: "",
-        createdAt: now,
-        updatedAt: now,
-      },
-    ];
+    return [syntheticTaxpayerFromClient(client)];
   }
 
   return [];
+}
+
+async function maxPeopleAllowed(): Promise<number | null> {
+  try {
+    const { getPracticeEntitlements } = await import(
+      "@/server/actions/account"
+    );
+    const ent = await getPracticeEntitlements();
+    return ent.maxClients;
+  } catch {
+    return null;
+  }
 }
 
 export async function upsertSaTaxpayer(input: z.infer<typeof taxpayerInput>) {
@@ -119,11 +151,34 @@ export async function upsertSaTaxpayer(input: z.infer<typeof taxpayerInput>) {
   const data = taxpayerInput.parse(input);
   const client = await getClient(data.clientId);
   const now = new Date().toISOString();
-  const existing = [...(client.deskProfile?.saTaxpayers ?? [])];
+  let existing = [...(client.deskProfile?.saTaxpayers ?? [])];
+  // Seed the synthetic sole-trader / partner row so the first save updates
+  // that person instead of creating a second UUID and renaming the card.
+  if (
+    existing.length === 0 &&
+    (client.type === "sole_trader" || client.type === "partnership")
+  ) {
+    existing = [syntheticTaxpayerFromClient(client)];
+  }
+
   const nameKey = normalizePersonName(data.fullName);
+  const explicitId = data.id?.trim() || "";
+  const isNew =
+    !explicitId &&
+    !existing.some((t) => normalizePersonName(t.fullName) === nameKey);
+
+  const maxPeople = await maxPeopleAllowed();
+  if (isNew && maxPeople != null && existing.length >= maxPeople) {
+    throw new Error(
+      `Your plan allows ${maxPeople} ${maxPeople === 1 ? "person" : "people"}. Upgrade on Pricing to add more individuals.`,
+    );
+  }
+
   // Prefer explicit id; otherwise merge into an existing person with the same name.
+  // Never silently reuse the only sole-trader row without an id — that looked
+  // like "Add person" editing the original client. Cap + isNew handles Solo.
   const id =
-    data.id?.trim() ||
+    explicitId ||
     existing.find((t) => normalizePersonName(t.fullName) === nameKey)?.id ||
     crypto.randomUUID();
   const prev = existing.find((t) => t.id === id);
@@ -179,10 +234,64 @@ export async function upsertSaTaxpayer(input: z.infer<typeof taxpayerInput>) {
   const keepIdx = existing.findIndex((t) => t.id === id);
   if (keepIdx >= 0) existing[keepIdx] = row;
 
+  const companyNumber = (data.linkedCompanyNumber ?? "").trim().toUpperCase();
+  const companyName = (data.linkedCompanyName ?? "").trim();
+  if (
+    companyNumber &&
+    (row.role === "director" ||
+      row.role === "shareholder" ||
+      row.role === "director_shareholder")
+  ) {
+    const linked = await ensureLinkedCompanyForTaxpayer({
+      practiceId: session.practiceId,
+      userId: session.userId,
+      companyNumber,
+      companyName: companyName || companyNumber,
+      role: row.role,
+      homeClientId: data.clientId,
+    });
+    const incomes = [...(row.companyIncomes ?? [])];
+    const hit = incomes.findIndex(
+      (c) =>
+        c.companyNumber.toUpperCase() === companyNumber ||
+        c.clientId === linked.clientId,
+    );
+    const { emptyCompanyIncome } = await import("@/lib/sa-income");
+    const nextIncome = emptyCompanyIncome({
+      clientId: linked.clientId,
+      companyName: linked.companyName,
+      companyNumber: linked.companyNumber,
+      role: row.role,
+      ...(hit >= 0 ? incomes[hit] : {}),
+    });
+    if (hit >= 0) incomes[hit] = nextIncome;
+    else incomes.push(nextIncome);
+    row.companyIncomes = incomes;
+    if (keepIdx >= 0) existing[keepIdx] = row;
+  }
+
   await writeProfile(
     data.clientId,
     mergeProfile(client.deskProfile, { saTaxpayers: existing }),
   );
+
+  // Keep the desk client card in sync when editing the synthetic sole/partner row.
+  if (id === `client-${data.clientId}`) {
+    try {
+      const { updateClient } = await import("@/server/actions/clients");
+      await updateClient({
+        clientId: data.clientId,
+        name: row.fullName,
+        nino: row.nino || undefined,
+        utr: row.utr || undefined,
+        address: row.address || undefined,
+        contactEmail: row.email || undefined,
+        contactPhone: row.phone || undefined,
+      });
+    } catch {
+      /* best-effort — taxpayer row is already saved */
+    }
+  }
 
   await appendAuditEvent({
     practiceId: session.practiceId,
@@ -198,10 +307,76 @@ export async function upsertSaTaxpayer(input: z.infer<typeof taxpayerInput>) {
   return row;
 }
 
+/** Find or create a limited-company client for CS / accounts reminders. */
+async function ensureLinkedCompanyForTaxpayer(input: {
+  practiceId: string;
+  userId: string;
+  companyNumber: string;
+  companyName: string;
+  role: "director" | "shareholder" | "director_shareholder";
+  homeClientId: string;
+}): Promise<{ clientId: string; companyName: string; companyNumber: string }> {
+  const { listClients, createClient, getClient } = await import(
+    "@/server/actions/clients"
+  );
+  const number = input.companyNumber.trim().toUpperCase();
+  const clients = await listClients();
+  const existing = clients.find(
+    (c) =>
+      c.type === "limited_company" &&
+      (c.companyNumber ?? "").toUpperCase() === number,
+  );
+  if (existing) {
+    return {
+      clientId: existing.id,
+      companyName: existing.name,
+      companyNumber: existing.companyNumber ?? number,
+    };
+  }
+
+  try {
+    const created = await createClient({
+      name: input.companyName,
+      type: "limited_company",
+      companyNumber: number,
+      isEmployer: false,
+      isVatRegistered: false,
+    });
+    return {
+      clientId: created.id,
+      companyName: created.name,
+      companyNumber: created.companyNumber ?? number,
+    };
+  } catch (err) {
+    // Solo / plan cap — keep company on the person record using home client id.
+    const msg = err instanceof Error ? err.message : "";
+    if (!/plan allows|upgrade on pricing/i.test(msg)) throw err;
+    const home = await getClient(input.homeClientId);
+    try {
+      const { enrolCompanyFilingReminders } = await import(
+        "@/server/billing/company-filing-reminders"
+      );
+      await enrolCompanyFilingReminders({
+        userId: input.userId,
+        practiceId: input.practiceId,
+        email: home.contactEmail ?? "",
+      });
+    } catch {
+      /* optional */
+    }
+    return {
+      clientId: input.homeClientId,
+      companyName: input.companyName,
+      companyNumber: number,
+    };
+  }
+}
+
 /** Persist a full taxpayer row (used by multi-company income workspace). */
 export async function syncWriteTaxpayer(
   clientId: string,
   row: SaTaxpayer,
+  opts?: { revalidate?: boolean },
 ): Promise<SaTaxpayer> {
   const session = await requireSession();
   const client = await getClient(clientId);
@@ -222,7 +397,11 @@ export async function syncWriteTaxpayer(
     entityType: "sa_taxpayer",
     entityId: row.id,
   });
-  revalidatePath(`/clients/${clientId}/self-assessment`);
+  // Never call revalidatePath from a Server Component render path
+  // (e.g. getDirectorWorkspace). Explicit saves pass revalidate: true.
+  if (opts?.revalidate !== false) {
+    revalidatePath(`/clients/${clientId}/self-assessment`);
+  }
   return next;
 }
 

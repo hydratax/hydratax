@@ -83,6 +83,7 @@ export const clients = pgTable(
   companyAuthCode: text("company_auth_code"),
   payeRef: text("paye_ref"),
     accountsOfficeRef: text("accounts_office_ref"),
+    address: text("address"),
     isEmployer: boolean("is_employer").notNull().default(false),
     isVatRegistered: boolean("is_vat_registered").notNull().default(false),
     contactEmail: text("contact_email"),
@@ -220,6 +221,8 @@ export const employees = pgTable(
     forename: text("forename").notNull(),
     surname: text("surname").notNull(),
     nino: text("nino").notNull(),
+    /** HMRC FPS Gender (M|F) — required on FullPaymentSubmission */
+    gender: text("gender"),
     /** Used with NINO + address to link PAYE employees to SA people */
     dateOfBirth: text("date_of_birth"),
     address: text("address"),

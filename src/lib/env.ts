@@ -28,6 +28,8 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().optional(),
+  /** Stripe Connect platform client id (ca_…) for practice invoice payments */
+  STRIPE_CONNECT_CLIENT_ID: z.string().optional(),
   BLOB_READ_WRITE_TOKEN: z.string().optional(),
 });
 
@@ -61,6 +63,7 @@ export function getEnv(): AppEnv {
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+    STRIPE_CONNECT_CLIENT_ID: process.env.STRIPE_CONNECT_CLIENT_ID,
     BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN,
   });
   if (!parsed.success) {
@@ -110,6 +113,13 @@ export function isClerkConfigured(): boolean {
 
 export function isStripeConfigured(): boolean {
   return Boolean(process.env.STRIPE_SECRET_KEY);
+}
+
+/** Platform Connect OAuth (practices receive client invoice payments). */
+export function isStripeConnectConfigured(): boolean {
+  return (
+    isStripeConfigured() && Boolean(process.env.STRIPE_CONNECT_CLIENT_ID?.trim())
+  );
 }
 
 export function isBlobConfigured(): boolean {

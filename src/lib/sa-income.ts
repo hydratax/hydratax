@@ -392,36 +392,58 @@ export function accumulateSa100FromIncome(
   const hasSe = seTurnover > 0 || seExpenses > 0;
   const hasProp = propRents > 0 || propExpenses > 0;
 
+  // Never wipe accountant-entered SA100 boxes. Company/other income only
+  // seeds empty drafts; a saved draft's employments / flags win.
+  const existingEmps = existing?.employments ?? [];
+  const mergedEmployments =
+    existingEmps.length > 0 ? existingEmps : employments;
+  const keepSe = Boolean(existing?.hasSelfEmployment) || hasSe;
+  const keepProp = Boolean(existing?.hasUkProperty) || hasProp;
+
   return emptySa100Draft({
     ...(existing ?? {}),
     utr: existing?.utr || taxpayer.utr,
     nino: existing?.nino || taxpayer.nino,
     dateOfBirth: existing?.dateOfBirth || taxpayer.dateOfBirth,
     phone: existing?.phone || taxpayer.phone,
-    hasEmployment: employments.length > 0,
-    employmentCount: employments.length,
-    employments,
-    hasSelfEmployment: hasSe,
-    selfEmploymentCount: hasSe ? 1 : 0,
+    hasEmployment:
+      Boolean(existing?.hasEmployment) || mergedEmployments.length > 0,
+    employmentCount: Math.max(
+      existing?.employmentCount ?? 0,
+      mergedEmployments.length,
+    ),
+    employments: mergedEmployments,
+    hasSelfEmployment: keepSe,
+    selfEmploymentCount: keepSe
+      ? Math.max(1, existing?.selfEmploymentCount ?? 0)
+      : 0,
     seBusinessName:
+      existing?.seBusinessName ||
       seBusinessName ||
       taxpayer.tradingAs ||
       (cisGross > 0 ? "CIS / subcontracting" : taxpayer.fullName),
-    seDescription: seDescription || taxpayer.occupation || "",
-    seTurnover,
-    seExpenses,
-    seTaxTakenOff: seTax,
-    hasUkProperty: hasProp,
-    propRents,
-    propExpenses,
-    propFinanceCosts,
-    propTaxTakenOff: propTax,
-    dividendsUk:
-      (existing?.dividendsUk ?? 0) > dividendsUk
-        ? (existing?.dividendsUk ?? 0)
-        : dividendsUk,
-    otherTaxableIncome: otherTaxable,
-    otherIncomeTax: otherTax,
-    otherIncomeDescription: otherBits.join("; "),
+    seDescription:
+      existing?.seDescription || seDescription || taxpayer.occupation || "",
+    seTurnover: Math.max(existing?.seTurnover ?? 0, seTurnover),
+    seExpenses: Math.max(existing?.seExpenses ?? 0, seExpenses),
+    seTaxTakenOff: Math.max(existing?.seTaxTakenOff ?? 0, seTax),
+    seCisDeductions: Math.max(existing?.seCisDeductions ?? 0, cisTax),
+    hasUkProperty: keepProp,
+    propPropertyCount: Math.max(
+      existing?.propPropertyCount ?? 0,
+      keepProp ? 1 : 0,
+    ),
+    propRents: Math.max(existing?.propRents ?? 0, propRents),
+    propExpenses: Math.max(existing?.propExpenses ?? 0, propExpenses),
+    propFinanceCosts: Math.max(existing?.propFinanceCosts ?? 0, propFinanceCosts),
+    propTaxTakenOff: Math.max(existing?.propTaxTakenOff ?? 0, propTax),
+    dividendsUk: Math.max(existing?.dividendsUk ?? 0, dividendsUk),
+    otherTaxableIncome: Math.max(
+      existing?.otherTaxableIncome ?? 0,
+      otherTaxable,
+    ),
+    otherIncomeTax: Math.max(existing?.otherIncomeTax ?? 0, otherTax),
+    otherIncomeDescription:
+      existing?.otherIncomeDescription || otherBits.join("; "),
   });
 }

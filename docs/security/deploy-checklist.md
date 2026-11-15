@@ -71,6 +71,8 @@ without it in production.
 | `CRON_SECRET` | `/api/cron/*` return 503 |
 | `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Checkout disabled (503) |
 | `STRIPE_WEBHOOK_SECRET` | `/api/stripe/webhook` returns 503 |
+| `STRIPE_CONNECT_CLIENT_ID` (ca_…) | Practice invoice Connect OAuth / online pay disabled |
+| `STRIPE_CONNECT_STATE_SECRET` (optional) | Falls back to `TOKEN_ENCRYPTION_KEY` for Connect OAuth state |
 | `WHATSAPP_APP_SECRET` | WhatsApp POSTs rejected (503) |
 | `WHATSAPP_VERIFY_TOKEN` | Meta GET handshake fails (403) |
 | `RESEND_WEBHOOK_SECRET` | Svix verification of `/api/webhooks/resend-inbound` |

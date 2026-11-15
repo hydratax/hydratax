@@ -135,7 +135,7 @@ export const PRODUCT_FAQS: Record<string, FaqItem[]> = {
     },
     {
       q: "How many employees and employers can I run?",
-      a: "One employer covers 1 company with up to 10 employees at £19/month. Practice PAYE covers 15 companies with up to 10 employees each at £190/month.",
+      a: "One employer covers 1 company with up to 10 employees at £19/month. Practice PAYE covers 15 companies with up to 10 employees each at £190/month. Enterprise PAYE is priced per employer client with unlimited employees per company.",
     },
     {
       q: "Can I print payslips and send them to the client?",
@@ -154,6 +154,20 @@ export const PRODUCT_FAQS: Record<string, FaqItem[]> = {
     {
       q: "Can I look up directors from a company name?",
       a: "Yes — use Companies House search in Hydra. We call the official Public Data API for profile, officers and persons with significant control (PSC). Full historic shareholder registers are not always available as structured API data.",
+    },
+  ],
+  "company-secretarial": [
+    {
+      q: "What is Company Secretarial?",
+      a: "A desk for your limited companies with Companies House web-filing style options — change of name, officers, PSC, confirmation statement, accounts, and more. Open a company card, then pick a filing.",
+    },
+    {
+      q: "How is Company Secretarial priced?",
+      a: "£5 per month for up to 10 companies. Above 10, the same band applies: ceil(companies ÷ 10) × £5 per month (e.g. 25 companies → £15/month). Solo and Small Firm practice desks already include Company Secretarial.",
+    },
+    {
+      q: "Can Hydra file a change of registered office today?",
+      a: "Yes — open Company Secretarial → Change of registered office (or Companies House → Change of registered office). Provide the new UK address and company authentication code. Live gateway submit follows the same Companies House channel as your other event-driven filings.",
     },
   ],
 };

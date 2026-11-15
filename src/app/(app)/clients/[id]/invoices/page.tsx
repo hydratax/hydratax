@@ -1,7 +1,9 @@
 import {
+  getInvoiceNumberSettings,
   listClientInvoices,
   listInvoiceLineTemplates,
 } from "@/server/actions/invoices";
+import { getPaymentGatewayStatus } from "@/server/actions/payment-gateways";
 import { requireModule } from "@/server/auth/session";
 import { InvoiceWorkspace } from "@/components/forms/invoice-workspace";
 import { redirect } from "next/navigation";
@@ -38,18 +40,33 @@ export default async function ClientInvoicesPage({
         }
       : null;
   const { client, clientId } = await loadClientPage(ref, "invoices");
-  const [invoices, templates, letterhead] = await Promise.all([
-    listClientInvoices(clientId),
-    listInvoiceLineTemplates(),
-    getPracticeLetterhead(),
-  ]);
+  const [invoices, templates, letterhead, gateways, numberSettings] =
+    await Promise.all([
+      listClientInvoices(clientId),
+      listInvoiceLineTemplates(),
+      getPracticeLetterhead(),
+      getPaymentGatewayStatus(),
+      getInvoiceNumberSettings(),
+    ]);
+
+  const previewInvoiceNumber = `${numberSettings.prefix}-${String(numberSettings.next).padStart(6, "0")}`;
 
   return (
     <div>
       <p className="mb-4 text-sm text-ink-soft">
-        Invoices · payment details from{" "}
-        <a href="/settings/letterhead" className="font-semibold text-sea hover:underline">
+        Invoices · branding from{" "}
+        <a
+          href="/settings/letterhead"
+          className="font-semibold text-sea hover:underline"
+        >
           Practice branding
+        </a>
+        {" · "}
+        <a
+          href="/settings/payments"
+          className="font-semibold text-sea hover:underline"
+        >
+          Payment gateways
         </a>
       </p>
       <InvoiceWorkspace
@@ -63,6 +80,8 @@ export default async function ClientInvoicesPage({
           letterhead,
         )}
         brandingIncomplete={letterheadNeedsBranding(letterhead)}
+        stripeConnected={Boolean(gateways.stripe.accountId)}
+        previewInvoiceNumber={previewInvoiceNumber}
       />
     </div>
   );

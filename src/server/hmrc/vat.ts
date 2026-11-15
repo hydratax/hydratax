@@ -15,9 +15,36 @@ export const vatObligationSchema = z.object({
 
 export type VatBoxes = z.infer<typeof vatReturnBoxesSchema>;
 
+/**
+ * HMRC box identities (VAT (MTD) API):
+ * Box 3 = Box 1 + Box 2; Box 5 = |Box 3 − Box 4| (always ≥ 0).
+ */
+export function assertVatBoxIdentities(boxes: VatBoxes): void {
+  const b1 = Number(boxes.vatDueSales);
+  const b2 = Number(boxes.vatDueAcquisitions);
+  const b3 = Number(boxes.totalVatDue);
+  const b4 = Number(boxes.vatReclaimedCurrPeriod);
+  const b5 = Number(boxes.netVatDue);
+  if (b3 !== b1 + b2) {
+    throw new Error(
+      `VAT Box 3 must equal Box 1 + Box 2 (got ${b3}, expected ${b1 + b2}).`,
+    );
+  }
+  const expectedNet = Math.abs(b3 - b4);
+  if (b5 !== expectedNet) {
+    throw new Error(
+      `VAT Box 5 must equal |Box 3 − Box 4| (got ${b5}, expected ${expectedNet}).`,
+    );
+  }
+  if (b5 < 0) {
+    throw new Error("VAT Box 5 (netVatDue) must be zero or positive.");
+  }
+}
+
 /** HMRC VAT return JSON uses pounds as numbers with up to 2dp for boxes 1–5, whole pounds for 6–9. */
 export function boxesToHmrcPayload(boxes: VatBoxes) {
   const validated = vatReturnBoxesSchema.parse(boxes);
+  assertVatBoxIdentities(validated);
   return {
     periodKey: undefined as string | undefined,
     vatDueSales: Number(penceToPounds(validated.vatDueSales)),
@@ -74,7 +101,7 @@ export function draftVatBoxesFromLedger(
 
   const vatDueSales = pence(box1);
   const vatDueAcquisitions = pence(0);
-  const totalVatDue = pence(box1);
+  const totalVatDue = pence(box1 + 0);
   const vatReclaimed = pence(box4);
   const net = pence(Math.abs(box1 - box4));
 
@@ -98,10 +125,20 @@ export async function fetchVatObligations(opts: {
   actorId: string;
   clientId: string;
   practiceId?: string;
+  /** Inclusive range required by HMRC VAT obligations endpoint */
+  from: string;
+  to: string;
+  status?: "O" | "F";
 }) {
+  const params = new URLSearchParams({
+    from: opts.from,
+    to: opts.to,
+  });
+  if (opts.status) params.set("status", opts.status);
+
   return hmrcFetch<{ obligations: Array<z.infer<typeof vatObligationSchema>> }>(
     {
-      path: `/organisations/vat/${opts.vrn}/obligations`,
+      path: `/organisations/vat/${encodeURIComponent(opts.vrn)}/obligations?${params}`,
       accessToken: opts.accessToken,
       fraudHeaders: opts.fraudHeaders,
       actorId: opts.actorId,
@@ -124,10 +161,12 @@ export async function submitVatReturn(opts: {
 }) {
   const payload = boxesToHmrcPayload(opts.boxes);
   payload.periodKey = opts.periodKey;
+  // periodKey may contain '#' — encode path segment only
+  const vrn = encodeURIComponent(opts.vrn);
 
   return hmrcFetch({
     method: "POST",
-    path: `/organisations/vat/${opts.vrn}/returns`,
+    path: `/organisations/vat/${vrn}/returns`,
     accessToken: opts.accessToken,
     fraudHeaders: opts.fraudHeaders,
     body: payload,

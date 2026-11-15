@@ -17,9 +17,17 @@ import {
 import { calculateSa302 } from "@/lib/sa100/calculate";
 import { TAX_YEAR_LABEL } from "@/lib/sa100/rates-2025-26";
 import { saveSa100Draft, submitSa100Return } from "@/server/actions/sa100";
-import { gatherFraudMetadata } from "@/components/fraud-metadata";
+import {
+  gatherFraudMetadata,
+  warmFraudHeaders,
+} from "@/components/fraud-metadata";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { AddressFields } from "@/components/forms/address-fields";
 import { SaReturnDocuments } from "@/components/forms/sa-return-documents";
+import {
+  GatewayCredentialsFields,
+  gatewayCredentialsReady,
+} from "@/components/forms/gateway-credentials-fields";
 import { supplementCodesForDraft } from "@/lib/sa100/forms-catalog";
 import { parseSaTaxYearLabel } from "@/lib/sa-tax-year";
 
@@ -59,20 +67,18 @@ function L({
   return (
     <label
       id={fieldId}
-      className={`flex flex-col gap-1 ${invalid ? "rounded-lg ring-2 ring-red-400 ring-offset-2" : ""} ${className}`}
+      className={`mb-1 flex flex-col gap-0.5 ${invalid ? "rounded-lg ring-2 ring-red-400 ring-offset-2" : ""} ${className}`}
     >
-      <span className="label mb-0 flex min-h-[2.5rem] items-start text-xs">
-        <span>
-          {box ? <span className="font-semibold text-sea">{box} · </span> : null}
-          {label}
-          {required ? (
-            <span className="ml-1 font-semibold text-red-700" aria-hidden>
-              *
-            </span>
-          ) : null}
-        </span>
+      <span className="label mb-0 text-xs leading-snug">
+        {box ? <span className="font-semibold text-sea">{box} · </span> : null}
+        {label}
+        {required ? (
+          <span className="ml-1 font-semibold text-red-700" aria-hidden>
+            *
+          </span>
+        ) : null}
       </span>
-      {children}
+      <span className="mt-0.5 block">{children}</span>
     </label>
   );
 }
@@ -155,7 +161,7 @@ function Section({
           Hide
         </span>
       </summary>
-      <div className="grid items-end gap-3 border-t border-line px-4 py-3 sm:grid-cols-2">
+      <div className="grid items-start gap-x-3 gap-y-4 border-t border-line px-4 py-3 sm:grid-cols-2">
         {children}
       </div>
     </details>
@@ -230,7 +236,6 @@ export function Sa100Wizard({
   initialReturnId?: string | null;
 }) {
   const router = useRouter();
-  const [i, setI] = useState(0);
   const yearMeta = useMemo(
     () => parseSaTaxYearLabel(taxYear || initial?.taxYear || TAX_YEAR_LABEL),
     [taxYear, initial?.taxYear],
@@ -255,8 +260,18 @@ export function Sa100Wizard({
     // Do not invent employer / company name onto the return — only what the
     // accountant enters (or what was already saved on the draft).
     void companyName;
+    // Prefill TR8 date with today when empty.
+    if (!base.declarationDate.trim()) {
+      base.declarationDate = new Date().toISOString().slice(0, 10);
+    }
     return base;
   });
+  const [i, setI] = useState(() =>
+    Math.min(
+      Math.max(0, Number(initial?.wizardStep) || 0),
+      STEPS.length - 1,
+    ),
+  );
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -267,6 +282,12 @@ export function Sa100Wizard({
     () => Boolean((initial?.seDescription ?? "").trim()),
   );
   const [fieldErrors, setFieldErrors] = useState<Record<string, true>>({});
+  const [ggUserId, setGgUserId] = useState("");
+  const [ggPassword, setGgPassword] = useState("");
+  const [rememberPassword, setRememberPassword] = useState(false);
+  const [hasSavedPassword, setHasSavedPassword] = useState(false);
+  /** Live HMRC submit (Transaction Engine). Off = demo accept only. Live = SA100+SA102/103/105 subset only. */
+  const [submitLive, setSubmitLive] = useState(false);
   const topRef = useRef<HTMLDivElement>(null);
 
   const calc = useMemo(() => calculateSa302(draft), [draft]);
@@ -329,12 +350,6 @@ export function Sa100Wizard({
           "Self-employment: enter the description of business / nature of trade (box 2).",
         );
         if (!firstId) firstId = "sa103-nature";
-      } else if (!natureConfirmed) {
-        missing["sa103-nature-confirm"] = true;
-        messages.push(
-          "Self-employment: confirm the nature of business before continuing.",
-        );
-        if (!firstId) firstId = "sa103-nature-confirm";
       }
     }
 
@@ -351,36 +366,81 @@ export function Sa100Wizard({
     return messages.length ? messages.join(" ") : null;
   }
 
-  function persistDraft(opts?: { advance?: boolean; message?: string }) {
+  function persistDraft(opts?: {
+    advance?: boolean;
+    message?: string;
+    /** Build SA100/SA302 PDFs (slow) — only for explicit Save / final steps. */
+    withPdfs?: boolean;
+  }) {
     setError(null);
     setOk(null);
+    if (opts?.advance && step === "work") {
+      const workErr = validateWorkStep();
+      if (workErr) {
+        setError(workErr);
+        return;
+      }
+    }
+    if (opts?.advance && step === "finish") {
+      const missing: string[] = [];
+      if (!draft.declarationDate.trim()) missing.push("Date");
+      if (!draft.declarationAccepted) missing.push("declaration");
+      if (missing.length) {
+        setError(`Confirm ${missing.join(" and ")} before continuing.`);
+        document
+          .getElementById("sa100-declaration")
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+    }
+    const nextStep = opts?.advance ? Math.min(STEPS.length - 1, i + 1) : i;
+    const toSave = emptySa100Draft({
+      ...draft,
+      wizardStep: nextStep,
+      declarationDate:
+        draft.declarationDate.trim() ||
+        new Date().toISOString().slice(0, 10),
+    });
+    // Move to the next step immediately; desk save runs without blocking UI.
+    if (opts?.advance) {
+      setDraft(toSave);
+      setI(nextStep);
+      setFieldErrors({});
+      setOk(opts.message ?? "Progress saved.");
+      void saveSa100Draft({
+        clientId,
+        draft: toSave,
+        taxpayerId,
+        skipPdfs: true,
+      })
+        .then((saved) => setReturnId(saved.id))
+        .catch((e) =>
+          setError(e instanceof Error ? e.message : "Save failed"),
+        );
+      return;
+    }
     start(async () => {
       try {
-        if (opts?.advance && step === "work") {
-          const workErr = validateWorkStep();
-          if (workErr) {
-            setError(workErr);
-            return;
-          }
-        }
         const saved = await saveSa100Draft({
           clientId,
-          draft,
+          draft: toSave,
           taxpayerId,
+          skipPdfs: !opts?.withPdfs,
         });
         setReturnId(saved.id);
+        setDraft(toSave);
         setFieldErrors({});
         setOk(opts?.message ?? "Draft saved — SA100 & SA302 updated.");
-        if (opts?.advance) {
-          setI((x) => Math.min(STEPS.length - 1, x + 1));
-        }
-        // Soft refresh without remounting the wizard (page key no longer uses updatedAt).
         router.refresh();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Save failed");
       }
     });
   }
+
+  useEffect(() => {
+    warmFraudHeaders();
+  }, []);
 
   useEffect(() => {
     // Always land at the top of the SA wizard when changing steps.
@@ -770,48 +830,39 @@ export function Sa100Wizard({
                         clearFieldError("sa103-nature");
                         clearFieldError("sa103-nature-confirm");
                         patch({ seDescription });
-                        setNatureConfirmed(false);
+                        setNatureConfirmed(Boolean(seDescription.trim()));
                       }}
                     />
                   </L>
-                  <label
-                    id="sa103-nature-confirm"
-                    className={`sm:col-span-2 flex items-start gap-2 text-sm text-ink ${
-                      fieldErrors["sa103-nature-confirm"]
-                        ? "rounded-lg bg-red-50 px-2 py-2 ring-2 ring-red-400"
-                        : ""
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      className="mt-1"
-                      checked={natureConfirmed && Boolean(draft.seDescription.trim())}
-                      onChange={(e) => {
-                        clearFieldError("sa103-nature-confirm");
-                        setNatureConfirmed(e.target.checked);
-                      }}
-                      disabled={!draft.seDescription.trim()}
-                    />
-                    <span>
-                      I confirm this is the correct nature of business for this
-                      return
-                      {yearMeta ? ` (${yearMeta.label})` : ""}
-                      <span className="ml-1 font-semibold text-red-700" aria-hidden>
-                        *
+                  {draft.seDescription.trim() ? (
+                    <p
+                      id="sa103-nature-confirm"
+                      className="sm:col-span-2 flex items-start gap-2 text-sm text-ink-soft"
+                      aria-live="polite"
+                    >
+                      <span
+                        className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-line bg-sand text-[10px] font-bold text-sea"
+                        aria-hidden
+                      >
+                        ✓
                       </span>
-                    </span>
-                  </label>
-                  <L
-                    label="Business address"
-                    className="sm:col-span-2"
-                  >
-                    <TextInput
+                      <span>
+                        Nature of business recorded for this return
+                        {yearMeta ? ` (${yearMeta.label})` : ""}.
+                      </span>
+                    </p>
+                  ) : null}
+                  <div className="sm:col-span-2 space-y-1.5">
+                    <p className="label mb-0 text-xs leading-snug">
+                      Business address
+                    </p>
+                    <AddressFields
                       value={draft.seBusinessAddress}
                       onChange={(seBusinessAddress) =>
                         patch({ seBusinessAddress })
                       }
                     />
-                  </L>
+                  </div>
                   <div className="sm:col-span-2">
                     <YN
                       label={
@@ -1796,7 +1847,7 @@ export function Sa100Wizard({
           )}
 
           {step === "finish" && (
-            <>
+            <div id="sa100-declaration" className="space-y-3">
               <L label="Any other information" box="TR7.19">
                 <textarea
                   className="input min-h-24"
@@ -1815,10 +1866,11 @@ export function Sa100Wizard({
                   }
                 />
               </L>
-              <L label="Date">
+              <L label="Date" required>
                 <input
                   className="input"
                   type="date"
+                  required
                   value={draft.declarationDate}
                   onChange={(e) =>
                     patch({ declarationDate: e.target.value })
@@ -1826,13 +1878,89 @@ export function Sa100Wizard({
                 />
               </L>
               <YN
-                label="I declare this return is correct and complete"
+                label="I declare this return is correct and complete *"
                 value={draft.declarationAccepted}
                 onChange={(declarationAccepted) =>
                   patch({ declarationAccepted })
                 }
               />
-            </>
+            </div>
+          )}
+
+          {step === "preview" && (
+            <div className="space-y-4">
+              <p className="text-sm text-ink-soft">
+                Check the SA100 pack and SA302 below, then submit to HMRC with
+                the client’s Government Gateway credentials.
+              </p>
+              {!draft.declarationAccepted ? (
+                <div className="space-y-3">
+                  <YN
+                    label="I declare this return is correct and complete"
+                    value={draft.declarationAccepted}
+                    onChange={(declarationAccepted) =>
+                      patch({ declarationAccepted })
+                    }
+                  />
+                  {!draft.declarationName.trim() ? (
+                    <L label="Your name" box="TR8.22">
+                      <input
+                        className="input"
+                        value={draft.declarationName}
+                        onChange={(e) =>
+                          patch({ declarationName: e.target.value })
+                        }
+                      />
+                    </L>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-sm font-semibold text-ok">
+                  Declaration accepted
+                  {draft.declarationName.trim()
+                    ? ` · ${draft.declarationName.trim()}`
+                    : ""}
+                  .
+                </p>
+              )}
+
+              <div className="rounded-xl border border-line bg-sand/40 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-ink">
+                    Submit to HMRC
+                  </h3>
+                  <label className="flex items-center gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      className="rounded border-line"
+                      checked={submitLive}
+                      onChange={(e) => setSubmitLive(e.target.checked)}
+                    />
+                    Live Transaction Engine submit
+                  </label>
+                </div>
+                <p className="text-xs text-ink-soft">
+                  {submitLive
+                    ? "Live Gateway (HMRC-SA-SA100) for the supported subset: SA100 + employment / self-employment / UK property. Partnership, foreign, trusts, CGT and residence pages are blocked."
+                    : "Demo accept only — no call to HMRC. Turn on live submit for the supported SA Online subset (XSD-validated)."}
+                </p>
+                {submitLive ? (
+                  <GatewayCredentialsFields
+                    clientId={clientId}
+                    ggUserId={ggUserId}
+                    ggPassword={ggPassword}
+                    onUserIdChange={setGgUserId}
+                    onPasswordChange={setGgPassword}
+                    rememberPassword={rememberPassword}
+                    onRememberPasswordChange={setRememberPassword}
+                    hasSavedPassword={hasSavedPassword}
+                    onHasSavedPasswordChange={setHasSavedPassword}
+                    live
+                    hint="Credentials are saved to your user account for this client only — never shared with colleagues."
+                  />
+                ) : null}
+              </div>
+            </div>
           )}
 
         </div>
@@ -1861,7 +1989,10 @@ export function Sa100Wizard({
             className="btn btn-ghost"
             disabled={pending}
             onClick={() =>
-              persistDraft({ message: "Draft saved — SA100 & SA302 updated." })
+              persistDraft({
+                withPdfs: true,
+                message: "Draft saved — SA100 & SA302 updated.",
+              })
             }
           >
             {pending ? "Saving…" : "Save draft"}
@@ -1870,9 +2001,8 @@ export function Sa100Wizard({
             <button
               type="button"
               className="btn btn-primary"
-              disabled={pending}
               onClick={() => {
-                // Autosave as you move through the return.
+                // Fast step save — PDFs only on Save draft / submit.
                 persistDraft({
                   advance: true,
                   message: "Progress saved.",
@@ -1885,16 +2015,43 @@ export function Sa100Wizard({
             <button
               type="button"
               className="btn btn-primary"
-              disabled={pending || !draft.declarationAccepted}
+              disabled={
+                pending ||
+                !draft.declarationAccepted ||
+                !draft.declarationDate.trim() ||
+                (submitLive &&
+                  !gatewayCredentialsReady(
+                    ggUserId,
+                    ggPassword,
+                    hasSavedPassword,
+                  ))
+              }
               onClick={() => {
                 setError(null);
+                if (!draft.declarationAccepted || !draft.declarationDate.trim()) {
+                  setError("Confirm Date and declaration before submitting.");
+                  return;
+                }
+                if (
+                  submitLive &&
+                  !gatewayCredentialsReady(
+                    ggUserId,
+                    ggPassword,
+                    hasSavedPassword,
+                  )
+                ) {
+                  setError(
+                    "Enter Government Gateway User ID and password for live submit.",
+                  );
+                  return;
+                }
                 start(async () => {
                   try {
-                    // Keep a draft snapshot (with PDFs) before submit.
                     const saved = await saveSa100Draft({
                       clientId,
                       draft,
                       taxpayerId,
+                      skipPdfs: false,
                     });
                     setReturnId(saved.id);
                     const res = await submitSa100Return({
@@ -1902,12 +2059,24 @@ export function Sa100Wizard({
                       draft,
                       taxpayerId,
                       fraudMetadata: gatherFraudMetadata(),
+                      live: submitLive,
+                      demo: !submitLive,
+                      senderId: ggUserId.trim() || undefined,
+                      senderPassword: ggPassword.trim() || undefined,
+                      useSavedPassword:
+                        hasSavedPassword && !ggPassword.trim(),
+                      rememberPassword,
                     });
                     setReturnId(res.id);
+                    if (rememberPassword && ggPassword.trim()) {
+                      setHasSavedPassword(true);
+                      setRememberPassword(false);
+                    }
+                    setGgPassword("");
                     setOk(
                       res.demo
                         ? `Demo accepted · ${res.correlationId} — SA100 & SA302 PDFs ready`
-                        : `Submitted · ${res.correlationId}`,
+                        : `Submitted to HMRC · ${res.correlationId}`,
                     );
                     router.refresh();
                   } catch (e) {
@@ -1918,7 +2087,11 @@ export function Sa100Wizard({
                 });
               }}
             >
-              {pending ? "Submitting…" : "Submit Self Assessment"}
+              {pending
+                ? "Submitting…"
+                : submitLive
+                  ? "Submit to HMRC"
+                  : "Demo accept"}
             </button>
           )}
         </div>
@@ -1964,14 +2137,66 @@ export function Sa100Wizard({
               {gbp(calc.personalAllowance)}
             </dd>
           </div>
+          {calc.employmentIncome > 0 || calc.employmentIncomeTax > 0 ? (
+            <div className="flex justify-between gap-2">
+              <dt className="text-ink-soft">PAYE tax</dt>
+              <dd className="font-semibold tabular-nums">
+                {gbp(calc.employmentIncomeTax)}
+              </dd>
+            </div>
+          ) : null}
+          {calc.selfEmploymentProfit > 0 || calc.selfEmploymentIncomeTax > 0 ? (
+            <div className="flex justify-between gap-2">
+              <dt className="text-ink-soft">Self-employment tax</dt>
+              <dd className="font-semibold tabular-nums">
+                {gbp(calc.selfEmploymentIncomeTax)}
+              </dd>
+            </div>
+          ) : null}
+          {calc.propertyProfit > 0 || calc.propertyIncomeTax > 0 ? (
+            <div className="flex justify-between gap-2">
+              <dt className="text-ink-soft">Rental income tax</dt>
+              <dd className="font-semibold tabular-nums">
+                {gbp(calc.propertyIncomeTax)}
+              </dd>
+            </div>
+          ) : null}
+          {calc.dividendIncome > 0 || calc.dividendIncomeTax > 0 ? (
+            <div className="flex justify-between gap-2">
+              <dt className="text-ink-soft">Dividend tax</dt>
+              <dd className="font-semibold tabular-nums">
+                {gbp(calc.dividendIncomeTax)}
+              </dd>
+            </div>
+          ) : null}
+          {calc.savingsIncome > 0 && calc.savingsIncomeTax > 0 ? (
+            <div className="flex justify-between gap-2">
+              <dt className="text-ink-soft">Savings tax</dt>
+              <dd className="font-semibold tabular-nums">
+                {gbp(calc.savingsIncomeTax)}
+              </dd>
+            </div>
+          ) : null}
+          {calc.otherIncomeTax > 0 ? (
+            <div className="flex justify-between gap-2">
+              <dt className="text-ink-soft">Other / pension tax</dt>
+              <dd className="font-semibold tabular-nums">
+                {gbp(calc.otherIncomeTax)}
+              </dd>
+            </div>
+          ) : null}
           <div className="flex justify-between gap-2">
-            <dt className="text-ink-soft">Income Tax</dt>
+            <dt className="text-ink-soft">Income Tax (total)</dt>
             <dd className="font-semibold tabular-nums">{gbp(calc.incomeTax)}</dd>
           </div>
-          <div className="flex justify-between gap-2">
-            <dt className="text-ink-soft">Class 4 NIC</dt>
-            <dd className="font-semibold tabular-nums">{gbp(calc.class4Nic)}</dd>
-          </div>
+          {calc.selfEmploymentProfit > 0 || calc.class4Nic > 0 ? (
+            <div className="flex justify-between gap-2">
+              <dt className="text-ink-soft">Class 4 NIC</dt>
+              <dd className="font-semibold tabular-nums">
+                {gbp(calc.class4Nic)}
+              </dd>
+            </div>
+          ) : null}
           <div className="flex justify-between gap-2">
             <dt className="text-ink-soft">Paid already</dt>
             <dd className="font-semibold tabular-nums">{gbp(calc.taxDeducted)}</dd>

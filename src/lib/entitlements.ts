@@ -8,6 +8,11 @@ import {
   basePlanKey,
   parseCustomPlanSelection,
 } from "@/lib/pricing";
+import {
+  isCompanySecretarialPlan,
+  secretarialCompanyCapFromPlanKey,
+  secretarialStarterPlanKey,
+} from "@/lib/company-secretarial";
 
 export type ServiceModule =
   | "clients"
@@ -18,6 +23,7 @@ export type ServiceModule =
   | "corporation_tax"
   | "payroll"
   | "companies_house"
+  | "company_secretarial"
   | "practice_desk";
 
 export type PlanEntitlement = {
@@ -25,6 +31,8 @@ export type PlanEntitlement = {
   label: string;
   modules: ServiceModule[];
   maxClients: number | null;
+  /** Cap on limited companies for the Company Secretarial desk (null = unlimited). */
+  maxSecretarialCompanies?: number | null;
   /** Optional aliases for older Stripe / stored plan keys. */
   aliases?: string[];
 };
@@ -38,6 +46,7 @@ const ALL_TAX: ServiceModule[] = [
   "corporation_tax",
   "payroll",
   "companies_house",
+  "company_secretarial",
   "practice_desk",
 ];
 
@@ -65,8 +74,22 @@ export const PLAN_ENTITLEMENTS: PlanEntitlement[] = [
     planKey: "practice:Custom",
     label: "Enterprise",
     aliases: ["practice:Enterprise"],
-    modules: ["clients", "books", "documents", "companies_house", "practice_desk"],
+    modules: [
+      "clients",
+      "books",
+      "documents",
+      "companies_house",
+      "company_secretarial",
+      "practice_desk",
+    ],
     maxClients: 10_000,
+  },
+  {
+    planKey: secretarialStarterPlanKey(),
+    label: "Company Secretarial — up to 10",
+    modules: ["clients", "documents", "companies_house", "company_secretarial"],
+    maxClients: 10,
+    maxSecretarialCompanies: 10,
   },
   {
     planKey: "vat:One company or sole trader",
@@ -159,6 +182,8 @@ export function pricingHashForModule(module: ServiceModule): string {
       return "payroll";
     case "companies_house":
       return "companies-house";
+    case "company_secretarial":
+      return "company-secretarial";
     default:
       return "practice";
   }
@@ -168,15 +193,55 @@ export function entitlementsForPlans(planKeys: string[]): {
   modules: Set<ServiceModule>;
   plans: PlanEntitlement[];
   maxClients: number | null;
+  maxSecretarialCompanies: number | null;
   hasAnyPaid: boolean;
 } {
   const modules = new Set<ServiceModule>();
   const plans: PlanEntitlement[] = [];
   let maxClients: number | null = 0;
   let unlimited = false;
+  let maxSecretarial: number | null = 0;
+  let secretarialUnlimited = false;
 
   for (const rawKey of planKeys) {
     const key = basePlanKey(rawKey);
+
+    if (isCompanySecretarialPlan(key)) {
+      modules.add("company_secretarial");
+      modules.add("companies_house");
+      modules.add("clients");
+      modules.add("documents");
+      const cap = secretarialCompanyCapFromPlanKey(key);
+      const label =
+        key === secretarialStarterPlanKey()
+          ? "Company Secretarial — up to 10"
+          : `Company Secretarial — ${cap ?? "scale"} companies`;
+      plans.push({
+        planKey: rawKey,
+        label,
+        modules: [
+          "clients",
+          "documents",
+          "companies_house",
+          "company_secretarial",
+        ],
+        maxClients: cap,
+        maxSecretarialCompanies: cap,
+      });
+      if (cap == null) {
+        secretarialUnlimited = true;
+        unlimited = true;
+      } else {
+        if (typeof maxClients === "number") {
+          maxClients = Math.max(maxClients, cap);
+        }
+        if (typeof maxSecretarial === "number") {
+          maxSecretarial = Math.max(maxSecretarial, cap);
+        }
+      }
+      continue;
+    }
+
     if (isCompaniesHousePlan(key)) {
       modules.add("companies_house");
       modules.add("clients");
@@ -188,7 +253,9 @@ export function entitlementsForPlans(planKeys: string[]): {
       modules.add("books");
       modules.add("documents");
       modules.add("companies_house");
+      modules.add("company_secretarial");
       modules.add("practice_desk");
+      secretarialUnlimited = true;
       const selection = parseCustomPlanSelection(key);
       let clientCap = 0;
       let customUnlimited = false;
@@ -211,6 +278,7 @@ export function entitlementsForPlans(planKeys: string[]): {
         label: "Enterprise",
         modules: [...modules] as ServiceModule[],
         maxClients: maxForPlan,
+        maxSecretarialCompanies: null,
       });
       if (customUnlimited) {
         unlimited = true;
@@ -223,6 +291,16 @@ export function entitlementsForPlans(planKeys: string[]): {
     if (!ent) continue;
     plans.push(ent);
     for (const m of ent.modules) modules.add(m);
+    if (ent.modules.includes("company_secretarial")) {
+      if (ent.maxSecretarialCompanies === null || ent.maxClients === null) {
+        secretarialUnlimited = true;
+      } else if (typeof maxSecretarial === "number") {
+        maxSecretarial = Math.max(
+          maxSecretarial,
+          ent.maxSecretarialCompanies ?? ent.maxClients ?? 0,
+        );
+      }
+    }
     if (ent.maxClients === null) unlimited = true;
     else if (typeof maxClients === "number") {
       maxClients = Math.max(maxClients, ent.maxClients);
@@ -233,6 +311,11 @@ export function entitlementsForPlans(planKeys: string[]): {
     modules,
     plans,
     maxClients: unlimited ? null : maxClients === 0 ? 0 : maxClients,
+    maxSecretarialCompanies: secretarialUnlimited
+      ? null
+      : maxSecretarial === 0
+        ? 0
+        : maxSecretarial,
     hasAnyPaid: planKeys.length > 0,
   };
 }
@@ -247,6 +330,7 @@ export function moduleLabel(m: ServiceModule): string {
     corporation_tax: "Corporation Tax",
     payroll: "PAYE / RTI",
     companies_house: "Companies House",
+    company_secretarial: "Company Secretarial",
     practice_desk: "Practice desk",
   };
   return map[m];
@@ -257,13 +341,19 @@ export function isPlanGatedModule(
   module: string,
 ): module is Extract<
   ServiceModule,
-  "vat" | "self_assessment" | "corporation_tax" | "payroll" | "companies_house"
+  | "vat"
+  | "self_assessment"
+  | "corporation_tax"
+  | "payroll"
+  | "companies_house"
+  | "company_secretarial"
 > {
   return (
     module === "vat" ||
     module === "self_assessment" ||
     module === "corporation_tax" ||
     module === "payroll" ||
-    module === "companies_house"
+    module === "companies_house" ||
+    module === "company_secretarial"
   );
 }

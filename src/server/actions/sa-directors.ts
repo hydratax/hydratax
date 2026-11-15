@@ -370,13 +370,19 @@ export async function getDirectorWorkspace(input: {
     );
     changed = true;
   }
+  // Quiet persist only — this runs during Server Component render, so never
+  // revalidatePath or push into SA100 (that belongs to explicit income saves).
+  const { syncWriteTaxpayer } = await import("@/server/actions/sa-taxpayers");
   if (changed) {
-    taxpayer = await saveTaxpayerIncomes({
-      clientId: person.homeClientId,
-      taxpayerId: taxpayer.id,
-      companyIncomes: existing,
-      otherIncomes: dedupedOthers,
-    });
+    taxpayer = await syncWriteTaxpayer(
+      person.homeClientId,
+      {
+        ...taxpayer,
+        companyIncomes: existing,
+        otherIncomes: dedupedOthers,
+      },
+      { revalidate: false },
+    );
   }
 
   // Pull PAYE YTD onto company cards when NINO + DOB + address all match.
@@ -392,13 +398,15 @@ export async function getDirectorWorkspace(input: {
       taxYear: payeYear,
     });
     if (pulled.changed) {
-      taxpayer = await saveTaxpayerIncomes({
-        clientId: person.homeClientId,
-        taxpayerId: taxpayer.id,
-        companyIncomes: pulled.companyIncomes,
-        otherIncomes: taxpayer.otherIncomes ?? dedupedOthers,
-        taxYear: payeYear,
-      });
+      taxpayer = await syncWriteTaxpayer(
+        person.homeClientId,
+        {
+          ...taxpayer,
+          companyIncomes: pulled.companyIncomes,
+          otherIncomes: taxpayer.otherIncomes ?? dedupedOthers,
+        },
+        { revalidate: false },
+      );
     } else {
       taxpayer = {
         ...taxpayer,
@@ -523,6 +531,8 @@ export async function saveTaxpayerIncomes(input: {
   otherIncomes: SaOtherIncome[];
   /** Active SA tax year to refresh (defaults to current filing year). */
   taxYear?: string;
+  /** When false, skip cache revalidation (must not run during RSC render). */
+  revalidate?: boolean;
 }) {
   const client = await getClient(input.clientId);
   const list = [...(client.deskProfile?.saTaxpayers ?? [])];
@@ -540,44 +550,58 @@ export async function saveTaxpayerIncomes(input: {
   };
   // Persist via upsert fields — write full taxpayer through upsertSaTaxpayer path
   const { syncWriteTaxpayer } = await import("@/server/actions/sa-taxpayers");
-  const saved = await syncWriteTaxpayer(input.clientId, row);
+  const doRevalidate = input.revalidate !== false;
+  const saved = await syncWriteTaxpayer(input.clientId, row, {
+    revalidate: doRevalidate,
+  });
 
-  // Push company / other income onto the open SA100 draft so Employment (SA102)
-  // and related pages pick up employer name, PAYE ref, pay and tax immediately.
+  // Push company / other income onto an *existing* SA100 draft only.
+  // Never create a new draft from income — that resurrected deleted returns.
   try {
     const { accumulateSa100FromIncome } = await import("@/lib/sa-income");
     const { filingSaTaxYear, parseSaTaxYearLabel } = await import(
       "@/lib/sa-tax-year"
     );
-    const { getSa100Draft, saveSa100Draft, listSa100Returns } = await import(
-      "@/server/actions/sa100"
-    );
+    const {
+      getSa100Draft,
+      saveSa100Draft,
+      listSa100Returns,
+      isSa100BlankStart,
+    } = await import("@/server/actions/sa100");
     const requested =
       (input.taxYear && parseSaTaxYearLabel(input.taxYear)?.label) || null;
     const returns = await listSa100Returns(input.clientId, input.taxpayerId);
     const openDraft = returns.find((r) => r.status === "draft");
     const taxYear =
       requested || openDraft?.taxYear || filingSaTaxYear().label;
-    const existingDraft = await getSa100Draft(
-      input.clientId,
-      taxYear,
-      input.taxpayerId,
-    );
-    const merged = accumulateSa100FromIncome(saved, {
-      ...(existingDraft?.draft ?? {}),
-      taxYear,
-    });
-    await saveSa100Draft({
-      clientId: input.clientId,
-      taxpayerId: input.taxpayerId,
-      draft: merged,
-    });
+    if (await isSa100BlankStart(input.clientId, taxYear, input.taxpayerId)) {
+      /* Deleted draft — leave SA100 empty until accountant opens/saves again. */
+    } else {
+      const existingDraft = await getSa100Draft(
+        input.clientId,
+        taxYear,
+        input.taxpayerId,
+      );
+      if (existingDraft) {
+        const merged = accumulateSa100FromIncome(saved, {
+          ...existingDraft.draft,
+          taxYear,
+        });
+        await saveSa100Draft({
+          clientId: input.clientId,
+          taxpayerId: input.taxpayerId,
+          draft: merged,
+        });
+      }
+    }
   } catch {
     /* SA100 sync is best-effort — income save still succeeded */
   }
 
-  revalidatePath(`/clients/${input.clientId}/self-assessment`);
-  revalidatePath(`/self-assessment`, "layout");
+  if (doRevalidate) {
+    revalidatePath(`/clients/${input.clientId}/self-assessment`);
+    revalidatePath(`/self-assessment`, "layout");
+  }
   return saved;
 }
 

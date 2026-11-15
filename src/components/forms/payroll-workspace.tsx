@@ -30,6 +30,7 @@ import {
 } from "@/components/forms/gateway-credentials-fields";
 import { PayrollSettingsPanel } from "@/components/forms/payroll-settings-panel";
 import type { PayrollDeskSettings } from "@/lib/desk-profile";
+import { AddressFields } from "@/components/forms/address-fields";
 
 type RunRow = {
   id?: string;
@@ -47,6 +48,7 @@ type RunRow = {
 export function PayrollWorkspace({
   clientId,
   clientName,
+  hmrcLive = false,
   payeRef,
   accountsOfficeRef,
   isEmployer,
@@ -58,6 +60,8 @@ export function PayrollWorkspace({
 }: {
   clientId: string;
   clientName: string;
+  /** True when HMRC_ENV=production (live Transaction Engine). */
+  hmrcLive?: boolean;
   payeRef: string | null;
   accountsOfficeRef: string | null;
   isEmployer: boolean;
@@ -139,7 +143,7 @@ export function PayrollWorkspace({
           <p className="relative text-[11px] font-bold uppercase tracking-[0.14em] text-ink-soft">
             PAYE
           </p>
-          <p className="relative mt-2 font-mono text-sm font-semibold text-ink">
+          <p className="figures relative mt-2 text-base font-semibold tracking-wide text-ink">
             {payeRef || "Not set"}
           </p>
         </div>
@@ -148,7 +152,7 @@ export function PayrollWorkspace({
           <p className="relative text-[11px] font-bold uppercase tracking-[0.14em] text-ink-soft">
             Accounts office
           </p>
-          <p className="relative mt-2 font-mono text-sm font-semibold text-ink">
+          <p className="figures relative mt-2 text-base font-semibold tracking-wide text-ink">
             {accountsOfficeRef || "Not set"}
           </p>
         </div>
@@ -157,11 +161,26 @@ export function PayrollWorkspace({
           <p className="relative text-[11px] font-bold uppercase tracking-[0.14em] text-ink-soft">
             Live employees
           </p>
-          <p className="display relative mt-1 text-3xl text-ink">
+          <p className="figures relative mt-1 text-3xl font-semibold text-ink">
             {liveEmployees}
           </p>
         </div>
       </div>
+
+      {!hmrcLive ? (
+        <div className="rounded-xl border border-warn/35 bg-warn/10 px-4 py-3 text-sm text-ink">
+          <p className="font-semibold text-warn">HMRC sandbox endpoint</p>
+          <p className="mt-1 text-ink-soft">
+            FPS/EPS go to HMRC’s{" "}
+            <span className="figures font-semibold text-ink">test</span>{" "}
+            Transaction Engine (`HMRC_ENV` is not production). That setting only
+            chooses the HMRC server — Government Gateway User ID and password
+            are always entered by the signed-in accountant (saved to their
+            account for this client if they choose). Live GG logins will get
+            1046 here until the server uses the live endpoint.
+          </p>
+        </div>
+      ) : null}
 
       {!isEmployer || !payeRef || !accountsOfficeRef ? (
         <EmployerSetup clientId={clientId} />
@@ -824,6 +843,7 @@ function EmployeesPanel({
                   forename: String(fd.get("forename") || ""),
                   surname: String(fd.get("surname") || ""),
                   nino: String(fd.get("nino") || ""),
+                  gender: fd.get("gender") === "F" ? "F" : "M",
                   dateOfBirth: String(fd.get("dateOfBirth") || ""),
                   address: String(fd.get("address") || ""),
                   taxCode: String(fd.get("taxCode") || "1257L"),
@@ -870,20 +890,28 @@ function EmployeesPanel({
             <input name="nino" className="input mt-1.5 font-mono" placeholder="AB123456C" required />
           </label>
           <label className="text-sm font-semibold">
+            Gender (HMRC FPS)
+            <select name="gender" className="input mt-1.5" required defaultValue="M">
+              <option value="M">Male</option>
+              <option value="F">Female</option>
+            </select>
+            <span className="mt-1 block text-[11px] font-normal text-ink-soft">
+              Required on every Full Payment Submission.
+            </span>
+          </label>
+          <label className="text-sm font-semibold">
             Date of birth
             <input name="dateOfBirth" type="date" className="input mt-1.5" />
             <span className="mt-1 block text-[11px] font-normal text-ink-soft">
               Required to link this employee to Self Assessment.
             </span>
           </label>
-          <label className="text-sm font-semibold sm:col-span-2">
-            Home address
-            <textarea
-              name="address"
-              className="input mt-1.5 min-h-[3.5rem]"
-              placeholder="Must match the SA person record"
-            />
-          </label>
+          <div className="sm:col-span-2">
+            <p className="text-sm font-semibold">Home address *</p>
+            <div className="mt-1.5">
+              <AddressFields name="address" required />
+            </div>
+          </div>
           <label className="text-sm font-semibold">
             Tax code
             <input name="taxCode" className="input mt-1.5" defaultValue="1257L" />

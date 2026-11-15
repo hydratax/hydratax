@@ -17,6 +17,17 @@ import {
   mapBulkImportRow,
   normalizeImportHeader,
 } from "@/lib/bulk-client-import-map";
+import { addressIdentityComplete } from "@/lib/address-parts";
+
+const addressField = z
+  .string()
+  .max(500)
+  .optional()
+  .or(z.literal(""))
+  .refine(
+    (v) => !v?.trim() || addressIdentityComplete(v),
+    { message: "Street address and postcode are required" },
+  );
 
 const createClientSchema = z.object({
   name: z.string().min(1).max(200),
@@ -28,6 +39,7 @@ const createClientSchema = z.object({
   companyAuthCode: z.string().optional(),
   payeRef: z.string().optional(),
   accountsOfficeRef: z.string().optional(),
+  address: addressField,
   contactEmail: z.string().email().optional().or(z.literal("")),
   contactPhone: z.string().max(40).optional().or(z.literal("")),
   isEmployer: z.boolean().default(false),
@@ -69,6 +81,7 @@ export type ClientRecord = {
   companyAuthCode: string | null;
   payeRef: string | null;
   accountsOfficeRef: string | null;
+  address: string | null;
   contactEmail: string | null;
   contactPhone: string | null;
   isEmployer: boolean;
@@ -93,6 +106,7 @@ function mapSupabaseClient(row: Record<string, unknown>): ClientRecord {
     companyAuthCode: (row.company_auth_code as string | null) ?? null,
     payeRef: (row.paye_ref as string | null) ?? null,
     accountsOfficeRef: (row.accounts_office_ref as string | null) ?? null,
+    address: (row.address as string | null) ?? null,
     contactEmail: (row.contact_email as string | null) ?? null,
     contactPhone: (row.contact_phone as string | null) ?? null,
     isEmployer: Boolean(row.is_employer),
@@ -258,6 +272,7 @@ function mapMemoryClient(
     companyAuthCode: c.companyAuthCode,
     payeRef: c.payeRef,
     accountsOfficeRef: c.accountsOfficeRef,
+    address: c.address ?? null,
     contactEmail: c.contactEmail ?? null,
     contactPhone: c.contactPhone ?? null,
     isEmployer: c.isEmployer,
@@ -283,6 +298,7 @@ function mapDrizzleClient(row: Record<string, unknown>): ClientRecord {
     companyAuthCode: (row.companyAuthCode as string | null) ?? null,
     payeRef: (row.payeRef as string | null) ?? null,
     accountsOfficeRef: (row.accountsOfficeRef as string | null) ?? null,
+    address: (row.address as string | null) ?? null,
     contactEmail: (row.contactEmail as string | null) ?? null,
     contactPhone: (row.contactPhone as string | null) ?? null,
     isEmployer: Boolean(row.isEmployer),
@@ -471,6 +487,7 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
       companyAuthCode: normalizeCompanyAuthCode(data.companyAuthCode),
       payeRef: data.payeRef ?? null,
       accountsOfficeRef: data.accountsOfficeRef ?? null,
+      address: data.address?.trim() || null,
       contactEmail: data.contactEmail || null,
       contactPhone: data.contactPhone?.trim() || null,
       isEmployer: data.isEmployer,
@@ -524,6 +541,7 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
         company_auth_code: normalizeCompanyAuthCode(data.companyAuthCode),
         paye_ref: data.payeRef ?? null,
         accounts_office_ref: data.accountsOfficeRef ?? null,
+        address: data.address?.trim() || null,
         contact_email: data.contactEmail || null,
         contact_phone: data.contactPhone?.trim() || null,
         is_employer: data.isEmployer,
@@ -572,6 +590,7 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
       companyAuthCode: normalizeCompanyAuthCode(data.companyAuthCode),
       payeRef: data.payeRef ?? null,
       accountsOfficeRef: data.accountsOfficeRef ?? null,
+      address: data.address?.trim() || null,
       contactEmail: data.contactEmail || null,
       contactPhone: data.contactPhone?.trim() || null,
       isEmployer: data.isEmployer,
@@ -632,6 +651,10 @@ export async function updateClient(input: z.infer<typeof updateClientSchema>) {
       data.accountsOfficeRef !== undefined
         ? data.accountsOfficeRef.trim() || null
         : existing.accountsOfficeRef,
+    address:
+      data.address !== undefined
+        ? data.address.trim() || null
+        : (existing.address ?? null),
     contactEmail:
       data.contactEmail !== undefined
         ? data.contactEmail.trim() || null
@@ -683,6 +706,7 @@ export async function updateClient(input: z.infer<typeof updateClientSchema>) {
         company_auth_code: patch.companyAuthCode,
         paye_ref: patch.payeRef,
         accounts_office_ref: patch.accountsOfficeRef,
+        address: patch.address,
         contact_email: patch.contactEmail,
         contact_phone: patch.contactPhone,
         is_employer: patch.isEmployer,
@@ -722,6 +746,7 @@ export async function updateClient(input: z.infer<typeof updateClientSchema>) {
       companyAuthCode: patch.companyAuthCode,
       payeRef: patch.payeRef,
       accountsOfficeRef: patch.accountsOfficeRef,
+      address: patch.address,
       contactEmail: patch.contactEmail,
       contactPhone: patch.contactPhone,
       isEmployer: patch.isEmployer,

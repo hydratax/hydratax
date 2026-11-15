@@ -189,8 +189,8 @@ export function SaDirectorIncomeDesk({
           : null;
         setOk(
           name
-            ? `${name} saved — current Self Assessment draft updated.`
-            : "Income saved — current Self Assessment draft updated.",
+            ? `${name} saved.`
+            : "Income saved.",
         );
         router.refresh();
       } catch (e) {

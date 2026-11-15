@@ -6,8 +6,6 @@ import { appendAuditEvent } from "@/server/audit/log";
 import { isDemoMode, isSupabaseConfigured } from "@/lib/env";
 import { demoStore } from "@/server/demo/store";
 import { getSupabaseDataClient } from "@/server/db/supabase-data";
-import { getHmrcConfig } from "@/server/hmrc/config";
-
 export type GatewayCredentialPublic = {
   /** Decrypted Sender ID for the signed-in user only. Never includes password. */
   senderId: string | null;
@@ -232,7 +230,14 @@ export async function clearMyGatewayCredentials(clientId: string) {
 
 /**
  * Resolve Sender ID + password for an HMRC submit.
- * Password is decrypted only in-process for the owning user — never returned to the client.
+ *
+ * Credentials come from the signed-in accountant only:
+ * 1) values typed on the submit form, else
+ * 2) that user’s encrypted save for this client (`user_gateway_credentials`).
+ *
+ * Never reads Government Gateway passwords from env — each accountant’s GG
+ * differs, and env must not hold live employer/agent logins.
+ * Password is decrypted only in-process for the owning user.
  */
 export async function resolveGatewayCredentialsForSubmit(opts: {
   clientId: string;
@@ -243,7 +248,6 @@ export async function resolveGatewayCredentialsForSubmit(opts: {
 }): Promise<{ senderId: string; senderPassword: string }> {
   const session = await requireSession();
   await getClient(opts.clientId);
-  const cfg = getHmrcConfig();
 
   const typedId = opts.senderId?.trim() ?? "";
   const typedPassword = opts.senderPassword?.trim() ?? "";
@@ -257,13 +261,11 @@ export async function resolveGatewayCredentialsForSubmit(opts: {
       senderId = "";
     }
   }
-  if (!senderId && cfg.env !== "production") {
-    senderId = cfg.ctTestSenderId;
-  }
 
   let senderPassword = typedPassword;
   const wantSaved =
-    opts.useSavedPassword === true || (!typedPassword && Boolean(row?.password_encrypted));
+    opts.useSavedPassword === true ||
+    (!typedPassword && Boolean(row?.password_encrypted));
   if (!senderPassword && wantSaved && row?.password_encrypted) {
     try {
       senderPassword = decryptSecret(row.password_encrypted);
@@ -273,13 +275,10 @@ export async function resolveGatewayCredentialsForSubmit(opts: {
       );
     }
   }
-  if (!senderPassword && cfg.env !== "production") {
-    senderPassword = cfg.ctTestPassword;
-  }
 
   if (!senderId || !senderPassword) {
     throw new Error(
-      "Enter the Government Gateway User ID and password to submit to HMRC.",
+      "Enter your Government Gateway User ID and password to submit to HMRC. Each accountant uses their own credentials — they are never taken from server env.",
     );
   }
 

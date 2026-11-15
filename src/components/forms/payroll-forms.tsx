@@ -10,6 +10,7 @@ import {
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { messageFromUnknown } from "@/lib/action-error";
 import { FilingConfirmation } from "@/components/filing-confirmation";
+import { AddressFields } from "@/components/forms/address-fields";
 
 export function AddEmployeeForm({ clientId }: { clientId: string }) {
   const router = useRouter();
@@ -31,6 +32,7 @@ export function AddEmployeeForm({ clientId }: { clientId: string }) {
               forename: String(fd.get("forename") || ""),
               surname: String(fd.get("surname") || ""),
               nino: String(fd.get("nino") || ""),
+              gender: fd.get("gender") === "F" ? "F" : "M",
               dateOfBirth: String(fd.get("dateOfBirth") || ""),
               address: String(fd.get("address") || ""),
               taxCode: String(fd.get("taxCode") || "1257L"),
@@ -68,6 +70,13 @@ export function AddEmployeeForm({ clientId }: { clientId: string }) {
         />
       </div>
       <div>
+        <label className="label">Gender (HMRC FPS)</label>
+        <select name="gender" className="input" required defaultValue="M">
+          <option value="M">Male</option>
+          <option value="F">Female</option>
+        </select>
+      </div>
+      <div>
         <label className="label">Date of birth</label>
         <input name="dateOfBirth" type="date" className="input" />
         <p className="mt-1 text-[11px] text-ink-soft">
@@ -75,12 +84,10 @@ export function AddEmployeeForm({ clientId }: { clientId: string }) {
         </p>
       </div>
       <div className="sm:col-span-2">
-        <label className="label">Home address</label>
-        <textarea
-          name="address"
-          className="input min-h-[3.5rem]"
-          placeholder="As on the SA person record"
-        />
+        <p className="label">Home address *</p>
+        <div className="mt-1.5">
+          <AddressFields name="address" required />
+        </div>
       </div>
       <div>
         <label className="label">Tax code</label>

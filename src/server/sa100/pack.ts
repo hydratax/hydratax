@@ -1,12 +1,15 @@
 import fs from "fs";
 import path from "path";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, type PDFPage } from "pdf-lib";
 import type { Sa100Draft } from "@/lib/sa100/schema";
 import {
   supplementsForDraft,
   type SaFormTemplate,
 } from "@/lib/sa100/forms-catalog";
 import { buildSa100Pdf, type SaPdfMeta } from "@/server/sa100/pdf";
+import { fillSa102EmploymentPage } from "@/server/sa100/sa102-fill";
+import { fillSa103FPages } from "@/server/sa100/sa103-fill";
+import { fillSa105Pages } from "@/server/sa100/sa105-fill";
 
 function resolveHmrcPath(filename: string): string {
   const candidates = [
@@ -19,7 +22,38 @@ function resolveHmrcPath(filename: string): string {
   throw new Error(`HMRC form PDF not found: ${filename}`);
 }
 
-async function appendOfficialForm(
+async function drawSubmissionBanner(
+  pack: PDFDocument,
+  pages: PDFPage[],
+  meta: SaPdfMeta,
+) {
+  if (!meta.submissionRef?.trim()) return;
+  const bannerFont = await pack.embedFont(StandardFonts.HelveticaBold);
+  for (const page of pages) {
+    page.drawText(`Submission number: ${meta.submissionRef.trim()}`, {
+      x: 36,
+      y: page.getSize().height - 18,
+      size: 8,
+      font: bannerFont,
+      color: rgb(0.06, 0.35, 0.32),
+    });
+  }
+}
+
+async function appendTemplatePages(
+  pack: PDFDocument,
+  filename: string,
+): Promise<PDFPage[]> {
+  const bytes = fs.readFileSync(
+    /* turbopackIgnore: true */ resolveHmrcPath(filename),
+  );
+  const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
+  const copied = await pack.copyPages(src, src.getPageIndices());
+  for (const page of copied) pack.addPage(page);
+  return copied;
+}
+
+async function appendBlankSupplement(
   pack: PDFDocument,
   form: SaFormTemplate,
   draft: Sa100Draft,
@@ -47,21 +81,94 @@ async function appendOfficialForm(
     /* no AcroForm */
   }
   const pages = await pack.copyPages(src, src.getPageIndices());
-  const bannerFont = meta.submissionRef?.trim()
-    ? await pack.embedFont(StandardFonts.HelveticaBold)
-    : null;
-  for (const page of pages) {
-    pack.addPage(page);
-    if (bannerFont && meta.submissionRef?.trim()) {
-      page.drawText(`Submission number: ${meta.submissionRef.trim()}`, {
-        x: 36,
-        y: page.getSize().height - 18,
-        size: 8,
-        font: bannerFont,
-        color: rgb(0.06, 0.35, 0.32),
-      });
+  for (const page of pages) pack.addPage(page);
+  await drawSubmissionBanner(pack, pages, meta);
+}
+
+/** One filled SA102 per employment row. */
+async function appendFilledSa102(
+  pack: PDFDocument,
+  draft: Sa100Draft,
+  personName: string,
+  meta: SaPdfMeta,
+) {
+  const form = supplementsForDraft(draft).find((f) => f.formCode === "SA102");
+  if (!form) return;
+  const employments =
+    draft.employments.length > 0
+      ? draft.employments
+      : [
+          {
+            employerName: "",
+            payeRef: "",
+            pay: 0,
+            payrolledBenefitsStudentLoan: 0,
+            taxTakenOff: 0,
+            tips: 0,
+            wasDirector: false,
+            directorCeasedDate: "",
+            wasCloseCompany: false,
+            closeCompanyName: "",
+            closeCompanyNumber: "",
+            closeCompanyDividends: 0,
+            closeCompanySharePct: 0,
+            offPayroll: false,
+            benefitCars: 0,
+            benefitFuel: 0,
+            benefitMedical: 0,
+            benefitVouchers: 0,
+            benefitGoods: 0,
+            benefitAccommodation: 0,
+            benefitOther: 0,
+            benefitExpensesPayments: 0,
+            benefits: 0,
+            expenseTravel: 0,
+            expenseFixed: 0,
+            expenseProfessional: 0,
+            expenseOther: 0,
+          },
+        ];
+
+  for (const emp of employments) {
+    const copied = await appendTemplatePages(pack, form.filename);
+    const first = copied[0];
+    if (first) {
+      await fillSa102EmploymentPage(
+        pack,
+        first,
+        emp,
+        personName,
+        draft.utr || "",
+      );
     }
+    await drawSubmissionBanner(pack, copied, meta);
   }
+}
+
+async function appendFilledSa103F(
+  pack: PDFDocument,
+  draft: Sa100Draft,
+  personName: string,
+  meta: SaPdfMeta,
+) {
+  const form = supplementsForDraft(draft).find((f) => f.formCode === "SA103F");
+  if (!form) return;
+  const copied = await appendTemplatePages(pack, form.filename);
+  await fillSa103FPages(pack, copied, draft, personName);
+  await drawSubmissionBanner(pack, copied, meta);
+}
+
+async function appendFilledSa105(
+  pack: PDFDocument,
+  draft: Sa100Draft,
+  personName: string,
+  meta: SaPdfMeta,
+) {
+  const form = supplementsForDraft(draft).find((f) => f.formCode === "SA105");
+  if (!form) return;
+  const copied = await appendTemplatePages(pack, form.filename);
+  await fillSa105Pages(pack, copied, draft, personName);
+  await drawSubmissionBanner(pack, copied, meta);
 }
 
 /**
@@ -81,14 +188,27 @@ export async function buildSa100PackPdf(
   const supplements = supplementsForDraft(draft);
   const draftForMain: Sa100Draft = {
     ...draft,
-    enclosingSupplementary: supplements.length > 0 || draft.enclosingSupplementary,
+    enclosingSupplementary:
+      supplements.length > 0 || draft.enclosingSupplementary,
   };
 
   const mainBytes = await buildSa100Pdf(draftForMain, personName, meta);
   const pack = await PDFDocument.load(mainBytes);
 
   for (const form of supplements) {
-    await appendOfficialForm(pack, form, draft, personName, meta);
+    if (form.formCode === "SA102") {
+      await appendFilledSa102(pack, draft, personName, meta);
+      continue;
+    }
+    if (form.formCode === "SA103F") {
+      await appendFilledSa103F(pack, draft, personName, meta);
+      continue;
+    }
+    if (form.formCode === "SA105") {
+      await appendFilledSa105(pack, draft, personName, meta);
+      continue;
+    }
+    await appendBlankSupplement(pack, form, draft, personName, meta);
   }
 
   return {

@@ -29,7 +29,6 @@
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.2",
     "@tailwindcss/postcss": "^4.3.3",
-    "@xmldom/xmldom": "^0.9.12",
     "drizzle-orm": "^0.45.4",
     "next": "^16.4.6",
     "pdf-lib": "^1.17.1",
@@ -49,12 +48,14 @@
     "@types/node": "^22.20.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@xmldom/xmldom": "^0.9.12",
     "drizzle-kit": "^0.31.11",
     "eslint": "^9",
     "eslint-config-next": "^16.4.6",
     "typescript": "^5",
     "vitest": "^5.1.0",
-    "wrangler": "^4.125.0"
+    "wrangler": "^4.125.0",
+    "xmldom": "^0.6.0"
   },
   "overrides": {
     "@esbuild-kit/core-utils": {

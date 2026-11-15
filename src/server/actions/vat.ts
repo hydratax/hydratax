@@ -9,12 +9,15 @@ import { isDemoMode } from "@/lib/env";
 import { demoStore } from "@/server/demo/store";
 import {
   draftVatBoxesFromLedger,
+  fetchVatObligations,
   submitVatReturn,
   boxesToHmrcPayload,
+  type VatBoxes,
 } from "@/server/hmrc/vat";
 import {
   buildFraudPreventionHeaders,
   clientFraudMetadataSchema,
+  fraudOptsFromRequest,
 } from "@/server/hmrc/fraud-headers";
 import { getValidAccessToken } from "@/server/hmrc/tokens";
 import { appendAuditEvent } from "@/server/audit/log";
@@ -28,6 +31,7 @@ import {
   deskUpdateVatReturn,
   mapSnakeCaseRow,
 } from "@/server/db/desk-store";
+import { vatReturnBoxesSchema } from "@/server/money/schemas";
 
 const prepareSchema = z.object({
   clientId: z.string(),
@@ -217,6 +221,40 @@ export async function listVatReturns(clientId: string) {
   return db.select().from(vatReturns).where(eq(vatReturns.clientId, clientId));
 }
 
+async function findStoredVatReturn(clientId: string, periodKey: string) {
+  if (isDemoMode()) {
+    return (
+      demoStore.vatReturns.find(
+        (r) => r.clientId === clientId && r.periodKey === periodKey,
+      ) ?? null
+    );
+  }
+  const deskRows = await deskListVatReturns(clientId);
+  if (deskRows !== null) {
+    const row = deskRows.find(
+      (r) => String(r.period_key ?? r.periodKey ?? "") === periodKey,
+    );
+    return row ? mapSnakeCaseRow(row) : null;
+  }
+  const db = tryGetDb();
+  if (!db) return null;
+  const { vatReturns } = await import("@/server/db/schema");
+  const { and, eq } = await import("drizzle-orm");
+  const rows = await db
+    .select()
+    .from(vatReturns)
+    .where(
+      and(eq(vatReturns.clientId, clientId), eq(vatReturns.periodKey, periodKey)),
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+function parseStoredBoxes(raw: unknown): VatBoxes | null {
+  const parsed = vatReturnBoxesSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
 export async function submitPreparedVatReturn(
   input: z.infer<typeof submitSchema> & { confirmEndTrial?: boolean },
 ) {
@@ -235,27 +273,44 @@ export async function submitPreparedVatReturn(
   );
   if (approval) throw new Error(approval);
 
-  const fraudHeaders = buildFraudPreventionHeaders(data.fraudMetadata);
-  const draft =
-    (isDemoMode()
-      ? demoStore.vatReturns.find(
-          (r) =>
-            r.clientId === data.clientId && r.periodKey === data.periodKey,
-        )
-      : null) ??
-    (await prepareVatReturn({
-      clientId: data.clientId,
-      periodKey: data.periodKey,
-      periodStart: data.periodStart,
-      periodEnd: data.periodEnd,
-    }));
+  const fraudHeaders = buildFraudPreventionHeaders(
+    data.fraudMetadata,
+    await fraudOptsFromRequest(),
+  );
 
-  const boxes = draft.boxes as ReturnType<typeof draftVatBoxesFromLedger>;
-  const accessToken = await getValidAccessToken(data.clientId, session.practiceId);
+  // Prefer the saved draft (manual / TB / ledger prepare). Never silently
+  // overwrite accountant-entered boxes by re-deriving from the ledger.
+  const stored = await findStoredVatReturn(data.clientId, data.periodKey);
+  const storedBoxes = stored ? parseStoredBoxes(stored.boxes) : null;
+  const prepared =
+    stored && storedBoxes
+      ? { ...stored, boxes: storedBoxes }
+      : await prepareVatReturn({
+          clientId: data.clientId,
+          periodKey: data.periodKey,
+          periodStart: data.periodStart,
+          periodEnd: data.periodEnd,
+        });
+  const draftId =
+    "id" in prepared && typeof (prepared as { id?: unknown }).id === "string"
+      ? String((prepared as { id: string }).id)
+      : crypto.randomUUID();
+  const draft = { ...prepared, id: draftId };
+  const boxes = draft.boxes as VatBoxes;
+  const accessToken = await getValidAccessToken(
+    data.clientId,
+    session.practiceId,
+  );
   const cfg = getHmrcConfig();
 
   if (!accessToken || !cfg.clientId) {
-    // No live credentials — record locally until HMRC keys + OAuth are configured
+    // Demo-only soft accept. Never mark a live desk return as HMRC-accepted
+    // without a real OAuth token + app credentials.
+    if (!isDemoMode()) {
+      throw new Error(
+        "HMRC VAT is not connected. Connect this client via OAuth (and set HMRC_CLIENT_ID) before submitting.",
+      );
+    }
     const payload = boxesToHmrcPayload(boxes);
     payload.periodKey = data.periodKey;
     const correlationId = `demo-vat-${Date.now()}`;
@@ -266,19 +321,15 @@ export async function submitPreparedVatReturn(
       hmrcProcessingDate: new Date().toISOString(),
       submittedAt: new Date().toISOString(),
     };
-    if (isDemoMode()) {
-      const idx = demoStore.vatReturns.findIndex((r) => r.id === draft.id);
-      if (idx >= 0) demoStore.vatReturns[idx] = result;
-    } else {
-      await updateStoredVatReturn(data.clientId, data.periodKey, result);
-    }
+    const idx = demoStore.vatReturns.findIndex((r) => r.id === draft.id);
+    if (idx >= 0) demoStore.vatReturns[idx] = result;
     await appendAuditEvent({
       practiceId: session.practiceId,
       clientId: data.clientId,
       actorId: session.userId,
       action: "hmrc.vat.submit.demo",
       entityType: "vat_return",
-      entityId: String(draft.id),
+      entityId: draft.id,
       hmrcStatusCode: 201,
       hmrcCorrelationId: correlationId,
       detail: { payload, fraudHeaderKeys: Object.keys(fraudHeaders) },
@@ -317,13 +368,19 @@ export async function submitPreparedVatReturn(
     await updateStoredVatReturn(data.clientId, data.periodKey, result);
   }
 
+  if (!res.ok) {
+    const snippet = res.rawText.slice(0, 500);
+    throw new Error(
+      `HMRC rejected the VAT return (HTTP ${res.status})${snippet ? `: ${snippet}` : ""}`,
+    );
+  }
+
   revalidatePath(`/clients/${data.clientId}/vat`);
   return { result, hmrc: res };
 }
 
-export async function listVatObligations(clientId: string) {
-  await getClient(clientId);
-  // Live HMRC obligations when connected; placeholder periods for prepare UI otherwise
+/** Placeholder periods for UI when HMRC is not connected. */
+function placeholderVatObligations() {
   return [
     {
       periodKey: "26A1",
@@ -341,6 +398,79 @@ export async function listVatObligations(clientId: string) {
       received: "2026-01-20",
     },
   ];
+}
+
+/**
+ * SSR / initial paint: placeholders only. Live periodKeys must come from
+ * `refreshVatObligationsFromHmrc` (browser fraud metadata required by law).
+ */
+export async function listVatObligations(clientId: string) {
+  await getClient(clientId);
+  return placeholderVatObligations();
+}
+
+const refreshObligationsSchema = z.object({
+  clientId: z.string().min(1),
+  fraudMetadata: clientFraudMetadataSchema,
+});
+
+/** Pull real HMRC VAT obligations (requires OAuth + fraud-prevention headers). */
+export async function refreshVatObligationsFromHmrc(
+  input: z.infer<typeof refreshObligationsSchema>,
+) {
+  const session = await requireSession();
+  const data = refreshObligationsSchema.parse(input);
+  const client = await getClient(data.clientId);
+  if (!client.vrn) {
+    throw new Error("Client has no VRN — connect to HMRC first.");
+  }
+
+  const accessToken = await getValidAccessToken(
+    data.clientId,
+    session.practiceId,
+  );
+  const cfg = getHmrcConfig();
+  if (!accessToken || !cfg.clientId) {
+    throw new Error(
+      "HMRC VAT is not connected. Complete OAuth before loading obligations.",
+    );
+  }
+
+  const fraudHeaders = buildFraudPreventionHeaders(
+    data.fraudMetadata,
+    await fraudOptsFromRequest(),
+  );
+  const to = new Date();
+  const from = new Date(to);
+  from.setFullYear(from.getFullYear() - 2);
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+  const res = await fetchVatObligations({
+    vrn: client.vrn,
+    accessToken,
+    fraudHeaders,
+    actorId: session.userId,
+    clientId: data.clientId,
+    practiceId: session.practiceId,
+    from: iso(from),
+    to: iso(to),
+  });
+
+  if (!res.ok) {
+    throw new Error(
+      `HMRC obligations request failed (HTTP ${res.status}): ${res.rawText.slice(0, 400)}`,
+    );
+  }
+
+  const obligations = res.data?.obligations ?? [];
+  return obligations.map((o) => ({
+    periodKey: o.periodKey,
+    start: o.start,
+    end: o.end,
+    due: o.due,
+    status: o.status,
+    received: o.received,
+  }));
 }
 
 const connectSchema = z.object({
@@ -463,22 +593,12 @@ const manualBoxesSchema = z.object({
   periodKey: z.string(),
   periodStart: z.string(),
   periodEnd: z.string(),
-  boxes: z.object({
-    vatDueSales: z.number(),
-    vatDueAcquisitions: z.number(),
-    totalVatDue: z.number(),
-    vatReclaimedCurrPeriod: z.number(),
-    netVatDue: z.number(),
-    totalValueSalesExVAT: z.number(),
-    totalValuePurchasesExVAT: z.number(),
-    totalValueGoodsSuppliedExVAT: z.number(),
-    totalAcquisitionsExVAT: z.number(),
-  }),
+  boxes: vatReturnBoxesSchema,
 });
 
 /** Save manually entered / uploaded nine-box figures (values in pence). */
 export async function prepareVatReturnFromBoxes(
-  input: z.infer<typeof manualBoxesSchema>,
+  input: z.input<typeof manualBoxesSchema>,
 ) {
   const session = await requireSession();
   const data = manualBoxesSchema.parse(input);
@@ -486,6 +606,10 @@ export async function prepareVatReturnFromBoxes(
   if (!client.isVatRegistered || !client.vrn) {
     throw new Error("Client is not VAT registered — connect to HMRC first");
   }
+
+  // Enforce Box 3 / Box 5 identities before storing a ready draft.
+  const { assertVatBoxIdentities } = await import("@/server/hmrc/vat");
+  assertVatBoxIdentities(data.boxes);
 
   const draft = {
     id: crypto.randomUUID(),

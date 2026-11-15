@@ -118,7 +118,10 @@ export async function insertClientEmailLog(input: {
       delivery: input.delivery,
       accounts_due: input.accountsDue ?? null,
     });
-    if (error) throw new Error(error.message);
+    // Email may already have been sent — never fail the user on a log write.
+    if (error) {
+      console.error("[email] client_email_logs insert failed", error.message);
+    }
     return id;
   }
 

@@ -86,7 +86,8 @@ export function GatewayCredentialsFields({
             required={live}
           />
           <p className="mt-1 text-xs text-ink-soft">
-            Saved to your account only for this client.
+            Your login as the filing accountant — saved only on your account for
+            this client (colleagues cannot see it).
           </p>
         </div>
         <div>
@@ -101,7 +102,7 @@ export function GatewayCredentialsFields({
               hasSavedPassword && !ggPassword
                 ? "Using saved password — type to replace"
                 : live
-                  ? "Client or agent password"
+                  ? "Your agent or employer password"
                   : "Test password"
             }
             disabled={disabled || pending}
@@ -149,7 +150,7 @@ export function GatewayCredentialsFields({
 
       <p className="text-xs text-ink-soft">
         {hint ??
-          "Only you can use these saved credentials — colleagues in the practice cannot see them. The password is never shown again after you save it."}
+          "Each accountant uses their own Government Gateway. Credentials are never stored in server env — only on your user account for this client, encrypted. Colleagues cannot see them; the password is never shown again after you save it."}
       </p>
       {loadError ? (
         <p className="text-xs text-danger">{loadError}</p>

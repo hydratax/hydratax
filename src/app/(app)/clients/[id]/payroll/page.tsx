@@ -7,6 +7,7 @@ import { getPayrollDeskSettings } from "@/server/actions/payroll-settings";
 import { requireModule } from "@/server/auth/session";
 import { PayrollWorkspace } from "@/components/forms/payroll-workspace";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
+import { getHmrcConfig } from "@/server/hmrc/config";
 
 export default async function PayrollPage({
   params,
@@ -25,6 +26,7 @@ export default async function PayrollPage({
     listPayRuns(clientId).catch(() => []),
     getPayrollDeskSettings(clientId).catch(() => null),
   ]);
+  const hmrcLive = getHmrcConfig().env === "production";
 
   return (
     <div className="space-y-6">
@@ -39,6 +41,7 @@ export default async function PayrollPage({
       <PayrollWorkspace
         clientId={clientId}
         clientName={client.name}
+        hmrcLive={hmrcLive}
         payeRef={client.payeRef}
         accountsOfficeRef={client.accountsOfficeRef}
         isEmployer={client.isEmployer}

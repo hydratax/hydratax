@@ -59,6 +59,8 @@ export const sa100DraftSchema = z.object({
   addressCorrection: z.string().default(""),
   phone: z.string().default(""),
   email: z.string().default(""),
+  /** Wizard step index (0-based) — restored when reopening a draft. */
+  wizardStep: z.coerce.number().int().min(0).max(20).default(0),
 
   hasEmployment: yes,
   employmentCount: z.coerce.number().int().min(0).default(0),

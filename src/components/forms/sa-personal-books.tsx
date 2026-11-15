@@ -59,13 +59,15 @@ export function SaPersonalBooks({
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const convertInputRef = useRef<HTMLInputElement>(null);
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [kind, setKind] = useState<SaBookKind>("bank_statement");
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
-  const [convertFiles, setConvertFiles] = useState<File[]>([]);
+  const [selectedStatementIds, setSelectedStatementIds] = useState<string[]>(
+    [],
+  );
+  const [showStatementPicker, setShowStatementPicker] = useState(false);
   const [convertMsg, setConvertMsg] = useState<string | null>(null);
   const [convertErr, setConvertErr] = useState<string | null>(null);
   const [preview, setPreview] = useState<ConvertedBankLine[] | null>(null);
@@ -89,6 +91,20 @@ export function SaPersonalBooks({
     (d) => parseSaBookCategory(d.category)?.kind === kind,
   );
 
+  const bankStatementDocs = useMemo(
+    () =>
+      mine.filter(
+        (d) => parseSaBookCategory(d.category)?.kind === "bank_statement",
+      ),
+    [mine],
+  );
+
+  const selectedStatements = useMemo(
+    () =>
+      bankStatementDocs.filter((d) => selectedStatementIds.includes(d.id)),
+    [bankStatementDocs, selectedStatementIds],
+  );
+
   const counts = useMemo(() => {
     const map = Object.fromEntries(
       SA_BOOK_KINDS.map((k) => [k, 0]),
@@ -107,20 +123,39 @@ export function SaPersonalBooks({
     }).format(pence / 100);
   }
 
+  async function fileFromUploadedDoc(doc: DocRow): Promise<File> {
+    const res = await fetch(doc.blobUrl);
+    if (!res.ok) {
+      throw new Error(`Could not load ${doc.filename}`);
+    }
+    const blob = await res.blob();
+    const type =
+      blob.type ||
+      (doc.filename.toLowerCase().endsWith(".pdf")
+        ? "application/pdf"
+        : "application/octet-stream");
+    return new File([blob], doc.filename, { type });
+  }
+
   function runConvert() {
     setConvertErr(null);
     setConvertMsg(null);
     setPreview(null);
-    const files =
-      convertFiles.length > 0
-        ? convertFiles
-        : Array.from(convertInputRef.current?.files ?? []);
-    if (!files.length) {
-      setConvertErr("Choose one or more personal bank statements to convert.");
+    if (!selectedStatements.length) {
+      setConvertErr(
+        bankStatementDocs.length === 0
+          ? "Upload bank statements below first, then choose them here to convert."
+          : "Choose one or more uploaded bank statements to convert.",
+      );
+      setShowStatementPicker(true);
       return;
     }
     start(async () => {
       try {
+        const files: File[] = [];
+        for (const doc of selectedStatements) {
+          files.push(await fileFromUploadedDoc(doc));
+        }
         const allLines: ConvertedBankLine[] = [];
         const names: string[] = [];
         let lastSource: "pdf" | "ocr" | "csv" | "spreadsheet" = "pdf";
@@ -362,31 +397,19 @@ export function SaPersonalBooks({
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <input
-                ref={convertInputRef}
-                type="file"
-                multiple
-                accept=".csv,.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,text/csv,application/pdf,image/png,image/jpeg,image/webp,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                capture="environment"
-                className="sr-only"
-                onChange={(e) => {
-                  setConvertFiles(Array.from(e.target.files ?? []));
-                  setPreview(null);
-                }}
-              />
               <button
                 type="button"
                 className="btn btn-secondary px-3 py-1.5 text-sm"
-                onClick={() => convertInputRef.current?.click()}
+                onClick={() => setShowStatementPicker((v) => !v)}
               >
                 Choose statements
               </button>
               <span className="text-sm text-ink-soft">
-                {convertFiles.length === 0
-                  ? "No files chosen"
-                  : convertFiles.length === 1
-                    ? convertFiles[0].name
-                    : `${convertFiles.length} files chosen`}
+                {selectedStatements.length === 0
+                  ? "None selected from uploaded documents"
+                  : selectedStatements.length === 1
+                    ? selectedStatements[0]!.filename
+                    : `${selectedStatements.length} uploaded statements selected`}
               </span>
               <button
                 type="button"
@@ -397,6 +420,46 @@ export function SaPersonalBooks({
                 {pending ? "Converting…" : "Convert & allocate"}
               </button>
             </div>
+            {showStatementPicker ? (
+              <div className="rounded-lg border border-line bg-white p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+                  Uploaded bank statements
+                </p>
+                {bankStatementDocs.length === 0 ? (
+                  <p className="mt-2 text-sm text-ink-soft">
+                    No bank statements uploaded yet. Use Upload above, then
+                    choose them here.
+                  </p>
+                ) : (
+                  <ul className="mt-2 max-h-48 space-y-1.5 overflow-auto">
+                    {bankStatementDocs.map((d) => {
+                      const checked = selectedStatementIds.includes(d.id);
+                      return (
+                        <li key={d.id}>
+                          <label className="flex cursor-pointer items-center gap-2 text-sm text-ink">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                setPreview(null);
+                                setSelectedStatementIds((prev) =>
+                                  checked
+                                    ? prev.filter((id) => id !== d.id)
+                                    : [...prev, d.id],
+                                );
+                              }}
+                            />
+                            <span className="min-w-0 truncate font-medium">
+                              {d.filename}
+                            </span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            ) : null}
             <FormErrorBanner error={convertErr} />
             {convertMsg ? (
               <p className="text-sm text-ok">{convertMsg}</p>
@@ -495,8 +558,8 @@ export function SaPersonalBooks({
                       }
                       setConvertMsg(res.message);
                       setPreview(null);
-                      setConvertFiles([]);
-                      if (convertInputRef.current) convertInputRef.current.value = "";
+                      setSelectedStatementIds([]);
+                      setShowStatementPicker(false);
                       router.refresh();
                       setTimeout(() => {
                         document

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { listSaSubmissions } from "@/server/actions/self-assessment";
 import {
   getSa100Draft,
+  isSa100BlankStart,
   listSa100Returns,
   listSaFiledDocuments,
 } from "@/server/actions/sa100";
@@ -27,18 +28,21 @@ import {
   personKeyFromParam,
   personKeySlug,
   roleFromCompanyLinks,
+  saIdentifiersComplete,
+  saIdentifiersMissing,
 } from "@/lib/sa-taxpayer";
 import { accumulateSa100FromIncome } from "@/lib/sa-income";
 import { filingSaTaxYear, parseSaTaxYearLabel } from "@/lib/sa-tax-year";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 import { requireModule } from "@/server/auth/session";
+import { getPracticeEntitlements } from "@/server/actions/account";
 
 export default async function SelfAssessmentPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ person?: string; year?: string }>;
+  searchParams?: Promise<{ person?: string; year?: string; manage?: string }>;
 }) {
   await requireModule("self_assessment");
   const { id: ref } = await params;
@@ -47,16 +51,19 @@ export default async function SelfAssessmentPage({
   const isLimited = client.type === "limited_company";
   const filingYear = filingSaTaxYear();
   const yearParam = sp.year?.trim() || "";
+  const managePeople = sp.manage === "1" || sp.manage === "true";
   const activeYear =
     (yearParam && parseSaTaxYearLabel(yearParam)?.label) || filingYear.label;
 
-  const [taxpayers, documents, submissions, allPracticeDirectors] =
+  const [taxpayers, documents, submissions, allPracticeDirectors, entitlements] =
     await Promise.all([
       listSaTaxpayers(clientId),
       listClientDocuments(clientId).catch(() => []),
       listSaSubmissions(clientId).catch(() => []),
       listPracticeDirectors().catch(() => []),
+      getPracticeEntitlements().catch(() => null),
     ]);
+  const maxPeople = entitlements?.maxClients ?? null;
 
   // On a company desk, only people linked to this company.
   const practiceDirectors = isLimited
@@ -105,28 +112,34 @@ export default async function SelfAssessmentPage({
   const selectedId = selected?.id ?? null;
 
   const saClientId = workspace?.person.homeClientId ?? clientId;
-  const [sa100Draft, sa100Returns, saFiledDocs, bankTxs, customCats] = selected
-    ? await Promise.all([
-        getSa100Draft(saClientId, activeYear, selected.id).catch(() => null),
-        listSa100Returns(saClientId, selected.id).catch(() => []),
-        listSaFiledDocuments(saClientId, selected.id).catch(() => []),
-        listBankTransactions(saClientId).catch(() => []),
-        listCustomBankCategories().catch(() => []),
-      ])
-    : [
-        null,
-        [] as Awaited<ReturnType<typeof listSa100Returns>>,
-        [] as Awaited<ReturnType<typeof listSaFiledDocuments>>,
-        [] as Awaited<ReturnType<typeof listBankTransactions>>,
-        [] as Awaited<ReturnType<typeof listCustomBankCategories>>,
-      ];
+  const [sa100Draft, sa100Returns, saFiledDocs, bankTxs, customCats, blankStart] =
+    selected
+      ? await Promise.all([
+          getSa100Draft(saClientId, activeYear, selected.id).catch(() => null),
+          listSa100Returns(saClientId, selected.id).catch(() => []),
+          listSaFiledDocuments(saClientId, selected.id).catch(() => []),
+          listBankTransactions(saClientId).catch(() => []),
+          listCustomBankCategories().catch(() => []),
+          isSa100BlankStart(saClientId, activeYear, selected.id).catch(
+            () => false,
+          ),
+        ])
+      : [
+          null,
+          [] as Awaited<ReturnType<typeof listSa100Returns>>,
+          [] as Awaited<ReturnType<typeof listSaFiledDocuments>>,
+          [] as Awaited<ReturnType<typeof listBankTransactions>>,
+          [] as Awaited<ReturnType<typeof listCustomBankCategories>>,
+          false,
+        ];
 
-  const accumulated = selected
-    ? accumulateSa100FromIncome(selected, {
-        ...(sa100Draft?.draft ?? {}),
-        taxYear: activeYear,
-      })
-    : null;
+  const accumulated =
+    selected && (sa100Draft || !blankStart)
+      ? accumulateSa100FromIncome(selected, {
+          ...(sa100Draft?.draft ?? {}),
+          taxYear: activeYear,
+        })
+      : null;
 
   const yearHrefBase = matchedDirector
     ? `/clients/${slug}/self-assessment?person=${encodeURIComponent(matchedDirector.key)}`
@@ -173,8 +186,11 @@ export default async function SelfAssessmentPage({
         </section>
       ) : null}
 
-      {!matchedDirector &&
-      (!isLimited || practiceDirectors.length === 0) ? (
+      {/* Person manager: empty desk, or explicit ?manage=1 — hidden while filing. */}
+      {!yearParam &&
+      !matchedDirector &&
+      (!isLimited || practiceDirectors.length === 0) &&
+      (!selected || managePeople) ? (
         <SaTaxpayerManager
           clientId={clientId}
           clientSlug={slug}
@@ -182,62 +198,98 @@ export default async function SelfAssessmentPage({
           selectedId={selectedId}
           isLimitedCompany={isLimited}
           canSyncFromCh={canSyncFromCh}
+          maxPeople={maxPeople}
         />
       ) : null}
 
       {!selected ? (
         <div className="panel p-5 text-ink-soft">
-          Select a person above to open their companies, personal books and
-          SA100 return.
+          Select a person above to open their SA100 return.
         </div>
       ) : (
         <>
-          <SaPersonProfile
-            key={`${selected.id}-profile`}
-            clientId={saClientId}
-            taxpayer={selected}
-            lockedRole={
-              workspace
-                ? roleFromCompanyLinks({
-                    directorOf: workspace.person.directorOf,
-                    shareholderOf: workspace.person.shareholderOf,
-                  })
-                : undefined
-            }
-          />
+          {!yearParam && !managePeople ? (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {taxpayers.length > 1 ? (
+                <ul className="flex flex-wrap gap-2">
+                  {taxpayers.map((t) => (
+                    <li key={t.id}>
+                      <Link
+                        href={`/clients/${slug}/self-assessment?person=${encodeURIComponent(t.id)}`}
+                        className={`rounded-full border px-3 py-1 text-sm ${
+                          t.id === selected.id
+                            ? "border-sea bg-sea/10 font-semibold text-ink"
+                            : "border-line text-ink-soft hover:border-sea/40"
+                        }`}
+                      >
+                        {t.fullName}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <span />
+              )}
+              <Link
+                href={`/clients/${slug}/self-assessment?person=${encodeURIComponent(selected.id)}&manage=1`}
+                className="text-xs font-semibold text-sea hover:underline"
+              >
+                Manage people
+              </Link>
+            </div>
+          ) : null}
 
-          {workspace ? (
-            <SaDirectorIncomeDesk
-              key={selected.id}
-              homeClientId={workspace.person.homeClientId}
-              person={workspace.person}
-              initialTaxpayer={workspace.taxpayer}
-              taxYear={activeYear}
+          {/* Identifiers on overview, or while filing if still incomplete. */}
+          {!yearParam || !saIdentifiersComplete(selected) ? (
+            <SaPersonProfile
+              key={`${selected.id}-profile`}
+              clientId={saClientId}
+              taxpayer={selected}
+              lockedRole={
+                workspace
+                  ? roleFromCompanyLinks({
+                      directorOf: workspace.person.directorOf,
+                      shareholderOf: workspace.person.shareholderOf,
+                    })
+                  : undefined
+              }
             />
-          ) : (
-            <SaDirectorIncomeDesk
-              key={selected.id}
-              homeClientId={saClientId}
-              person={{
-                key: normalizePersonName(selected.fullName),
-                fullName: selected.fullName,
-                companies: [],
-                directorOf: 0,
-                shareholderOf: 0,
-                taxpayer: selected,
-                homeClientId: saClientId,
-                homeSlug: slug,
-                filing: {
-                  taxYear: activeYear,
-                  filingDue: filingYear.filingDue,
-                  status: "none",
-                  urgency: "unknown",
-                },
-              }}
-              initialTaxpayer={selected}
-              taxYear={activeYear}
-            />
-          )}
+          ) : null}
+
+          {!yearParam ? (
+            workspace ? (
+              <SaDirectorIncomeDesk
+                key={selected.id}
+                homeClientId={workspace.person.homeClientId}
+                person={workspace.person}
+                initialTaxpayer={workspace.taxpayer}
+                taxYear={activeYear}
+              />
+            ) : (
+              <SaDirectorIncomeDesk
+                key={selected.id}
+                homeClientId={saClientId}
+                person={{
+                  key: normalizePersonName(selected.fullName),
+                  fullName: selected.fullName,
+                  companies: [],
+                  directorOf: 0,
+                  shareholderOf: 0,
+                  taxpayer: selected,
+                  homeClientId: saClientId,
+                  homeSlug: slug,
+                  filing: {
+                    taxYear: activeYear,
+                    filingDue: filingYear.filingDue,
+                    status: "none",
+                    urgency: "unknown",
+                  },
+                }}
+                initialTaxpayer={selected}
+                taxYear={activeYear}
+              />
+            )
+          ) : null}
 
           <SaTaxYearWorkspace
             baseHref={yearHrefBase}
@@ -250,9 +302,11 @@ export default async function SelfAssessmentPage({
             filedDocs={saFiledDocs}
             clientId={saClientId}
             taxpayerId={selected.id}
+            identifiersReady={saIdentifiersComplete(selected)}
+            identifiersMissing={saIdentifiersMissing(selected)}
           >
             <Sa100Wizard
-              key={`${selected.id}-sa100-${activeYear}`}
+              key={`${selected.id}-sa100-${activeYear}-${sa100Draft?.id ?? "new"}`}
               clientId={saClientId}
               clientName={selected.fullName}
               contactEmail={selected.email || client.contactEmail || null}
@@ -263,7 +317,15 @@ export default async function SelfAssessmentPage({
               taxYear={activeYear}
               initialReturnId={sa100Draft?.id ?? null}
               initial={{
-                ...accumulated,
+                ...(sa100Draft
+                  ? accumulated
+                  : blankStart || !accumulated
+                    ? {
+                        taxYear: activeYear,
+                        utr: selected.utr,
+                        nino: selected.nino,
+                      }
+                    : accumulated),
                 phone: selected.phone || accumulated?.phone || "",
                 email: selected.email || "",
                 dateOfBirth:
@@ -272,71 +334,76 @@ export default async function SelfAssessmentPage({
             />
           </SaTaxYearWorkspace>
 
-          <SaPersonalBooks
-            clientId={saClientId}
-            taxpayerId={selected.id}
-            taxpayerName={selected.fullName}
-            occupation={selected.occupation ?? ""}
-            documents={documents.map((d) => ({
-              id: d.id,
-              filename: d.filename,
-              category: d.category,
-              sizeBytes: d.sizeBytes,
-              blobUrl: d.blobUrl,
-              createdAt:
-                typeof d.createdAt === "string"
-                  ? d.createdAt
-                  : new Date(d.createdAt).toISOString(),
-            }))}
-            transactions={bankTxs.map((t) => ({
-              id: t.id,
-              dated: t.dated,
-              description: t.description,
-              amountPence: t.amountPence,
-              category: t.category,
-              confidence: t.confidence,
-            }))}
-            customCategories={customCats.map((c) => ({
-              id: c.id,
-              label: c.label,
-            }))}
-          />
+          {/* Hide books / MTD while the SA100 for a chosen tax year is open. */}
+          {!yearParam ? (
+            <>
+              <SaPersonalBooks
+                clientId={saClientId}
+                taxpayerId={selected.id}
+                taxpayerName={selected.fullName}
+                occupation={selected.occupation ?? ""}
+                documents={documents.map((d) => ({
+                  id: d.id,
+                  filename: d.filename,
+                  category: d.category,
+                  sizeBytes: d.sizeBytes,
+                  blobUrl: d.blobUrl,
+                  createdAt:
+                    typeof d.createdAt === "string"
+                      ? d.createdAt
+                      : new Date(d.createdAt).toISOString(),
+                }))}
+                transactions={bankTxs.map((t) => ({
+                  id: t.id,
+                  dated: t.dated,
+                  description: t.description,
+                  amountPence: t.amountPence,
+                  category: t.category,
+                  confidence: t.confidence,
+                }))}
+                customCategories={customCats.map((c) => ({
+                  id: c.id,
+                  label: c.label,
+                }))}
+              />
 
-          {!isLimited ? (
-            <section className="grid gap-6 lg:grid-cols-2">
-              <div className="panel p-5">
-                <h2 className="display text-2xl">MTD quarterly update</h2>
-                <div className="mt-4">
-                  <SaFilingForm clientId={clientId} />
-                </div>
-              </div>
-              <div className="panel p-5">
-                <h2 className="display text-2xl">Quarterly submissions</h2>
-                <ul className="mt-3 divide-y divide-line text-sm">
-                  {submissions.length === 0 && (
-                    <li className="py-3 text-ink-soft">
-                      No quarterly updates yet.
-                    </li>
-                  )}
-                  {submissions.map((s) => (
-                    <li key={String(s.id)} className="py-2">
-                      <div className="flex justify-between">
-                        <span className="font-semibold">
-                          {String(s.taxYear)}
-                        </span>
-                        <span className="badge badge-ok">
-                          {String(s.status)}
-                        </span>
-                      </div>
-                      <p className="mono text-ink-soft">
-                        Turnover {money(Number(s.turnoverPence))} · Expenses{" "}
-                        {money(Number(s.expensesPence))}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </section>
+              {!isLimited ? (
+                <section className="grid gap-6 lg:grid-cols-2">
+                  <div className="panel p-5">
+                    <h2 className="display text-2xl">MTD quarterly update</h2>
+                    <div className="mt-4">
+                      <SaFilingForm clientId={clientId} />
+                    </div>
+                  </div>
+                  <div className="panel p-5">
+                    <h2 className="display text-2xl">Quarterly submissions</h2>
+                    <ul className="mt-3 divide-y divide-line text-sm">
+                      {submissions.length === 0 && (
+                        <li className="py-3 text-ink-soft">
+                          No quarterly updates yet.
+                        </li>
+                      )}
+                      {submissions.map((s) => (
+                        <li key={String(s.id)} className="py-2">
+                          <div className="flex justify-between">
+                            <span className="font-semibold">
+                              {String(s.taxYear)}
+                            </span>
+                            <span className="badge badge-ok">
+                              {String(s.status)}
+                            </span>
+                          </div>
+                          <p className="mono text-ink-soft">
+                            Turnover {money(Number(s.turnoverPence))} · Expenses{" "}
+                            {money(Number(s.expensesPence))}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </section>
+              ) : null}
+            </>
           ) : null}
         </>
       )}

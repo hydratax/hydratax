@@ -36,6 +36,8 @@ import {
   upsertBankProperty,
 } from "@/server/actions/bank-ledger";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { AddressFields } from "@/components/forms/address-fields";
+import { addressPartsDisplay } from "@/lib/address-parts";
 import { messageFromUnknown } from "@/lib/action-error";
 
 function gbp(pence: number) {
@@ -1016,14 +1018,14 @@ function PropertiesPanel({
             onChange={(e) => setCost(e.target.value)}
           />
         </label>
-        <label className="label text-xs sm:col-span-2">
-          Address
-          <input
-            className="input mt-1"
+        <div className="sm:col-span-2 space-y-1.5">
+          <p className="label text-xs mb-0">Address</p>
+          <AddressFields
             value={address}
-            onChange={(e) => setAddress(e.target.value)}
+            onChange={setAddress}
+            required
           />
-        </label>
+        </div>
         <p className="sm:col-span-2 text-xs font-bold uppercase text-ink-soft">
           Optional mortgage on this property
         </p>
@@ -1086,7 +1088,9 @@ function PropertiesPanel({
                 <div>
                   <p className="font-semibold text-ink">{prop.name}</p>
                   {prop.address ? (
-                    <p className="text-xs text-ink-soft">{prop.address}</p>
+                    <p className="text-xs text-ink-soft">
+                      {addressPartsDisplay(prop.address)}
+                    </p>
                   ) : null}
                   <p className="mt-1 figures text-xs">
                     Cost {gbp(prop.costPence)}

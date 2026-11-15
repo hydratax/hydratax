@@ -24,6 +24,18 @@ export type Sa302Result = {
   personalAllowance: number;
   taxableIncome: number;
   incomeTax: number;
+  /** Income tax charged on employment (PAYE) income after allowances. */
+  employmentIncomeTax: number;
+  /** Income tax charged on self-employment profit. */
+  selfEmploymentIncomeTax: number;
+  /** Income tax charged on UK property / rental profit (after finance-cost relief). */
+  propertyIncomeTax: number;
+  /** Income tax charged on savings interest. */
+  savingsIncomeTax: number;
+  /** Income tax charged on dividends. */
+  dividendIncomeTax: number;
+  /** Income tax on pensions and other taxable income. */
+  otherIncomeTax: number;
   class4Nic: number;
   studentLoan: number;
   postgraduateLoan: number;
@@ -130,12 +142,22 @@ export function calculateSa302(d: Sa100Draft): Sa302Result {
   const basicBand = R.basicRateBand + giftAidGross + pensionGross;
   const higherLimit = R.additionalRateThreshold - R.personalAllowance;
 
-  const nonSavings =
-    employmentIncome + seProfit + propertyProfit + pensions + other;
-
+  // Personal allowance stacks against income in HMRC order so we can
+  // attribute tax by source for the estimate panel.
+  const nsSlices: { key: string; label: string; amount: number }[] = [
+    { key: "employment", label: "Employment (PAYE)", amount: employmentIncome },
+    { key: "selfEmployment", label: "Self-employment", amount: seProfit },
+    { key: "property", label: "UK property / rental", amount: propertyProfit },
+    { key: "pension", label: "Pensions", amount: pensions },
+    { key: "other", label: "Other income", amount: other },
+  ];
   let allow = pa;
-  const nsTaxable = Math.max(0, nonSavings - allow);
-  allow = Math.max(0, allow - nonSavings);
+  const nsTaxableSlices = nsSlices.map((s) => {
+    const used = Math.min(s.amount, allow);
+    allow -= used;
+    return { ...s, taxable: Math.max(0, s.amount - used) };
+  });
+  const nsTaxable = nsTaxableSlices.reduce((s, x) => s + x.taxable, 0);
   const savTaxable0 = Math.max(0, savings - allow);
   allow = Math.max(0, allow - savings);
   const divTaxable0 = Math.max(0, dividends - allow);
@@ -153,27 +175,43 @@ export function calculateSa302(d: Sa100Draft): Sa302Result {
 
   const breakdown: CalcLine[] = [];
   let incomeTax = 0;
+  let employmentIncomeTax = 0;
+  let selfEmploymentIncomeTax = 0;
+  let propertyIncomeTax = 0;
+  let savingsIncomeTax = 0;
+  let dividendIncomeTax = 0;
+  let otherIncomeTax = 0;
 
-  let left = nsTaxable;
+  const addSourceTax = (key: string, t: number) => {
+    if (key === "employment") employmentIncomeTax += t;
+    else if (key === "selfEmployment") selfEmploymentIncomeTax += t;
+    else if (key === "property") propertyIncomeTax += t;
+    else otherIncomeTax += t;
+  };
+
   let cursor = 0;
-  for (const band of rateBands) {
-    if (left <= 0) break;
-    const room =
-      band.cap === Number.POSITIVE_INFINITY
-        ? left
-        : Math.max(0, band.cap - cursor);
-    const take = Math.min(left, room);
-    if (take > 0) {
-      const t = take * band.rate;
-      incomeTax += t;
-      breakdown.push({
-        label: `Non-savings ${Math.round(band.rate * 100)}% (${band.label}) on £${fmt(take)}`,
-        amount: r2(t),
-      });
-      left -= take;
-      cursor += take;
-    } else if (band.cap !== Number.POSITIVE_INFINITY) {
-      cursor = Math.max(cursor, band.cap);
+  for (const slice of nsTaxableSlices) {
+    let left = slice.taxable;
+    for (const band of rateBands) {
+      if (left <= 0) break;
+      const room =
+        band.cap === Number.POSITIVE_INFINITY
+          ? left
+          : Math.max(0, band.cap - cursor);
+      const take = Math.min(left, room);
+      if (take > 0) {
+        const t = take * band.rate;
+        incomeTax += t;
+        addSourceTax(slice.key, t);
+        breakdown.push({
+          label: `${slice.label} ${Math.round(band.rate * 100)}% (${band.label}) on £${fmt(take)}`,
+          amount: r2(t),
+        });
+        left -= take;
+        cursor += take;
+      } else if (band.cap !== Number.POSITIVE_INFINITY) {
+        cursor = Math.max(cursor, band.cap);
+      }
     }
   }
 
@@ -203,7 +241,7 @@ export function calculateSa302(d: Sa100Draft): Sa302Result {
     });
   }
   cursor = nsTaxable;
-  left = sav;
+  let left = sav;
   for (const band of rateBands) {
     if (left <= 0) break;
     const room =
@@ -214,6 +252,7 @@ export function calculateSa302(d: Sa100Draft): Sa302Result {
     if (take > 0) {
       const t = take * band.rate;
       incomeTax += t;
+      savingsIncomeTax += t;
       breakdown.push({
         label: `Savings ${Math.round(band.rate * 100)}% on £${fmt(take)}`,
         amount: r2(t),
@@ -251,6 +290,7 @@ export function calculateSa302(d: Sa100Draft): Sa302Result {
     if (take > 0) {
       const t = take * band.rate;
       incomeTax += t;
+      dividendIncomeTax += t;
       breakdown.push({
         label: `Dividends ${(band.rate * 100).toFixed(2)}% on £${fmt(take)}`,
         amount: r2(t),
@@ -263,6 +303,12 @@ export function calculateSa302(d: Sa100Draft): Sa302Result {
   }
 
   incomeTax = r2(incomeTax);
+  employmentIncomeTax = r2(employmentIncomeTax);
+  selfEmploymentIncomeTax = r2(selfEmploymentIncomeTax);
+  propertyIncomeTax = r2(propertyIncomeTax);
+  savingsIncomeTax = r2(savingsIncomeTax);
+  dividendIncomeTax = r2(dividendIncomeTax);
+  otherIncomeTax = r2(otherIncomeTax);
 
   const residentialFinanceRelief = r2(
     Math.min(
@@ -271,6 +317,33 @@ export function calculateSa302(d: Sa100Draft): Sa302Result {
     ),
   );
   if (residentialFinanceRelief > 0) {
+    const againstProperty = Math.min(
+      propertyIncomeTax,
+      residentialFinanceRelief,
+    );
+    propertyIncomeTax = r2(propertyIncomeTax - againstProperty);
+    const remainder = residentialFinanceRelief - againstProperty;
+    if (remainder > 0) {
+      // Relief can reduce other income tax if property tax alone is insufficient.
+      const againstOther = Math.min(otherIncomeTax, remainder);
+      otherIncomeTax = r2(otherIncomeTax - againstOther);
+      const rest = remainder - againstOther;
+      if (rest > 0) {
+        const againstEmp = Math.min(employmentIncomeTax, rest);
+        employmentIncomeTax = r2(employmentIncomeTax - againstEmp);
+        const rest2 = rest - againstEmp;
+        if (rest2 > 0) {
+          const againstSe = Math.min(selfEmploymentIncomeTax, rest2);
+          selfEmploymentIncomeTax = r2(selfEmploymentIncomeTax - againstSe);
+          const rest3 = rest2 - againstSe;
+          if (rest3 > 0) {
+            savingsIncomeTax = r2(
+              Math.max(0, savingsIncomeTax - rest3),
+            );
+          }
+        }
+      }
+    }
     incomeTax = r2(incomeTax - residentialFinanceRelief);
     breakdown.push({
       label: `Residential property finance costs relief (20%)`,
@@ -353,6 +426,12 @@ export function calculateSa302(d: Sa100Draft): Sa302Result {
     { label: "Total income", amount: totalIncome },
     { label: "Allowances", amount: -r2(pa) },
     { label: "Taxable income", amount: taxableIncome },
+    { label: "PAYE / employment tax", amount: employmentIncomeTax },
+    { label: "Self-employment tax", amount: selfEmploymentIncomeTax },
+    { label: "Rental income tax", amount: propertyIncomeTax },
+    { label: "Savings tax", amount: savingsIncomeTax },
+    { label: "Dividend tax", amount: dividendIncomeTax },
+    { label: "Other income tax", amount: otherIncomeTax },
     { label: "Income Tax", amount: incomeTax },
     { label: "Class 4 National Insurance", amount: class4Nic },
     ...(studentLoan ? [{ label: "Student Loan", amount: studentLoan }] : []),
@@ -382,6 +461,12 @@ export function calculateSa302(d: Sa100Draft): Sa302Result {
     personalAllowance: r2(pa),
     taxableIncome,
     incomeTax,
+    employmentIncomeTax,
+    selfEmploymentIncomeTax,
+    propertyIncomeTax,
+    savingsIncomeTax,
+    dividendIncomeTax,
+    otherIncomeTax,
     class4Nic,
     studentLoan,
     postgraduateLoan,
@@ -391,10 +476,18 @@ export function calculateSa302(d: Sa100Draft): Sa302Result {
     balance,
     amountDue: balance > 0 ? balance : 0,
     refundDue: balance < 0 ? -balance : 0,
-    // HMRC: POA usually when balancing payment ≥ £1,000 (and <80% at source —
-    // without prior-year data we apply the £1,000 threshold only).
-    paymentsOnAccountEach:
-      balance >= 1000 ? r2(balance / 2) : 0,
+    // HMRC payments on account (s59A TMA 1970 / SALF303):
+    // each PoA = 50% of the "relevant amount" = (Income Tax + Class 4 NIC)
+    // minus tax deducted at source. No PoA if relevant amount < £1,000 or
+    // if ≥80% of the assessed IT+C4 was collected at source. Student loan,
+    // postgraduate loan and HICBC are not part of the PoA base.
+    paymentsOnAccountEach: (() => {
+      const assessed = r2(incomeTax + class4Nic);
+      const relevant = r2(Math.max(0, assessed - taxDeducted));
+      if (relevant < 1000) return 0;
+      if (assessed > 0 && taxDeducted / assessed >= 0.8) return 0;
+      return r2(relevant / 2);
+    })(),
     breakdown,
     summary,
   };

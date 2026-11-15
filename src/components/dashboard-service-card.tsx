@@ -62,6 +62,15 @@ function ServiceIcon({
           <path d="M9 21v-6h6v6" />
         </svg>
       );
+    case "company_secretarial":
+      return (
+        <svg {...common}>
+          <path d="M3 21h18" />
+          <path d="M5 21V8l7-4 7 4v13" />
+          <path d="M9 21v-6h6v6" />
+          <path d="M12 11v3M10.5 12.5h3" />
+        </svg>
+      );
     default:
       return (
         <svg {...common}>

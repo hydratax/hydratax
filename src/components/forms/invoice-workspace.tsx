@@ -1,11 +1,10 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   createClientInvoice,
-  createInvoiceLineTemplate,
   deleteInvoiceLineTemplate,
   sendClientInvoiceEmail,
   setInvoiceStatus,
@@ -20,7 +19,9 @@ import {
   isInvoiceOverdue,
   openInvoiceTotals,
 } from "@/lib/invoices/totals";
+import { computeInvoiceTotals } from "@/lib/invoices/compute-totals";
 import { messageFromUnknown } from "@/lib/action-error";
+import { LEGAL_CONTACT_EMAIL } from "@/lib/legal";
 
 type LineDraft = {
   description: string;
@@ -28,6 +29,13 @@ type LineDraft = {
   unitPricePounds: string;
   vatRateBps: "0" | "500" | "2000";
 };
+
+type TermsPreset =
+  | "due_on_receipt"
+  | "net_7"
+  | "net_14"
+  | "net_30"
+  | "custom";
 
 const emptyLine = (): LineDraft => ({
   description: "",
@@ -53,21 +61,31 @@ function penceToPoundsInput(pence: number) {
   return (pence / 100).toFixed(2);
 }
 
-function lineTotals(lines: LineDraft[]) {
+function termsLabel(preset: TermsPreset): string {
+  if (preset === "due_on_receipt") return "Due on Receipt";
+  if (preset === "net_7") return "Net 7";
+  if (preset === "net_14") return "Net 14";
+  if (preset === "net_30") return "Net 30";
+  return "Custom";
+}
+
+function lineDraftTotals(lines: LineDraft[]) {
   let net = 0;
   let vat = 0;
+  let qty = 0;
   for (const line of lines) {
     const unit = Math.round(
       Number.parseFloat(line.unitPricePounds || "0") * 100,
     );
     if (!Number.isFinite(unit)) continue;
-    const qty = Number(line.quantity) || 0;
-    const lineNet = Math.round(unit * qty);
+    const q = Number(line.quantity) || 0;
+    const lineNet = Math.round(unit * q);
     const rate = Number(line.vatRateBps) / 10_000;
     net += lineNet;
     vat += Math.round(lineNet * rate);
+    qty += q;
   }
-  return { net, vat, gross: net + vat };
+  return { net, vat, qty };
 }
 
 export function InvoiceWorkspace({
@@ -79,6 +97,8 @@ export function InvoiceWorkspace({
   initialLine,
   defaultPaymentInstructions = "",
   brandingIncomplete = false,
+  stripeConnected = false,
+  previewInvoiceNumber = "INV-000001",
 }: {
   clientId: string;
   clientName: string;
@@ -86,10 +106,11 @@ export function InvoiceWorkspace({
   invoices: MemoryInvoice[];
   templates: MemoryInvoiceLineTemplate[];
   initialLine?: LineDraft | null;
-  /** From Settings → Practice branding bank details */
   defaultPaymentInstructions?: string;
-  /** True when logo / address / bank details are missing */
   brandingIncomplete?: boolean;
+  /** Practice has Stripe Connect linked */
+  stripeConnected?: boolean;
+  previewInvoiceNumber?: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -104,24 +125,73 @@ export function InvoiceWorkspace({
   const [issueDate, setIssueDate] = useState(
     () => new Date().toISOString().slice(0, 10),
   );
-  const [dueDate, setDueDate] = useState(() =>
-    addDays(new Date().toISOString().slice(0, 10), 14),
+  const [dueDate, setDueDate] = useState(
+    () => new Date().toISOString().slice(0, 10),
   );
-  const [duePreset, setDuePreset] = useState<"7" | "14" | "30" | "custom">(
-    "14",
-  );
-  const [status, setCreateStatus] = useState<"draft" | "sent" | "due">("due");
-  const [notes, setNotes] = useState("");
-  const [reference, setReference] = useState("");
+  const [termsPreset, setTermsPreset] =
+    useState<TermsPreset>("due_on_receipt");
+  const [orderNumber, setOrderNumber] = useState("");
+  const [discountPercent, setDiscountPercent] = useState("");
+  const [discountPounds, setDiscountPounds] = useState("");
+  const [shippingPounds, setShippingPounds] = useState("");
+  const [adjustmentPounds, setAdjustmentPounds] = useState("");
+  const [termsConditions, setTermsConditions] = useState("");
+  const [enableOnlinePay, setEnableOnlinePay] = useState(false);
+  const [notes, setNotes] = useState("Thanks for your business.");
   const [paymentInstructions, setPaymentInstructions] = useState(
     defaultPaymentInstructions,
   );
-  const totals = useMemo(() => lineTotals(lines), [lines]);
+  const [showNumberHint, setShowNumberHint] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [showBulk, setShowBulk] = useState(false);
+  /** First Save and send → scroll here; second press emails this invoice. */
+  const [armedSendInvoiceId, setArmedSendInvoiceId] = useState<string | null>(
+    null,
+  );
+  const sendRecipientRef = useRef<HTMLDivElement>(null);
 
-  function applyPreset(preset: "7" | "14" | "30" | "custom") {
-    setDuePreset(preset);
-    if (preset !== "custom") {
-      setDueDate(addDays(issueDate, Number(preset)));
+  const lineMaths = useMemo(() => lineDraftTotals(lines), [lines]);
+  const totals = useMemo(() => {
+    const discountPct = Number.parseFloat(discountPercent || "0");
+    const discountAmt = Number.parseFloat(discountPounds || "0");
+    return computeInvoiceTotals({
+      lineNetPence: lineMaths.net,
+      lineVatPence: lineMaths.vat,
+      discountPence:
+        Number.isFinite(discountAmt) && discountAmt > 0
+          ? Math.round(discountAmt * 100)
+          : 0,
+      discountPercentBps:
+        discountAmt > 0
+          ? null
+          : Number.isFinite(discountPct) && discountPct > 0
+            ? Math.round(discountPct * 100)
+            : null,
+      shippingPence: Math.round(
+        (Number.parseFloat(shippingPounds || "0") || 0) * 100,
+      ),
+      adjustmentPence: Math.round(
+        (Number.parseFloat(adjustmentPounds || "0") || 0) * 100,
+      ),
+    });
+  }, [
+    lineMaths,
+    discountPercent,
+    discountPounds,
+    shippingPounds,
+    adjustmentPounds,
+  ]);
+
+  function applyTerms(preset: TermsPreset, fromIssue = issueDate) {
+    setTermsPreset(preset);
+    if (preset === "due_on_receipt") {
+      setDueDate(fromIssue);
+    } else if (preset === "net_7") {
+      setDueDate(addDays(fromIssue, 7));
+    } else if (preset === "net_14") {
+      setDueDate(addDays(fromIssue, 14));
+    } else if (preset === "net_30") {
+      setDueDate(addDays(fromIssue, 30));
     }
   }
 
@@ -139,6 +209,66 @@ export function InvoiceWorkspace({
         Number(rows[0].unitPricePounds) === 0;
       return onlyBlank ? [draft] : [...rows, draft];
     });
+  }
+
+  function applyDescriptionSuggestion(index: number, description: string) {
+    const match = templates.find(
+      (t) => t.description.toLowerCase() === description.trim().toLowerCase(),
+    );
+    setLines((rows) =>
+      rows.map((r, idx) => {
+        if (idx !== index) return r;
+        if (!match) return { ...r, description };
+        return {
+          description: match.description,
+          quantity: String(match.quantity || 1),
+          unitPricePounds: penceToPoundsInput(match.unitPricePence),
+          vatRateBps: String(match.vatRateBps) as LineDraft["vatRateBps"],
+        };
+      }),
+    );
+  }
+
+  function scrollToSendRecipient() {
+    sendRecipientRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+    const input = sendRecipientRef.current?.querySelector("input");
+    if (input instanceof HTMLInputElement) {
+      window.setTimeout(() => input.focus(), 280);
+    }
+  }
+
+  function applyBulkLines() {
+    const parsed = bulkText
+      .split(/\n/)
+      .map((row) => row.trim())
+      .filter(Boolean)
+      .map((row) => {
+        const parts = row.split(/[\t,]/).map((p) => p.trim());
+        return {
+          description: parts[0] || "",
+          quantity: parts[1] || "1",
+          unitPricePounds: parts[2] || "0.00",
+          vatRateBps: "2000" as const,
+        };
+      })
+      .filter((r) => r.description);
+    if (!parsed.length) {
+      setError("Paste lines as description, qty, rate (one per row).");
+      return;
+    }
+    setLines((rows) => {
+      const onlyBlank =
+        rows.length === 1 &&
+        !rows[0].description.trim() &&
+        Number(rows[0].unitPricePounds) === 0;
+      return onlyBlank ? parsed : [...rows, ...parsed];
+    });
+    setBulkText("");
+    setShowBulk(false);
+    setError(null);
   }
 
   function copyLastInvoice() {
@@ -161,23 +291,86 @@ export function InvoiceWorkspace({
     if (last.paymentInstructions) {
       setPaymentInstructions(last.paymentInstructions);
     }
+    if (last.termsConditions) setTermsConditions(last.termsConditions);
     setError(null);
   }
 
   function resetForm() {
     setLines([emptyLine()]);
-    setNotes("");
-    setReference("");
+    setNotes("Thanks for your business.");
+    setOrderNumber("");
+    setDiscountPercent("");
+    setDiscountPounds("");
+    setShippingPounds("");
+    setAdjustmentPounds("");
+    setTermsConditions("");
+    setEnableOnlinePay(false);
+    setArmedSendInvoiceId(null);
     setPaymentInstructions(defaultPaymentInstructions);
-    setCreateStatus("due");
     const today = new Date().toISOString().slice(0, 10);
     setIssueDate(today);
-    setDuePreset("14");
-    setDueDate(addDays(today, 14));
+    setTermsPreset("due_on_receipt");
+    setDueDate(today);
+  }
+
+  function preparedLines() {
+    return lines
+      .map((l) => ({
+        description: l.description.trim(),
+        quantity: Number(l.quantity),
+        unitPricePounds: l.unitPricePounds,
+        vatRateBps: Number(l.vatRateBps) as 0 | 500 | 2000,
+      }))
+      .filter((l) => l.description.length > 0);
+  }
+
+  async function submitInvoice(
+    status: "draft" | "sent" | "due",
+    opts?: { keepArmed?: boolean },
+  ) {
+    setError(null);
+    setOk(null);
+    const linePayload = preparedLines();
+    if (linePayload.length === 0) {
+      throw new Error(
+        "Add at least one item with a description in Item details before saving.",
+      );
+    }
+    const invoice = await createClientInvoice({
+      clientId,
+      issueDate,
+      dueDate,
+      notes: notes || undefined,
+      reference: orderNumber || undefined,
+      paymentInstructions: paymentInstructions || undefined,
+      status,
+      orderNumber: orderNumber || undefined,
+      paymentTerms: termsLabel(termsPreset),
+      discountPounds: discountPounds || undefined,
+      discountPercent: discountPercent || undefined,
+      shippingPounds: shippingPounds || undefined,
+      adjustmentPounds: adjustmentPounds || undefined,
+      termsConditions: termsConditions || undefined,
+      enableOnlinePay: enableOnlinePay && stripeConnected,
+      lines: linePayload,
+    });
+    if (!opts?.keepArmed) {
+      resetForm();
+    } else {
+      setLines([emptyLine()]);
+      setOrderNumber("");
+      setDiscountPercent("");
+      setDiscountPounds("");
+      setShippingPounds("");
+      setAdjustmentPounds("");
+      setEnableOnlinePay(false);
+    }
+    router.refresh();
+    return invoice;
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-24">
       {brandingIncomplete ? (
         <div className="rounded-xl border border-sea/30 bg-sea/5 px-4 py-3 text-sm text-ink">
           <p className="font-semibold">Personalise your invoices</p>
@@ -235,30 +428,12 @@ export function InvoiceWorkspace({
       </div>
 
       <form
-        className="panel space-y-4 p-5"
+        className="panel space-y-5 p-5"
         onSubmit={(e) => {
           e.preventDefault();
-          setError(null);
-          setOk(null);
           start(async () => {
             try {
-              await createClientInvoice({
-                clientId,
-                issueDate,
-                dueDate,
-                notes: notes || undefined,
-                reference: reference || undefined,
-                paymentInstructions: paymentInstructions || undefined,
-                status,
-                lines: lines.map((l) => ({
-                  description: l.description,
-                  quantity: Number(l.quantity),
-                  unitPricePounds: l.unitPricePounds,
-                  vatRateBps: Number(l.vatRateBps) as 0 | 500 | 2000,
-                })),
-              });
-              resetForm();
-              router.refresh();
+              await submitInvoice("due");
             } catch (err) {
               setError(
                 messageFromUnknown(
@@ -272,7 +447,7 @@ export function InvoiceWorkspace({
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="display text-2xl text-ink">Create invoice</h2>
+            <h2 className="display text-2xl text-ink">New invoice</h2>
             <p className="mt-1 text-sm text-ink-soft">
               Bill to{" "}
               <span className="font-semibold text-ink">{clientName}</span>
@@ -288,9 +463,57 @@ export function InvoiceWorkspace({
           </button>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <label className="text-sm font-semibold sm:col-span-2 lg:col-span-1">
+            <span className="text-danger">*</span> Customer name
+            <input
+              className="input mt-1 font-normal"
+              value={clientName}
+              readOnly
+              aria-readonly
+            />
+            <span className="mt-1 block text-xs font-normal text-ink-soft">
+              Open another client card to invoice someone else.
+            </span>
+          </label>
+
+          <label className="relative text-sm font-semibold">
+            <span className="text-danger">*</span> Invoice #
+            <div className="mt-1 flex gap-1">
+              <input
+                className="input flex-1 font-normal mono"
+                value={previewInvoiceNumber}
+                readOnly
+              />
+              <button
+                type="button"
+                className="btn btn-secondary px-3"
+                title="Numbering settings"
+                onClick={() => setShowNumberHint((v) => !v)}
+              >
+                ⚙
+              </button>
+            </div>
+            {showNumberHint ? (
+              <p className="mt-1 text-xs font-normal text-ink-soft">
+                Auto-numbering uses your practice sequence (prefix + next).
+                Change under Payment gateways after Connect, or ask an admin.
+              </p>
+            ) : null}
+          </label>
+
           <label className="text-sm font-semibold">
-            Issue date
+            Order number
+            <input
+              className="input mt-1 font-normal"
+              value={orderNumber}
+              placeholder="Optional"
+              onChange={(e) => setOrderNumber(e.target.value)}
+            />
+          </label>
+
+          <label className="text-sm font-semibold">
+            <span className="text-danger">*</span> Invoice date
             <input
               type="date"
               className="input mt-1 font-normal"
@@ -299,71 +522,51 @@ export function InvoiceWorkspace({
               onChange={(e) => {
                 const next = e.target.value;
                 setIssueDate(next);
-                if (duePreset !== "custom") {
-                  setDueDate(addDays(next, Number(duePreset)));
+                if (termsPreset !== "custom") {
+                  applyTerms(termsPreset, next);
                 }
               }}
             />
           </label>
+
           <label className="text-sm font-semibold">
-            Due in
+            Terms
             <select
               className="input mt-1 font-normal"
-              value={duePreset}
-              onChange={(e) =>
-                applyPreset(e.target.value as typeof duePreset)
-              }
+              value={termsPreset}
+              onChange={(e) => applyTerms(e.target.value as TermsPreset)}
             >
-              <option value="7">7 days</option>
-              <option value="14">14 days</option>
-              <option value="30">30 days</option>
-              <option value="custom">Pick a date</option>
+              <option value="due_on_receipt">Due on Receipt</option>
+              <option value="net_7">Net 7</option>
+              <option value="net_14">Net 14</option>
+              <option value="net_30">Net 30</option>
+              <option value="custom">Custom</option>
             </select>
           </label>
+
           <label className="text-sm font-semibold">
-            Due date
+            <span className="text-danger">*</span> Due date
             <input
               type="date"
               className="input mt-1 font-normal"
               value={dueDate}
               required
               onChange={(e) => {
-                setDuePreset("custom");
+                setTermsPreset("custom");
                 setDueDate(e.target.value);
               }}
             />
           </label>
-          <label className="text-sm font-semibold">
-            Status
-            <select
-              className="input mt-1 font-normal"
-              value={status}
-              onChange={(e) =>
-                setCreateStatus(e.target.value as typeof status)
-              }
-            >
-              <option value="draft">Draft</option>
-              <option value="sent">Sent</option>
-              <option value="due">Due</option>
-            </select>
-          </label>
         </div>
-
-        <label className="block text-sm font-semibold">
-          PO / reference
-          <input
-            className="input mt-1 font-normal"
-            value={reference}
-            placeholder="Optional purchase order or reference"
-            onChange={(e) => setReference(e.target.value)}
-          />
-        </label>
 
         {templates.length > 0 && (
           <div className="rounded-lg border border-line bg-white/60 p-3">
-            <p className="text-sm font-semibold text-ink">Line templates</p>
+            <p className="text-sm font-semibold text-ink">
+              Remembered items
+            </p>
             <p className="mt-1 text-xs text-ink-soft">
-              Click a template to add description, amount and VAT.
+              Products you have invoiced before — pick one or keep typing in
+              Item details.
             </p>
             <ul className="mt-3 flex flex-wrap gap-2">
               {templates.map((t) => (
@@ -406,198 +609,351 @@ export function InvoiceWorkspace({
           </div>
         )}
 
-        <div className="space-y-3">
-          {lines.map((line, i) => (
-            <div
-              key={i}
-              className="grid gap-2 rounded-lg border border-line p-3 sm:grid-cols-12"
-            >
-              <input
-                className="input sm:col-span-5"
-                placeholder="Description"
-                value={line.description}
-                required
-                onChange={(e) =>
-                  setLines((rows) =>
-                    rows.map((r, idx) =>
-                      idx === i ? { ...r, description: e.target.value } : r,
-                    ),
-                  )
-                }
-              />
-              <input
-                className="input sm:col-span-2"
-                type="number"
-                min={0.01}
-                step={0.01}
-                placeholder="Qty"
-                value={line.quantity}
-                required
-                onChange={(e) =>
-                  setLines((rows) =>
-                    rows.map((r, idx) =>
-                      idx === i ? { ...r, quantity: e.target.value } : r,
-                    ),
-                  )
-                }
-              />
-              <input
-                className="input mono sm:col-span-2"
-                placeholder="Unit £"
-                value={line.unitPricePounds}
-                required
-                onChange={(e) =>
-                  setLines((rows) =>
-                    rows.map((r, idx) =>
-                      idx === i
-                        ? { ...r, unitPricePounds: e.target.value }
-                        : r,
-                    ),
-                  )
-                }
-              />
-              <select
-                className="input sm:col-span-2"
-                value={line.vatRateBps}
-                onChange={(e) =>
-                  setLines((rows) =>
-                    rows.map((r, idx) =>
-                      idx === i
-                        ? {
-                            ...r,
-                            vatRateBps: e.target
-                              .value as LineDraft["vatRateBps"],
-                          }
-                        : r,
-                    ),
-                  )
-                }
+        <div className="space-y-2">
+          <div className="hidden grid-cols-12 gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-ink-soft sm:grid">
+            <span className="col-span-5">Item details</span>
+            <span className="col-span-2">Quantity</span>
+            <span className="col-span-2">Rate</span>
+            <span className="col-span-2">VAT</span>
+            <span className="col-span-1 text-right">Amt</span>
+          </div>
+          {lines.map((line, i) => {
+            const unit = Math.round(
+              Number.parseFloat(line.unitPricePounds || "0") * 100,
+            );
+            const qty = Number(line.quantity) || 0;
+            const lineNet = Number.isFinite(unit) ? Math.round(unit * qty) : 0;
+            return (
+              <div
+                key={i}
+                className="grid gap-2 rounded-lg border border-line p-3 sm:grid-cols-12"
               >
-                <option value="2000">VAT 20%</option>
-                <option value="500">VAT 5%</option>
-                <option value="0">VAT 0%</option>
-              </select>
-              <div className="flex flex-col gap-1 sm:col-span-1">
-                {lines.length > 1 && (
-                  <button
-                    type="button"
-                    className="text-sm font-semibold text-danger"
-                    onClick={() =>
-                      setLines((rows) => rows.filter((_, idx) => idx !== i))
-                    }
-                  >
-                    Remove
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="text-xs font-semibold text-sea"
-                  disabled={pending || !line.description.trim()}
-                  title="Save as reusable template"
-                  onClick={() =>
-                    start(async () => {
-                      try {
-                        await createInvoiceLineTemplate({
-                          label: line.description.slice(0, 80),
-                          description: line.description,
-                          quantity: Number(line.quantity) || 1,
-                          unitPricePounds: line.unitPricePounds,
-                          vatRateBps: Number(line.vatRateBps) as
-                            | 0
-                            | 500
-                            | 2000,
-                        });
-                        router.refresh();
-                      } catch (err) {
-                        setError(
-                          err instanceof Error ? err.message : "Failed",
-                        );
-                      }
-                    })
+                <input
+                  className="input sm:col-span-5"
+                  placeholder="Type or click to select an item"
+                  value={line.description}
+                  required
+                  list={`invoice-templates-${clientId}`}
+                  onChange={(e) =>
+                    applyDescriptionSuggestion(i, e.target.value)
+                  }
+                />
+                <input
+                  className="input sm:col-span-2"
+                  type="number"
+                  min={0.01}
+                  step={0.01}
+                  placeholder="Qty"
+                  value={line.quantity}
+                  required
+                  onChange={(e) =>
+                    setLines((rows) =>
+                      rows.map((r, idx) =>
+                        idx === i ? { ...r, quantity: e.target.value } : r,
+                      ),
+                    )
+                  }
+                />
+                <input
+                  className="input mono sm:col-span-2"
+                  placeholder="0.00"
+                  value={line.unitPricePounds}
+                  required
+                  onChange={(e) =>
+                    setLines((rows) =>
+                      rows.map((r, idx) =>
+                        idx === i
+                          ? { ...r, unitPricePounds: e.target.value }
+                          : r,
+                      ),
+                    )
+                  }
+                />
+                <select
+                  className="input sm:col-span-2"
+                  value={line.vatRateBps}
+                  onChange={(e) =>
+                    setLines((rows) =>
+                      rows.map((r, idx) =>
+                        idx === i
+                          ? {
+                              ...r,
+                              vatRateBps: e.target
+                                .value as LineDraft["vatRateBps"],
+                            }
+                          : r,
+                      ),
+                    )
                   }
                 >
-                  Save
-                </button>
+                  <option value="2000">20%</option>
+                  <option value="500">5%</option>
+                  <option value="0">0%</option>
+                </select>
+                <div className="flex items-center justify-between gap-2 sm:col-span-1 sm:flex-col sm:items-end">
+                  <span className="mono text-sm font-semibold">
+                    {money(lineNet)}
+                  </span>
+                  {lines.length > 1 ? (
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-danger"
+                      onClick={() =>
+                        setLines((rows) => rows.filter((_, idx) => idx !== i))
+                      }
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
               </div>
+            );
+          })}
+          <datalist id={`invoice-templates-${clientId}`}>
+            {templates.map((t) => (
+              <option key={t.id} value={t.description} />
+            ))}
+          </datalist>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              className="btn btn-secondary text-sm"
+              onClick={() => setLines((rows) => [...rows, emptyLine()])}
+            >
+              + Add new row
+            </button>
+            <button
+              type="button"
+              className="text-sm font-semibold text-sea"
+              onClick={() => setShowBulk((v) => !v)}
+            >
+              + Add items in bulk
+            </button>
+          </div>
+          {showBulk ? (
+            <div className="rounded-lg border border-line bg-mist/40 p-3">
+              <p className="text-xs text-ink-soft">
+                One line per row: description, quantity, rate (comma or tab).
+              </p>
+              <textarea
+                className="input mt-2 min-h-[5rem] font-normal mono text-sm"
+                value={bulkText}
+                onChange={(e) => setBulkText(e.target.value)}
+                placeholder={"Bookkeeping · monthly,1,150.00"}
+              />
+              <button
+                type="button"
+                className="btn btn-primary mt-2 text-sm"
+                onClick={applyBulkLines}
+              >
+                Add rows
+              </button>
             </div>
-          ))}
-          <button
-            type="button"
-            className="text-sm font-semibold text-sea"
-            onClick={() => setLines((rows) => [...rows, emptyLine()])}
-          >
-            + Add line
-          </button>
+          ) : null}
         </div>
 
-        <div className="grid gap-3 rounded-lg border border-line bg-mist/40 p-4 sm:grid-cols-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
-              Net
-            </p>
-            <p className="mono mt-1 text-lg font-semibold">
-              {money(totals.net)}
-            </p>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="space-y-3">
+            <label className="block text-sm font-semibold">
+              Customer notes
+              <textarea
+                className="input mt-1 min-h-[4rem] font-normal"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+              <span className="mt-1 block text-xs font-normal text-ink-soft">
+                Will be displayed on the invoice.
+              </span>
+            </label>
+            <label className="block text-sm font-semibold">
+              Terms &amp; conditions
+              <textarea
+                className="input mt-1 min-h-[4rem] font-normal"
+                placeholder="Enter the terms and conditions of your business to be displayed in your transaction."
+                value={termsConditions}
+                onChange={(e) => setTermsConditions(e.target.value)}
+              />
+            </label>
+            <div className="rounded-lg border border-dashed border-line p-3 text-sm text-ink-soft">
+              <p className="font-semibold text-ink">Attach file(s)</p>
+              <p className="mt-1 text-xs">
+                Upload up to 10 files (10MB each) from the client Documents tab
+                for now. Direct invoice attachments ship next.
+              </p>
+              <Link
+                href={`/clients/${clientId}`}
+                className="mt-2 inline-flex font-semibold text-sea hover:underline"
+              >
+                Open client documents →
+              </Link>
+            </div>
           </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
-              VAT
-            </p>
-            <p className="mono mt-1 text-lg font-semibold">
-              {money(totals.vat)}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
-              Total
-            </p>
-            <p className="mono mt-1 text-xl font-semibold text-ink">
-              {money(totals.gross)}
-            </p>
+
+          <div className="space-y-2 rounded-lg border border-line bg-mist/40 p-4">
+            <div className="flex justify-between text-sm">
+              <span className="text-ink-soft">Sub total</span>
+              <span className="mono font-semibold">{money(totals.subtotalPence)}</span>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span className="text-ink-soft">Discount</span>
+              <div className="flex items-center gap-2">
+                <input
+                  className="input w-16 py-1 text-right font-normal"
+                  placeholder="%"
+                  value={discountPercent}
+                  onChange={(e) => {
+                    setDiscountPercent(e.target.value);
+                    if (e.target.value) setDiscountPounds("");
+                  }}
+                />
+                <span className="text-ink-soft">or £</span>
+                <input
+                  className="input w-24 py-1 text-right font-normal mono"
+                  placeholder="0.00"
+                  value={discountPounds}
+                  onChange={(e) => {
+                    setDiscountPounds(e.target.value);
+                    if (e.target.value) setDiscountPercent("");
+                  }}
+                />
+                <span className="mono w-20 text-right font-semibold">
+                  {money(totals.discountPence)}
+                </span>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span className="text-ink-soft">Shipping charges</span>
+              <input
+                className="input w-28 py-1 text-right font-normal mono"
+                placeholder="0.00"
+                value={shippingPounds}
+                onChange={(e) => setShippingPounds(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span className="text-ink-soft">Adjustment</span>
+              <input
+                className="input w-28 py-1 text-right font-normal mono"
+                placeholder="0.00"
+                value={adjustmentPounds}
+                onChange={(e) => setAdjustmentPounds(e.target.value)}
+              />
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-ink-soft">VAT</span>
+              <span className="mono font-semibold">{money(totals.vatPence)}</span>
+            </div>
+            <div className="flex justify-between border-t border-line pt-3">
+              <span className="font-semibold text-ink">Total (£)</span>
+              <span className="mono text-xl font-semibold text-ink">
+                {money(totals.totalPence)}
+              </span>
+            </div>
           </div>
         </div>
 
         <label className="block text-sm font-semibold">
-          Notes
+          Payment instructions
           <textarea
-            className="input mt-1 min-h-[4rem] font-normal"
-            placeholder="Payment terms, project notes…"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        </label>
-
-        <div>
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <label
-              htmlFor="payment-instructions"
-              className="text-sm font-semibold text-ink"
-            >
-              Payment instructions
-            </label>
-            <Link
-              href="/settings/letterhead"
-              className="text-xs font-semibold text-sea hover:underline"
-            >
-              Set sort code &amp; account in Practice branding →
-            </Link>
-          </div>
-          <textarea
-            id="payment-instructions"
-            className="input mt-1 min-h-[4rem] font-normal"
-            placeholder="Bank name, sort code, account number, payment reference…"
+            className="input mt-1 min-h-[3.5rem] font-normal"
+            placeholder="Bank name, sort code, account number…"
             value={paymentInstructions}
             onChange={(e) => setPaymentInstructions(e.target.value)}
           />
+        </label>
+
+        <div className="rounded-xl border border-sea/25 bg-sea/5 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="font-semibold text-ink">Want to get paid faster?</p>
+              <p className="mt-1 text-sm text-ink-soft">
+                Configure payment gateways and receive card payments online.
+              </p>
+              <Link
+                href="/settings/payments"
+                className="mt-2 inline-flex text-sm font-semibold text-sea hover:underline"
+              >
+                Set up payment gateway →
+              </Link>
+            </div>
+            <label className="flex items-center gap-2 text-sm font-semibold text-ink">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-[var(--sea)]"
+                checked={enableOnlinePay}
+                disabled={!stripeConnected}
+                onChange={(e) => setEnableOnlinePay(e.target.checked)}
+              />
+              Enable online pay
+            </label>
+          </div>
+          {!stripeConnected ? (
+            <p className="mt-2 text-xs text-ink-soft">
+              Connect Stripe under Payment gateways before enabling online pay.
+            </p>
+          ) : null}
         </div>
 
-        <button type="submit" className="btn btn-primary" disabled={pending}>
-          {pending
-            ? "Saving…"
-            : status === "draft"
-              ? "Save draft"
-              : "Generate invoice"}
-        </button>
+        <div
+          ref={sendRecipientRef}
+          id="invoice-send-recipient"
+          className={`rounded-xl border p-4 transition-shadow ${
+            armedSendInvoiceId
+              ? "border-sea bg-sea/5 shadow-[0_0_0_3px_rgba(45,122,120,0.15)]"
+              : "border-line bg-mist/30"
+          }`}
+        >
+          <h3 className="text-sm font-semibold text-ink">
+            Receiver email
+          </h3>
+          <p className="mt-1 text-xs text-ink-soft">
+            Save and send scrolls here first so you can check the address.
+            Press Save and send again to email the invoice.
+          </p>
+          <label className="mt-3 block text-sm font-semibold">
+            Send invoice to
+            <input
+              type="email"
+              className="input mt-1 max-w-md font-normal"
+              value={emailTo}
+              onChange={(e) => setEmailTo(e.target.value)}
+              placeholder="client@firm.co.uk"
+              autoComplete="email"
+            />
+          </label>
+          <p className="mt-2 text-xs text-ink-soft">
+            From:{" "}
+            <span className="font-semibold text-ink">
+              {LEGAL_CONTACT_EMAIL}
+            </span>
+            {" · "}
+            Reply-To uses your practice email in{" "}
+            <Link
+              href="/settings/letterhead"
+              className="font-semibold text-sea hover:underline"
+            >
+              Settings → Practice branding
+            </Link>
+            .
+          </p>
+          {armedSendInvoiceId ? (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <p className="text-sm font-semibold text-sea">
+                Invoice saved — confirm the address, then press Confirm &amp;
+                send.
+              </p>
+              <a
+                href={`/clients/${clientId}/invoices/${armedSendInvoiceId}/print?download=1`}
+                className="btn btn-secondary text-sm"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Download PDF
+              </a>
+            </div>
+          ) : null}
+        </div>
       </form>
 
       <FormErrorBanner error={error} title="Couldn’t continue" />
@@ -635,6 +991,7 @@ export function InvoiceWorkspace({
                     Issued {inv.issueDate} · Due {inv.dueDate}
                     {isInvoiceOverdue(inv) ? " · Overdue" : ""}
                     {inv.reference ? ` · Ref ${inv.reference}` : ""}
+                    {inv.subject ? ` · ${inv.subject}` : ""}
                   </p>
                   <ul className="mt-2 text-sm text-ink-soft">
                     {inv.lines.map((l, i) => (
@@ -643,6 +1000,18 @@ export function InvoiceWorkspace({
                       </li>
                     ))}
                   </ul>
+                  {inv.enableOnlinePay && inv.payToken ? (
+                    <p className="mt-2 text-xs">
+                      <a
+                        href={`/pay/${inv.payToken}`}
+                        className="font-semibold text-sea hover:underline"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Pay link
+                      </a>
+                    </p>
+                  ) : null}
                   {emailingId === inv.id ? (
                     <div className="mt-3 space-y-2 rounded-lg border border-line bg-mist/40 p-3">
                       <label className="block text-xs font-semibold text-ink">
@@ -655,11 +1024,6 @@ export function InvoiceWorkspace({
                           placeholder="client@firm.co.uk"
                         />
                       </label>
-                      {!emailTo.trim() ? (
-                        <p className="text-xs text-ink-soft">
-                          Add the client’s email here before sending.
-                        </p>
-                      ) : null}
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
@@ -715,12 +1079,20 @@ export function InvoiceWorkspace({
                   </p>
                   <span className={statusBadge(inv.status)}>{inv.status}</span>
                   <div className="mt-3 flex flex-wrap gap-2 sm:justify-end">
-                    <Link
-                      href={`/clients/${clientId}/invoices/${inv.id}/print`}
+                    <a
+                      href={`/clients/${clientId}/invoices/${inv.id}/print?download=1`}
                       className="btn btn-secondary px-3 py-1.5 text-sm"
                       target="_blank"
+                      rel="noreferrer"
                     >
-                      Print / PDF
+                      Download PDF
+                    </a>
+                    <Link
+                      href={`/clients/${clientId}/invoices/${inv.id}/print`}
+                      className="btn btn-ghost px-3 py-1.5 text-sm"
+                      target="_blank"
+                    >
+                      Preview
                     </Link>
                     {inv.status !== "void" ? (
                       <button
@@ -788,6 +1160,122 @@ export function InvoiceWorkspace({
             </li>
           ))}
         </ul>
+      </div>
+
+      {/* Sticky footer */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(10,10,10,0.06)] backdrop-blur">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={pending}
+            onClick={() =>
+              start(async () => {
+                try {
+                  await submitInvoice("draft");
+                  setOk("Draft saved.");
+                } catch (err) {
+                  setError(
+                    messageFromUnknown(err, "Could not save draft."),
+                  );
+                }
+              })
+            }
+          >
+            Save as draft
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={pending}
+            onClick={() =>
+              start(async () => {
+                setError(null);
+                setOk(null);
+                try {
+                  if (armedSendInvoiceId) {
+                    if (!emailTo.trim()) {
+                      setError(
+                        "Enter the receiver email address, then press Save and send again.",
+                      );
+                      scrollToSendRecipient();
+                      return;
+                    }
+                    const res = await sendClientInvoiceEmail({
+                      invoiceId: armedSendInvoiceId,
+                      toEmail: emailTo.trim(),
+                    });
+                    if (!res.ok) {
+                      setError(res.error);
+                      scrollToSendRecipient();
+                      return;
+                    }
+                    setArmedSendInvoiceId(null);
+                    setOk(
+                      res.delivery === "logged"
+                        ? `Invoice saved, but email was not delivered — ask your admin to configure outbound email (Resend).`
+                        : `Invoice emailed to ${res.toEmail}.`,
+                    );
+                    router.refresh();
+                    return;
+                  }
+
+                  const invoice = await submitInvoice("draft", {
+                    keepArmed: true,
+                  });
+                  setArmedSendInvoiceId(invoice.id);
+                  setOk(
+                    "Invoice saved. Check the receiver email, then press Confirm & send to deliver.",
+                  );
+                  scrollToSendRecipient();
+                } catch (err) {
+                  setError(
+                    messageFromUnknown(err, "Could not save or send invoice."),
+                  );
+                }
+              })
+            }
+          >
+            {pending
+              ? armedSendInvoiceId
+                ? "Sending…"
+                : "Saving…"
+              : armedSendInvoiceId
+                ? "Confirm & send"
+                : "Save and send"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={pending}
+            onClick={() => {
+              resetForm();
+              setError(null);
+              setOk(null);
+            }}
+          >
+            Cancel
+          </button>
+          {armedSendInvoiceId ? (
+            <a
+              href={`/clients/${clientId}/invoices/${armedSendInvoiceId}/print?download=1`}
+              className="btn btn-secondary text-sm"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Download PDF
+            </a>
+          ) : null}
+          <div className="ml-auto text-right">
+            <p className="text-sm font-semibold text-ink">
+              Total amount:{" "}
+              <span className="mono">{money(totals.totalPence)}</span>
+            </p>
+            <p className="text-xs text-ink-soft">
+              Total quantity: {lineMaths.qty}
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

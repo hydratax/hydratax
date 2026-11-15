@@ -61,7 +61,7 @@ export function ChAddressFields({
         />
       </label>
       <label className="label">
-        Postcode
+        Postcode *
         <input
           id={`${idPrefix}-postcode`}
           className="input mt-1.5 mono uppercase"
