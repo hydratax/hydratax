@@ -18,6 +18,10 @@ import {
   CategoryPicker,
 } from "@/components/forms/category-picker";
 import type { CustomCategoryRow } from "@/server/actions/custom-categories";
+import {
+  formatMissingMonthsSummary,
+  missingBankMonthsByTaxYear,
+} from "@/lib/bank/missing-statement-months";
 
 type Tx = {
   id: string;
@@ -86,6 +90,10 @@ export function BankCategorisedView({
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
   const [filterCategory, setFilterCategory] = useState<string>(ALL_CATEGORIES);
   const [searchQuery, setSearchQuery] = useState("");
+  /** Per-category search when a section’s transaction list is open */
+  const [sectionSearch, setSectionSearch] = useState<Record<string, string>>(
+    {},
+  );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkCategory, setBulkCategory] = useState("expense_queries");
   const [mapTarget, setMapTarget] = useState<Record<string, string>>({});
@@ -149,7 +157,15 @@ export function BankCategorisedView({
 
   function onCategoryChange(txId: string, category: string) {
     start(async () => {
-      await updateBankCategory(txId, category);
+      // Multi-select: changing the head on any selected row moves all selected.
+      if (selectedIds.size > 1 && selectedIds.has(txId)) {
+        const ids = [...selectedIds];
+        await updateBankCategoriesBulk(ids, category);
+        clearSelection();
+      } else {
+        await updateBankCategory(txId, category);
+        if (selectedIds.has(txId)) clearSelection();
+      }
       router.refresh();
     });
   }
@@ -192,6 +208,13 @@ export function BankCategorisedView({
       reviewHeads,
     };
   }, [transactions, customCategories]);
+
+  const missingStatementsNote = useMemo(() => {
+    const rows = missingBankMonthsByTaxYear(
+      transactions.map((t) => t.dated),
+    ).filter((r) => r.missingMonths.length > 0);
+    return formatMissingMonthsSummary(rows);
+  }, [transactions]);
 
   useEffect(() => {
     setCustomCategories(initialCustom);
@@ -325,6 +348,11 @@ export function BankCategorisedView({
 
   return (
     <div className="space-y-4">
+      {missingStatementsNote ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          <p className="mt-0.5 text-amber-900/90">{missingStatementsNote}</p>
+        </div>
+      ) : null}
       <div className="grid gap-3 border-b border-line bg-sand/40 px-4 py-4 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <p className="text-xs font-bold uppercase text-ink-soft">Lines</p>
@@ -433,6 +461,9 @@ export function BankCategorisedView({
           <span className="text-sm font-semibold text-ink">
             {selectedCount} selected
           </span>
+          <span className="text-xs text-ink-soft">
+            Pick a head — all selected move together
+          </span>
           <label className="flex min-w-[14rem] flex-1 items-center gap-2 text-sm">
             <span className="shrink-0 text-ink-soft">Move to</span>
             <CategoryPicker
@@ -449,7 +480,17 @@ export function BankCategorisedView({
                       ),
                 )
               }
-              onChange={setBulkCategory}
+              onChange={(cat) => {
+                setBulkCategory(cat);
+                // Choosing a head with a selection moves everything in one go.
+                const ids = [...selectedIds];
+                if (!ids.length) return;
+                start(async () => {
+                  await updateBankCategoriesBulk(ids, cat);
+                  clearSelection();
+                  router.refresh();
+                });
+              }}
             />
           </label>
           <button
@@ -543,12 +584,26 @@ export function BankCategorisedView({
             const total = rows.reduce((s, t) => s + t.amountPence, 0);
             const isOpen = openSections[category] ?? false;
             const showAll = expanded[category] ?? false;
-            const visible = showAll ? rows : rows.slice(0, PREVIEW_LIMIT);
-            const sectionSelectedCount = rows.filter((r) =>
+            const listQuery = (sectionSearch[category] ?? "")
+              .trim()
+              .toLowerCase();
+            const filteredRows = listQuery
+              ? rows.filter(
+                  (t) =>
+                    t.description.toLowerCase().includes(listQuery) ||
+                    t.dated.includes(listQuery) ||
+                    gbp(t.amountPence).toLowerCase().includes(listQuery),
+                )
+              : rows;
+            const visible = showAll
+              ? filteredRows
+              : filteredRows.slice(0, PREVIEW_LIMIT);
+            const sectionSelectedCount = filteredRows.filter((r) =>
               selectedIds.has(r.id),
             ).length;
             const allSectionSelected =
-              rows.length > 0 && sectionSelectedCount === rows.length;
+              filteredRows.length > 0 &&
+              sectionSelectedCount === filteredRows.length;
             const someSectionSelected =
               sectionSelectedCount > 0 && !allSectionSelected;
 
@@ -676,6 +731,33 @@ export function BankCategorisedView({
                           </button>
                         </div>
                       ) : null}
+                      <div className="border-b border-line px-4 py-2.5">
+                        <label className="sr-only" htmlFor={`tx-search-${category}`}>
+                          Search in {sectionLabel(category, customCategories)}
+                        </label>
+                        <input
+                          id={`tx-search-${category}`}
+                          type="search"
+                          className="input w-full text-sm"
+                          placeholder="Search this list…"
+                          value={sectionSearch[category] ?? ""}
+                          onChange={(e) =>
+                            setSectionSearch((prev) => ({
+                              ...prev,
+                              [category]: e.target.value,
+                            }))
+                          }
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        {listQuery ? (
+                          <p className="mt-1.5 text-xs text-ink-soft">
+                            Showing {filteredRows.length} of {rows.length}
+                            {filteredRows.length === 0
+                              ? " — no matches"
+                              : ""}
+                          </p>
+                        ) : null}
+                      </div>
                       <div className="overflow-x-auto">
                         <table className="bank-tx-table w-full table-fixed text-left text-sm">
                           <thead className="text-xs uppercase text-ink-soft">
@@ -693,7 +775,7 @@ export function BankCategorisedView({
                                   aria-label={`Select all in ${sectionLabel(category, customCategories)}`}
                                   onChange={(e) =>
                                     toggleSectionSelected(
-                                      rows,
+                                      filteredRows,
                                       e.target.checked,
                                     )
                                   }
@@ -712,7 +794,7 @@ export function BankCategorisedView({
                           </tbody>
                         </table>
                       </div>
-                      {rows.length > PREVIEW_LIMIT ? (
+                      {filteredRows.length > PREVIEW_LIMIT ? (
                         <div className="border-t border-line px-4 py-2">
                           <button
                             type="button"
@@ -726,7 +808,7 @@ export function BankCategorisedView({
                           >
                             {showAll
                               ? "Show fewer"
-                              : `Show all ${rows.length} in ${sectionLabel(category, customCategories)}`}
+                              : `Show all ${filteredRows.length} in ${sectionLabel(category, customCategories)}`}
                           </button>
                         </div>
                       ) : null}

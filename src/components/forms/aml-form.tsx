@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useState, useTransition } from "react";
 import { saveAmlRecord } from "@/server/actions/desk";
 import type { AmlRecord, AmlRisk } from "@/lib/desk-profile";
@@ -56,21 +58,13 @@ export function AmlForm({
       </label>
       <label className="block text-sm font-semibold">
         Identity verified on
-        <input
-          className="input mt-1"
-          type="date"
-          value={idVerifiedOn}
-          onChange={(e) => setIdVerifiedOn(e.target.value)}
+        <UkDateField className="input mt-1" value={idVerifiedOn} onChange={(iso) => setIdVerifiedOn(iso)}
           required
         />
       </label>
       <label className="block text-sm font-semibold">
         Next review
-        <input
-          className="input mt-1"
-          type="date"
-          value={nextReviewOn}
-          onChange={(e) => setNextReviewOn(e.target.value)}
+        <UkDateField className="input mt-1" value={nextReviewOn} onChange={(iso) => setNextReviewOn(iso)}
           required
         />
       </label>

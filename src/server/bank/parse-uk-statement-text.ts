@@ -12,10 +12,22 @@ import {
   parseMoneyToPence,
   type CategorisedLine,
 } from "@/server/bank/categorise";
+import {
+  detectBankProfile,
+  type BankProfile,
+  type BankProfileId,
+} from "@/server/bank/profiles";
+import {
+  extractStatementBalances,
+  reconcileStatement,
+  type ReconcileResult,
+} from "@/server/bank/reconcile";
 
 export type ParsedStatementMeta = {
   bankHint: string | null;
+  profileId: BankProfileId;
   rawLineCount: number;
+  reconcile: ReconcileResult;
 };
 
 export type ParseUkStatementResult = {
@@ -31,20 +43,10 @@ const DATE_DMY_SPACE = /(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov
 const MONEY =
   /£?\s*-?\(?\d{1,3}(?:,\d{3})*(?:\.\d{2})\)?(?:\s*(?:CR|DR))?|£?\s*-?\d+(?:\.\d{2})(?:\s*(?:CR|DR))?/i;
 
-function detectBank(text: string): string | null {
-  const head = text.slice(0, 2500);
-  if (/monzo/i.test(head)) return "Monzo";
-  if (/starling bank|www\.starlingbank\.com/i.test(head)) return "Starling";
-  if (/natwest|national westminster/i.test(head)) return "NatWest";
-  if (/\bhsbc\b/i.test(head)) return "HSBC";
-  if (/barclays/i.test(head)) return "Barclays";
-  if (/lloyds bank|lloyds banking/i.test(head)) return "Lloyds";
-  if (/santander/i.test(head)) return "Santander";
-  if (/nationwide/i.test(head)) return "Nationwide";
-  if (/metro bank/i.test(head)) return "Metro Bank";
-  if (/revolut/i.test(head)) return "Revolut";
-  if (/american express|\bamex\b/i.test(head)) return "American Express";
-  return null;
+/** @deprecated use detectBankProfile — kept for call sites expecting a label */
+export function detectBank(text: string): string | null {
+  const profile = detectBankProfile(text);
+  return profile.id === "generic" ? null : profile.label;
 }
 
 function toIsoDate(raw: string): string | null {
@@ -53,7 +55,10 @@ function toIsoDate(raw: string): string | null {
   return null;
 }
 
-function moneyAtEnd(line: string): { description: string; amountPence: number } | null {
+function moneyAtEnd(
+  line: string,
+  profile: BankProfile,
+): { description: string; amountPence: number } | null {
   // Prefer the last money token (amount / balance often trail the narrative).
   const matches = [...line.matchAll(new RegExp(MONEY.source, "g"))];
   if (!matches.length) return null;
@@ -63,8 +68,12 @@ function moneyAtEnd(line: string): { description: string; amountPence: number } 
   if (!amountPence) return null;
 
   let description = line.slice(0, last.index).trim();
-  // If there are two trailing amounts (amount + balance), drop the penultimate from description.
-  if (matches.length >= 2) {
+  // If there are two trailing amounts (amount + balance), movement is usually penultimate.
+  if (
+    matches.length >= 2 &&
+    (profile.moneyColumns === "amount_then_balance" ||
+      profile.moneyColumns === "single_amount")
+  ) {
     const pen = matches[matches.length - 2];
     const penAmt = parseMoneyToPence(pen[0]);
     if (penAmt !== 0 && pen.index != null && pen.index < (last.index ?? 0)) {
@@ -75,7 +84,10 @@ function moneyAtEnd(line: string): { description: string; amountPence: number } 
   return { description, amountPence };
 }
 
-function parseDatedLine(line: string): {
+function parseDatedLine(
+  line: string,
+  profile: BankProfile,
+): {
   dated: string;
   description: string;
   amountPence: number;
@@ -122,14 +134,20 @@ function parseDatedLine(line: string): {
   if (twoCol) {
     const left = parseMoneyToPence(twoCol[2]);
     const right = parseMoneyToPence(twoCol[3]);
-    // Common UK layout: Money out | Money in (or Amount | Balance).
-    // If one is zero-ish empty, use the other; if both set, prefer out as negative when narrative implies debit.
     let amountPence = 0;
-    if (left !== 0 && right === 0) amountPence = -Math.abs(left);
-    else if (right !== 0 && left === 0) amountPence = Math.abs(right);
-    else if (left !== 0 && right !== 0) {
-      // Treat as amount + running balance: first is the movement.
-      amountPence = left;
+    if (profile.moneyColumns === "in_then_out") {
+      if (left !== 0 && right === 0) amountPence = Math.abs(left);
+      else if (right !== 0 && left === 0) amountPence = -Math.abs(right);
+      else if (left !== 0 && right !== 0) amountPence = Math.abs(left);
+    } else if (profile.moneyColumns === "out_then_in") {
+      if (left !== 0 && right === 0) amountPence = -Math.abs(left);
+      else if (right !== 0 && left === 0) amountPence = Math.abs(right);
+      else if (left !== 0 && right !== 0) amountPence = -Math.abs(left);
+    } else {
+      // amount_then_balance / single: first = movement, second often balance
+      if (left !== 0 && right === 0) amountPence = left;
+      else if (right !== 0 && left === 0) amountPence = right;
+      else if (left !== 0 && right !== 0) amountPence = left;
     }
     const description = twoCol[1].trim();
     if (description && amountPence) {
@@ -137,7 +155,7 @@ function parseDatedLine(line: string): {
     }
   }
 
-  const money = moneyAtEnd(rest);
+  const money = moneyAtEnd(rest, profile);
   if (!money || !money.description) return null;
   let amountPence = money.amountPence;
   if (hasCreditMarker && !hasDebitMarker) amountPence = Math.abs(amountPence);
@@ -170,7 +188,7 @@ function mergeContinuationLines(lines: string[]): string[] {
 function signFromContext(
   description: string,
   amountPence: number,
-  _bankHint: string | null,
+  profile: BankProfile,
 ): number {
   if (amountPence === 0) return 0;
   // Already signed in the statement text.
@@ -196,14 +214,17 @@ function signFromContext(
   if (/\b(ltd|limited|invoice|client)\b/i.test(d) && !/\b(payment to|paid to)\b/i.test(d)) {
     return Math.abs(amountPence);
   }
-  return -Math.abs(amountPence);
+  return profile.defaultUnsignedAs === "inflow"
+    ? Math.abs(amountPence)
+    : -Math.abs(amountPence);
 }
 
 export function parseUkStatementText(
   text: string,
   opts?: { occupation?: string | null },
 ): ParseUkStatementResult {
-  const bankHint = detectBank(text);
+  const profile = detectBankProfile(text);
+  const bankHint = profile.id === "generic" ? null : profile.label;
   const rawLines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
   const merged = mergeContinuationLines(rawLines);
 
@@ -211,12 +232,12 @@ export function parseUkStatementText(
   const lines: CategorisedLine[] = [];
 
   for (const line of merged) {
-    const parsed = parseDatedLine(line);
+    const parsed = parseDatedLine(line, profile);
     if (!parsed) continue;
     const amountPence = signFromContext(
       parsed.description,
       parsed.amountPence,
-      bankHint,
+      profile,
     );
     if (!amountPence) continue;
     const description = parsed.description
@@ -243,8 +264,20 @@ export function parseUkStatementText(
     });
   }
 
+  const balances = extractStatementBalances(text);
+  const reconcile = reconcileStatement({
+    openingPence: balances.openingPence,
+    closingPence: balances.closingPence,
+    lines,
+  });
+
   return {
     lines,
-    meta: { bankHint, rawLineCount: rawLines.length },
+    meta: {
+      bankHint,
+      profileId: profile.id,
+      rawLineCount: rawLines.length,
+      reconcile,
+    },
   };
 }

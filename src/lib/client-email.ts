@@ -1,5 +1,10 @@
 import type { SessionContext } from "@/server/auth/session";
 import { formatDueShort } from "@/lib/filing-due";
+import {
+  formatFromHeader,
+  parseEmailFromHeader,
+} from "@/lib/email/from-header";
+import type { MailboxSendMode } from "@/lib/email/mailbox-oauth";
 
 export type ClientEmailTemplateVars = {
   client_name: string;
@@ -11,10 +16,20 @@ export type ClientEmailTemplateVars = {
   sender_name: string;
 };
 
+export type ClientEmailSender = {
+  /** Resend / SMTP From header (display name + verified address until OAuth). */
+  from: string;
+  replyTo: string;
+  senderEmail: string;
+  senderName: string;
+  mode: MailboxSendMode;
+  /** Connected mailbox address when mode is connected_mailbox. */
+  connectedAddress?: string;
+};
+
 /**
- * Outbound client mail always sends from a Resend-verified HydraTax address
- * (EMAIL_FROM / info@hydratax.uk). Practice / user addresses are Reply-To only
- * unless they later configure a verified custom from in settings.
+ * Verified HydraTax envelope address (Resend domain). Display name is replaced
+ * with the practice name on client mail (middle option).
  */
 export function resolveHydraOutboundFrom(): string {
   const configured = (process.env.EMAIL_FROM ?? "").trim();
@@ -22,15 +37,28 @@ export function resolveHydraOutboundFrom(): string {
   return "HydraTax <info@hydratax.uk>";
 }
 
+export function hydraOutboundAddress(): string {
+  return parseEmailFromHeader(resolveHydraOutboundFrom()).address;
+}
+
+/**
+ * Middle option (default): From shows the practice name, mail is delivered via
+ * HydraTax’s verified domain; Reply-To is the practice / user email.
+ * When a Gmail/Outlook mailbox is connected, mode becomes connected_mailbox
+ * and From uses that address (send path switches later).
+ */
 export function resolveClientEmailSender(
   session: SessionContext,
-  opts?: { practiceEmail?: string | null },
-): {
-  from: string;
-  replyTo: string;
-  senderEmail: string;
-  senderName: string;
-} {
+  opts?: {
+    practiceEmail?: string | null;
+    practiceName?: string | null;
+    /** Connected OAuth mailbox address, if any. */
+    connectedMailbox?: {
+      address: string;
+      displayName?: string | null;
+    } | null;
+  },
+): ClientEmailSender {
   const practiceEmail = opts?.practiceEmail?.trim() || null;
   const sessionEmail = session.email?.trim() || null;
   const replyTo = practiceEmail || sessionEmail;
@@ -39,12 +67,33 @@ export function resolveClientEmailSender(
       "Your account has no email address. Sign in with email, or add a practice email under Settings → Practice branding, before sending client messages.",
     );
   }
-  const senderName = session.practiceName || "HydraTax";
+
+  const senderName = (
+    opts?.practiceName?.trim() ||
+    session.practiceName ||
+    "HydraTax"
+  ).trim();
+
+  const connected = opts?.connectedMailbox?.address?.trim().toLowerCase();
+  if (connected) {
+    const name =
+      opts?.connectedMailbox?.displayName?.trim() || senderName;
+    return {
+      from: formatFromHeader(name, connected),
+      replyTo: connected,
+      senderEmail: connected,
+      senderName: name,
+      mode: "connected_mailbox",
+      connectedAddress: connected,
+    };
+  }
+
   return {
-    from: resolveHydraOutboundFrom(),
+    from: formatFromHeader(senderName, hydraOutboundAddress()),
     replyTo,
     senderEmail: replyTo,
     senderName,
+    mode: "hydra_branded",
   };
 }
 

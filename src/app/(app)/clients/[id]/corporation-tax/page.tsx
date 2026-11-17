@@ -3,6 +3,7 @@ import { listCt600Returns } from "@/server/actions/ct600";
 import { listClientDocuments } from "@/server/actions/documents";
 import { requireModule } from "@/server/auth/session";
 import { Ct600PeriodWorkspace } from "@/components/forms/ct600-period-workspace";
+import { ClientDeskWorklogs } from "@/components/client-desk-worklogs";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import {
@@ -189,6 +190,7 @@ export default async function CorporationTaxPage({
           />
         </Suspense>
       )}
+      <ClientDeskWorklogs clientId={clientId} desk="ct" />
     </div>
   );
 }

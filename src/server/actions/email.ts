@@ -57,9 +57,6 @@ ${selected.length ? `Documents:\n${links}\n` : ""}`;
   return {
     ok: true,
     delivery: res.delivery,
-    message:
-      res.delivery === "resend"
-        ? "Email sent to the client."
-        : "Email logged locally (set RESEND_API_KEY to send for real).",
+    message: "Emailed to the client.",
   };
 }

@@ -12,10 +12,12 @@ import { addressPartsDisplay } from "@/lib/address-parts";
 import { upsertSaTaxpayer } from "@/server/actions/sa-taxpayers";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { AddressFields } from "@/components/forms/address-fields";
+import { UkDateField } from "@/components/forms/uk-date-field";
 
 const FOCUS_FIELD_IDS: Record<string, string> = {
   NINO: "sa-id-nino",
   "Personal UTR": "sa-id-utr",
+  "Date of birth": "sa-id-dob",
   "Street address": "sa-id-street",
   Postcode: "sa-id-postcode",
 };
@@ -141,7 +143,13 @@ export function SaPersonProfile({
             const nino = String(fd.get("nino") || "");
             const utr = String(fd.get("utr") || "");
             const address = String(fd.get("address") || "");
-            const missing = saIdentifiersMissing({ nino, utr, address });
+            const dateOfBirth = String(fd.get("dateOfBirth") || "");
+            const missing = saIdentifiersMissing({
+              nino,
+              utr,
+              address,
+              dateOfBirth,
+            });
             if (missing.length) {
               setError(`${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} required.`);
               return;
@@ -153,7 +161,7 @@ export function SaPersonProfile({
               role,
               nino,
               utr,
-              dateOfBirth: String(fd.get("dateOfBirth") || ""),
+              dateOfBirth,
               email: String(fd.get("email") || ""),
               phone: String(fd.get("phone") || ""),
               address,
@@ -186,7 +194,8 @@ export function SaPersonProfile({
         </div>
       </div>
       <p className="mt-2 text-sm text-ink-soft">
-        NINO, personal UTR and address are required before any SA100.
+        NINO, personal UTR, date of birth and address are required before any
+        SA100.
       </p>
       <div className="mt-4 grid flex-1 gap-3 sm:grid-cols-2 content-start">
         <label className="block text-xs font-semibold text-ink-soft sm:col-span-2">
@@ -219,13 +228,17 @@ export function SaPersonProfile({
           />
         </label>
         <label className="block text-xs font-semibold text-ink-soft">
-          Date of birth
-          <input
-            name="dateOfBirth"
-            type="date"
-            defaultValue={taxpayer.dateOfBirth}
-            className="input mt-1 w-full text-sm"
-          />
+          Date of birth *
+          <div className="mt-1">
+            <UkDateField
+              id="sa-id-dob"
+              name="dateOfBirth"
+              required
+              defaultValue={taxpayer.dateOfBirth}
+              className="input w-full text-sm"
+              maxYear={new Date().getFullYear()}
+            />
+          </div>
         </label>
         <label className="block text-xs font-semibold text-ink-soft">
           Phone

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useId, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { downloadCt600Draft } from "@/server/actions/ct600";
+import { emailClientArtifact } from "@/server/actions/email-artifacts";
 
 export type YearEndFiledContext = {
   clientId: string;
@@ -12,6 +13,9 @@ export type YearEndFiledContext = {
   periodStart: string;
   periodEnd: string;
   companyNumber?: string | null;
+  /** Client contact email for the Email action */
+  contactEmail?: string | null;
+  companyName?: string | null;
 };
 
 type DraftFile = {
@@ -37,7 +41,7 @@ function saveFiles(files: DraftFile[]) {
 
 /**
  * Action sheet for a year-end that is already filed:
- * download CT600, accounts, computation, or start an amended return.
+ * download CT600, accounts, computation, email pack, or start an amended return.
  */
 export function YearEndFiledActionsMenu({
   filed,
@@ -49,9 +53,16 @@ export function YearEndFiledActionsMenu({
   label?: string;
 }) {
   const titleId = useId();
+  const companyLabel = filed.companyName?.trim() || "your company";
+  const defaultSubject = `Year-end pack — ${companyLabel} (to ${filed.periodEnd})`;
+  const defaultBody = `Please find attached the Corporation Tax return, accounts and computation for the period ending ${filed.periodEnd}.\n\nKind regards`;
+
   const [open, setOpen] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [toEmail, setToEmail] = useState(filed.contactEmail ?? "");
+  const [subject, setSubject] = useState(defaultSubject);
+  const [body, setBody] = useState(defaultBody);
   const [mounted, setMounted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   useEffect(() => {
@@ -61,7 +72,10 @@ export function YearEndFiledActionsMenu({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        if (emailOpen) setEmailOpen(false);
+        else setOpen(false);
+      }
     };
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -70,7 +84,15 @@ export function YearEndFiledActionsMenu({
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [open]);
+  }, [open, emailOpen]);
+
+  useEffect(() => {
+    if (!open) return;
+    setToEmail(filed.contactEmail ?? "");
+    setSubject(defaultSubject);
+    setBody(defaultBody);
+    setEmailOpen(false);
+  }, [open, filed.contactEmail, defaultSubject, defaultBody]);
 
   const amendHref = `/clients/${encodeURIComponent(filed.clientId)}/year-end?mode=both${
     filed.companyNumber
@@ -79,7 +101,6 @@ export function YearEndFiledActionsMenu({
   }&start=${encodeURIComponent(filed.periodStart)}&end=${encodeURIComponent(filed.periodEnd)}&amend=1`;
 
   function download(kind: "ct600" | "accounts" | "computation") {
-    setError(null);
     start(async () => {
       try {
         const pack = await downloadCt600Draft(
@@ -89,8 +110,34 @@ export function YearEndFiledActionsMenu({
         );
         saveFiles(pack.files as DraftFile[]);
         setOpen(false);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Download failed");
+      } catch {
+        /* freeze */
+      }
+    });
+  }
+
+  function sendEmail() {
+    const to = toEmail.trim();
+    const subj = subject.trim();
+    const msg = body.trim();
+    if (!to || !subj || !msg) return;
+    start(async () => {
+      try {
+        await emailClientArtifact({
+          clientId: filed.clientId,
+          toEmail: to,
+          subject: subj,
+          message: msg,
+          artifact: {
+            type: "ct_pack",
+            returnId: filed.returnId,
+            kind: "both",
+          },
+        });
+        setEmailOpen(false);
+        setOpen(false);
+      } catch {
+        /* freeze */
       }
     });
   }
@@ -107,7 +154,7 @@ export function YearEndFiledActionsMenu({
               role="dialog"
               aria-modal="true"
               aria-labelledby={titleId}
-              className="flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-xl"
+              className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-xl"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
@@ -134,7 +181,7 @@ export function YearEndFiledActionsMenu({
                 </button>
               </div>
 
-              <div className="space-y-1 px-2 py-2 sm:px-3 sm:py-3">
+              <div className="space-y-1 overflow-y-auto px-2 py-2 sm:px-3 sm:py-3">
                 <ActionButton
                   disabled={pending}
                   onClick={() => download("ct600")}
@@ -153,6 +200,73 @@ export function YearEndFiledActionsMenu({
                   title="Download CT Computation"
                   blurb="Tax computation supporting the CT600."
                 />
+                {!emailOpen ? (
+                  <ActionButton
+                    disabled={pending}
+                    onClick={() => setEmailOpen(true)}
+                    title="Email year-end pack"
+                    blurb="Review and edit the email before sending."
+                  />
+                ) : (
+                  <div className="rounded-xl border border-line px-3.5 py-3">
+                    <p className="font-semibold text-ink">Email year-end pack</p>
+                    <label className="mt-2 block text-xs text-ink-soft">
+                      Client email
+                      <input
+                        type="email"
+                        className="input mt-1 w-full text-sm"
+                        value={toEmail}
+                        onChange={(e) => setToEmail(e.target.value)}
+                        placeholder="client@example.com"
+                        autoFocus
+                      />
+                    </label>
+                    <label className="mt-2 block text-xs text-ink-soft">
+                      Subject
+                      <input
+                        type="text"
+                        className="input mt-1 w-full text-sm"
+                        value={subject}
+                        onChange={(e) => setSubject(e.target.value)}
+                      />
+                    </label>
+                    <label className="mt-2 block text-xs text-ink-soft">
+                      Message
+                      <textarea
+                        className="input mt-1 min-h-[8rem] w-full resize-y text-sm"
+                        value={body}
+                        onChange={(e) => setBody(e.target.value)}
+                      />
+                    </label>
+                    <p className="mt-1.5 text-[0.7rem] text-ink-soft">
+                      CT600, accounts and computation PDFs are attached
+                      automatically.
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="btn btn-primary text-xs"
+                        disabled={
+                          pending ||
+                          !toEmail.trim() ||
+                          !subject.trim() ||
+                          !body.trim()
+                        }
+                        onClick={sendEmail}
+                      >
+                        {pending ? "Sending…" : "Send"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary text-xs"
+                        disabled={pending}
+                        onClick={() => setEmailOpen(false)}
+                      >
+                        Back
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <Link
                   href={amendHref}
                   onClick={() => setOpen(false)}
@@ -165,9 +279,6 @@ export function YearEndFiledActionsMenu({
                     Open year-end again to correct and re-file.
                   </p>
                 </Link>
-                {error && (
-                  <p className="px-2 py-2 text-sm text-danger">{error}</p>
-                )}
               </div>
             </div>
           </div>,

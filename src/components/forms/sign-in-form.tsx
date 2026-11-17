@@ -219,7 +219,11 @@ export function SignInForm() {
       )}
 
       {bannerError && (
-        <FormErrorBanner error={bannerError} title={bannerTitle} />
+        <FormErrorBanner
+          surface="auth"
+          error={bannerError}
+          title={bannerTitle}
+        />
       )}
 
       {showOauthError && (

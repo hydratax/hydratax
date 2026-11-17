@@ -135,6 +135,8 @@ export async function convertBankStatementText(input: {
       ok: true;
       lines: ConvertedBankLine[];
       bankHint: string | null;
+      profileId?: string;
+      reconcileStatus?: "reconciled" | "not_reconciled" | "unknown";
       message: string;
     }
   | { ok: false; error: string }
@@ -152,6 +154,9 @@ export async function convertBankStatementText(input: {
 
     let lines: CategorisedLine[];
     let bankHint: string | null = null;
+    let profileId: string | undefined;
+    let reconcileStatus: "reconciled" | "not_reconciled" | "unknown" | undefined;
+    let reconcileMessage: string | undefined;
     if (input.source === "csv") {
       lines = parseBankCsv(text);
       if (input.occupation) {
@@ -173,6 +178,9 @@ export async function convertBankStatementText(input: {
       });
       lines = parsed.lines;
       bankHint = parsed.meta.bankHint;
+      profileId = parsed.meta.profileId;
+      reconcileStatus = parsed.meta.reconcile.status;
+      reconcileMessage = parsed.meta.reconcile.message;
     }
 
     const session = await requireSession();
@@ -194,11 +202,20 @@ export async function convertBankStatementText(input: {
       };
     }
 
+    const badge =
+      reconcileStatus === "reconciled"
+        ? " Reconciled."
+        : reconcileStatus === "not_reconciled"
+          ? ` ${reconcileMessage ?? "Not reconciled."}`
+          : "";
+
     return {
       ok: true,
       lines,
       bankHint,
-      message: `Converted ${lines.length} transaction${lines.length === 1 ? "" : "s"}${bankHint ? ` (${bankHint})` : ""}. Download CSV or save to this client’s books.`,
+      profileId,
+      reconcileStatus,
+      message: `Converted ${lines.length} transaction${lines.length === 1 ? "" : "s"}${bankHint ? ` (${bankHint})` : ""}.${badge} Download CSV or save to this client’s books.`,
     };
   } catch (err) {
     return {

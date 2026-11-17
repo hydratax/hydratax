@@ -119,6 +119,41 @@ export function portalApprovalMissing(
 
 export type JobStatus = "waiting_client" | "in_review" | "ready" | "filed";
 
+/** HydraTax desk keys for the four agent-auth categories. */
+export type AgentAuthServiceKey =
+  | "mtd_it"
+  | "mtd_vat"
+  | "corporation_tax"
+  | "paye";
+
+export type AgentAuthorisationStatus =
+  | "not_requested"
+  | "pending"
+  | "authorised"
+  | "rejected"
+  | "expired"
+  | "deauthorised";
+
+export type AgentAuthorisationRecord = {
+  status: AgentAuthorisationStatus;
+  /** HMRC invitation id when created via Agent Authorisation API. */
+  invitationId?: string | null;
+  /** Client-facing authorise URL (MTD digital handshake). */
+  clientActionUrl?: string | null;
+  /** When the invitation expires (ISO). */
+  expiresAt?: string | null;
+  agentArn?: string | null;
+  /** main | supporting for MTD-IT */
+  agentType?: "main" | "supporting" | null;
+  knownFactUsed?: string | null;
+  lastCheckedAt?: string | null;
+  lastError?: string | null;
+  /** How the request was raised. */
+  channel?: "mtd_api" | "online_agent_authorisation" | "manual";
+  notes?: string | null;
+  updatedAt: string;
+};
+
 export type DeskProfile = {
   aml?: AmlRecord;
   engagement?: EngagementRecord;
@@ -141,6 +176,11 @@ export type DeskProfile = {
    * record matching the client.
    */
   saTaxpayers?: SaTaxpayer[];
+  /**
+   * Portal request id → practice user id who emailed the missing-bank chase.
+   * Used to notify that team member when the client uploads.
+   */
+  saBankChases?: Record<string, string>;
   /**
    * Durable SA100 draft / filed return rows for this desk (survive refresh).
    * Keyed in actions by taxYear + taxpayerId.
@@ -174,6 +214,14 @@ export type DeskProfile = {
   presentationPitch?: string;
   /** PAYE / payroll desk settings for this employer. */
   payrollSettings?: PayrollDeskSettings;
+  /**
+   * Agent authorisation per HMRC service (MTD-IT, MTD-VAT, CT, PAYE).
+   * MTD services use Agent Authorisation REST; CT/PAYE use Online Agent
+   * Authorisation (XML / portal) with local status tracking.
+   */
+  agentAuthorisations?: Partial<
+    Record<AgentAuthServiceKey, AgentAuthorisationRecord>
+  >;
 };
 
 export type PayslipTemplateId =

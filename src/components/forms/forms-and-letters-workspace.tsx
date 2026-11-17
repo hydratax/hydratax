@@ -28,7 +28,6 @@ import type { ClientLetterRecord, PracticeLetterhead } from "@/lib/desk-profile"
 import { messageFromUnknown } from "@/lib/action-error";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { EmailToClientButton } from "@/components/forms/email-to-client-button";
-import { renderClientLetterHtml } from "@/lib/letters/render-letter-html";
 
 const PALETTE: OnboardingFieldType[] = [
   "section",
@@ -66,49 +65,87 @@ function ActivityList({
 
 function LetterPreview({
   letterhead,
+  title,
   body,
 }: {
   letterhead: PracticeLetterhead;
+  title: string;
   body: string;
 }) {
+  const today = new Date().toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  const paragraphs = body
+    .replace(/\r\n/g, "\n")
+    .trim()
+    .split(/\n{2,}/)
+    .filter(Boolean);
+
   return (
-    <div className="rounded-lg border border-line bg-white p-6 text-sm text-ink shadow-sm">
-      <div className="border-b border-line pb-4">
-        {letterhead.logoUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={letterhead.logoUrl}
-            alt=""
-            className="mb-3 h-12 object-contain"
-          />
-        ) : null}
-        <p className="display text-xl text-ink">{letterhead.practiceName}</p>
-        {letterhead.qualification ? (
-          <p className="text-xs font-semibold text-sea">
-            {letterhead.qualification}
-          </p>
-        ) : null}
-        {letterhead.addressLines.map((line) => (
-          <p key={line} className="text-ink-soft">
-            {line}
-          </p>
-        ))}
-        <p className="mt-1 text-xs text-ink-soft">
-          {[letterhead.phone, letterhead.email, letterhead.website]
-            .filter(Boolean)
-            .join(" · ")}
-        </p>
-      </div>
-      <pre className="mt-5 whitespace-pre-wrap font-sans leading-relaxed">
-        {body}
-      </pre>
-      {letterhead.footerLines.length > 0 ? (
-        <div className="mt-8 border-t border-line pt-3 text-xs text-ink-soft">
-          {letterhead.footerLines.map((line) => (
-            <p key={line}>{line}</p>
+    <div className="overflow-hidden rounded-lg border border-line bg-white text-sm text-ink shadow-sm">
+      <div
+        className="h-1 bg-gradient-to-r from-sea via-teal-400 to-teal-200"
+        aria-hidden
+      />
+      <div className="p-6">
+        <div className="grid gap-4 border-b border-line pb-4 sm:grid-cols-[1.2fr_0.8fr]">
+          <div>
+            {letterhead.logoUrl?.trim() ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={letterhead.logoUrl.trim()}
+                alt=""
+                className="mb-3 h-12 max-w-[12rem] object-contain"
+              />
+            ) : (
+              <p className="mb-2 text-xs italic text-ink-soft">
+                No logo — add one in Practice branding.
+              </p>
+            )}
+            <p className="display text-xl text-ink">
+              {letterhead.practiceName}
+            </p>
+            {letterhead.qualification ? (
+              <p className="text-xs font-semibold text-sea">
+                {letterhead.qualification}
+              </p>
+            ) : null}
+            {(letterhead.addressLines ?? []).map((line) => (
+              <p key={line} className="text-ink-soft">
+                {line}
+              </p>
+            ))}
+            <p className="mt-1 text-xs text-ink-soft">
+              {[letterhead.phone, letterhead.email, letterhead.website]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          </div>
+          <div className="text-left sm:text-right">
+            <p className="text-[0.65rem] font-bold uppercase tracking-[0.12em] text-sea">
+              Letter
+            </p>
+            <p className="mt-1 text-ink">{today}</p>
+            <p className="display mt-2 text-base text-ink">{title}</p>
+          </div>
+        </div>
+        <div className="mt-5 space-y-3 leading-relaxed text-ink">
+          {paragraphs.map((block, i) => (
+            <p key={i} className="whitespace-pre-wrap">
+              {block.trim()}
+            </p>
           ))}
         </div>
-      ) : null}
+        {(letterhead.footerLines ?? []).length > 0 ? (
+          <div className="mt-8 border-t border-line pt-3 text-xs text-ink-soft">
+            {letterhead.footerLines.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -176,11 +213,6 @@ export function FormsAndLettersWorkspace({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="display text-3xl text-ink">Forms and letters</h1>
-          <p className="mt-2 max-w-2xl text-sm text-ink-soft">
-            Standard intake forms ship with every client — amend then send a
-            link. Formal UK letters use your practice letterhead. Activity
-            (sent, opened, submitted) is logged on each item.
-          </p>
         </div>
         <Link
           href="/settings/letterhead"
@@ -722,7 +754,7 @@ export function FormsAndLettersWorkspace({
                     }
                   />
                 </label>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-start gap-2">
                   <button
                     type="button"
                     className="btn btn-secondary"
@@ -748,9 +780,29 @@ export function FormsAndLettersWorkspace({
                   >
                     Save
                   </button>
+                  <EmailToClientButton
+                    clientId={clientId}
+                    defaultEmail={contactEmail}
+                    label="Email letter"
+                    className="btn btn-primary"
+                    subject={`${activeLetter.title} — ${letterhead.practiceName || "Your accountants"}`}
+                    message={`Please find attached our letter regarding ${activeLetter.title}.\n\nKind regards\n${letterhead.practiceName || ""}`}
+                    prepareArtifact={async () => {
+                      await saveClientLetter({
+                        clientId,
+                        letterId: activeLetter.id,
+                        title: activeLetter.title,
+                        body: activeLetter.body,
+                      });
+                      return {
+                        type: "client_letter" as const,
+                        letterId: activeLetter.id,
+                      };
+                    }}
+                  />
                   <button
                     type="button"
-                    className="btn btn-primary"
+                    className="btn btn-secondary"
                     disabled={pending}
                     onClick={() => {
                       start(async () => {
@@ -785,23 +837,12 @@ export function FormsAndLettersWorkspace({
                     type="button"
                     className="btn btn-secondary"
                     onClick={() => {
-                      // Finalised letter only (practice letterhead + body) — not the desk UI.
-                      const html = renderClientLetterHtml({
-                        letterhead,
-                        title: activeLetter.title,
-                        body: activeLetter.body,
-                        autoPrint: true,
-                      });
-                      const blob = new Blob([html], { type: "text/html" });
-                      const url = URL.createObjectURL(blob);
-                      const win = window.open(url, "_blank", "noopener,noreferrer");
-                      if (!win) {
-                        // Popup blocked — fall back to dedicated print route.
-                        window.location.assign(
-                          `/clients/${clientSlug}/forms/letters/${activeLetter.id}/print`,
-                        );
-                      }
-                      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                      // Same-origin print route so practice logo loads with session.
+                      window.open(
+                        `/clients/${clientSlug}/forms/letters/${activeLetter.id}/print`,
+                        "_blank",
+                        "noopener,noreferrer",
+                      );
                     }}
                   >
                     Print / PDF
@@ -838,6 +879,7 @@ export function FormsAndLettersWorkspace({
               </div>
               <LetterPreview
                 letterhead={letterhead}
+                title={activeLetter.title}
                 body={activeLetter.body}
               />
             </div>

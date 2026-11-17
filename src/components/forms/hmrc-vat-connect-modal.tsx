@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { saveVatHmrcConnectDetails } from "@/server/actions/vat";
@@ -183,12 +185,7 @@ export function HmrcVatConnectModal({
                 <label className="label" htmlFor="hmrc-vat-reg">
                   VAT registration date
                 </label>
-                <input
-                  id="hmrc-vat-reg"
-                  type="date"
-                  className="input mt-1.5"
-                  value={vatRegDate}
-                  onChange={(e) => setVatRegDate(e.target.value)}
+                <UkDateField id="hmrc-vat-reg" className="input mt-1.5" value={vatRegDate} onChange={(iso) => setVatRegDate(iso)}
                   required
                 />
                 <p className="mt-1.5 text-xs text-ink-soft">

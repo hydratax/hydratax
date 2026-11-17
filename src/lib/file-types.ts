@@ -238,3 +238,19 @@ export function attachmentDisposition(filename: string): string {
   );
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
+
+/** Inline disposition for safe image types (practice logos in letters/invoices). */
+export function inlineDisposition(filename: string): string {
+  const safe = sanitizeFilename(filename, "logo");
+  const ascii = safe.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  const encoded = encodeURIComponent(safe).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `inline; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
+/** Practice branding uploads live under practices/{id}/branding/ — safe to show in <img>. */
+export function isPracticeBrandingImageKey(key: string): boolean {
+  return /\/branding\//.test(key) && /\.(png|jpe?g|webp|gif)$/i.test(key);
+}

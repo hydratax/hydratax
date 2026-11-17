@@ -32,8 +32,12 @@ export async function GET(
 
   const letterhead = await getPracticeLetterhead();
   const appUrl = (
-    process.env.NEXT_PUBLIC_APP_URL || "https://hydratax.uk"
+    process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin
   ).replace(/\/$/, "");
+  // Absolute logo URL so <img> resolves on print / PDF.
+  if (letterhead.logoUrl?.startsWith("/")) {
+    letterhead.logoUrl = `${appUrl}${letterhead.logoUrl}`;
+  }
   const html = renderInvoiceHtml({
     letterhead,
     invoice: {

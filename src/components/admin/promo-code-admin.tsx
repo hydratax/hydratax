@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -225,11 +227,7 @@ export function PromoCodeAdmin({
           <label className="block text-sm font-semibold text-ink">
             Code expires{" "}
             <span className="font-normal text-ink-soft">(optional)</span>
-            <input
-              name="expiresAt"
-              type="date"
-              className="mt-1.5 w-full rounded-lg border border-line px-3 py-2.5 font-normal"
-            />
+            <UkDateField name="expiresAt" className="mt-1.5 w-full rounded-lg border border-line px-3 py-2.5 font-normal" />
           </label>
           <label className="block text-sm font-semibold text-ink sm:col-span-2">
             Internal note{" "}

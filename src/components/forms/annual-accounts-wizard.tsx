@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
@@ -675,12 +677,11 @@ export function AnnualAccountsWizard({
                   <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-soft">
                     Period start
                   </p>
-                  <input
-                    type="date"
+                  <UkDateField
                     className="input mt-2"
                     value={company.periodStart}
-                    onChange={(e) =>
-                      setCompany({ ...company, periodStart: e.target.value })
+                    onChange={(iso) =>
+                      setCompany({ ...company, periodStart: iso })
                     }
                   />
                 </div>
@@ -688,12 +689,8 @@ export function AnnualAccountsWizard({
                   <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-soft">
                     Period end
                   </p>
-                  <input
-                    type="date"
-                    className="input mt-2"
-                    value={company.periodEnd}
-                    onChange={(e) => {
-                      const end = e.target.value;
+                  <UkDateField className="input mt-2" value={company.periodEnd} onChange={(iso) => {
+                      const end = iso;
                       setCompany({
                         ...company,
                         periodEnd: end,

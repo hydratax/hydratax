@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -376,20 +378,12 @@ export function Ct600PeriodWorkspace({
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             <div>
               <label className="label">Start</label>
-              <input
-                type="date"
-                className="input"
-                value={customStart}
-                onChange={(e) => setCustomStart(e.target.value)}
+              <UkDateField className="input" value={customStart} onChange={(iso) => setCustomStart(iso)}
               />
             </div>
             <div>
               <label className="label">End</label>
-              <input
-                type="date"
-                className="input"
-                value={customEnd}
-                onChange={(e) => setCustomEnd(e.target.value)}
+              <UkDateField className="input" value={customEnd} onChange={(iso) => setCustomEnd(iso)}
               />
             </div>
           </div>
@@ -485,6 +479,8 @@ export function Ct600PeriodWorkspace({
                         periodStart: p.start,
                         periodEnd: p.end,
                         companyNumber: company.companyNumber,
+                        contactEmail,
+                        companyName: company.name,
                       }}
                     />
                   ) : (

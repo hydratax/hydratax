@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useMemo, useState, useTransition } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import type { ChServiceDetail } from "@/lib/ch-services";
@@ -289,20 +291,12 @@ export function PscChangeWizard({
               </div>
               <label className="label">
                 Date of birth
-                <input
-                  type="date"
-                  className="input mt-1.5"
-                  value={dateOfBirth}
-                  onChange={(e) => setDateOfBirth(e.target.value)}
+                <UkDateField className="input mt-1.5" value={dateOfBirth} onChange={(iso) => setDateOfBirth(iso)}
                 />
               </label>
               <label className="label">
                 Notification date
-                <input
-                  type="date"
-                  className="input mt-1.5"
-                  value={notificationDate}
-                  onChange={(e) => setNotificationDate(e.target.value)}
+                <UkDateField className="input mt-1.5" value={notificationDate} onChange={(iso) => setNotificationDate(iso)}
                 />
               </label>
               <label className="label">
@@ -340,11 +334,7 @@ export function PscChangeWizard({
           {mode === "change" && (
             <label className="label">
               Change date
-              <input
-                type="date"
-                className="input mt-1.5"
-                value={notificationDate}
-                onChange={(e) => setNotificationDate(e.target.value)}
+              <UkDateField className="input mt-1.5" value={notificationDate} onChange={(iso) => setNotificationDate(iso)}
               />
             </label>
           )}
@@ -352,11 +342,7 @@ export function PscChangeWizard({
           {mode === "cease" && (
             <label className="label">
               Cessation date
-              <input
-                type="date"
-                className="input mt-1.5"
-                value={cessationDate}
-                onChange={(e) => setCessationDate(e.target.value)}
+              <UkDateField className="input mt-1.5" value={cessationDate} onChange={(iso) => setCessationDate(iso)}
               />
             </label>
           )}

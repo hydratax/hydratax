@@ -5,7 +5,6 @@ import {
   emailClientArtifact,
   type ClientEmailArtifact,
 } from "@/server/actions/email-artifacts";
-import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 export function EmailToClientButton({
   clientId,
@@ -34,8 +33,6 @@ export function EmailToClientButton({
   const [open, setOpen] = useState(false);
   const [toEmail, setToEmail] = useState(defaultEmail ?? "");
   const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
 
   if (!open) {
     return (
@@ -44,8 +41,7 @@ export function EmailToClientButton({
         className={className}
         disabled={disabled}
         onClick={() => {
-          setError(null);
-          setOk(null);
+          setToEmail(defaultEmail ?? "");
           setOpen(true);
         }}
       >
@@ -73,36 +69,27 @@ export function EmailToClientButton({
           placeholder="client@example.com"
         />
       </label>
-      <FormErrorBanner error={error} />
-      {ok ? <p className="text-xs text-ok">{ok}</p> : null}
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
           className="btn btn-primary text-xs"
           disabled={pending || !toEmail.trim()}
           onClick={() => {
-            setError(null);
-            setOk(null);
             start(async () => {
               try {
                 const resolved =
                   (await prepareArtifact?.()) ?? artifact;
-                if (!resolved) {
-                  throw new Error("Nothing to email.");
-                }
-                const res = await emailClientArtifact({
+                if (!resolved) return;
+                await emailClientArtifact({
                   clientId,
                   toEmail: toEmail.trim(),
                   subject,
                   message,
                   artifact: resolved,
                 });
-                setOk(res.message);
-              } catch (err) {
-                const { messageFromUnknown } = await import(
-                  "@/lib/action-error"
-                );
-                setError(messageFromUnknown(err, "Send failed"));
+                setOpen(false);
+              } catch {
+                /* freeze — never show desk errors */
               }
             });
           }}

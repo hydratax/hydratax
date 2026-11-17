@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import {
@@ -85,11 +87,7 @@ export function TimeFeesWorkspace({
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <label className="block space-y-1">
             <span className="label">Date</span>
-            <input
-              className="input"
-              type="date"
-              value={workDate}
-              onChange={(e) => setWorkDate(e.target.value)}
+            <UkDateField className="input" value={workDate} onChange={(iso) => setWorkDate(iso)}
             />
           </label>
           <label className="block space-y-1">

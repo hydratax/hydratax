@@ -19,9 +19,11 @@ import { listPracticeDirectors } from "@/server/actions/sa-directors";
 import { SaOverviewDirectorsCard } from "@/components/forms/sa-overview-directors-card";
 import { ClientWorkStagePanel } from "@/components/forms/client-work-stage-panel";
 import { ClientWorkingLogs } from "@/components/client-working-logs";
+import { ClientEmailsSent } from "@/components/client-emails-sent";
 import { listClientEmailLogs } from "@/server/actions/client-communications";
 import { normalizeWorkStage } from "@/lib/client-work-stage";
-import { addressPartsDisplay } from "@/lib/address-parts";
+import { addressPartsDisplay, parseAddressParts } from "@/lib/address-parts";
+import { AgentAuthorisationPanel } from "@/components/forms/agent-authorisation-panel";
 
 function urgencyText(u: FilingUrgency) {
   if (u === "overdue") return "text-danger font-semibold";
@@ -147,6 +149,23 @@ export default async function ClientOverviewPage({
   return (
     <div>
       <div className="space-y-6">
+        {session.moduleAccess === "full" && session.role !== "readonly" ? (
+          <AgentAuthorisationPanel
+            clientId={clientId}
+            initial={client.deskProfile?.agentAuthorisations ?? {}}
+            nino={client.nino}
+            vrn={client.vrn}
+            postcode={parseAddressParts(
+              "address" in client
+                ? ((client as { address?: string | null }).address ?? null)
+                : null,
+            ).postcode}
+            payeRef={client.payeRef}
+            utr={client.utr}
+            isLtd={isLtd}
+          />
+        ) : null}
+
         {/* Top: Identifiers + people */}
         <div
           className={
@@ -399,6 +418,8 @@ export default async function ClientOverviewPage({
                       periodStart: filedReturn.periodStart,
                       periodEnd: filedReturn.periodEnd,
                       companyNumber: client.companyNumber,
+                      contactEmail: client.contactEmail,
+                      companyName: client.name,
                     }}
                   />
                 ) : client.companyNumber ? (
@@ -435,6 +456,7 @@ export default async function ClientOverviewPage({
         />
 
         <ClientWorkingLogs
+          desk="all"
           workLog={workLog}
           emails={emailLogs.map((l) => ({
             id: l.id,
@@ -444,6 +466,17 @@ export default async function ClientOverviewPage({
             kind: l.kind,
           }))}
           stage={workStage}
+        />
+
+        <ClientEmailsSent
+          emails={emailLogs.map((l) => ({
+            id: l.id,
+            subject: l.subject,
+            toEmail: l.toEmail,
+            createdAt: l.createdAt,
+            kind: l.kind,
+            messagePreview: l.messagePreview,
+          }))}
         />
 
       </div>

@@ -61,13 +61,6 @@ export default async function ClientInvoicesPage({
         >
           Practice branding
         </a>
-        {" · "}
-        <a
-          href="/settings/payments"
-          className="font-semibold text-sea hover:underline"
-        >
-          Payment gateways
-        </a>
       </p>
       <InvoiceWorkspace
         clientId={clientId}

@@ -15,6 +15,9 @@ export const CLIENT_WORK_STAGES = [
 
 export type ClientWorkStage = (typeof CLIENT_WORK_STAGES)[number];
 
+/** Which desk page should show this log line. */
+export type ClientWorkDesk = "overview" | "sa" | "ct" | "vat" | "paye";
+
 export type ClientWorkLogEntry = {
   id: string;
   at: string;
@@ -22,7 +25,65 @@ export type ClientWorkLogEntry = {
   label: string;
   detail?: string;
   actorId?: string;
+  /** Desk area — SA emails on SA page, CT on CT, etc. */
+  desk?: ClientWorkDesk;
 };
+
+/** Map an outbound email `kind` onto the desk page that owns it. */
+export function deskFromEmailKind(kind: string | null | undefined): ClientWorkDesk {
+  const k = String(kind ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+  if (
+    k.includes("bulk_sa") ||
+    k.startsWith("sa") ||
+    k.includes("sa100") ||
+    k.includes("sa302") ||
+    k.includes("self_assessment")
+  ) {
+    return "sa";
+  }
+  if (
+    k.includes("bulk_vat") ||
+    k.startsWith("vat") ||
+    k.includes("vat_")
+  ) {
+    return "vat";
+  }
+  if (
+    k.includes("payroll") ||
+    k.includes("paye") ||
+    k.includes("payslip") ||
+    k.includes("fps") ||
+    k.includes("eps")
+  ) {
+    return "paye";
+  }
+  if (
+    k.includes("bulk_accounts") ||
+    k.startsWith("ct") ||
+    k.includes("accounts") ||
+    k.includes("year_end") ||
+    k.includes("computation") ||
+    k.includes("ct600")
+  ) {
+    return "ct";
+  }
+  return "overview";
+}
+
+export function workLogMatchesDesk(
+  entry: Pick<ClientWorkLogEntry, "desk" | "kind" | "label">,
+  desk: ClientWorkDesk | "all",
+): boolean {
+  if (desk === "all") return true;
+  if (entry.desk) return entry.desk === desk;
+  // Legacy rows without desk: keep stage/notes on overview; infer email from label.
+  if (entry.kind === "email") {
+    return deskFromEmailKind(entry.label) === desk;
+  }
+  return desk === "overview";
+}
 
 export const WORK_STAGE_LABEL: Record<ClientWorkStage, string> = {
   not_started: "Not started",

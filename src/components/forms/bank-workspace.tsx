@@ -17,10 +17,15 @@ import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { messageFromUnknown } from "@/lib/action-error";
 import { BankCategorisedView } from "@/components/forms/bank-categorised-view";
 import { BankYearEndDesk } from "@/components/forms/bank-year-end-desk";
+import { CtMissingBankChase } from "@/components/forms/ct-missing-bank-chase";
 import { recategoriseBankTransactions } from "@/server/actions/bank-recategorise";
 import { downloadBankCsv, downloadBankXlsx } from "@/lib/bank-export";
 import { extractStatementInBrowser } from "@/lib/bank/extract-statement-browser";
 import type { BankLedger, LivePlSummary } from "@/lib/bank-ledger";
+import {
+  formatMissingMonthsSummary,
+  missingBankMonthsByTaxYear,
+} from "@/lib/bank/missing-statement-months";
 
 type Tx = {
   id: string;
@@ -56,12 +61,14 @@ export function BankWorkspace({
   customCategories,
   statements,
   yearEndDesk,
+  clientEmail,
 }: {
   clientId: string;
   clientSlug: string;
   transactions: Tx[];
   customCategories: Array<{ id: string; label: string }>;
   statements: StatementDoc[];
+  clientEmail?: string | null;
   draft: {
     selfAssessment: {
       turnoverPence: number;
@@ -172,10 +179,20 @@ export function BankWorkspace({
         }
         setPreview(converted.lines);
         setPreviewSource(convertSource);
+        const coverageDates = [
+          ...transactions.map((t) => t.dated),
+          ...converted.lines.map((l) => l.dated),
+        ];
+        const missingSummary = formatMissingMonthsSummary(
+          missingBankMonthsByTaxYear(coverageDates),
+        );
+        const baseMsg = extracted.warning
+          ? `${converted.message} ${extracted.warning}`
+          : converted.message;
         setMsg(
-          extracted.warning
-            ? `${converted.message} ${extracted.warning}`
-            : converted.message,
+          missingSummary
+            ? `${baseMsg} Missing bank statements — ${missingSummary}`
+            : baseMsg,
         );
         // Preview mounts after this transition tick — scroll once it's in the DOM.
         setTimeout(() => {
@@ -484,19 +501,30 @@ export function BankWorkspace({
       ) : null}
 
       {yearEndDesk ? (
-        <BankYearEndDesk
-          clientId={clientId}
-          clientSlug={clientSlug}
-          initialLedger={yearEndDesk.ledger}
-          initialPl={yearEndDesk.pl}
-          periodStart={yearEndDesk.periodStart}
-          periodEnd={yearEndDesk.periodEnd}
-          transactions={transactions.map((t) => ({
-            category: t.category,
-            amountPence: t.amountPence,
-            dated: t.dated,
-          }))}
-        />
+        <>
+          <CtMissingBankChase
+            clientId={clientId}
+            periodStart={yearEndDesk.periodStart}
+            periodEnd={yearEndDesk.periodEnd}
+            datedIsos={transactions.map((t) => t.dated)}
+            clientEmail={clientEmail}
+          />
+          <BankYearEndDesk
+            clientId={clientId}
+            clientSlug={clientSlug}
+            initialLedger={yearEndDesk.ledger}
+            initialPl={yearEndDesk.pl}
+            periodStart={yearEndDesk.periodStart}
+            periodEnd={yearEndDesk.periodEnd}
+            transactions={transactions.map((t) => ({
+              id: t.id,
+              description: t.description,
+              category: t.category,
+              amountPence: t.amountPence,
+              dated: t.dated,
+            }))}
+          />
+        </>
       ) : null}
 
       <div className="panel p-5">

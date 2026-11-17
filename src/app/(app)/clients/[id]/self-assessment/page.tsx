@@ -22,6 +22,7 @@ import { SaPersonalBooks } from "@/components/forms/sa-personal-books";
 import { SaDirectorIncomeDesk } from "@/components/forms/sa-director-income-desk";
 import { SaPersonProfile } from "@/components/forms/sa-person-profile";
 import { SaTaxYearWorkspace } from "@/components/forms/sa-tax-year-workspace";
+import { ClientDeskWorklogs } from "@/components/client-desk-worklogs";
 import { money } from "@/lib/format";
 import {
   normalizePersonName,
@@ -302,6 +303,8 @@ export default async function SelfAssessmentPage({
             filedDocs={saFiledDocs}
             clientId={saClientId}
             taxpayerId={selected.id}
+            clientName={selected.fullName}
+            contactEmail={selected.email || client.contactEmail || null}
             identifiersReady={saIdentifiersComplete(selected)}
             identifiersMissing={saIdentifiersMissing(selected)}
           >
@@ -342,6 +345,21 @@ export default async function SelfAssessmentPage({
                 taxpayerId={selected.id}
                 taxpayerName={selected.fullName}
                 occupation={selected.occupation ?? ""}
+                clientEmail={selected.email || null}
+                hasRental={(selected.otherIncomes ?? []).some(
+                  (o) => o.kind === "rental",
+                )}
+                hasEmployment={(selected.companyIncomes ?? []).some(
+                  (c) => c.payePay > 0 || c.payeTax > 0,
+                )}
+                hasSelfEmployment={
+                  Boolean(selected.tradingAs?.trim()) ||
+                  (selected.otherIncomes ?? []).some(
+                    (o) =>
+                      o.kind === "self_employment" || o.kind === "taxi",
+                  ) ||
+                  !(selected.otherIncomes ?? []).some((o) => o.kind === "rental")
+                }
                 documents={documents.map((d) => ({
                   id: d.id,
                   filename: d.filename,
@@ -407,6 +425,10 @@ export default async function SelfAssessmentPage({
           ) : null}
         </>
       )}
+      <ClientDeskWorklogs
+        clientId={selected ? saClientId : clientId}
+        desk="sa"
+      />
     </div>
   );
 }

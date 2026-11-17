@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useState, useTransition } from "react";
 import {
   emptySa800Draft,
@@ -97,20 +99,12 @@ export function Sa800Wizard({
           </label>
           <label className="block space-y-1">
             <span className="label">Accounts from</span>
-            <input
-              className="input"
-              type="date"
-              value={draft.booksFrom}
-              onChange={(e) => patch("booksFrom", e.target.value)}
+            <UkDateField className="input" value={draft.booksFrom} onChange={(iso) => patch("booksFrom", iso)}
             />
           </label>
           <label className="block space-y-1">
             <span className="label">Accounts to</span>
-            <input
-              className="input"
-              type="date"
-              value={draft.booksTo}
-              onChange={(e) => patch("booksTo", e.target.value)}
+            <UkDateField className="input" value={draft.booksTo} onChange={(iso) => patch("booksTo", iso)}
             />
           </label>
           <label className="flex items-center gap-2 text-sm sm:col-span-2">
@@ -258,11 +252,7 @@ export function Sa800Wizard({
           </label>
           <label className="block space-y-1">
             <span className="label">Declaration date</span>
-            <input
-              className="input"
-              type="date"
-              value={draft.declarationDate}
-              onChange={(e) => patch("declarationDate", e.target.value)}
+            <UkDateField className="input" value={draft.declarationDate} onChange={(iso) => patch("declarationDate", iso)}
             />
           </label>
         </div>

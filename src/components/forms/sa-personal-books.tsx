@@ -20,7 +20,12 @@ import { messageFromUnknown } from "@/lib/action-error";
 import { extractStatementInBrowser } from "@/lib/bank/extract-statement-browser";
 import { downloadBankCsv, downloadBankXlsx } from "@/lib/bank-export";
 import { BankCategorisedView } from "@/components/forms/bank-categorised-view";
+import { SaBankTaxYearHeads } from "@/components/forms/sa-bank-tax-year-heads";
 import { occupationFamilyLabel } from "@/lib/occupation-hints";
+import {
+  formatMissingMonthsSummary,
+  missingBankMonthsByTaxYear,
+} from "@/lib/bank/missing-statement-months";
 
 type DocRow = {
   id: string;
@@ -47,6 +52,10 @@ export function SaPersonalBooks({
   documents,
   transactions = [],
   customCategories = [],
+  hasRental = false,
+  hasEmployment = false,
+  hasSelfEmployment = true,
+  clientEmail,
 }: {
   clientId: string;
   taxpayerId: string;
@@ -55,6 +64,10 @@ export function SaPersonalBooks({
   documents: DocRow[];
   transactions?: Tx[];
   customCategories?: Array<{ id: string; label: string }>;
+  hasRental?: boolean;
+  hasEmployment?: boolean;
+  hasSelfEmployment?: boolean;
+  clientEmail?: string | null;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -69,6 +82,7 @@ export function SaPersonalBooks({
   );
   const [showStatementPicker, setShowStatementPicker] = useState(false);
   const [convertMsg, setConvertMsg] = useState<string | null>(null);
+  const [missingStmtMsg, setMissingStmtMsg] = useState<string | null>(null);
   const [convertErr, setConvertErr] = useState<string | null>(null);
   const [preview, setPreview] = useState<ConvertedBankLine[] | null>(null);
   const [previewLabel, setPreviewLabel] = useState<string | null>(null);
@@ -140,6 +154,7 @@ export function SaPersonalBooks({
   function runConvert() {
     setConvertErr(null);
     setConvertMsg(null);
+    setMissingStmtMsg(null);
     setPreview(null);
     if (!selectedStatements.length) {
       setConvertErr(
@@ -223,6 +238,16 @@ export function SaPersonalBooks({
           names.push(file.name);
           lastSource = convertSource;
           if (extracted.warning) warnings.push(extracted.warning);
+          if (
+            converted.ok &&
+            converted.reconcileStatus === "not_reconciled"
+          ) {
+            warnings.push(
+              `${file.name}: ${converted.message.replace(/^Converted[^.]*\.\s*/, "")}`,
+            );
+          } else if (converted.ok && converted.reconcileStatus === "reconciled") {
+            warnings.push(`${file.name}: Reconciled ✓`);
+          }
         }
 
         if (!allLines.length) {
@@ -253,6 +278,18 @@ export function SaPersonalBooks({
         );
         setConvertMsg(
           `Converted ${merged.length} transaction${merged.length === 1 ? "" : "s"} from ${names.length} file${names.length === 1 ? "" : "s"}${tradeLabel ? ` · allocated for ${tradeLabel}` : ""}.${warnings.length ? ` ${warnings.join(" ")}` : ""}`,
+        );
+        const coverageDates = [
+          ...transactions.map((t) => t.dated),
+          ...merged.map((l) => l.dated),
+        ];
+        const missingSummary = formatMissingMonthsSummary(
+          missingBankMonthsByTaxYear(coverageDates),
+        );
+        setMissingStmtMsg(
+          missingSummary
+            ? `Missing bank statements — ${missingSummary}`
+            : null,
         );
         setTimeout(() => {
           document
@@ -464,6 +501,9 @@ export function SaPersonalBooks({
             {convertMsg ? (
               <p className="text-sm text-ok">{convertMsg}</p>
             ) : null}
+            {missingStmtMsg ? (
+              <p className="mt-1 text-sm text-amber-800">{missingStmtMsg}</p>
+            ) : null}
           </div>
         ) : null}
 
@@ -618,12 +658,42 @@ export function SaPersonalBooks({
       ) : null}
 
       {transactions.length > 0 ? (
-        <div id="sa-categorised-transactions">
-          <BankCategorisedView
+        <div className="space-y-6">
+          <SaBankTaxYearHeads
             clientId={clientId}
+            taxpayerId={taxpayerId}
             transactions={transactions}
-            customCategories={customCategories}
+            clientEmail={clientEmail}
+            formSignals={{
+              occupation,
+              hasRental,
+              hasEmployment,
+              hasSelfEmployment,
+            }}
           />
+          <details className="group rounded-xl border border-line bg-white">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-semibold text-ink marker:content-none [&::-webkit-details-marker]:hidden">
+              <span>
+                Reassign bank categories
+                <span className="ml-2 text-sm font-normal text-ink-soft">
+                  (move lines before allocating to SA forms)
+                </span>
+              </span>
+              <span
+                className="shrink-0 text-ink-soft transition group-open:rotate-180"
+                aria-hidden
+              >
+                ▾
+              </span>
+            </summary>
+            <div id="sa-categorised-transactions" className="border-t border-line p-3">
+              <BankCategorisedView
+                clientId={clientId}
+                transactions={transactions}
+                customCategories={customCategories}
+              />
+            </div>
+          </details>
         </div>
       ) : null}
     </section>

@@ -1,12 +1,15 @@
 import { getClient } from "@/server/actions/clients";
 import {
-  lockPdfWithDobPassword,
+  lockPdfWithPassword,
   pickDirectorDob,
   type LockedPdf,
 } from "@/server/pdf/dob-lock";
+import type { DocumentPasswordSection } from "@/lib/document-password-policy";
+import { resolveDocumentPassword } from "@/lib/document-password-policy";
+import { getDocumentPasswordPolicy } from "@/server/actions/document-password-policy";
 
 /**
- * Resolve the signing director DOB used as the PDF pack password.
+ * Resolve the signing director DOB used as a fallback / SA password source.
  * Prefers SA taxpayers marked director, then any taxpayer DOB on file.
  */
 export async function resolveDirectorDobForClient(
@@ -14,8 +17,11 @@ export async function resolveDirectorDobForClient(
 ): Promise<string | null> {
   const client = await getClient(clientId);
   const taxpayers =
-    (client.deskProfile as { saTaxpayers?: Array<{ role?: string; dateOfBirth?: string }> } | null)
-      ?.saTaxpayers ?? [];
+    (
+      client.deskProfile as {
+        saTaxpayers?: Array<{ role?: string; dateOfBirth?: string }>;
+      } | null
+    )?.saTaxpayers ?? [];
   const directors = taxpayers.filter((t) =>
     String(t.role ?? "").toLowerCase().includes("director"),
   );
@@ -25,26 +31,67 @@ export async function resolveDirectorDobForClient(
   ]);
 }
 
-/** Lock a generated PDF when a director DOB is on file; otherwise return raw PDF. */
+async function buildPasswordContext(
+  clientId: string,
+  dateOfBirth?: string | null,
+  personalUtr?: string | null,
+) {
+  const client = await getClient(clientId);
+  const directorDob =
+    pickDirectorDob([dateOfBirth]) ??
+    (await resolveDirectorDobForClient(clientId));
+
+  const isLtd = client.type === "limited_company";
+  return {
+    companyUtr: isLtd ? client.utr : null,
+    personalUtr:
+      personalUtr?.trim() ||
+      (!isLtd ? client.utr : null) ||
+      null,
+    nino: client.nino,
+    companyNumber: client.companyNumber,
+    dateOfBirth: directorDob,
+  };
+}
+
+/** Lock a generated PDF using the practice password-protection policy. */
 export async function protectClientPdf(input: {
   clientId: string;
   pdfBytes: Uint8Array | Buffer;
   pdfFilename: string;
+  /** Which desk section — drives which identifier the practice chose. */
+  section?: DocumentPasswordSection;
   /** Prefer this DOB (e.g. SA100 taxpayer) before looking up directors */
   dateOfBirth?: string | null;
-  /** Force lock — throws if DOB missing */
+  /** Prefer this personal UTR when policy uses personal_utr */
+  personalUtr?: string | null;
+  /** Force lock — throws if identifier value missing */
   requireLock?: boolean;
 }): Promise<
   | { locked: true; pack: LockedPdf }
-  | { locked: false; bytes: Buffer; filename: string; contentType: "application/pdf" }
+  | {
+      locked: false;
+      bytes: Buffer;
+      filename: string;
+      contentType: "application/pdf";
+    }
 > {
-  const dob =
-    pickDirectorDob([input.dateOfBirth]) ??
-    (await resolveDirectorDobForClient(input.clientId));
-  if (!dob) {
-    if (input.requireLock) {
-      throw new Error(
-        "Add the signing director’s date of birth on the Self Assessment person card to lock this PDF.",
+  const section = input.section ?? "sa";
+  const policy = await getDocumentPasswordPolicy();
+  const identifier = policy[section];
+  const ctx = await buildPasswordContext(
+    input.clientId,
+    input.dateOfBirth,
+    input.personalUtr,
+  );
+  const resolved = resolveDocumentPassword(identifier, ctx);
+
+  if (!resolved.locked) {
+    if (input.requireLock && identifier !== "none") {
+      // Desk UI never surfaces this — send unlocked and log for the builder.
+      console.error(
+        "[pdf] password lock skipped; identifier missing for section",
+        { clientId: input.clientId, section, identifier },
       );
     }
     return {
@@ -54,10 +101,12 @@ export async function protectClientPdf(input: {
       contentType: "application/pdf",
     };
   }
-  const pack = lockPdfWithDobPassword({
+
+  const pack = await lockPdfWithPassword({
     pdfBytes: input.pdfBytes,
     pdfFilename: input.pdfFilename,
-    dateOfBirth: dob,
+    password: resolved.password,
+    passwordHint: `Password: ${resolved.hint}`,
   });
   return { locked: true, pack };
 }

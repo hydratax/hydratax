@@ -11,6 +11,7 @@ import {
   creditorClosingPence,
   debtorClosingPence,
   loanClosingPence,
+  mortgageInterestDueFromRatePence,
   mortgageInterestPaidPence,
   type BankLedger,
   type CreditorAccount,
@@ -28,7 +29,6 @@ import { enrichAccountsDraftFromLedger } from "@/server/accounts/enrich-accounts
 import { summariseForYearEndAccounts } from "@/server/accounts/year-end-from-bank";
 import type { CategorisedLine } from "@/server/bank/categorise";
 import { companiesHouseAccountsPeriod } from "@/lib/accounting-periods";
-import { addressIdentityComplete } from "@/lib/address-parts";
 import { parseComparatives } from "@/lib/accounting-periods";
 
 function mergeProfile(
@@ -141,6 +141,8 @@ const loanSchema = z.object({
   repaymentCategory: z.string().nullable().optional(),
   advanceCategory: z.string().nullable().optional(),
   notes: z.string().max(500).optional(),
+  /** accubee — second entry (e.g. Dr Bank / Cr Loan). */
+  secondEntry: z.string().max(300).optional(),
 });
 
 export async function upsertBankLoan(input: z.infer<typeof loanSchema>) {
@@ -155,7 +157,9 @@ export async function upsertBankLoan(input: z.infer<typeof loanSchema>) {
     broughtForwardPence: data.broughtForwardPence,
     repaymentCategory: data.repaymentCategory ?? null,
     advanceCategory: data.advanceCategory ?? null,
-    notes: data.notes,
+    notes: [data.notes, data.secondEntry?.trim() ? `2nd entry: ${data.secondEntry.trim()}` : ""]
+      .filter(Boolean)
+      .join(" · ") || undefined,
     createdAt:
       ledger.loans.find((l) => l.id === data.id)?.createdAt ?? now,
   };
@@ -186,6 +190,8 @@ const assetSchema = z.object({
   ratePercent: z.number().min(0).max(100),
   residualPence: z.number().int().nonnegative().optional(),
   notes: z.string().max(500).optional(),
+  /** accubee — second entry (e.g. Cr Bank / Cr Creditor). */
+  secondEntry: z.string().max(300).optional(),
 });
 
 export async function upsertBankAsset(input: z.infer<typeof assetSchema>) {
@@ -203,7 +209,9 @@ export async function upsertBankAsset(input: z.infer<typeof assetSchema>) {
     method: data.method,
     ratePercent: data.ratePercent,
     residualPence: data.residualPence,
-    notes: data.notes,
+    notes: [data.notes, data.secondEntry?.trim() ? `2nd entry: ${data.secondEntry.trim()}` : ""]
+      .filter(Boolean)
+      .join(" · ") || undefined,
     createdAt:
       ledger.assets.find((a) => a.id === data.id)?.createdAt ?? now,
   };
@@ -226,14 +234,8 @@ const propertySchema = z.object({
   clientId: z.string().min(1),
   id: z.string().optional(),
   name: z.string().trim().min(1).max(120),
-  address: z
-    .string()
-    .max(500)
-    .optional()
-    .or(z.literal(""))
-    .refine((v) => !v?.trim() || addressIdentityComplete(v), {
-      message: "Street address and postcode are required",
-    }),
+  /** Optional — street/postcode not compulsory on properties desk. */
+  address: z.string().max(500).optional().or(z.literal("")),
   acquiredOn: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -241,12 +243,15 @@ const propertySchema = z.object({
     .or(z.literal("")),
   costPence: z.number().int().nonnegative(),
   notes: z.string().max(500).optional(),
+  /** accubee — second entry note (e.g. Cr Bank / Cr Creditor). */
+  secondEntry: z.string().max(300).optional(),
   mortgages: z
     .array(
       z.object({
         id: z.string().optional(),
         lender: z.string().trim().min(1).max(120),
         broughtForwardPence: z.number().int(),
+        interestRatePercent: z.number().min(0).max(100).nullable().optional(),
         interestDuePence: z.number().int().nonnegative(),
         interestPaidPence: z.number().int().nonnegative().nullable(),
         interestPaidCategory: z.string().nullable().optional(),
@@ -270,15 +275,18 @@ export async function upsertBankProperty(
   const row: PropertyAsset = {
     id: data.id ?? crypto.randomUUID(),
     name: data.name,
-    address: data.address,
+    address: data.address?.trim() || undefined,
     acquiredOn: data.acquiredOn || undefined,
     costPence: data.costPence,
-    notes: data.notes,
+    notes: [data.notes, data.secondEntry?.trim() ? `2nd entry: ${data.secondEntry.trim()}` : ""]
+      .filter(Boolean)
+      .join(" · ") || undefined,
     createdAt: existing?.createdAt ?? now,
     mortgages: data.mortgages.map((m) => ({
       id: m.id ?? crypto.randomUUID(),
       lender: m.lender,
       broughtForwardPence: m.broughtForwardPence,
+      interestRatePercent: m.interestRatePercent ?? null,
       interestDuePence: m.interestDuePence,
       interestPaidPence: m.interestPaidPence,
       interestPaidCategory: m.interestPaidCategory ?? "finance",
@@ -319,6 +327,7 @@ const debtorSchema = z.object({
   bankCategory: z.string().nullable().optional(),
   closingOverridePence: z.number().int().nonnegative().nullable().optional(),
   notes: z.string().max(500).optional(),
+  secondEntry: z.string().max(300).optional(),
 });
 
 export async function upsertBankDebtor(input: z.infer<typeof debtorSchema>) {
@@ -335,7 +344,9 @@ export async function upsertBankDebtor(input: z.infer<typeof debtorSchema>) {
     receiptsPence: data.receiptsPence ?? null,
     bankCategory: data.bankCategory ?? null,
     closingOverridePence: data.closingOverridePence ?? null,
-    notes: data.notes,
+    notes: [data.notes, data.secondEntry?.trim() ? `2nd entry: ${data.secondEntry.trim()}` : ""]
+      .filter(Boolean)
+      .join(" · ") || undefined,
     createdAt:
       ledger.debtors.find((d) => d.id === data.id)?.createdAt ?? now,
   };
@@ -375,6 +386,7 @@ const creditorSchema = z.object({
   bankCategory: z.string().nullable().optional(),
   closingOverridePence: z.number().int().nonnegative().nullable().optional(),
   notes: z.string().max(500).optional(),
+  secondEntry: z.string().max(300).optional(),
 });
 
 export async function upsertBankCreditor(
@@ -393,7 +405,9 @@ export async function upsertBankCreditor(
     paymentsPence: data.paymentsPence ?? null,
     bankCategory: data.bankCategory ?? null,
     closingOverridePence: data.closingOverridePence ?? null,
-    notes: data.notes,
+    notes: [data.notes, data.secondEntry?.trim() ? `2nd entry: ${data.secondEntry.trim()}` : ""]
+      .filter(Boolean)
+      .join(" · ") || undefined,
     createdAt:
       ledger.creditors.find((c) => c.id === data.id)?.createdAt ?? now,
   };
@@ -496,14 +510,19 @@ export async function bringForwardBankLedger(clientId: string) {
       name: p.name,
       costPence: p.costPence,
       createdAt: now,
-      mortgages: p.mortgages.map((m) => ({
-        id: crypto.randomUUID(),
-        lender: m.lender,
-        broughtForwardPence: m.closingPence,
-        interestDuePence: 0,
-        interestPaidPence: null,
-        interestPaidCategory: "finance",
-      })),
+      mortgages: p.mortgages.map((m) => {
+        const rate = m.interestRatePercent ?? null;
+        const bf = m.closingPence;
+        return {
+          id: crypto.randomUUID(),
+          lender: m.lender,
+          broughtForwardPence: bf,
+          interestRatePercent: rate,
+          interestDuePence: mortgageInterestDueFromRatePence(bf, rate),
+          interestPaidPence: null,
+          interestPaidCategory: "finance",
+        };
+      }),
     })),
     debtors: (prior.debtors ?? []).map((d) => ({
       id: crypto.randomUUID(),
@@ -577,6 +596,7 @@ export async function snapshotBankLedgerClosing(clientId: string) {
           id: m.id,
           lender: m.lender,
           closingPence: m.broughtForwardPence - capital,
+          interestRatePercent: m.interestRatePercent ?? null,
         };
       }),
     })),

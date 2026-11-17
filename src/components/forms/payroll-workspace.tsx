@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -274,29 +276,17 @@ export function PayrollWorkspace({
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="text-sm font-semibold">
               Period start
-              <input
-                type="date"
-                className="input mt-1.5"
-                value={periodStart}
-                onChange={(e) => setPeriodStart(e.target.value)}
+              <UkDateField className="input mt-1.5" value={periodStart} onChange={(iso) => setPeriodStart(iso)}
               />
             </label>
             <label className="text-sm font-semibold">
               Period end
-              <input
-                type="date"
-                className="input mt-1.5"
-                value={periodEnd}
-                onChange={(e) => setPeriodEnd(e.target.value)}
+              <UkDateField className="input mt-1.5" value={periodEnd} onChange={(iso) => setPeriodEnd(iso)}
               />
             </label>
             <label className="text-sm font-semibold">
               Payday (FPS due on or before)
-              <input
-                type="date"
-                className="input mt-1.5"
-                value={payDate}
-                onChange={(e) => setPayDate(e.target.value)}
+              <UkDateField className="input mt-1.5" value={payDate} onChange={(iso) => setPayDate(iso)}
               />
             </label>
           </div>
@@ -901,7 +891,7 @@ function EmployeesPanel({
           </label>
           <label className="text-sm font-semibold">
             Date of birth
-            <input name="dateOfBirth" type="date" className="input mt-1.5" />
+            <UkDateField name="dateOfBirth" className="input mt-1.5" />
             <span className="mt-1 block text-[11px] font-normal text-ink-soft">
               Required to link this employee to Self Assessment.
             </span>
@@ -937,7 +927,7 @@ function EmployeesPanel({
           </label>
           <label className="text-sm font-semibold">
             Start date
-            <input name="startDate" type="date" className="input mt-1.5" required />
+            <UkDateField name="startDate" className="input mt-1.5" required />
           </label>
           <label className="text-sm font-semibold">
             Payroll ID (leave blank to auto-issue)

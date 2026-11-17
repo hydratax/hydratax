@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addLedgerEntry } from "@/server/actions/ledger";
@@ -45,7 +47,7 @@ export function LedgerForm({ clientId }: { clientId: string }) {
       </div>
       <div>
         <label className="label">Date</label>
-        <input name="dated" type="date" className="input" required />
+        <UkDateField name="dated" className="input" required />
       </div>
       <div className="sm:col-span-2">
         <label className="label">Description</label>

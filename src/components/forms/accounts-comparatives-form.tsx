@@ -26,12 +26,12 @@ const FIELDS: Array<{
   {
     key: "cashAtBankPence",
     label: "Cash at bank (brought forward)",
-    hint: "Taken as opening cash and the prior-year balance sheet figure",
+    hint: "Opening cash / prior-year BS",
   },
   {
     key: "profitAndLossReservePence",
     label: "Profit and loss reserve (brought forward)",
-    hint: "Taken from last year’s accounts if you have them",
+    hint: "From last year’s accounts / CT600",
   },
   { key: "shareCapitalPence", label: "Share capital" },
   { key: "fixedAssetsPence", label: "Fixed assets" },
@@ -49,10 +49,13 @@ export function AccountsComparativesForm({
   clientId,
   initial,
   priorYearLabel,
+  sourceNote,
 }: {
   clientId: string;
   initial: PriorYearComparatives | null;
   priorYearLabel: string;
+  /** e.g. Loaded from prior CT600 */
+  sourceNote?: string | null;
 }) {
   const [pending, start] = useTransition();
   const [values, setValues] = useState<PriorYearComparatives>(
@@ -82,41 +85,62 @@ export function AccountsComparativesForm({
       }}
     >
       <div>
-        <h2 className="display text-2xl text-ink">Prior year ({priorYearLabel})</h2>
+        <h2 className="display text-2xl text-ink">
+          Prior year ({priorYearLabel})
+        </h2>
         <p className="mt-1 text-sm text-ink-soft">
           Cash and the profit and loss reserve are used as brought-forward
-          figures on this year’s balance sheet. Enter other comparatives from
-          the last filed accounts so they appear in the prior-year column.
+          figures on this year’s balance sheet. Accubee prefers last year’s
+          CT600 / filed accounts when already prepared.
         </p>
+        {sourceNote ? (
+          <p className="mt-1 text-sm text-ok">{sourceNote}</p>
+        ) : null}
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {FIELDS.map((f) => (
-          <div key={f.key}>
-            <label className="label" htmlFor={`py-${f.key}`}>
-              {f.label}
-            </label>
-            <input
-              id={`py-${f.key}`}
-              className="input"
-              inputMode="decimal"
-              placeholder="0.00"
-              value={penceToPounds(values[f.key])}
-              onChange={(e) =>
-                setValues((prev) => ({
-                  ...prev,
-                  [f.key]: poundsToPence(e.target.value),
-                }))
-              }
-            />
-            {f.hint ? (
-              <p className="mt-1 text-xs text-ink-soft">{f.hint}</p>
-            ) : null}
-          </div>
-        ))}
+
+      <div className="overflow-x-auto rounded-xl border border-line">
+        <table className="w-full min-w-[28rem] border-collapse text-sm">
+          <thead className="bg-sand/50 text-left text-xs uppercase text-ink-soft">
+            <tr>
+              <th className="px-3 py-2 font-semibold">Line</th>
+              <th className="px-3 py-2 font-semibold text-right">Amount £</th>
+            </tr>
+          </thead>
+          <tbody>
+            {FIELDS.map((f) => (
+              <tr key={f.key} className="border-t border-line">
+                <td className="px-3 py-2">
+                  <label htmlFor={`py-${f.key}`} className="font-medium text-ink">
+                    {f.label}
+                  </label>
+                  {f.hint ? (
+                    <p className="text-xs text-ink-soft">{f.hint}</p>
+                  ) : null}
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <input
+                    id={`py-${f.key}`}
+                    className="input figures ml-auto w-36 text-right"
+                    inputMode="decimal"
+                    value={penceToPounds(values[f.key])}
+                    onChange={(e) =>
+                      setValues((prev) => ({
+                        ...prev,
+                        [f.key]: poundsToPence(e.target.value),
+                      }))
+                    }
+                    placeholder="0.00"
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      {error ? <p className="text-sm text-red-700">{error}</p> : null}
-      {message ? <p className="text-sm text-sea">{message}</p> : null}
-      <button type="submit" className="btn btn-secondary" disabled={pending}>
+
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
+      {message ? <p className="text-sm text-ok">{message}</p> : null}
+      <button type="submit" className="btn btn-primary" disabled={pending}>
         {pending ? "Saving…" : "Save prior-year figures"}
       </button>
     </form>

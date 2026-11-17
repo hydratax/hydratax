@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import type { ChServiceDetail } from "@/lib/ch-services";
@@ -935,15 +937,10 @@ export function IncorporationWizard({
                   </label>
                   <label className="text-sm font-semibold">
                     Date of birth
-                    <input
-                      type="date"
-                      className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 font-normal"
-                      value={d.dateOfBirth}
-                      onChange={(e) =>
-                        setDirectors((rows) =>
+                    <UkDateField className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 font-normal" value={d.dateOfBirth} onChange={(iso) => setDirectors((rows) =>
                           rows.map((r, j) =>
                             j === i
-                              ? { ...r, dateOfBirth: e.target.value }
+                              ? { ...r, dateOfBirth: iso }
                               : r,
                           ),
                         )

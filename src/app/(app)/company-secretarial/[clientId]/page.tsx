@@ -49,11 +49,6 @@ export default async function CompanySecretarialDeskPage({
           <h1 className="display mt-2 text-4xl text-ink md:text-5xl">
             {client.name}
           </h1>
-          <p className="mt-2 max-w-2xl text-ink-soft">
-            Companies House web-filing style options for this company. Live
-            filings open existing Hydra wizards; others stay honestly marked
-            until submit is wired.
-          </p>
           <div className="mt-4 flex flex-wrap gap-3 text-sm text-ink-soft">
             <span className="mono">
               {companyNumber ? `No. ${companyNumber}` : "No company number"}

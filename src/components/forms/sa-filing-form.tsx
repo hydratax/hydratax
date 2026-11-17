@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { submitSaUpdate } from "@/server/actions/self-assessment";
@@ -45,11 +47,11 @@ export function SaFilingForm({ clientId }: { clientId: string }) {
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label className="label">Period start</label>
-          <input name="periodStart" type="date" className="input" defaultValue="2026-01-01" required />
+          <UkDateField name="periodStart" className="input" defaultValue="2026-01-01" required />
         </div>
         <div>
           <label className="label">Period end</label>
-          <input name="periodEnd" type="date" className="input" defaultValue="2026-03-31" required />
+          <UkDateField name="periodEnd" className="input" defaultValue="2026-03-31" required />
         </div>
       </div>
       <p className="text-sm text-ink-soft">

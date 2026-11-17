@@ -1,40 +1,123 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   connectPracticeChannel,
   disconnectPracticeChannel,
   type ChannelConnectionRecord,
 } from "@/server/actions/correspondence";
-import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import type { MailboxOAuthProvider } from "@/lib/email/mailbox-oauth";
 
 export function ChannelConnectionsForm({
   connections,
 }: {
   connections: ChannelConnectionRecord[];
 }) {
+  const router = useRouter();
   const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
 
   const whatsapp = connections.find((c) => c.channel === "whatsapp");
-  const email = connections.find((c) => c.channel === "email");
+  const gmail = connections.find(
+    (c) => c.channel === "gmail" && c.status === "connected",
+  );
+  const outlook = connections.find(
+    (c) => c.channel === "outlook" && c.status === "connected",
+  );
+  const connectedMailbox = gmail || outlook;
+
+  function refreshQuietly() {
+    router.refresh();
+  }
 
   return (
     <div className="space-y-6">
-      <FormErrorBanner error={error} />
-      {ok && <p className="text-sm text-sea">{ok}</p>}
+      <div className="panel space-y-4 p-5">
+        <div>
+          <h2 className="display text-2xl text-ink">Outbound client email</h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            {connectedMailbox
+              ? `Sending from ${
+                  connectedMailbox.channel === "outlook"
+                    ? "Microsoft 365"
+                    : "Gmail"
+                } · ${connectedMailbox.externalAccountId}`
+              : "Sending with your practice name. Connect a mailbox to send as yourself."}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {!outlook ? (
+            <MailboxConnectButton
+              provider="gmail"
+              label={gmail ? "Reconnect Gmail" : "Connect Gmail"}
+              connected={Boolean(gmail)}
+            />
+          ) : null}
+          {!gmail ? (
+            <MailboxConnectButton
+              provider="outlook"
+              label={
+                outlook
+                  ? "Reconnect Microsoft 365"
+                  : "Connect Microsoft 365"
+              }
+              connected={Boolean(outlook)}
+            />
+          ) : null}
+          {gmail ? (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={pending}
+              onClick={() => {
+                start(async () => {
+                  try {
+                    await disconnectPracticeChannel("gmail");
+                    refreshQuietly();
+                  } catch {
+                    /* freeze */
+                  }
+                });
+              }}
+            >
+              Disconnect
+            </button>
+          ) : null}
+          {outlook ? (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={pending}
+              onClick={() => {
+                start(async () => {
+                  try {
+                    await disconnectPracticeChannel("outlook");
+                    refreshQuietly();
+                  } catch {
+                    /* freeze */
+                  }
+                });
+              }}
+            >
+              Disconnect
+            </button>
+          ) : null}
+        </div>
+      </div>
 
       <ChannelCard
         title="WhatsApp Business"
-        description="Connect Meta WhatsApp Cloud API. Inbound messages are matched to clients by phone number and stored on their Communications tab. When a client replies with bank statements, status can auto-update to received."
+        description={
+          whatsapp?.status === "connected"
+            ? "Connected"
+            : "Optional — link WhatsApp for client chats."
+        }
         connected={whatsapp?.status === "connected"}
         displayName={whatsapp?.displayName}
         externalId={whatsapp?.externalAccountId}
         pending={pending}
         onConnect={(displayName, externalAccountId, apiToken) => {
-          setError(null);
-          setOk(null);
           start(async () => {
             try {
               await connectPracticeChannel({
@@ -43,64 +126,48 @@ export function ChannelConnectionsForm({
                 externalAccountId,
                 apiToken,
               });
-              setOk("WhatsApp connected. Point your Meta webhook to /api/webhooks/whatsapp.");
-            } catch (err) {
-              setError(err instanceof Error ? err.message : "Connect failed");
+              refreshQuietly();
+            } catch {
+              /* freeze */
             }
           });
         }}
         onDisconnect={() => {
           start(async () => {
-            await disconnectPracticeChannel("whatsapp");
-            setOk("WhatsApp disconnected.");
+            try {
+              await disconnectPracticeChannel("whatsapp");
+              refreshQuietly();
+            } catch {
+              /* freeze */
+            }
           });
         }}
         fields={{
           displayNameLabel: "Display name",
-          externalLabel: "WhatsApp phone number ID",
-          tokenLabel: "Permanent access token (optional for now)",
-        }}
-      />
-
-      <ChannelCard
-        title="Practice email inbox"
-        description="Connect the mailbox you use with clients. HydraTax will match inbound emails to clients by contact email address and file them under that company’s Communications."
-        connected={email?.status === "connected"}
-        displayName={email?.displayName}
-        externalId={email?.externalAccountId}
-        pending={pending}
-        onConnect={(displayName, externalAccountId, apiToken) => {
-          setError(null);
-          setOk(null);
-          start(async () => {
-            try {
-              await connectPracticeChannel({
-                channel: "email",
-                displayName,
-                externalAccountId,
-                apiToken,
-              });
-              setOk(
-                "Email channel saved. Full Gmail/Outlook OAuth sync can use this connection; for now you can also forward or push via /api/webhooks/email.",
-              );
-            } catch (err) {
-              setError(err instanceof Error ? err.message : "Connect failed");
-            }
-          });
-        }}
-        onDisconnect={() => {
-          start(async () => {
-            await disconnectPracticeChannel("email");
-            setOk("Email channel disconnected.");
-          });
-        }}
-        fields={{
-          displayNameLabel: "Mailbox label",
-          externalLabel: "Email address to sync",
-          tokenLabel: "API / app password (optional for now)",
+          externalLabel: "Phone number ID",
+          tokenLabel: "Access token",
         }}
       />
     </div>
+  );
+}
+
+function MailboxConnectButton({
+  provider,
+  label,
+  connected,
+}: {
+  provider: MailboxOAuthProvider;
+  label: string;
+  connected: boolean;
+}) {
+  return (
+    <a
+      href={`/api/oauth/mailbox/${provider}/start`}
+      className={connected ? "btn btn-secondary" : "btn btn-primary"}
+    >
+      {label}
+    </a>
   );
 }
 
@@ -142,7 +209,7 @@ function ChannelCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="display text-2xl text-ink">{title}</h2>
-          <p className="mt-1 max-w-2xl text-sm text-ink-soft">{description}</p>
+          <p className="mt-1 text-sm text-ink-soft">{description}</p>
         </div>
         <span
           className={`rounded-md px-2.5 py-1 text-xs font-semibold ${

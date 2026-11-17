@@ -291,12 +291,19 @@ export async function submitPreparedVatReturn(
           periodStart: data.periodStart,
           periodEnd: data.periodEnd,
         });
+  // Stored rows (esp. mapSnakeCaseRow) are loosely typed and may lack `id`
+  // on the union with prepareVatReturn — always materialise a string id.
   const draftId =
-    "id" in prepared && typeof (prepared as { id?: unknown }).id === "string"
-      ? String((prepared as { id: string }).id)
+    typeof (prepared as { id?: unknown }).id === "string" &&
+    (prepared as { id: string }).id.length > 0
+      ? (prepared as { id: string }).id
       : crypto.randomUUID();
-  const draft = { ...prepared, id: draftId };
-  const boxes = draft.boxes as VatBoxes;
+  const draft: { id: string; boxes: VatBoxes } & Record<string, unknown> = {
+    ...(prepared as Record<string, unknown>),
+    id: draftId,
+    boxes: (prepared as { boxes: VatBoxes }).boxes,
+  };
+  const boxes = draft.boxes;
   const accessToken = await getValidAccessToken(
     data.clientId,
     session.practiceId,
@@ -598,7 +605,7 @@ const manualBoxesSchema = z.object({
 
 /** Save manually entered / uploaded nine-box figures (values in pence). */
 export async function prepareVatReturnFromBoxes(
-  input: z.input<typeof manualBoxesSchema>,
+  input: z.infer<typeof manualBoxesSchema>,
 ) {
   const session = await requireSession();
   const data = manualBoxesSchema.parse(input);

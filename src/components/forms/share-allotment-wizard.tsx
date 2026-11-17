@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useMemo, useState, useTransition } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import type { ChServiceDetail } from "@/lib/ch-services";
@@ -189,11 +191,7 @@ export function ShareAllotmentWizard({
           <ChCompanySummaryCard company={lookup.company} />
           <label className="label">
             Allotment date
-            <input
-              type="date"
-              className="input mt-1.5"
-              value={allotmentDate}
-              onChange={(e) => setAllotmentDate(e.target.value)}
+            <UkDateField className="input mt-1.5" value={allotmentDate} onChange={(iso) => setAllotmentDate(iso)}
             />
           </label>
           <div className="grid gap-3 sm:grid-cols-2">

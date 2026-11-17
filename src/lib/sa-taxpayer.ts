@@ -40,15 +40,17 @@ export function roleNeedsCompanyLink(role: SaTaxpayerRole): boolean {
   );
 }
 
-/** NINO, personal UTR and address (with postcode) required before any SA100 filing. */
+/** NINO, personal UTR, DOB and address (with postcode) required before any SA100 filing. */
 export function saIdentifiersComplete(t: {
   nino?: string | null;
   utr?: string | null;
   address?: string | null;
+  dateOfBirth?: string | null;
 }): boolean {
   return Boolean(
     t.nino?.replace(/\s/g, "").trim() &&
       t.utr?.replace(/\s/g, "").trim() &&
+      t.dateOfBirth?.trim() &&
       addressIdentityComplete(t.address),
   );
 }
@@ -57,10 +59,12 @@ export function saIdentifiersMissing(t: {
   nino?: string | null;
   utr?: string | null;
   address?: string | null;
+  dateOfBirth?: string | null;
 }): string[] {
   const missing: string[] = [];
   if (!t.nino?.replace(/\s/g, "").trim()) missing.push("NINO");
   if (!t.utr?.replace(/\s/g, "").trim()) missing.push("Personal UTR");
+  if (!t.dateOfBirth?.trim()) missing.push("Date of birth");
   const parts = parseAddressParts(t.address);
   if (!parts.street.trim()) missing.push("Street address");
   if (!parts.postcode.trim()) missing.push("Postcode");

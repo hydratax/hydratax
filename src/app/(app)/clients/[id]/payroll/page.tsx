@@ -6,6 +6,7 @@ import {
 import { getPayrollDeskSettings } from "@/server/actions/payroll-settings";
 import { requireModule } from "@/server/auth/session";
 import { PayrollWorkspace } from "@/components/forms/payroll-workspace";
+import { ClientDeskWorklogs } from "@/components/client-desk-worklogs";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 import { getHmrcConfig } from "@/server/hmrc/config";
 
@@ -51,6 +52,7 @@ export default async function PayrollPage({
         contactEmail={pack.contactEmail}
         payrollSettings={payrollSettings}
       />
+      <ClientDeskWorklogs clientId={clientId} desk="paye" />
     </div>
   );
 }

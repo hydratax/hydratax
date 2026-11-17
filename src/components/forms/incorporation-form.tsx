@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useEffect, useMemo, useState, useTransition } from "react";
 import type { ChServiceDetail } from "@/lib/ch-services";
 import { formatChServicePrice } from "@/lib/ch-services";
@@ -468,15 +470,11 @@ export function IncorporationForm({
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-sm font-semibold text-ink">
                 Date of birth
-                <input
-                  type="date"
-                  value={director.dateOfBirth}
-                  onChange={(e) =>
-                    setDirectors((d) => {
+                <UkDateField value={director.dateOfBirth} onChange={(iso) => setDirectors((d) => {
                       const next = [...d];
                       next[index] = {
                         ...next[index],
-                        dateOfBirth: e.target.value,
+                        dateOfBirth: iso,
                       };
                       return next;
                     })

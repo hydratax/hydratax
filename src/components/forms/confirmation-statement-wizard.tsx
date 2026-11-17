@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   fileConfirmationStatement,
@@ -607,12 +609,11 @@ export function ConfirmationStatementWizard({
               </legend>
               <label className="label">
                 Date of birth
-                <input
+                <UkDateField
                   className="input mt-1.5"
-                  type="date"
                   value={d.dateOfBirth}
-                  onChange={(e) =>
-                    updateDirector(i, { dateOfBirth: e.target.value })
+                  onChange={(iso) =>
+                    updateDirector(i, { dateOfBirth: iso })
                   }
                 />
               </label>

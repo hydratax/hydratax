@@ -26,6 +26,9 @@ export async function GET(
   const letterhead = await getPracticeLetterhead();
   const url = new URL(request.url);
   const autoPrint = url.searchParams.get("print") !== "0";
+  const appOrigin = (
+    process.env.NEXT_PUBLIC_APP_URL || url.origin
+  ).replace(/\/$/, "");
 
   const html = renderClientLetterHtml({
     letterhead,
@@ -33,6 +36,7 @@ export async function GET(
     body: letter.body,
     clientName: client.name,
     autoPrint,
+    appOrigin,
   });
 
   return new Response(html, {

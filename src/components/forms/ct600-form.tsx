@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { prepareCt600, submitCt600, getCt600SubmitInfo, downloadCt600Draft } from "@/server/actions/ct600";
@@ -191,20 +193,12 @@ export function Ct600Form({
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="label">Period start</label>
-              <input
-                type="date"
-                className="input"
-                value={periodStart}
-                onChange={(e) => setPeriodStart(e.target.value)}
+              <UkDateField className="input" value={periodStart} onChange={(iso) => setPeriodStart(iso)}
               />
             </div>
             <div>
               <label className="label">Period end</label>
-              <input
-                type="date"
-                className="input"
-                value={periodEnd}
-                onChange={(e) => setPeriodEnd(e.target.value)}
+              <UkDateField className="input" value={periodEnd} onChange={(iso) => setPeriodEnd(iso)}
               />
             </div>
           </div>
@@ -628,12 +622,20 @@ export function Ct600Form({
             disabled={
               pending ||
               trialGate.pending ||
+              !draftId ||
+              validationIssues.some((i) => i.blocking !== false) ||
               (ctLive &&
                 !gatewayCredentialsReady(ggUserId, ggPassword, hasSavedPassword))
             }
             onClick={() =>
               start(async () => {
                 setError(null);
+                if (validationIssues.some((i) => i.blocking !== false)) {
+                  setError(
+                    "Resolve blocking CT600 checks before submitting to HMRC.",
+                  );
+                  return;
+                }
                 trialGate.clearGate();
                 try {
                   const res = await submitCt600(draftId, clientId, {

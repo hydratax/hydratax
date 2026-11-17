@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import {
   useEffect,
   useMemo,
@@ -286,8 +288,8 @@ export function Sa100Wizard({
   const [ggPassword, setGgPassword] = useState("");
   const [rememberPassword, setRememberPassword] = useState(false);
   const [hasSavedPassword, setHasSavedPassword] = useState(false);
-  /** Live HMRC submit (Transaction Engine). Off = demo accept only. Live = SA100+SA102/103/105 subset only. */
-  const [submitLive, setSubmitLive] = useState(false);
+  /** Live HMRC Transaction Engine submit (SA100 + SA102/103/105 subset). */
+  const submitLive = true;
   const topRef = useRef<HTMLDivElement>(null);
 
   const calc = useMemo(() => calculateSa302(draft), [draft]);
@@ -351,6 +353,34 @@ export function Sa100Wizard({
         );
         if (!firstId) firstId = "sa103-nature";
       }
+      if (!draft.seBusinessName.trim()) {
+        missing["sa103-business-name"] = true;
+        messages.push(
+          "Self-employment: enter the business name (box 1).",
+        );
+        if (!firstId) firstId = "sa103-business-name";
+      }
+    }
+
+    if (draft.hasUkProperty) {
+      if (!(draft.propRents > 0) && !(draft.propOtherIncome > 0)) {
+        missing["sa105-rents"] = true;
+        messages.push(
+          "UK property: enter rents and other income from land and property (box 20) or other property income.",
+        );
+        if (!firstId) firstId = "sa105-rents";
+      }
+    }
+
+    if (!draft.utr?.replace(/\s/g, "").trim()) {
+      missing["sa100-utr"] = true;
+      messages.push("Enter the personal UTR before continuing.");
+      if (!firstId) firstId = "sa100-utr";
+    }
+    if (!draft.nino?.replace(/\s/g, "").trim()) {
+      missing["sa100-nino"] = true;
+      messages.push("Enter the NINO before continuing.");
+      if (!firstId) firstId = "sa100-nino";
     }
 
     setFieldErrors(missing);
@@ -639,12 +669,11 @@ export function Sa100Wizard({
                             label="Date directorship ceased (if before 6 Apr 2026)"
                             box="6.1"
                           >
-                            <TextInput
-                              type="date"
+                            <UkDateField
+                              className="input"
                               value={e.directorCeasedDate}
                               onChange={(directorCeasedDate) =>
-                                setEmp({ directorCeasedDate })
-                              }
+                                setEmp({ directorCeasedDate })}
                             />
                           </L>
                           <div className="sm:col-span-2">
@@ -810,10 +839,20 @@ export function Sa100Wizard({
               {draft.hasSelfEmployment && (
                 <Section title="Self-employment full (SA103F)" defaultOpen>
                   <SubHead>Business details</SubHead>
-                  <L label="Business name" box="1">
+                  <L
+                    label="Business name"
+                    box="1"
+                    required
+                    invalid={Boolean(fieldErrors["sa103-business-name"])}
+                    fieldId="sa103-business-name"
+                  >
                     <TextInput
                       value={draft.seBusinessName}
-                      onChange={(seBusinessName) => patch({ seBusinessName })}
+                      invalid={Boolean(fieldErrors["sa103-business-name"])}
+                      onChange={(seBusinessName) => {
+                        clearFieldError("sa103-business-name");
+                        patch({ seBusinessName });
+                      }}
                     />
                   </L>
                   <L
@@ -876,8 +915,8 @@ export function Sa100Wizard({
                   </div>
                   {draft.seStartedAfter && (
                     <L label="Date business started" box="6">
-                      <TextInput
-                        type="date"
+                      <UkDateField
+                        className="input"
                         value={draft.seStartDate}
                         onChange={(seStartDate) => patch({ seStartDate })}
                       />
@@ -896,23 +935,23 @@ export function Sa100Wizard({
                   </div>
                   {draft.seCeased && (
                     <L label="Date business ceased" box="7">
-                      <TextInput
-                        type="date"
+                      <UkDateField
+                        className="input"
                         value={draft.seCeaseDate}
                         onChange={(seCeaseDate) => patch({ seCeaseDate })}
                       />
                     </L>
                   )}
                   <L label="Date your books or accounts start" box="8">
-                    <TextInput
-                      type="date"
+                    <UkDateField
+                      className="input"
                       value={draft.seBooksFrom}
                       onChange={(seBooksFrom) => patch({ seBooksFrom })}
                     />
                   </L>
                   <L label="Date your books or accounts are made up to" box="9">
-                    <TextInput
-                      type="date"
+                    <UkDateField
+                      className="input"
                       value={draft.seBooksTo}
                       onChange={(seBooksTo) => patch({ seBooksTo })}
                     />
@@ -1248,10 +1287,19 @@ export function Sa100Wizard({
                   </div>
 
                   <SubHead>Property income</SubHead>
-                  <L label="Total rents and other income from property" box="20">
+                  <L
+                    label="Total rents and other income from property"
+                    box="20"
+                    required
+                    invalid={Boolean(fieldErrors["sa105-rents"])}
+                    fieldId="sa105-rents"
+                  >
                     <Money
                       value={draft.propRents}
-                      onChange={(propRents) => patch({ propRents })}
+                      onChange={(propRents) => {
+                        clearFieldError("sa105-rents");
+                        patch({ propRents });
+                      }}
                     />
                   </L>
                   <L label="Property income allowance" box="20.1">
@@ -1867,14 +1915,11 @@ export function Sa100Wizard({
                 />
               </L>
               <L label="Date" required>
-                <input
+                <UkDateField
                   className="input"
-                  type="date"
                   required
                   value={draft.declarationDate}
-                  onChange={(e) =>
-                    patch({ declarationDate: e.target.value })
-                  }
+                  onChange={(iso) => patch({ declarationDate: iso })}
                 />
               </L>
               <YN
@@ -1924,42 +1969,19 @@ export function Sa100Wizard({
                 </p>
               )}
 
-              <div className="rounded-xl border border-line bg-sand/40 p-4 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-ink">
-                    Submit to HMRC
-                  </h3>
-                  <label className="flex items-center gap-2 text-sm text-ink">
-                    <input
-                      type="checkbox"
-                      className="rounded border-line"
-                      checked={submitLive}
-                      onChange={(e) => setSubmitLive(e.target.checked)}
-                    />
-                    Live Transaction Engine submit
-                  </label>
-                </div>
-                <p className="text-xs text-ink-soft">
-                  {submitLive
-                    ? "Live Gateway (HMRC-SA-SA100) for the supported subset: SA100 + employment / self-employment / UK property. Partnership, foreign, trusts, CGT and residence pages are blocked."
-                    : "Demo accept only — no call to HMRC. Turn on live submit for the supported SA Online subset (XSD-validated)."}
-                </p>
-                {submitLive ? (
-                  <GatewayCredentialsFields
-                    clientId={clientId}
-                    ggUserId={ggUserId}
-                    ggPassword={ggPassword}
-                    onUserIdChange={setGgUserId}
-                    onPasswordChange={setGgPassword}
-                    rememberPassword={rememberPassword}
-                    onRememberPasswordChange={setRememberPassword}
-                    hasSavedPassword={hasSavedPassword}
-                    onHasSavedPasswordChange={setHasSavedPassword}
-                    live
-                    hint="Credentials are saved to your user account for this client only — never shared with colleagues."
-                  />
-                ) : null}
-              </div>
+              <GatewayCredentialsFields
+                clientId={clientId}
+                ggUserId={ggUserId}
+                ggPassword={ggPassword}
+                onUserIdChange={setGgUserId}
+                onPasswordChange={setGgPassword}
+                rememberPassword={rememberPassword}
+                onRememberPasswordChange={setRememberPassword}
+                hasSavedPassword={hasSavedPassword}
+                onHasSavedPasswordChange={setHasSavedPassword}
+                live
+                hint="Live HMRC submit (SA100 + employment / self-employment / UK property). Credentials are saved to your user account for this client only — never shared with colleagues."
+              />
             </div>
           )}
 
@@ -2019,12 +2041,11 @@ export function Sa100Wizard({
                 pending ||
                 !draft.declarationAccepted ||
                 !draft.declarationDate.trim() ||
-                (submitLive &&
-                  !gatewayCredentialsReady(
-                    ggUserId,
-                    ggPassword,
-                    hasSavedPassword,
-                  ))
+                !gatewayCredentialsReady(
+                  ggUserId,
+                  ggPassword,
+                  hasSavedPassword,
+                )
               }
               onClick={() => {
                 setError(null);
@@ -2033,7 +2054,6 @@ export function Sa100Wizard({
                   return;
                 }
                 if (
-                  submitLive &&
                   !gatewayCredentialsReady(
                     ggUserId,
                     ggPassword,
@@ -2059,8 +2079,8 @@ export function Sa100Wizard({
                       draft,
                       taxpayerId,
                       fraudMetadata: gatherFraudMetadata(),
-                      live: submitLive,
-                      demo: !submitLive,
+                      live: true,
+                      demo: false,
                       senderId: ggUserId.trim() || undefined,
                       senderPassword: ggPassword.trim() || undefined,
                       useSavedPassword:
@@ -2073,11 +2093,7 @@ export function Sa100Wizard({
                       setRememberPassword(false);
                     }
                     setGgPassword("");
-                    setOk(
-                      res.demo
-                        ? `Demo accepted · ${res.correlationId} — SA100 & SA302 PDFs ready`
-                        : `Submitted to HMRC · ${res.correlationId}`,
-                    );
+                    setOk(`Submitted to HMRC · ${res.correlationId}`);
                     router.refresh();
                   } catch (e) {
                     setError(
@@ -2087,11 +2103,7 @@ export function Sa100Wizard({
                 });
               }}
             >
-              {pending
-                ? "Submitting…"
-                : submitLive
-                  ? "Submit to HMRC"
-                  : "Demo accept"}
+              {pending ? "Submitting…" : "Submit"}
             </button>
           )}
         </div>

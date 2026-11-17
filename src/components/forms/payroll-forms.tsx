@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -78,7 +80,7 @@ export function AddEmployeeForm({ clientId }: { clientId: string }) {
       </div>
       <div>
         <label className="label">Date of birth</label>
-        <input name="dateOfBirth" type="date" className="input" />
+        <UkDateField name="dateOfBirth" className="input" />
         <p className="mt-1 text-[11px] text-ink-soft">
           Needed to link this employee to Self Assessment.
         </p>
@@ -99,7 +101,7 @@ export function AddEmployeeForm({ clientId }: { clientId: string }) {
       </div>
       <div>
         <label className="label">Start date</label>
-        <input name="startDate" type="date" className="input" required />
+        <UkDateField name="startDate" className="input" required />
       </div>
       <FormErrorBanner error={error} title="Couldn’t add employee" />
       <div className="sm:col-span-2">
@@ -195,33 +197,15 @@ export function PayRunForm({ clientId }: { clientId: string }) {
       >
         <div>
           <label className="label">Pay date</label>
-          <input
-            name="payDate"
-            type="date"
-            className="input"
-            defaultValue="2026-03-28"
-            required
-          />
+          <UkDateField name="payDate" className="input" defaultValue="2026-03-28" required />
         </div>
         <div>
           <label className="label">Period start</label>
-          <input
-            name="periodStart"
-            type="date"
-            className="input"
-            defaultValue="2026-03-01"
-            required
-          />
+          <UkDateField name="periodStart" className="input" defaultValue="2026-03-01" required />
         </div>
         <div>
           <label className="label">Period end</label>
-          <input
-            name="periodEnd"
-            type="date"
-            className="input"
-            defaultValue="2026-03-31"
-            required
-          />
+          <UkDateField name="periodEnd" className="input" defaultValue="2026-03-31" required />
         </div>
         <div className="sm:col-span-3 grid gap-3 sm:grid-cols-2">
           <div>

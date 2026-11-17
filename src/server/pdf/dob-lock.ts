@@ -1,18 +1,17 @@
-import { createPasswordProtectedZip } from "@/server/payroll/zip-crypto";
+import { encryptPDF, AlreadyEncryptedError } from "@pdfsmaller/pdf-encrypt";
 
 /**
- * PDF lock for client packs — Acrobat/Windows open the zip with the
- * director’s date of birth as DDMMYYYY (8 characters).
+ * PDF lock for client packs — Acrobat / Preview open the PDF with the
+ * practice password (often DOB as DDMMYYYY).
  *
- * pdf-lib cannot encrypt PDFs; ZipCrypto matches the payroll pack pattern
- * and works in Explorer / Preview / Acrobat when the zip is opened.
+ * Uses real PDF encryption (AES-256). Previously we wrapped PDFs in a
+ * ZipCrypto .zip because pdf-lib cannot encrypt; that is no longer used here.
  */
 
 export type LockedPdf = {
   bytes: Buffer;
-  /** Always ZipCrypto archive */
-  contentType: "application/zip";
-  /** e.g. SA800-2025-26.pdf.zip */
+  contentType: "application/pdf";
+  /** e.g. SA100-2025-26.pdf */
   filename: string;
   password: string;
   passwordHint: string;
@@ -35,35 +34,73 @@ export function dobToPdfPassword(dob: string): string | null {
   return null;
 }
 
-export function lockPdfWithDobPassword(input: {
+export async function lockPdfWithPassword(input: {
+  pdfBytes: Uint8Array | Buffer;
+  pdfFilename: string;
+  password: string;
+  passwordHint: string;
+}): Promise<LockedPdf> {
+  const password = input.password.trim();
+  if (password.length < 6) {
+    throw new Error("Document password is too short to lock this PDF.");
+  }
+  const base = input.pdfFilename.replace(/\.zip$/i, "");
+  const pdfName = base.toLowerCase().endsWith(".pdf") ? base : `${base}.pdf`;
+  const source = new Uint8Array(input.pdfBytes);
+
+  let encrypted: Uint8Array;
+  try {
+    encrypted = await encryptPDF(source, password, {
+      algorithm: "AES-256",
+      allowPrinting: true,
+      allowCopying: false,
+      allowModifying: false,
+      allowAnnotating: false,
+      allowFillingForms: false,
+      allowHighQualityPrint: true,
+    });
+  } catch (err) {
+    if (err instanceof AlreadyEncryptedError) {
+      // Uploaded pack already locked — send as-is rather than failing the email.
+      encrypted = source;
+    } else {
+      throw err;
+    }
+  }
+
+  return {
+    bytes: Buffer.from(encrypted),
+    contentType: "application/pdf",
+    filename: pdfName.replace(/\.zip$/i, ""),
+    password,
+    passwordHint: input.passwordHint,
+  };
+}
+
+export async function lockPdfWithDobPassword(input: {
   pdfBytes: Uint8Array | Buffer;
   pdfFilename: string;
   dateOfBirth: string;
-}): LockedPdf {
+}): Promise<LockedPdf> {
   const password = dobToPdfPassword(input.dateOfBirth);
   if (!password || password.length < 8) {
     throw new Error(
       "Director date of birth is required to lock this PDF (use DD/MM/YYYY).",
     );
   }
-  const base = input.pdfFilename.replace(/\.zip$/i, "");
-  const pdfName = base.toLowerCase().endsWith(".pdf") ? base : `${base}.pdf`;
-  const bytes = createPasswordProtectedZip(
-    [{ name: pdfName, data: Buffer.from(input.pdfBytes) }],
-    password,
-  );
-  return {
-    bytes,
-    contentType: "application/zip",
-    filename: `${pdfName}.zip`,
+  return lockPdfWithPassword({
+    pdfBytes: input.pdfBytes,
+    pdfFilename: input.pdfFilename,
     password,
     passwordHint:
       "Password is the signing director’s date of birth as DDMMYYYY (eight digits, no slashes).",
-  };
+  });
 }
 
 /** Pick a director DOB from SA taxpayers or explicit override. */
-export function pickDirectorDob(candidates: Array<string | null | undefined>): string | null {
+export function pickDirectorDob(
+  candidates: Array<string | null | undefined>,
+): string | null {
   for (const c of candidates) {
     if (!c?.trim()) continue;
     const pw = dobToPdfPassword(c);

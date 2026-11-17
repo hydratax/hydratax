@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import {
   attachmentDisposition,
+  inlineDisposition,
+  isPracticeBrandingImageKey,
   safeDownloadContentType,
 } from "@/lib/file-types";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
@@ -89,14 +91,26 @@ export async function GET(request: Request) {
       )
       .catch(() => undefined);
 
+    const contentType = safeDownloadContentType(obj.contentType);
+    // Branding logos must render in <img> on letters/invoices — attachment
+    // disposition prevented browsers from displaying them inline.
+    const brandingInline =
+      isPracticeBrandingImageKey(key) && contentType.startsWith("image/");
+
     return new NextResponse(new Uint8Array(obj.body), {
       headers: {
-        "Content-Type": safeDownloadContentType(obj.contentType),
-        "Content-Disposition": attachmentDisposition(filename),
+        "Content-Type": contentType,
+        "Content-Disposition": brandingInline
+          ? inlineDisposition(filename)
+          : attachmentDisposition(filename),
         "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": "default-src 'none'; sandbox",
+        "Content-Security-Policy": brandingInline
+          ? "default-src 'none'; img-src 'self' data:; style-src 'none'"
+          : "default-src 'none'; sandbox",
         "Cross-Origin-Resource-Policy": "same-origin",
-        "Cache-Control": "private, no-store",
+        "Cache-Control": brandingInline
+          ? "private, max-age=3600"
+          : "private, no-store",
       },
     });
   } catch {

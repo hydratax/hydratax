@@ -12,11 +12,15 @@ import {
   extractTextFromPdf,
 } from "@/server/bank/extract-statement-text";
 import { parseUkStatementText } from "@/server/bank/parse-uk-statement-text";
+import type { BankProfileId } from "@/server/bank/profiles";
+import type { ReconcileResult } from "@/server/bank/reconcile";
 
 export type StatementParseResult = {
   lines: CategorisedLine[];
   source: "csv" | "spreadsheet" | "pdf" | "ocr";
   bankHint: string | null;
+  profileId?: BankProfileId;
+  reconcile?: ReconcileResult;
   warning?: string;
 };
 
@@ -76,11 +80,19 @@ export async function parseBankStatementFile(
     const buffer = new Uint8Array(await file.arrayBuffer());
     const extracted = await extractTextFromPdf(buffer);
     const parsed = parseUkStatementText(extracted.text);
+    const warnings = [extracted.warning, parsed.meta.reconcile.message].filter(
+      Boolean,
+    );
     return {
       lines: parsed.lines,
       source: "pdf",
       bankHint: parsed.meta.bankHint,
-      warning: extracted.warning,
+      profileId: parsed.meta.profileId,
+      reconcile: parsed.meta.reconcile,
+      warning:
+        parsed.meta.reconcile.status === "not_reconciled"
+          ? warnings.join(" ")
+          : extracted.warning,
     };
   }
 
@@ -95,7 +107,14 @@ export async function parseBankStatementFile(
       lines: parsed.lines,
       source: "ocr",
       bankHint: parsed.meta.bankHint,
-      warning: extracted.warning,
+      profileId: parsed.meta.profileId,
+      reconcile: parsed.meta.reconcile,
+      warning:
+        parsed.meta.reconcile.status === "not_reconciled"
+          ? [extracted.warning, parsed.meta.reconcile.message]
+              .filter(Boolean)
+              .join(" ")
+          : extracted.warning,
     };
   }
 

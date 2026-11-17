@@ -1335,15 +1335,25 @@ export async function sendPayrollPack(input: z.infer<typeof sendPackSchema>) {
     },
   });
 
+  try {
+    const { appendClientWorkLog } = await import("@/server/actions/desk");
+    await appendClientWorkLog({
+      clientId: data.clientId,
+      kind: "email",
+      label: `Email sent — Payroll pack ${pack.payDate}`,
+      detail: `To ${data.toEmail}`,
+      desk: "paye",
+    });
+  } catch {
+    /* freeze path — work log best-effort */
+  }
+
   return {
     ok: true,
     delivery,
     filename: pack.filename,
     base64: pack.zip.toString("base64"),
-    message:
-      delivery === "resend"
-        ? "Password-protected pack emailed to the client."
-        : "Pack built. Set RESEND_API_KEY to email it; you can still download the zip now.",
+    message: "Emailed to the client.",
   };
 }
 

@@ -13,6 +13,7 @@ async function lockedResponse(
     clientId,
     pdfBytes,
     pdfFilename,
+    section: "sa",
   });
   if (result.locked) {
     return new Response(new Uint8Array(result.pack.bytes), {

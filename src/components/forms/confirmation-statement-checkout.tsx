@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { CH_GUIDANCE, formatChFeeBreakdown, type ChServiceDetail } from "@/lib/ch-services";
@@ -909,20 +911,10 @@ export function ConfirmationStatementCheckout({
                   </label>
                   <label className="label">
                     Date of birth
-                    <input
-                      type="date"
-                      className={`input mt-1.5 ${
-                        attemptedPay && !dobOk
-                          ? "border-danger focus:border-danger"
-                          : ""
-                      }`}
-                      value={d.dateOfBirth}
-                      aria-invalid={attemptedPay && !dobOk}
-                      onChange={(e) =>
-                        setDirectorCodes((rows) =>
+                    <UkDateField className={`input mt-1.5 ${ attemptedPay && !dobOk ? "border-danger focus:border-danger" : "" }`} value={d.dateOfBirth} aria-invalid={attemptedPay && !dobOk} onChange={(iso) => setDirectorCodes((rows) =>
                           rows.map((row, idx) =>
                             idx === i
-                              ? { ...row, dateOfBirth: e.target.value }
+                              ? { ...row, dateOfBirth: iso }
                               : row,
                           ),
                         )

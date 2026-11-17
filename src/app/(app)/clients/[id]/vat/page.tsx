@@ -5,6 +5,7 @@ import {
 import { getConnectionStatus } from "@/server/actions/hmrc-connect";
 import { requireModule } from "@/server/auth/session";
 import { VatReturnsWorkspace } from "@/components/forms/vat-returns-workspace";
+import { ClientDeskWorklogs } from "@/components/client-desk-worklogs";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 
 export default async function VatPage({
@@ -65,6 +66,7 @@ export default async function VatPage({
           };
         })}
       />
+      <ClientDeskWorklogs clientId={clientId} desk="vat" />
     </div>
   );
 }

@@ -8,8 +8,6 @@ import {
   type DocumentRequestRecord,
 } from "@/server/actions/correspondence";
 import type { CorrespondenceTemplateKey } from "@/lib/correspondence-templates";
-import { FormErrorBanner } from "@/components/forms/form-error-banner";
-
 const TEMPLATE_OPTIONS: {
   key: CorrespondenceTemplateKey;
   label: string;
@@ -39,8 +37,6 @@ export function ClientCorrespondencePanel({
   requests: DocumentRequestRecord[];
 }) {
   const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
   const [templateKey, setTemplateKey] =
     useState<CorrespondenceTemplateKey>("bank_statements_request");
   const [channel, setChannel] = useState<"email" | "whatsapp">("email");
@@ -110,8 +106,6 @@ export function ClientCorrespondencePanel({
             className="btn btn-secondary"
             disabled={pending}
             onClick={() => {
-              setError(null);
-              setOk(null);
               start(async () => {
                 try {
                   const preview = await previewCorrespondenceTemplate({
@@ -121,10 +115,8 @@ export function ClientCorrespondencePanel({
                   setSubject(preview.subject);
                   setBody(preview.body);
                   setPreviewed(true);
-                } catch (err) {
-                  setError(
-                    err instanceof Error ? err.message : "Preview failed",
-                  );
+                } catch {
+                  /* freeze */
                 }
               });
             }}
@@ -136,8 +128,6 @@ export function ClientCorrespondencePanel({
             className="btn btn-primary"
             disabled={pending || (channel === "email" && !contactEmail)}
             onClick={() => {
-              setError(null);
-              setOk(null);
               start(async () => {
                 try {
                   if (!previewed) {
@@ -148,18 +138,15 @@ export function ClientCorrespondencePanel({
                     setSubject(preview.subject);
                     setBody(preview.body);
                   }
-                  const res = await sendTemplatedCorrespondence({
+                  await sendTemplatedCorrespondence({
                     clientId,
                     templateKey,
                     channel,
                     toEmail: contactEmail ?? undefined,
                   });
-                  setOk(
-                    `Sent · ${res.statusLabel}. Message saved to this client’s communications.`,
-                  );
                   setPreviewed(true);
-                } catch (err) {
-                  setError(err instanceof Error ? err.message : "Send failed");
+                } catch {
+                  /* freeze */
                 }
               });
             }}
@@ -167,15 +154,6 @@ export function ClientCorrespondencePanel({
             {pending ? "Sending…" : "Send template"}
           </button>
         </div>
-
-        {!contactEmail && channel === "email" && (
-          <p className="mt-3 text-sm text-ink-soft">
-            Add a contact email on the client overview before emailing.
-          </p>
-        )}
-
-        <FormErrorBanner error={error} />
-        {ok && <p className="mt-3 text-sm text-sea">{ok}</p>}
 
         {(subject || body) && (
           <div className="mt-4 space-y-3 rounded-lg border border-line bg-sand/40 p-4 text-sm">
@@ -215,12 +193,15 @@ export function ClientCorrespondencePanel({
                   disabled={pending}
                   onClick={() => {
                     start(async () => {
-                      await markDocumentRequestReceived({
-                        clientId,
-                        requestId: r.id,
-                        status: "received",
-                      });
-                      setOk("Marked bank statements received.");
+                      try {
+                        await markDocumentRequestReceived({
+                          clientId,
+                          requestId: r.id,
+                          status: "received",
+                        });
+                      } catch {
+                        /* freeze */
+                      }
                     });
                   }}
                 >

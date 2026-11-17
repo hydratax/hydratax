@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useMemo, useState, useTransition } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import type { ChServiceDetail } from "@/lib/ch-services";
@@ -260,11 +262,7 @@ export function DirectorChangeWizard({
               </label>
               <label className="label">
                 Resignation / termination date
-                <input
-                  type="date"
-                  className="input mt-1.5"
-                  value={resignedOn}
-                  onChange={(e) => setResignedOn(e.target.value)}
+                <UkDateField className="input mt-1.5" value={resignedOn} onChange={(iso) => setResignedOn(iso)}
                   required
                 />
               </label>
@@ -293,21 +291,13 @@ export function DirectorChangeWizard({
               </div>
               <label className="label">
                 Date of birth
-                <input
-                  type="date"
-                  className="input mt-1.5"
-                  value={dateOfBirth}
-                  onChange={(e) => setDateOfBirth(e.target.value)}
+                <UkDateField className="input mt-1.5" value={dateOfBirth} onChange={(iso) => setDateOfBirth(iso)}
                   required
                 />
               </label>
               <label className="label">
                 Appointment date
-                <input
-                  type="date"
-                  className="input mt-1.5"
-                  value={appointedOn}
-                  onChange={(e) => setAppointedOn(e.target.value)}
+                <UkDateField className="input mt-1.5" value={appointedOn} onChange={(iso) => setAppointedOn(iso)}
                   required
                 />
               </label>

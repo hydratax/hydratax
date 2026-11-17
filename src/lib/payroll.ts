@@ -172,8 +172,22 @@ export function preflightPayRun(opts: {
     });
   }
   for (const e of paid) {
+    const who = [e.forename, e.surname].filter(Boolean).join(" ") || e.payrollId;
+    if (!e.nino?.replace(/\s/g, "").trim()) {
+      checks.push({
+        level: "error",
+        code: "nino",
+        message: `NINO is required for HMRC FPS — enter it for ${who} before submitting.`,
+      });
+    }
+    if (!e.forename?.trim() || !e.surname?.trim()) {
+      checks.push({
+        level: "error",
+        code: "name",
+        message: `Forename and surname are required for HMRC FPS — complete the name for ${e.payrollId}.`,
+      });
+    }
     if (e.gender !== "M" && e.gender !== "F") {
-      const who = [e.forename, e.surname].filter(Boolean).join(" ") || e.payrollId;
       checks.push({
         level: "error",
         code: "gender",

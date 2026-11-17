@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import Link from "next/link";
 import {
   useEffect,
@@ -1243,24 +1245,14 @@ export function YearEndFilingForm({
                   <label className="label" htmlFor="ye-start">
                     Period start
                   </label>
-                  <input
-                    id="ye-start"
-                    type="date"
-                    className="input"
-                    value={periodStart}
-                    onChange={(e) => setPeriodStart(e.target.value)}
+                  <UkDateField id="ye-start" className="input" value={periodStart} onChange={(iso) => setPeriodStart(iso)}
                   />
                 </div>
                 <div>
                   <label className="label" htmlFor="ye-end">
                     Period end
                   </label>
-                  <input
-                    id="ye-end"
-                    type="date"
-                    className="input"
-                    value={periodEnd}
-                    onChange={(e) => setPeriodEnd(e.target.value)}
+                  <UkDateField id="ye-end" className="input" value={periodEnd} onChange={(iso) => setPeriodEnd(iso)}
                   />
                 </div>
               </div>
@@ -1728,12 +1720,7 @@ export function YearEndFilingForm({
                 <label className="label" htmlFor="ye-approval">
                   Accounts Approval Date
                 </label>
-                <input
-                  id="ye-approval"
-                  type="date"
-                  className="input"
-                  value={approvalDate}
-                  onChange={(e) => setApprovalDate(e.target.value)}
+                <UkDateField id="ye-approval" className="input" value={approvalDate} onChange={(iso) => setApprovalDate(iso)}
                 />
               </div>
               <div>

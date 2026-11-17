@@ -6,11 +6,12 @@ import { AccountsPackStatements } from "@/components/forms/accounts-pack-stateme
 import { AccountsComparativesForm } from "@/components/forms/accounts-comparatives-form";
 import { AccountsPackEmailButton } from "@/components/forms/accounts-pack-email-button";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
-import { formatStatementAmount, priorFiguresForStatements } from "@/server/accounts/year-end-from-bank";
 import {
-  companiesHouseAccountsPeriod,
-  parseComparatives,
-} from "@/lib/accounting-periods";
+  formatStatementAmount,
+  priorFiguresForStatements,
+} from "@/server/accounts/year-end-from-bank";
+import { companiesHouseAccountsPeriod } from "@/lib/accounting-periods";
+import { loadPriorYearComparatives } from "@/server/accounts/load-prior-year-comparatives";
 
 function gbp(pence: number) {
   return new Intl.NumberFormat("en-GB", {
@@ -48,13 +49,26 @@ export default async function AccountsPackPage({
     periodStart,
     periodEnd,
   );
-  const comparatives = parseComparatives(
-    "accountsComparatives" in client ? client.accountsComparatives : null,
-  );
+  const priorLoaded = await loadPriorYearComparatives({
+    clientId,
+    companyNumber: ch?.companyNumber ?? null,
+    periodEnd,
+    savedComparatives:
+      "accountsComparatives" in client ? client.accountsComparatives : null,
+  });
+  const comparatives = priorLoaded.comparatives;
   const showPriorYear = !poa.firstYear;
   const prior = showPriorYear
     ? priorFiguresForStatements(comparatives)
     : null;
+  const priorSourceNote =
+    priorLoaded.source === "ct600"
+      ? `Loaded from prior CT600${priorLoaded.madeUpTo ? ` (${priorLoaded.madeUpTo})` : ""}.`
+      : priorLoaded.source === "companies_house"
+        ? `Loaded from Companies House filing${priorLoaded.madeUpTo ? ` (${priorLoaded.madeUpTo})` : ""}.`
+        : priorLoaded.source === "saved"
+          ? "Using your saved prior-year figures."
+          : null;
 
   return (
     <div>
@@ -81,6 +95,7 @@ export default async function AccountsPackPage({
             clientId={clientId}
             initial={comparatives}
             priorYearLabel={String(Number(periodEnd.slice(0, 4)) - 1)}
+            sourceNote={priorSourceNote}
           />
         ) : null}
 

@@ -97,6 +97,11 @@ export type PropertyMortgage = {
   id: string;
   lender: string;
   broughtForwardPence: number;
+  /**
+   * Annual interest rate % (e.g. 4.5). When set, period interest due can be
+   * derived from BF × rate (accubee / year-end desk).
+   */
+  interestRatePercent?: number | null;
   /** Interest charged / due for the period (accrual), pence. */
   interestDuePence: number;
   /**
@@ -110,6 +115,23 @@ export type PropertyMortgage = {
   capitalCategory?: string | null;
   notes?: string;
 };
+
+/** Period interest due from rate × BF (annualised), pence. */
+export function mortgageInterestDueFromRatePence(
+  broughtForwardPence: number,
+  interestRatePercent: number | null | undefined,
+): number {
+  if (
+    !Number.isFinite(broughtForwardPence) ||
+    broughtForwardPence <= 0 ||
+    interestRatePercent == null ||
+    !Number.isFinite(interestRatePercent) ||
+    interestRatePercent <= 0
+  ) {
+    return 0;
+  }
+  return Math.round((broughtForwardPence * interestRatePercent) / 100);
+}
 
 export type PropertyAsset = {
   id: string;
@@ -164,7 +186,12 @@ export type BankLedger = {
       id: string;
       name: string;
       costPence: number;
-      mortgages: Array<{ id: string; lender: string; closingPence: number }>;
+      mortgages: Array<{
+        id: string;
+        lender: string;
+        closingPence: number;
+        interestRatePercent?: number | null;
+      }>;
     }>;
     debtors?: Array<{
       id: string;

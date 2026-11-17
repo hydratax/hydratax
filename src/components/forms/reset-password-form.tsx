@@ -41,7 +41,9 @@ export function ResetPasswordForm() {
         </p>
       </div>
 
-      {error ? <FormErrorBanner error={error} title="Update blocked" /> : null}
+      {error ? (
+        <FormErrorBanner surface="auth" error={error} title="Update blocked" />
+      ) : null}
 
       <label className="block text-sm font-semibold text-ink">
         New password

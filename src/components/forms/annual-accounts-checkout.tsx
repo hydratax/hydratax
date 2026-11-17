@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useEffect, useState, useTransition } from "react";
 import { formatChServicePrice, type ChServiceDetail } from "@/lib/ch-services";
 import {
@@ -309,24 +311,16 @@ export function AnnualAccountsCheckout({
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="label">
               Period start
-              <input
-                type="date"
-                className="input mt-1.5"
-                value={periodStart}
-                onChange={(e) => setPeriodStart(e.target.value)}
+              <UkDateField className="input mt-1.5" value={periodStart} onChange={(iso) => setPeriodStart(iso)}
                 required
               />
             </label>
             <label className="label">
               Period end
-              <input
-                type="date"
-                className="input mt-1.5"
-                value={periodEnd}
-                onChange={(e) => {
-                  setPeriodEnd(e.target.value);
+              <UkDateField className="input mt-1.5" value={periodEnd} onChange={(iso) => {
+                  setPeriodEnd(iso);
                   if (!periodStart) {
-                    setPeriodStart(guessPeriodStart(e.target.value));
+                    setPeriodStart(guessPeriodStart(iso));
                   }
                 }}
                 required

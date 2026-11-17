@@ -69,7 +69,9 @@ export function ForgotPasswordForm() {
         </p>
       </div>
 
-      {error ? <FormErrorBanner error={error} title="Reset blocked" /> : null}
+      {error ? (
+        <FormErrorBanner surface="auth" error={error} title="Reset blocked" />
+      ) : null}
 
       <label className="block text-sm font-semibold text-ink">
         Email

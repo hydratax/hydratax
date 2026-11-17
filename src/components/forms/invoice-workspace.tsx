@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -21,7 +23,6 @@ import {
 } from "@/lib/invoices/totals";
 import { computeInvoiceTotals } from "@/lib/invoices/compute-totals";
 import { messageFromUnknown } from "@/lib/action-error";
-import { LEGAL_CONTACT_EMAIL } from "@/lib/legal";
 
 type LineDraft = {
   description: string;
@@ -497,7 +498,7 @@ export function InvoiceWorkspace({
             {showNumberHint ? (
               <p className="mt-1 text-xs font-normal text-ink-soft">
                 Auto-numbering uses your practice sequence (prefix + next).
-                Change under Payment gateways after Connect, or ask an admin.
+                Ask an admin if you need the prefix or next number changed.
               </p>
             ) : null}
           </label>
@@ -514,13 +515,8 @@ export function InvoiceWorkspace({
 
           <label className="text-sm font-semibold">
             <span className="text-danger">*</span> Invoice date
-            <input
-              type="date"
-              className="input mt-1 font-normal"
-              value={issueDate}
-              required
-              onChange={(e) => {
-                const next = e.target.value;
+            <UkDateField className="input mt-1 font-normal" value={issueDate} required onChange={(iso) => {
+                const next = iso;
                 setIssueDate(next);
                 if (termsPreset !== "custom") {
                   applyTerms(termsPreset, next);
@@ -546,14 +542,9 @@ export function InvoiceWorkspace({
 
           <label className="text-sm font-semibold">
             <span className="text-danger">*</span> Due date
-            <input
-              type="date"
-              className="input mt-1 font-normal"
-              value={dueDate}
-              required
-              onChange={(e) => {
+            <UkDateField className="input mt-1 font-normal" value={dueDate} required onChange={(iso) => {
                 setTermsPreset("custom");
-                setDueDate(e.target.value);
+                setDueDate(iso);
               }}
             />
           </label>
@@ -866,16 +857,20 @@ export function InvoiceWorkspace({
         <div className="rounded-xl border border-sea/25 bg-sea/5 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="font-semibold text-ink">Want to get paid faster?</p>
+              <p className="font-semibold text-ink">Online card pay</p>
               <p className="mt-1 text-sm text-ink-soft">
-                Configure payment gateways and receive card payments online.
+                {stripeConnected
+                  ? "Stripe is connected — enable online pay on this invoice."
+                  : "Connect Stripe to take card payments. You create and manage the Stripe account; funds go to you."}
               </p>
-              <Link
-                href="/settings/payments"
-                className="mt-2 inline-flex text-sm font-semibold text-sea hover:underline"
-              >
-                Set up payment gateway →
-              </Link>
+              {!stripeConnected ? (
+                <a
+                  href="/api/stripe/connect/start"
+                  className="btn btn-primary mt-3 text-sm"
+                >
+                  Connect Stripe
+                </a>
+              ) : null}
             </div>
             <label className="flex items-center gap-2 text-sm font-semibold text-ink">
               <input
@@ -888,11 +883,6 @@ export function InvoiceWorkspace({
               Enable online pay
             </label>
           </div>
-          {!stripeConnected ? (
-            <p className="mt-2 text-xs text-ink-soft">
-              Connect Stripe under Payment gateways before enabling online pay.
-            </p>
-          ) : null}
         </div>
 
         <div
@@ -923,17 +913,12 @@ export function InvoiceWorkspace({
             />
           </label>
           <p className="mt-2 text-xs text-ink-soft">
-            From:{" "}
-            <span className="font-semibold text-ink">
-              {LEGAL_CONTACT_EMAIL}
-            </span>
-            {" · "}
-            Reply-To uses your practice email in{" "}
+            From shows your practice name; replies go to your practice email in{" "}
             <Link
               href="/settings/letterhead"
               className="font-semibold text-sea hover:underline"
             >
-              Settings → Practice branding
+              Practice branding
             </Link>
             .
           </p>

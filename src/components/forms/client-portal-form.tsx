@@ -18,19 +18,28 @@ export function ClientPortalForm({
   token,
   portal,
   clientName,
+  highlightRequestId,
 }: {
   token: string;
   portal: PortalRecord;
   clientName: string;
+  /** Deep-link from email (?request=sa-bank-…) */
+  highlightRequestId?: string | null;
 }) {
   const [requests, setRequests] = useState(portal.requests);
   const [approveAccounts, setApproveAccounts] = useState(portal.approveAccounts);
   const [approveCt600, setApproveCt600] = useState(portal.approveCt600);
   const [approveVat, setApproveVat] = useState(portal.approveVat);
   const [uploads, setUploads] = useState(portal.uploads ?? []);
-  const [uploadKind, setUploadKind] = useState(
-    portal.requests[0]?.id ?? "bank",
-  );
+  const [uploadKind, setUploadKind] = useState(() => {
+    if (
+      highlightRequestId &&
+      portal.requests.some((r) => r.id === highlightRequestId)
+    ) {
+      return highlightRequestId;
+    }
+    return portal.requests[0]?.id ?? "bank";
+  });
   const [message, setMessage] = useState("");
   const [pending, start] = useTransition();
   const packs = portal.approvalPacks ?? {};

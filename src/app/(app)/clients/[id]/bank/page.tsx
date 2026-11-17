@@ -36,7 +36,7 @@ export default async function ClientBankPage({
   params: Promise<{ id: string }>;
 }) {
   const { id: ref } = await params;
-  const { slug, clientId } = await loadClientPage(ref, "bank");
+  const { slug, clientId, client } = await loadClientPage(ref, "bank");
   const transactions = await listBankTransactions(clientId).catch(() => []);
   const draft = await getTaxDraftFromBank(clientId);
   const customCategories = await listCustomBankCategories().catch(() => []);
@@ -66,6 +66,7 @@ export default async function ClientBankPage({
       <BankWorkspace
         clientId={clientId}
         clientSlug={slug}
+        clientEmail={client.contactEmail ?? null}
         transactions={transactions.map((t) => ({
           id: t.id,
           dated: t.dated,

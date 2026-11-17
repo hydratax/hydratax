@@ -11,10 +11,13 @@ export const metadata = {
 
 export default async function PublicPortalPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ token: string }>;
+  searchParams?: Promise<{ request?: string }>;
 }) {
   const { token } = await params;
+  const qs = searchParams ? await searchParams : {};
   const client = await findClientByPortalToken(token);
   if (!client?.deskProfile?.portal) notFound();
   void recordPortalOpened(token);
@@ -36,6 +39,7 @@ export default async function PublicPortalPage({
           token={token}
           portal={client.deskProfile.portal}
           clientName={client.name}
+          highlightRequestId={qs.request ?? null}
         />
       </div>
     </main>

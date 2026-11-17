@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -30,12 +32,7 @@ export function AccountsPackPeriodForm({
         <label className="label" htmlFor="pack-start">
           Period start
         </label>
-        <input
-          id="pack-start"
-          type="date"
-          className="input"
-          value={start}
-          onChange={(e) => setStart(e.target.value)}
+        <UkDateField id="pack-start" className="input" value={start} onChange={(iso) => setStart(iso)}
           required
         />
       </div>
@@ -43,12 +40,7 @@ export function AccountsPackPeriodForm({
         <label className="label" htmlFor="pack-end">
           Period end
         </label>
-        <input
-          id="pack-end"
-          type="date"
-          className="input"
-          value={end}
-          onChange={(e) => setEnd(e.target.value)}
+        <UkDateField id="pack-end" className="input" value={end} onChange={(iso) => setEnd(iso)}
           required
         />
       </div>

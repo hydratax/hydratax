@@ -3,21 +3,28 @@ import { humanizeActionError } from "@/lib/action-error";
 type FormErrorBannerProps = {
   error: string | null | undefined;
   className?: string;
-  /** Override the default “Couldn’t continue” title */
+  /** Override the default title (auth surface only). */
   title?: string;
   children?: React.ReactNode;
+  /**
+   * Desk UI never shows failure banners (`desk-ui-users.mdc`).
+   * Only pass `surface="auth"` on sign-in / password / create-account screens.
+   */
+  surface?: "desk" | "auth";
 };
 
 /**
- * High-visibility block for validation / action failures that stop the user.
- * Use anywhere a form cannot proceed until the issue is fixed.
+ * Desk: always silent (returns null).
+ * Auth: high-visibility block when `surface="auth"`.
  */
 export function FormErrorBanner({
   error,
   className = "",
   title = "Couldn’t continue",
   children,
+  surface = "desk",
 }: FormErrorBannerProps) {
+  if (surface !== "auth") return null;
   if (!error && !children) return null;
   const text = error ? humanizeActionError(error) : null;
 

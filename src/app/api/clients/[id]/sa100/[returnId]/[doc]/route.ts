@@ -10,13 +10,16 @@ async function lockedResponse(
   pdfBytes: Uint8Array,
   pdfFilename: string,
   dateOfBirth?: string | null,
+  personalUtr?: string | null,
   extraHeaders?: Record<string, string>,
 ) {
   const result = await protectClientPdf({
     clientId,
     pdfBytes,
     pdfFilename,
+    section: "sa",
     dateOfBirth,
+    personalUtr,
   });
   if (result.locked) {
     return new Response(new Uint8Array(result.pack.bytes), {
@@ -72,6 +75,7 @@ export async function GET(
       bytes,
       `SA302-${row.taxYear}.pdf`,
       row.draft.dateOfBirth,
+      row.draft.utr || client.utr || null,
     );
   }
 
@@ -93,6 +97,7 @@ export async function GET(
       bytes,
       `SA100-${row.taxYear}-${userSlug}.pdf`,
       row.draft.dateOfBirth,
+      row.draft.utr || client.utr || null,
       { "X-HydraTax-SA-Supplements": supplements.join(",") },
     );
   }

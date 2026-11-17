@@ -32,8 +32,14 @@ export type DocumentRequestRecord = {
   receivedAt: string | null;
 };
 
+export type PracticeChannel =
+  | "whatsapp"
+  | "email"
+  | "gmail"
+  | "outlook";
+
 export type ChannelConnectionRecord = {
-  channel: "whatsapp" | "email";
+  channel: PracticeChannel;
   status: string;
   displayName: string | null;
   externalAccountId: string | null;
@@ -488,7 +494,7 @@ async function listChannelConnectionsInner(): Promise<
       .select("*")
       .eq("practice_id", session.practiceId);
     return (data ?? []).map((row) => ({
-      channel: row.channel as "whatsapp" | "email",
+      channel: row.channel as PracticeChannel,
       status: row.status as string,
       displayName: (row.display_name as string | null) ?? null,
       externalAccountId: (row.external_account_id as string | null) ?? null,
@@ -502,10 +508,12 @@ async function listChannelConnectionsInner(): Promise<
 }
 
 const connectSchema = z.object({
-  channel: z.enum(["whatsapp", "email"]),
+  channel: z.enum(["whatsapp", "email", "gmail", "outlook"]),
   displayName: z.string().min(1).max(200),
   externalAccountId: z.string().min(3).max(200),
   apiToken: z.string().optional(),
+  /** Set when OAuth callback completes (send-as ready). */
+  oauthReady: z.boolean().optional(),
 });
 
 export async function connectPracticeChannel(
@@ -516,15 +524,36 @@ export async function connectPracticeChannel(
 
   const data = connectSchema.parse(input);
   const now = new Date().toISOString();
+  const isMailbox = data.channel === "gmail" || data.channel === "outlook";
+  const otherMailbox = data.channel === "gmail" ? "outlook" : "gmail";
+
+  // Encrypt OAuth token blobs at rest when present.
+  let credentialsEncrypted: string | null = data.apiToken ?? null;
+  if (isMailbox && data.apiToken) {
+    try {
+      const { encryptSecret } = await import("@/server/hmrc/crypto");
+      // Already encrypted blobs from mailbox-send start with AES payload; detect JSON.
+      if (data.apiToken.trim().startsWith("{")) {
+        credentialsEncrypted = encryptSecret(data.apiToken);
+      }
+    } catch {
+      credentialsEncrypted = data.apiToken;
+    }
+  }
 
   if (isMemoryStore() || isDemoMode()) {
     const store = demoStore as {
-      channelConnections?: ChannelConnectionRecord[];
+      channelConnections?: Array<
+        ChannelConnectionRecord & { credentialsEncrypted?: string | null }
+      >;
     };
     store.channelConnections = [
-      ...(store.channelConnections ?? []).filter(
-        (c) => c.channel !== data.channel,
-      ),
+      ...(store.channelConnections ?? []).filter((c) => {
+        if (c.channel === data.channel) return false;
+        // Only one outbound mailbox at a time.
+        if (isMailbox && c.channel === otherMailbox) return false;
+        return true;
+      }),
       {
         channel: data.channel,
         status: "connected",
@@ -532,12 +561,28 @@ export async function connectPracticeChannel(
         externalAccountId: data.externalAccountId,
         connectedAt: now,
         lastSyncedAt: null,
-        metadata: data.apiToken ? { hasToken: true } : {},
+        credentialsEncrypted,
+        metadata: {
+          ...(credentialsEncrypted ? { hasToken: true } : {}),
+          ...(data.oauthReady ? { oauthReady: true } : {}),
+        },
       },
     ];
   } else if (isSupabaseConfigured()) {
     const { createClient } = await import("@/lib/supabase/server");
     const supabase = await createClient();
+    if (isMailbox) {
+      await supabase
+        .from("practice_channel_connections")
+        .update({
+          status: "disconnected",
+          credentials_encrypted: null,
+          metadata: {},
+          updated_at: now,
+        })
+        .eq("practice_id", session.practiceId)
+        .eq("channel", otherMailbox);
+    }
     const { error } = await supabase
       .from("practice_channel_connections")
       .upsert(
@@ -547,8 +592,11 @@ export async function connectPracticeChannel(
           status: "connected",
           display_name: data.displayName,
           external_account_id: data.externalAccountId,
-          credentials_encrypted: data.apiToken ?? null,
-          metadata: data.apiToken ? { hasToken: true } : {},
+          credentials_encrypted: credentialsEncrypted,
+          metadata: {
+            ...(credentialsEncrypted ? { hasToken: true } : {}),
+            ...(data.oauthReady ? { oauthReady: true } : {}),
+          },
           connected_by: session.userId,
           connected_at: now,
           updated_at: now,
@@ -562,9 +610,7 @@ export async function connectPracticeChannel(
   return { ok: true as const };
 }
 
-export async function disconnectPracticeChannel(
-  channel: "whatsapp" | "email",
-) {
+export async function disconnectPracticeChannel(channel: PracticeChannel) {
   const session = await requireSession();
   if (session.role === "readonly") throw new Error("Forbidden");
 

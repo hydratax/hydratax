@@ -20,7 +20,7 @@ import {
   messagePreview,
   resolveClientEmailSender,
 } from "@/lib/client-email";
-import { sendTransactionalEmail } from "@/server/email/transactional";
+import { sendPracticeClientEmail } from "@/server/email/send-practice-outbound";
 import { appendAuditEvent } from "@/server/audit/log";
 import { isDemoMode, isMemoryStore, isSupabaseConfigured } from "@/lib/env";
 import { demoStore } from "@/server/demo/store";
@@ -380,38 +380,42 @@ export async function sendClientCommunicationEmail(
   const data = sendOneSchema.parse(input);
   const client = await getClient(data.clientId);
   let practiceEmail: string | null = null;
+  let practiceName: string | null = null;
   try {
     const { getPracticeLetterhead } = await import(
       "@/server/actions/letterhead"
     );
     const lh = await getPracticeLetterhead();
     practiceEmail = lh.email?.trim() || null;
+    practiceName = lh.practiceName?.trim() || null;
   } catch {
     /* letterhead optional */
   }
-  const sender = resolveClientEmailSender(session, { practiceEmail });
 
-  const delivery = await sendTransactionalEmail({
-    to: data.toEmail,
-    from: sender.from,
-    replyTo: sender.replyTo,
-    subject: data.subject,
-    text: data.message,
-    html: data.html,
-    attachments: data.attachments,
+  const outbound = await sendPracticeClientEmail({
+    session,
+    practiceEmail,
+    practiceName,
+    mail: {
+      to: data.toEmail,
+      subject: data.subject,
+      text: data.message,
+      html: data.html,
+      attachments: data.attachments,
+    },
   });
 
   const logId = await insertClientEmailLog({
     practiceId: session.practiceId,
     clientId: data.clientId,
     sentBy: session.userId,
-    fromEmail: sender.from,
+    fromEmail: outbound.from,
     toEmail: data.toEmail,
     subject: data.subject,
     messagePreview: messagePreview(data.message),
     kind: data.kind,
     documentCount: data.documentCount,
-    delivery,
+    delivery: outbound.delivery,
     accountsDue: data.accountsDue ?? null,
   });
 
@@ -447,18 +451,20 @@ export async function sendClientCommunicationEmail(
     entityId: logId,
     detail: {
       kind: data.kind,
-      delivery,
+      delivery: outbound.delivery,
       toDomain: data.toEmail.split("@")[1] ?? "unknown",
     },
   });
 
   try {
     const { appendClientWorkLog } = await import("@/server/actions/desk");
+    const { deskFromEmailKind } = await import("@/lib/client-work-stage");
     await appendClientWorkLog({
       clientId: data.clientId,
       kind: "email",
       label: `Email sent — ${data.subject}`,
       detail: `To ${data.toEmail}`,
+      desk: deskFromEmailKind(data.kind),
     });
   } catch {
     /* work log is best-effort */
@@ -467,7 +473,7 @@ export async function sendClientCommunicationEmail(
   revalidatePath(`/clients/${data.clientId}`);
   revalidatePath(`/clients/${data.clientId}/communications`);
 
-  return { ok: true as const, delivery, logId };
+  return { ok: true as const, delivery: outbound.delivery, logId };
 }
 
 /** Email send counts keyed by client id (for desk cards). */

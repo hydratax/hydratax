@@ -244,7 +244,7 @@ export function ClientsList({
             <PendingLink
               key={c.id}
               href={`/clients/${c.slug}${openPath}`}
-              className={`panel panel-interactive client-card flex h-full flex-col p-5 ${highlight}`}
+              className={`panel panel-interactive client-card relative z-0 flex h-full flex-col p-5 hover:z-10 ${highlight}`}
               pendingLabel="Opening client…"
             >
               {(pending) => (

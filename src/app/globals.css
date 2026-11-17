@@ -658,15 +658,52 @@ body {
   cursor: pointer;
 }
 
-/* Lift the card only when hovering the surface — not when hovering
-   action buttons inside (Delete / menus), so siblings stay calm. */
-.panel-interactive:hover:not(:has(.btn:hover, button:hover, a:hover, [role="menuitem"]:hover)) {
-  border-color: #b7c4cc;
-  box-shadow: 0 12px 32px -20px rgba(10, 10, 10, 0.35);
-  transform: translateY(-2px);
+/* Keep hover lift/shadow on the hovered card only — siblings stay flat. */
+.panel-interactive {
+  isolation: isolate;
 }
 
-.panel-interactive:active:not(:has(.btn:active, button:active, a:active)) {
+/*
+  Lift only the hovered card. Do not use :has(a:hover) here — many cards
+  are themselves <a.panel-interactive>, and that compound has been seen to
+  restyle sibling cards. Nested actions use button/.btn/[role=menuitem] only.
+*/
+@media (hover: hover) and (pointer: fine) {
+  .panel-interactive:hover {
+    border-color: #b7c4cc;
+    box-shadow: 0 12px 32px -20px rgba(10, 10, 10, 0.35);
+    transform: translateY(-2px);
+  }
+
+  .panel-interactive:hover .open-chip,
+  .client-row:hover .open-chip,
+  .service-tile:hover .open-chip,
+  .stat-tile:hover .open-chip {
+    background: linear-gradient(180deg, var(--sea) 0%, var(--sea-deep) 100%);
+    color: white;
+    border-color: var(--sea-deep);
+    box-shadow: 0 4px 12px -6px rgba(15, 118, 110, 0.55);
+  }
+
+  .panel-interactive:has(.btn:hover, button:hover, [role="menuitem"]:hover),
+  .client-row:has(.btn:hover, button:hover, [role="menuitem"]:hover) {
+    border-color: var(--line);
+    box-shadow: none;
+    transform: none;
+  }
+
+  .panel-interactive:has(.btn:hover, button:hover, [role="menuitem"]:hover) .open-chip,
+  .client-row:has(.btn:hover, button:hover, [role="menuitem"]:hover) .open-chip {
+    background: linear-gradient(180deg, #ffffff 0%, #f3faf9 100%);
+    color: var(--sea);
+    border-color: rgba(15, 118, 110, 0.28);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 1px 2px rgba(15, 118, 110, 0.08);
+  }
+}
+
+.panel-interactive:active {
   transform: scale(0.985);
   border-color: var(--sea);
 }
@@ -708,19 +745,9 @@ body {
   min-height: 0;
 }
 
-.panel-interactive:hover:not(:has(.btn:hover, button:hover, a:hover, [role="menuitem"]:hover)) .open-chip,
-.client-row:hover:not(:has(.btn:hover, button:hover, a:hover, [role="menuitem"]:hover)) .open-chip,
-.service-tile:hover:not(:has(.btn:hover, button:hover, a:hover)) .open-chip,
-.stat-tile:hover:not(:has(.btn:hover, button:hover, a:hover)) .open-chip {
-  background: linear-gradient(180deg, var(--sea) 0%, var(--sea-deep) 100%);
-  color: white;
-  border-color: var(--sea-deep);
-  box-shadow: 0 4px 12px -6px rgba(15, 118, 110, 0.55);
-}
-
-.panel-interactive:active:not(:has(.btn:active, button:active)) .open-chip,
-.client-row:active:not(:has(.btn:active, button:active)) .open-chip,
-.service-tile:active:not(:has(.btn:active, button:active)) .open-chip,
+.panel-interactive:active .open-chip,
+.client-row:active .open-chip,
+.service-tile:active .open-chip,
 .open-chip.is-pending {
   transform: scale(0.96);
   background: linear-gradient(180deg, var(--sea) 0%, var(--sea-deep) 100%);
@@ -1063,11 +1090,19 @@ html[data-nav-pending] {
   transition: background 0.15s ease, padding 0.15s ease;
 }
 
-.client-row:hover:not(:has(.btn:hover, button:hover, a:hover, [role="menuitem"]:hover)) {
-  background: rgba(15, 118, 110, 0.04);
-  padding-left: 0.55rem;
-  padding-right: 0.55rem;
-  border-radius: 0.45rem;
+@media (hover: hover) and (pointer: fine) {
+  .client-row:hover {
+    background: rgba(15, 118, 110, 0.04);
+    padding-left: 0.55rem;
+    padding-right: 0.55rem;
+    border-radius: 0.45rem;
+  }
+
+  .client-row:has(.btn:hover, button:hover, [role="menuitem"]:hover) {
+    background: transparent;
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+  }
 }
 
 .filing-step {

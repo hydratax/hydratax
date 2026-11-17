@@ -58,6 +58,7 @@ async function ocrPdfPages(data: Uint8Array): Promise<{
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
   const { createWorker } = await import("tesseract.js");
+  const { preprocessImageForOcr } = await import("@/lib/bank/ocr-preprocess");
   const doc = await pdfjs.getDocument({ data }).promise;
   const pageCount = doc.numPages;
   const worker = await createWorker("eng");
@@ -73,7 +74,8 @@ async function ocrPdfPages(data: Uint8Array): Promise<{
       const ctx = canvas.getContext("2d");
       if (!ctx) continue;
       await page.render({ canvasContext: ctx, viewport }).promise;
-      const result = await worker.recognize(canvas);
+      const prepped = preprocessImageForOcr(canvas, { scale: 1 });
+      const result = await worker.recognize(prepped);
       const pageText = tidy(result.data.text ?? "");
       if (pageText) chunks.push(pageText);
     }
@@ -86,9 +88,14 @@ async function ocrPdfPages(data: Uint8Array): Promise<{
 
 async function ocrImageFile(file: File): Promise<BrowserExtractResult> {
   const { createWorker } = await import("tesseract.js");
+  const { loadImageFromBlob, preprocessImageForOcr } = await import(
+    "@/lib/bank/ocr-preprocess"
+  );
   const worker = await createWorker("eng");
   try {
-    const result = await worker.recognize(file);
+    const img = await loadImageFromBlob(file);
+    const prepped = preprocessImageForOcr(img, { scale: 2 });
+    const result = await worker.recognize(prepped);
     const text = tidy(result.data.text ?? "");
     return {
       text,

@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import {
   useEffect,
   useMemo,
@@ -30,6 +32,7 @@ import { uploadClientDocument } from "@/server/actions/documents";
 import { saFiledCategory } from "@/lib/sa-filed-docs";
 import { messageFromUnknown } from "@/lib/action-error";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { SaTaxYearActionsMenu } from "@/components/forms/sa-tax-year-actions-menu";
 
 export type SaFiledDocRow = {
   id: string;
@@ -51,6 +54,8 @@ export function SaTaxYearWorkspace({
   filedDocs = [],
   clientId,
   taxpayerId,
+  clientName = "client",
+  contactEmail = null,
   identifiersReady = true,
   identifiersMissing = [],
   children,
@@ -61,7 +66,9 @@ export function SaTaxYearWorkspace({
   filedDocs?: SaFiledDocRow[];
   clientId: string;
   taxpayerId?: string | null;
-  /** NINO + personal UTR + address required before opening any SA100. */
+  clientName?: string;
+  contactEmail?: string | null;
+  /** NINO + personal UTR + DOB + address required before opening any SA100. */
   identifiersReady?: boolean;
   identifiersMissing?: string[];
   children?: ReactNode;
@@ -83,7 +90,6 @@ export function SaTaxYearWorkspace({
   const [customOpen, setCustomOpen] = useState(false);
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
-  const [cardMenuYear, setCardMenuYear] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{
     year: SaTaxYear;
     status: string;
@@ -92,7 +98,6 @@ export function SaTaxYearWorkspace({
   /** Optimistic: years removed locally before / after server delete. */
   const [removedYears, setRemovedYears] = useState<string[]>([]);
   const addMenuRef = useRef<HTMLDivElement>(null);
-  const cardMenuRef = useRef<HTMLDivElement>(null);
 
   const returnYears = useMemo(() => {
     const map = new Map<
@@ -196,7 +201,7 @@ export function SaTaxYearWorkspace({
     if (!identifiersReady) {
       const missing = identifiersMissing.length
         ? identifiersMissing
-        : ["NINO", "Personal UTR", "Postcode"];
+        : ["NINO", "Personal UTR", "Date of birth", "Postcode"];
       setErr(
         `Enter ${missing.join(", ")} on Identifiers before opening an SA100.`,
       );
@@ -231,20 +236,17 @@ export function SaTaxYearWorkspace({
   }
 
   useEffect(() => {
-    if (!addMenuOpen && !cardMenuYear) return;
+    if (!addMenuOpen) return;
     function onDoc(e: MouseEvent) {
       const t = e.target as Node;
       if (addMenuOpen && !addMenuRef.current?.contains(t)) {
         setAddMenuOpen(false);
         setCustomOpen(false);
       }
-      if (cardMenuYear && !cardMenuRef.current?.contains(t)) {
-        setCardMenuYear(null);
-      }
     }
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
-  }, [addMenuOpen, cardMenuYear]);
+  }, [addMenuOpen]);
 
   function addYearLabel(label: string, note?: string) {
     const y = parseSaTaxYearLabel(label);
@@ -326,7 +328,6 @@ export function SaTaxYearWorkspace({
         : status === "submitted" || status === "accepted"
           ? `Remove the ${year.label} filed return from this desk?`
           : `Remove ${year.label} from this list?`;
-    setCardMenuYear(null);
     setConfirmDelete({ year, status, message });
   }
 
@@ -381,7 +382,7 @@ export function SaTaxYearWorkspace({
     if (!identifiersReady) {
       const missing = identifiersMissing.length
         ? identifiersMissing
-        : ["NINO", "Personal UTR", "Postcode"];
+        : ["NINO", "Personal UTR", "Date of birth", "Postcode"];
       return (
         <div ref={rootRef} id="sa-tax-return" className="space-y-4 scroll-mt-24">
           <div className="panel border-amber-200 bg-amber-50/50 p-5">
@@ -459,7 +460,6 @@ export function SaTaxYearWorkspace({
             onClick={() => {
               setAddMenuOpen((o) => !o);
               if (addMenuOpen) setCustomOpen(false);
-              setCardMenuYear(null);
             }}
           >
             Add tax year
@@ -513,20 +513,12 @@ export function SaTaxYearWorkspace({
                 <div className="space-y-2 border-t border-line px-3.5 py-3">
                   <label className="block text-xs font-semibold text-ink-soft">
                     Period start
-                    <input
-                      type="date"
-                      className="input mt-1 w-full text-sm"
-                      value={customStart}
-                      onChange={(e) => setCustomStart(e.target.value)}
+                    <UkDateField className="input mt-1 w-full text-sm" value={customStart} onChange={(iso) => setCustomStart(iso)}
                     />
                   </label>
                   <label className="block text-xs font-semibold text-ink-soft">
                     Period end
-                    <input
-                      type="date"
-                      className="input mt-1 w-full text-sm"
-                      value={customEnd}
-                      onChange={(e) => setCustomEnd(e.target.value)}
+                    <UkDateField className="input mt-1 w-full text-sm" value={customEnd} onChange={(iso) => setCustomEnd(iso)}
                     />
                   </label>
                   <button
@@ -565,13 +557,8 @@ export function SaTaxYearWorkspace({
           const badge = isDraft
             ? "Draft"
             : saUrgencyLabel(urgency, submitted);
-          const menuOpen = cardMenuYear === year.label;
-
           return (
-            <li
-              key={year.label}
-              className={`relative overflow-visible ${menuOpen ? "z-30" : "z-0"}`}
-            >
+            <li key={year.label} className="relative overflow-visible">
               <div
                 role="button"
                 tabIndex={0}
@@ -676,10 +663,8 @@ export function SaTaxYearWorkspace({
                   )}
                 </div>
 
-                {/* Split control: primary open + actions menu (stops card click). */}
                 <div
                   className="relative flex shrink-0"
-                  ref={menuOpen ? cardMenuRef : undefined}
                   onClick={(e) => e.stopPropagation()}
                   onKeyDown={(e) => e.stopPropagation()}
                 >
@@ -691,89 +676,24 @@ export function SaTaxYearWorkspace({
                     >
                       Open return →
                     </button>
-                    <button
-                      type="button"
-                      className="border-l border-sea/30 px-2.5 py-2 text-sea hover:bg-sea/5"
-                      aria-expanded={menuOpen}
-                      aria-haspopup="menu"
-                      aria-label={`More actions for ${year.label}`}
-                      onClick={() => {
-                        setCardMenuYear((cur) =>
-                          cur === year.label ? null : year.label,
-                        );
-                        setAddMenuOpen(false);
+                    <SaTaxYearActionsMenu
+                      label="▾"
+                      ctx={{
+                        clientId,
+                        clientName,
+                        contactEmail,
+                        taxYearLabel: year.label,
+                        statusLabel: badge || "Not started",
+                        returnId: match?.id ?? null,
+                        sa100DocumentId: docs?.return?.id ?? null,
+                        sa302DocumentId: docs?.sa302?.id ?? null,
                       }}
-                    >
-                      <svg
-                        width="12"
-                        height="12"
-                        viewBox="0 0 12 12"
-                        aria-hidden
-                        className="mx-auto"
-                      >
-                        <path
-                          d="M2.5 4.5 6 8l3.5-3.5"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.6"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </button>
+                      onOpenReturn={() => openFiling(year)}
+                      onUploadSa100={() => pickUpload(year.label, "return")}
+                      onUploadSa302={() => pickUpload(year.label, "sa302")}
+                      onDelete={() => askDeleteYear(year, status)}
+                    />
                   </div>
-                  {menuOpen ? (
-                    <div
-                      role="menu"
-                      className="absolute right-0 top-full z-50 mt-1.5 w-48 rounded-xl border border-line bg-white py-1 shadow-lg"
-                    >
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="block w-full px-3.5 py-2.5 text-left text-sm text-ink hover:bg-sand/70"
-                        onClick={() => {
-                          setCardMenuYear(null);
-                          openFiling(year);
-                        }}
-                      >
-                        Open return
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="block w-full px-3.5 py-2.5 text-left text-sm text-ink hover:bg-sand/70 disabled:opacity-50"
-                        disabled={pending}
-                        onClick={() => {
-                          setCardMenuYear(null);
-                          pickUpload(year.label, "return");
-                        }}
-                      >
-                        Upload SA100
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="block w-full px-3.5 py-2.5 text-left text-sm text-ink hover:bg-sand/70 disabled:opacity-50"
-                        disabled={pending}
-                        onClick={() => {
-                          setCardMenuYear(null);
-                          pickUpload(year.label, "sa302");
-                        }}
-                      >
-                        Upload SA302
-                      </button>
-                      <div className="my-1 border-t border-line" />
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="block w-full px-3.5 py-2.5 text-left text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-                        disabled={pending}
-                        onClick={() => askDeleteYear(year, status)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  ) : null}
                 </div>
               </div>
             </li>

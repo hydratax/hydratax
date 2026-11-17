@@ -194,10 +194,9 @@ export function LetterheadForm({ initial }: { initial: PracticeLetterhead }) {
             placeholder="you@yourfirm.co.uk"
           />
           <span className="mt-1 block text-xs text-ink-soft">
-            Client emails (SA100, SA302, invoices) send from HydraTax
-            (info@hydratax.uk). Replies go to this address — or your signed-in
-            email if blank. Custom “send as” your firm domain comes later once
-            the domain is verified.
+            Client mail shows your practice name as From. Replies come here (or
+            your signed-in email if blank). Connect Gmail or Microsoft 365 under
+            Channels in the account menu when you want to send as your mailbox.
           </span>
         </label>
         <label className="block">

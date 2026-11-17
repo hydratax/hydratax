@@ -337,6 +337,7 @@ export function CreateAccountForm() {
         </section>
 
         <FormErrorBanner
+          surface="auth"
           error={error}
           title={
             error && isExistingAccountAuthError(error)

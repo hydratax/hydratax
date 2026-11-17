@@ -1,4 +1,5 @@
 import type { PracticeLetterhead } from "@/lib/desk-profile";
+import { formatPracticePaymentInstructions } from "@/lib/desk-profile";
 import { letterheadNeedsBranding } from "@/lib/invoices/totals";
 
 function escapeHtml(s: string): string {
@@ -134,7 +135,7 @@ export function renderInvoiceHtml(input: {
     .join("");
 
   const subject = inv.subject?.trim()
-    ? `<p class="meta"><strong>Subject:</strong> ${escapeHtml(inv.subject)}</p>`
+    ? `<p class="subject"><strong>Subject</strong> ${escapeHtml(inv.subject)}</p>`
     : "";
 
   const notes = inv.notes?.trim()
@@ -164,20 +165,25 @@ export function renderInvoiceHtml(input: {
   ].join("");
 
   const payOnline = inv.payUrl?.trim()
-    ? `<section class="block payment">
+    ? `<section class="block payment pay-online">
         <h2>Pay online</h2>
         <p><a href="${escapeHtml(inv.payUrl)}">${escapeHtml(inv.payUrl)}</a></p>
       </section>`
     : "";
 
-  const payment = inv.paymentInstructions?.trim()
+  const practiceBank = formatPracticePaymentInstructions(lh).trim();
+  const paymentText =
+    inv.paymentInstructions?.trim() || practiceBank || "";
+
+  const payment = paymentText
     ? `<section class="block payment">
-        <h2>Payment instructions</h2>
-        <p class="pre">${escapeHtml(inv.paymentInstructions)}</p>
+        <h2>How to pay</h2>
+        <p class="pre">${escapeHtml(paymentText)}</p>
+        <p class="pay-ref">Please quote invoice <strong>${escapeHtml(inv.invoiceNumber)}</strong> as your payment reference.</p>
       </section>`
     : needsBranding
       ? `<section class="block payment print-hide">
-        <h2>Payment instructions</h2>
+        <h2>How to pay</h2>
         <p class="meta placeholder">Add bank details in <a href="${escapeHtml(brandingHref)}">Practice branding</a>.</p>
       </section>`
       : "";
@@ -187,6 +193,18 @@ export function renderInvoiceHtml(input: {
     : "";
 
   const statusLabel = escapeHtml(inv.status.replace(/_/g, " "));
+
+  const billToBits = [
+    client.contactEmail
+      ? `<p>${escapeHtml(client.contactEmail)}</p>`
+      : "",
+    client.contactPhone
+      ? `<p>${escapeHtml(client.contactPhone)}</p>`
+      : "",
+    client.companyNumber
+      ? `<p>Company no. ${escapeHtml(client.companyNumber)}</p>`
+      : "",
+  ].join("");
 
   return `<!DOCTYPE html>
 <html lang="en-GB">
@@ -244,10 +262,10 @@ export function renderInvoiceHtml(input: {
     }
     .header {
       display: grid;
-      grid-template-columns: 1.2fr 0.8fr;
+      grid-template-columns: 1.25fr 0.75fr;
       gap: 18pt;
       padding-bottom: 14pt;
-      margin-bottom: 14pt;
+      margin-bottom: 16pt;
       border-bottom: 1px solid #e7e5e4;
       align-items: start;
     }
@@ -294,20 +312,31 @@ export function renderInvoiceHtml(input: {
       font-size: 8pt; font-weight: 700; letter-spacing: 0.06em;
       text-transform: uppercase;
     }
-    .parties {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 18pt;
+    .bill-to {
       margin-bottom: 18pt;
+      padding: 12pt 14pt;
+      background: #fafaf9;
+      border: 1px solid #e7e5e4;
+      border-radius: 8px;
+      max-width: 55%;
     }
-    .parties h2 {
+    .bill-to h2 {
       margin: 0 0 6pt; font-size: 8pt; font-weight: 700;
       letter-spacing: 0.12em; text-transform: uppercase; color: #78716c;
     }
-    .parties .name {
-      margin: 0 0 3pt;
+    .bill-to .name {
+      margin: 0 0 4pt;
       font-family: "Libre Baskerville", Georgia, serif;
-      font-weight: 700; font-size: 11.5pt; color: #1c1917;
+      font-weight: 700; font-size: 12pt; color: #1c1917;
     }
-    .parties p { margin: 0 0 1pt; font-size: 9pt; color: #57534e; }
+    .bill-to p { margin: 0 0 1pt; font-size: 9pt; color: #57534e; }
+    .subject {
+      margin: 0 0 12pt; font-size: 9.5pt; color: #44403c;
+    }
+    .subject strong {
+      font-size: 8pt; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: #78716c; margin-right: 0.4rem;
+    }
     table.lines {
       width: 100%; border-collapse: collapse; margin-top: 2pt;
       font-size: 9.5pt;
@@ -327,12 +356,19 @@ export function renderInvoiceHtml(input: {
       vertical-align: top; color: #292524;
     }
     table.lines tbody tr:last-child td { border-bottom: 1px solid #d6d3d1; }
-    .totals-wrap {
-      display: flex; justify-content: flex-end; margin-top: 14pt;
+    .after-lines {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18pt;
+      align-items: start;
+      margin-top: 16pt;
+    }
+    .after-lines .side {
+      min-width: 0;
     }
     .totals {
-      width: 240px;
-      padding: 10pt 12pt;
+      width: 250px;
+      padding: 12pt 14pt;
       background: #fafaf9;
       border: 1px solid #e7e5e4;
       border-radius: 8px;
@@ -354,16 +390,25 @@ export function renderInvoiceHtml(input: {
       font-family: "Libre Baskerville", Georgia, serif;
       font-size: 11pt;
     }
-    .block { margin-top: 18pt; }
+    .block { margin-top: 14pt; }
     .block h2 {
       margin: 0 0 5pt; font-size: 8pt; font-weight: 700;
       letter-spacing: 0.12em; text-transform: uppercase; color: #78716c;
     }
     .payment {
-      padding: 10pt 12pt;
+      padding: 12pt 14pt;
       background: #f0fdfa;
-      border: 1px solid #ccfbf1;
+      border: 1px solid #99f6e4;
       border-radius: 8px;
+    }
+    .payment.pay-online {
+      background: #fff;
+      border-color: #e7e5e4;
+    }
+    .pay-ref {
+      margin: 8pt 0 0;
+      font-size: 8.5pt;
+      color: #57534e;
     }
     .pre { margin: 0; white-space: pre-wrap; font-size: 9.5pt; color: #44403c; }
     .footer {
@@ -375,6 +420,13 @@ export function renderInvoiceHtml(input: {
       .print-hide, .toolbar { display: none !important; }
       body { background: #fff; }
       .sheet { box-shadow: none; padding: 0; max-width: none; }
+    }
+    @media (max-width: 640px) {
+      .header { grid-template-columns: 1fr; }
+      .inv-meta { text-align: left; }
+      .bill-to { max-width: none; }
+      .after-lines { grid-template-columns: 1fr; }
+      .totals { width: 100%; }
     }
   </style>
 </head>
@@ -405,19 +457,10 @@ export function renderInvoiceHtml(input: {
         </dl>
       </div>
     </header>
-    <div class="parties">
-      <div>
-        <h2>Bill to</h2>
-        <p class="name">${escapeHtml(client.name)}</p>
-        ${client.contactEmail ? `<p>${escapeHtml(client.contactEmail)}</p>` : ""}
-        ${client.contactPhone ? `<p>${escapeHtml(client.contactPhone)}</p>` : ""}
-        ${client.companyNumber ? `<p>Company no. ${escapeHtml(client.companyNumber)}</p>` : ""}
-      </div>
-      <div>
-        <h2>From</h2>
-        <p class="name">${practiceName}</p>
-        ${addressBlock}
-      </div>
+    <div class="bill-to">
+      <h2>Bill to</h2>
+      <p class="name">${escapeHtml(client.name)}</p>
+      ${billToBits}
     </div>
     ${subject}
     <table class="lines">
@@ -432,7 +475,13 @@ export function renderInvoiceHtml(input: {
       </thead>
       <tbody>${linesHtml}${extrasRows}</tbody>
     </table>
-    <div class="totals-wrap">
+    <div class="after-lines">
+      <div class="side">
+        ${payment}
+        ${payOnline}
+        ${notes}
+        ${terms}
+      </div>
       <div class="totals">
         <div class="row"><span>Net</span><span>${escapeHtml(gbp(inv.subtotalPence))}</span></div>
         ${inv.discountPence ? `<div class="row"><span>Discount</span><span>−${escapeHtml(gbp(inv.discountPence))}</span></div>` : ""}
@@ -442,10 +491,6 @@ export function renderInvoiceHtml(input: {
         <div class="row grand"><span>Total due</span><span>${escapeHtml(gbp(inv.totalPence))}</span></div>
       </div>
     </div>
-    ${notes}
-    ${terms}
-    ${payOnline}
-    ${payment}
     ${footer ? `<footer class="footer">${footer}</footer>` : `<footer class="footer"><p class="placeholder">Footer / regulatory lines — add in Practice branding</p></footer>`}
   </div>
   ${autoPrint}

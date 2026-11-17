@@ -29,10 +29,22 @@ export function AppShellHeader({
 }) {
   const [servicesOpen, setServicesOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const servicesRef = useRef<HTMLDivElement>(null);
   const accountRef = useRef<HTMLDivElement>(null);
   const [pending, start] = useTransition();
+
+  const settingsItems: NavItem[] = [
+    { href: "/settings/letterhead", label: "Practice branding" },
+    { href: "/settings/channels", label: "Channels" },
+    { href: "/settings/password-protection", label: "Password protection" },
+    ...(canViewLogs ? [{ href: "/settings/logs", label: "Logs" }] : []),
+    ...(canManageTeam
+      ? [{ href: "/settings/team", label: "Team & roles" }]
+      : []),
+  ];
 
   const initials = (userEmail ?? "U")
     .split("@")[0]
@@ -49,12 +61,15 @@ export function AppShellHeader({
       }
       if (!accountRef.current?.contains(e.target as Node)) {
         setAccountOpen(false);
+        setSettingsOpen(false);
       }
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         setServicesOpen(false);
         setAccountOpen(false);
+        setSettingsOpen(false);
+        setMobileSettingsOpen(false);
         setMobileOpen(false);
       }
     }
@@ -79,6 +94,8 @@ export function AppShellHeader({
     setMobileOpen(false);
     setServicesOpen(false);
     setAccountOpen(false);
+    setSettingsOpen(false);
+    setMobileSettingsOpen(false);
   }
 
   function signOut() {
@@ -183,6 +200,7 @@ export function AppShellHeader({
               onClick={() => {
                 setAccountOpen((v) => !v);
                 setServicesOpen(false);
+                setSettingsOpen(false);
               }}
             >
               {initials}
@@ -202,60 +220,72 @@ export function AppShellHeader({
                     href="/settings/account"
                     role="menuitem"
                     className="block px-4 py-2 text-ink-soft hover:bg-sand hover:text-ink"
-                    onClick={() => setAccountOpen(false)}
+                    onClick={() => {
+                      setAccountOpen(false);
+                      setSettingsOpen(false);
+                    }}
                   >
                     Account
                   </Link>
-                  <Link
-                    href="/settings/payments"
-                    role="menuitem"
-                    className="block px-4 py-2 text-ink-soft hover:bg-sand hover:text-ink"
-                    onClick={() => setAccountOpen(false)}
-                  >
-                    Payment gateways
-                  </Link>
-                  <Link
-                    href="/settings/letterhead"
-                    role="menuitem"
-                    className="block px-4 py-2 text-ink-soft hover:bg-sand hover:text-ink"
-                    onClick={() => setAccountOpen(false)}
-                  >
-                    Practice branding
-                  </Link>
-                  {canViewLogs ? (
-                    <Link
-                      href="/settings/logs"
-                      role="menuitem"
-                      className="flex items-center gap-2 px-4 py-2 text-ink-soft hover:bg-sand hover:text-ink"
-                      onClick={() => setAccountOpen(false)}
-                    >
-                      <svg
-                        className="h-4 w-4 shrink-0 text-ink-soft"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        aria-hidden
+                  {settingsItems.length > 0 ? (
+                    <div className="relative">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        aria-expanded={settingsOpen}
+                        aria-haspopup="menu"
+                        className="flex w-full items-center gap-2 px-4 py-2 text-left text-ink-soft hover:bg-sand hover:text-ink"
+                        onClick={() => setSettingsOpen((v) => !v)}
                       >
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                        <path d="M14 2v6h6" />
-                        <path d="M8 13h8M8 17h6" />
-                      </svg>
-                      <span className="flex-1">Logs</span>
-                      <span className="text-ink-soft/70" aria-hidden>
-                        ›
-                      </span>
-                    </Link>
-                  ) : null}
-                  {canManageTeam ? (
-                    <Link
-                      href="/settings/team"
-                      role="menuitem"
-                      className="block px-4 py-2 text-ink-soft hover:bg-sand hover:text-ink"
-                      onClick={() => setAccountOpen(false)}
-                    >
-                      Team & roles
-                    </Link>
+                        <span className="flex-1">Settings</span>
+                        <span className="text-[0.65rem] opacity-70" aria-hidden>
+                          {settingsOpen ? "▾" : "›"}
+                        </span>
+                      </button>
+                      {settingsOpen ? (
+                        <div
+                          role="menu"
+                          className="border-t border-line bg-sand/40 py-1"
+                        >
+                          {settingsItems.map((item) => (
+                            <Link
+                              key={item.href}
+                              href={item.href}
+                              role="menuitem"
+                              className={
+                                item.label === "Logs"
+                                  ? "flex items-center gap-2 px-4 py-2 pl-7 text-ink-soft hover:bg-sand hover:text-ink"
+                                  : "block px-4 py-2 pl-7 text-ink-soft hover:bg-sand hover:text-ink"
+                              }
+                              onClick={() => {
+                                setAccountOpen(false);
+                                setSettingsOpen(false);
+                              }}
+                            >
+                              {item.label === "Logs" ? (
+                                <>
+                                  <svg
+                                    className="h-4 w-4 shrink-0 text-ink-soft"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                    aria-hidden
+                                  >
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                    <path d="M14 2v6h6" />
+                                    <path d="M8 13h8M8 17h6" />
+                                  </svg>
+                                  <span className="flex-1">Logs</span>
+                                </>
+                              ) : (
+                                item.label
+                              )}
+                            </Link>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
                   ) : null}
                   <button
                     type="button"
@@ -362,50 +392,54 @@ export function AppShellHeader({
               >
                 Account
               </Link>
-              <Link
-                href="/settings/payments"
-                className="rounded-lg px-3 py-3 text-ink hover:bg-sand"
-                onClick={closeMobile}
-              >
-                Payment gateways
-              </Link>
-              <Link
-                href="/settings/letterhead"
-                className="rounded-lg px-3 py-3 text-ink hover:bg-sand"
-                onClick={closeMobile}
-              >
-                Practice branding
-              </Link>
-              {canViewLogs ? (
-                <Link
-                  href="/settings/logs"
-                  className="flex items-center gap-2 rounded-lg px-3 py-3 text-ink hover:bg-sand"
-                  onClick={closeMobile}
-                >
-                  <svg
-                    className="h-4 w-4 shrink-0"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    aria-hidden
+              {settingsItems.length > 0 ? (
+                <>
+                  <button
+                    type="button"
+                    className="flex w-full items-center rounded-lg px-3 py-3 text-left text-ink hover:bg-sand"
+                    aria-expanded={mobileSettingsOpen}
+                    onClick={() => setMobileSettingsOpen((v) => !v)}
                   >
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <path d="M14 2v6h6" />
-                    <path d="M8 13h8M8 17h6" />
-                  </svg>
-                  <span className="flex-1">Logs</span>
-                  <span aria-hidden>›</span>
-                </Link>
-              ) : null}
-              {canManageTeam ? (
-                <Link
-                  href="/settings/team"
-                  className="rounded-lg px-3 py-3 text-ink hover:bg-sand"
-                  onClick={closeMobile}
-                >
-                  Team & roles
-                </Link>
+                    <span className="flex-1">Settings</span>
+                    <span className="text-sm text-ink-soft" aria-hidden>
+                      {mobileSettingsOpen ? "▾" : "›"}
+                    </span>
+                  </button>
+                  {mobileSettingsOpen
+                    ? settingsItems.map((item) => (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          className={
+                            item.label === "Logs"
+                              ? "flex items-center gap-2 rounded-lg py-3 pl-6 pr-3 text-ink hover:bg-sand"
+                              : "rounded-lg py-3 pl-6 pr-3 text-ink hover:bg-sand"
+                          }
+                          onClick={closeMobile}
+                        >
+                          {item.label === "Logs" ? (
+                            <>
+                              <svg
+                                className="h-4 w-4 shrink-0"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                aria-hidden
+                              >
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <path d="M14 2v6h6" />
+                                <path d="M8 13h8M8 17h6" />
+                              </svg>
+                              <span className="flex-1">Logs</span>
+                            </>
+                          ) : (
+                            item.label
+                          )}
+                        </Link>
+                      ))
+                    : null}
+                </>
               ) : null}
               <button
                 type="button"

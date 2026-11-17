@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
@@ -470,13 +472,16 @@ function TaxpayerForm({
           />
         </label>
         <label className="block text-sm font-semibold">
-          Date of birth
-          <input
-            name="dateOfBirth"
-            type="date"
-            defaultValue={initial?.dateOfBirth ?? ""}
-            className="input mt-1.5 w-full"
-          />
+          Date of birth *
+          <div className="mt-1.5">
+            <UkDateField
+              name="dateOfBirth"
+              required
+              defaultValue={initial?.dateOfBirth ?? ""}
+              className="input w-full"
+              maxYear={new Date().getFullYear()}
+            />
+          </div>
         </label>
         <label className="block text-sm font-semibold">
           Contact number

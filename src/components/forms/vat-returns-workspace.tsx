@@ -17,6 +17,7 @@ import {
 import { HmrcVatConnectModal } from "@/components/forms/hmrc-vat-connect-modal";
 import { VAT_BOX_DEFINITIONS } from "@/lib/hmrc/filing-guides";
 import { money } from "@/lib/format";
+import { pence } from "@/server/money/pence";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { EmailToClientButton } from "@/components/forms/email-to-client-button";
 import {
@@ -226,17 +227,21 @@ export function VatReturnsWorkspace({
       totalVatDue: penceToField(total),
       netVatDue: penceToField(net),
       pence: {
-        vatDueSales: b1,
-        vatDueAcquisitions: b2,
-        totalVatDue: total,
-        vatReclaimedCurrPeriod: b4,
-        netVatDue: net,
-        totalValueSalesExVAT: parsePounds(boxes.totalValueSalesExVAT),
-        totalValuePurchasesExVAT: parsePounds(boxes.totalValuePurchasesExVAT),
-        totalValueGoodsSuppliedExVAT: parsePounds(
-          boxes.totalValueGoodsSuppliedExVAT,
+        vatDueSales: pence(b1),
+        vatDueAcquisitions: pence(b2),
+        totalVatDue: pence(total),
+        vatReclaimedCurrPeriod: pence(b4),
+        netVatDue: pence(net),
+        totalValueSalesExVAT: pence(parsePounds(boxes.totalValueSalesExVAT)),
+        totalValuePurchasesExVAT: pence(
+          parsePounds(boxes.totalValuePurchasesExVAT),
         ),
-        totalAcquisitionsExVAT: parsePounds(boxes.totalAcquisitionsExVAT),
+        totalValueGoodsSuppliedExVAT: pence(
+          parsePounds(boxes.totalValueGoodsSuppliedExVAT),
+        ),
+        totalAcquisitionsExVAT: pence(
+          parsePounds(boxes.totalAcquisitionsExVAT),
+        ),
       },
     };
   }, [boxes]);
@@ -632,10 +637,21 @@ export function VatReturnsWorkspace({
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={pending || trialGate.pending || !obligation}
+                  disabled={
+                    pending ||
+                    trialGate.pending ||
+                    !obligation ||
+                    !vrn
+                  }
                   onClick={() =>
                     start(async () => {
                       if (!obligation) return;
+                      if (!vrn) {
+                        setError(
+                          "Connect VAT and enter the VRN before submitting to HMRC.",
+                        );
+                        return;
+                      }
                       setError(null);
                       trialGate.clearGate();
                       try {

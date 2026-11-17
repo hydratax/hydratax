@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -12,6 +14,7 @@ import {
   debtorClosingPence,
   depreciationChargePence,
   loanClosingPence,
+  mortgageInterestDueFromRatePence,
   mortgageInterestPaidPence,
   type CreditorBucket,
   type DebtorBucket,
@@ -54,6 +57,8 @@ function poundsInputToPence(raw: string): number {
 }
 
 type TxLine = {
+  id: string;
+  description: string;
   category: string;
   amountPence: number;
   dated: string;
@@ -91,6 +96,8 @@ export function BankYearEndDesk({
   const bankLines = useMemo(
     () =>
       transactions.map((t) => ({
+        id: t.id,
+        description: t.description,
         category: t.category,
         amountPence: t.amountPence,
         dated: t.dated,
@@ -231,20 +238,12 @@ export function BankYearEndDesk({
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-line bg-sand/30 p-3">
         <label className="label text-xs">
           Period start
-          <input
-            type="date"
-            className="input mt-1"
-            value={periodStart}
-            onChange={(e) => setPeriodStart(e.target.value)}
+          <UkDateField className="input mt-1" value={periodStart} onChange={(iso) => setPeriodStart(iso)}
           />
         </label>
         <label className="label text-xs">
           Period end
-          <input
-            type="date"
-            className="input mt-1"
-            value={periodEnd}
-            onChange={(e) => setPeriodEnd(e.target.value)}
+          <UkDateField className="input mt-1" value={periodEnd} onChange={(iso) => setPeriodEnd(iso)}
           />
         </label>
         <button
@@ -493,14 +492,23 @@ function LoansPanel({
     "director",
   );
   const [bf, setBf] = useState("0.00");
+  const [secondEntry, setSecondEntry] = useState("Dr Bank / Cr Loan");
 
   return (
     <div className="space-y-4">
+      <p className="text-sm text-ink-soft">
+        Accubee: loan accounts feed creditors on the accounts draft. Second
+        entry is required (double-entry).
+      </p>
       <form
-        className="grid gap-3 rounded-xl border border-line bg-sand/20 p-4 sm:grid-cols-4"
+        className="overflow-x-auto rounded-xl border border-line"
         onSubmit={(e) => {
           e.preventDefault();
           onError(null);
+          if (!secondEntry.trim()) {
+            onError("Accubee: enter the second entry for this loan.");
+            return;
+          }
           start(async () => {
             try {
               const next = await upsertBankLoan({
@@ -508,108 +516,159 @@ function LoansPanel({
                 name,
                 kind,
                 broughtForwardPence: poundsInputToPence(bf),
+                secondEntry: secondEntry.trim(),
               });
               onSaved(next);
               setName("");
               setBf("0.00");
+              setSecondEntry("Dr Bank / Cr Loan");
             } catch (err) {
               onError(messageFromUnknown(err, "Could not save loan"));
             }
           });
         }}
       >
-        <label className="label text-xs sm:col-span-2">
-          New loan account
-          <input
-            className="input mt-1"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Director’s loan / Bounce Back / HP"
-            required
-          />
-        </label>
-        <label className="label text-xs">
-          Type
-          <select
-            className="input mt-1"
-            value={kind}
-            onChange={(e) =>
-              setKind(e.target.value as typeof kind)
-            }
-          >
-            <option value="director">Director</option>
-            <option value="bank">Bank loan</option>
-            <option value="hp">Hire purchase</option>
-            <option value="other">Other</option>
-          </select>
-        </label>
-        <label className="label text-xs">
-          Brought forward £
-          <input
-            className="input mt-1 figures"
-            value={bf}
-            onChange={(e) => setBf(e.target.value)}
-          />
-        </label>
-        <button
-          type="submit"
-          className="btn btn-primary text-sm sm:col-span-4 sm:justify-self-start"
-          disabled={pending || !name.trim()}
-        >
-          Add loan account
-        </button>
+        <table className="w-full min-w-[40rem] border-collapse text-sm">
+          <thead className="bg-sand/50 text-left text-xs uppercase text-ink-soft">
+            <tr>
+              <th className="px-3 py-2 font-semibold">Loan account</th>
+              <th className="px-3 py-2 font-semibold">Type</th>
+              <th className="px-3 py-2 font-semibold text-right">BF £</th>
+              <th className="px-3 py-2 font-semibold">2nd entry</th>
+              <th className="px-3 py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-t border-line bg-white">
+              <td className="px-2 py-2">
+                <input
+                  className="input w-full"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Director’s loan / Bounce Back / HP"
+                  required
+                />
+              </td>
+              <td className="px-2 py-2">
+                <select
+                  className="input w-full"
+                  value={kind}
+                  onChange={(e) => setKind(e.target.value as typeof kind)}
+                >
+                  <option value="director">Director</option>
+                  <option value="bank">Bank loan</option>
+                  <option value="hp">Hire purchase</option>
+                  <option value="other">Other</option>
+                </select>
+              </td>
+              <td className="px-2 py-2">
+                <input
+                  className="input figures w-full text-right"
+                  value={bf}
+                  onChange={(e) => setBf(e.target.value)}
+                />
+              </td>
+              <td className="px-2 py-2">
+                <input
+                  className="input w-full"
+                  value={secondEntry}
+                  onChange={(e) => setSecondEntry(e.target.value)}
+                  required
+                  placeholder="Dr Bank / Cr Loan"
+                />
+              </td>
+              <td className="px-2 py-2">
+                <button
+                  type="submit"
+                  className="btn btn-primary text-xs whitespace-nowrap"
+                  disabled={pending || !name.trim()}
+                >
+                  Add
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </form>
 
-      <ul className="divide-y divide-line rounded-xl border border-line">
-        {ledger.loans.length === 0 ? (
-          <li className="px-4 py-6 text-sm text-ink-soft">
-            No loan accounts yet. Bring forward last year or add one above.
-          </li>
-        ) : (
-          ledger.loans.map((loan) => {
-            const closing = loanClosingPence(
-              loan,
-              bankLines,
-              periodStart,
-              periodEnd,
-            );
-            return (
-              <li
-                key={loan.id}
-                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm"
-              >
-                <div>
-                  <p className="font-semibold text-ink">{loan.name}</p>
-                  <p className="text-xs capitalize text-ink-soft">{loan.kind}</p>
-                </div>
-                <div className="figures text-right">
-                  <p className="text-xs text-ink-soft">Brought forward</p>
-                  <p>{gbp(loan.broughtForwardPence)}</p>
-                  <p className="mt-1 text-xs text-ink-soft">Closing (est.)</p>
-                  <p className="font-semibold">{gbp(closing)}</p>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-secondary text-xs"
-                  disabled={pending}
-                  onClick={() =>
-                    start(async () => {
-                      try {
-                        const next = await deleteBankLoan(clientId, loan.id);
-                        onSaved(next);
-                      } catch (err) {
-                        onError(messageFromUnknown(err, "Delete failed"));
-                      }
-                    })
-                  }
+      <div className="overflow-x-auto rounded-xl border border-line">
+        <table className="w-full min-w-[36rem] border-collapse text-sm">
+          <thead className="bg-sand/40 text-left text-xs uppercase text-ink-soft">
+            <tr>
+              <th className="px-3 py-2">Loan</th>
+              <th className="px-3 py-2">Type</th>
+              <th className="px-3 py-2 text-right">BF</th>
+              <th className="px-3 py-2 text-right">Closing (est.)</th>
+              <th className="px-3 py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {ledger.loans.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={5}
+                  className="px-4 py-6 text-center text-ink-soft"
                 >
-                  Remove
-                </button>
-              </li>
-            );
-          })
-        )}
-      </ul>
+                  No loan accounts yet. Bring forward last year or add a row
+                  above.
+                </td>
+              </tr>
+            ) : (
+              ledger.loans.map((loan) => {
+                const closing = loanClosingPence(
+                  loan,
+                  bankLines,
+                  periodStart,
+                  periodEnd,
+                );
+                return (
+                  <tr key={loan.id} className="border-t border-line">
+                    <td className="px-3 py-2">
+                      <p className="font-semibold text-ink">{loan.name}</p>
+                      {loan.notes ? (
+                        <p className="text-xs text-ink-soft">{loan.notes}</p>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2 capitalize text-ink-soft">
+                      {loan.kind}
+                    </td>
+                    <td className="figures px-3 py-2 text-right">
+                      {gbp(loan.broughtForwardPence)}
+                    </td>
+                    <td className="figures px-3 py-2 text-right font-semibold">
+                      {gbp(closing)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        className="btn btn-secondary text-xs"
+                        disabled={pending}
+                        onClick={() =>
+                          start(async () => {
+                            try {
+                              const next = await deleteBankLoan(
+                                clientId,
+                                loan.id,
+                              );
+                              onSaved(next);
+                            } catch (err) {
+                              onError(
+                                messageFromUnknown(err, "Delete failed"),
+                              );
+                            }
+                          })
+                        }
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -644,6 +703,7 @@ function AssetsPanel({
   const [method, setMethod] = useState<"reducing_balance" | "straight_line">(
     "reducing_balance",
   );
+  const [secondEntry, setSecondEntry] = useState("Cr Bank / Cr Creditor");
 
   const ca = ledger.capitalAllowances;
   const [aia, setAia] = useState(
@@ -673,8 +733,9 @@ function AssetsPanel({
       <div>
         <h3 className="font-semibold text-ink">Tangible assets &amp; depreciation</h3>
         <p className="mt-1 text-sm text-ink-soft">
-          Add vehicles and equipment. Depreciation charges roll into Note 8 and
-          the live P&amp;L for Digitus accounts.
+          Accubee: tangible assets feed Fixed assets (Note 1) on the accounts
+          draft. Depreciation rolls into Note 8 / live P&amp;L. Second entry is
+          required.
         </p>
       </div>
       <form
@@ -682,6 +743,10 @@ function AssetsPanel({
         onSubmit={(e) => {
           e.preventDefault();
           onError(null);
+          if (!secondEntry.trim()) {
+            onError("Accubee: enter the second entry for this asset.");
+            return;
+          }
           start(async () => {
             try {
               const costPence = poundsInputToPence(cost);
@@ -695,11 +760,13 @@ function AssetsPanel({
                 broughtForwardNbvPence: bf,
                 method,
                 ratePercent: Number(rate) || 0,
+                secondEntry: secondEntry.trim(),
               });
               onSaved(next);
               setName("");
               setCost("0.00");
               setNbv("0.00");
+              setSecondEntry("Cr Bank / Cr Creditor");
             } catch (err) {
               onError(messageFromUnknown(err, "Could not save asset"));
             }
@@ -731,11 +798,7 @@ function AssetsPanel({
         </label>
         <label className="label text-xs">
           Acquired
-          <input
-            type="date"
-            className="input mt-1"
-            value={acquiredOn}
-            onChange={(e) => setAcquiredOn(e.target.value)}
+          <UkDateField className="input mt-1" value={acquiredOn} onChange={(iso) => setAcquiredOn(iso)}
             required
           />
         </label>
@@ -773,6 +836,16 @@ function AssetsPanel({
             className="input mt-1 figures"
             value={rate}
             onChange={(e) => setRate(e.target.value)}
+          />
+        </label>
+        <label className="label text-xs sm:col-span-3">
+          2nd entry (double-entry)
+          <input
+            className="input mt-1"
+            value={secondEntry}
+            onChange={(e) => setSecondEntry(e.target.value)}
+            required
+            placeholder="Cr Bank / Cr Creditor / Cr HP"
           />
         </label>
         <button
@@ -954,24 +1027,64 @@ function PropertiesPanel({
   const [cost, setCost] = useState("0.00");
   const [lender, setLender] = useState("");
   const [mortgageBf, setMortgageBf] = useState("0.00");
+  const [interestRate, setInterestRate] = useState("");
   const [interestDue, setInterestDue] = useState("0.00");
   const [interestPaid, setInterestPaid] = useState("");
+  const [secondEntry, setSecondEntry] = useState("Cr Bank / mortgage liability");
+  const [clubMsg, setClubMsg] = useState<string | null>(null);
+
+  function syncDueFromRate(bfRaw: string, rateRaw: string) {
+    const bf = poundsInputToPence(bfRaw);
+    const rate = Number(rateRaw);
+    if (!Number.isFinite(rate) || rate <= 0) return;
+    const due = mortgageInterestDueFromRatePence(bf, rate);
+    setInterestDue((due / 100).toFixed(2));
+  }
 
   return (
     <div className="space-y-4">
+      <p className="text-sm text-ink-soft">
+        Accubee: properties and mortgages feed fixed assets and creditors on the
+        accounts draft in real time. Address is optional. Enter interest as a
+        percentage — due £ is calculated from the mortgage BF. Second entry is
+        required for double-entry.
+      </p>
       <form
-        className="grid gap-3 rounded-xl border border-line bg-sand/20 p-4 sm:grid-cols-2"
+        className="overflow-x-auto rounded-xl border border-line"
         onSubmit={(e) => {
           e.preventDefault();
           onError(null);
+          setClubMsg(null);
+          if (!secondEntry.trim()) {
+            onError(
+              "Accubee: enter the second entry (e.g. Cr Bank, Cr Creditor).",
+            );
+            return;
+          }
           start(async () => {
             try {
+              const rateNum = interestRate.trim()
+                ? Number(interestRate)
+                : null;
+              const bfPence = poundsInputToPence(mortgageBf);
+              const dueFromRate = mortgageInterestDueFromRatePence(
+                bfPence,
+                rateNum,
+              );
+              const duePence =
+                dueFromRate > 0
+                  ? dueFromRate
+                  : poundsInputToPence(interestDue);
               const mortgages = lender.trim()
                 ? [
                     {
                       lender: lender.trim(),
-                      broughtForwardPence: poundsInputToPence(mortgageBf),
-                      interestDuePence: poundsInputToPence(interestDue),
+                      broughtForwardPence: bfPence,
+                      interestRatePercent:
+                        rateNum != null && Number.isFinite(rateNum)
+                          ? rateNum
+                          : null,
+                      interestDuePence: duePence,
                       interestPaidPence: interestPaid.trim()
                         ? poundsInputToPence(interestPaid)
                         : null,
@@ -984,180 +1097,264 @@ function PropertiesPanel({
                 name,
                 address,
                 costPence: poundsInputToPence(cost),
+                secondEntry: secondEntry.trim(),
                 mortgages,
               });
               onSaved(next);
+
+              // bankbee: club similar interest-sized outflows under finance
+              if (duePence > 0) {
+                const { findInterestLikePayments } = await import(
+                  "@/server/bank/interest-payment-club"
+                );
+                const { updateBankCategoriesBulk } = await import(
+                  "@/server/actions/bank"
+                );
+                const hits = findInterestLikePayments(bankLines, {
+                  periodInterestPence: duePence,
+                  periodStart,
+                  periodEnd,
+                });
+                const ids = hits
+                  .filter((h) => {
+                    const line = bankLines.find((b) => b.id === h.id);
+                    return line && line.category !== "finance";
+                  })
+                  .map((h) => h.id);
+                if (ids.length) {
+                  await updateBankCategoriesBulk(ids, "finance");
+                  setClubMsg(
+                    `bankbee clubbed ${ids.length} payment${ids.length === 1 ? "" : "s"} into Finance (interest).`,
+                  );
+                }
+              }
+
               setName("");
               setAddress("");
               setCost("0.00");
               setLender("");
               setMortgageBf("0.00");
+              setInterestRate("");
               setInterestDue("0.00");
               setInterestPaid("");
+              setSecondEntry("Cr Bank / mortgage liability");
             } catch (err) {
               onError(messageFromUnknown(err, "Could not save property"));
             }
           });
         }}
       >
-        <label className="label text-xs">
-          Property name
+        <table className="w-full min-w-[56rem] border-collapse text-sm">
+          <thead className="bg-sand/50 text-left text-xs uppercase text-ink-soft">
+            <tr>
+              <th className="px-3 py-2 font-semibold">Property</th>
+              <th className="px-3 py-2 font-semibold">Address (optional)</th>
+              <th className="px-3 py-2 font-semibold text-right">Cost £</th>
+              <th className="px-3 py-2 font-semibold">Lender</th>
+              <th className="px-3 py-2 font-semibold text-right">Mortgage BF £</th>
+              <th className="px-3 py-2 font-semibold text-right">Interest %</th>
+              <th className="px-3 py-2 font-semibold text-right">Interest due £</th>
+              <th className="px-3 py-2 font-semibold">2nd entry</th>
+              <th className="px-3 py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-t border-line bg-white">
+              <td className="px-2 py-2 align-top">
+                <input
+                  className="input w-full text-sm"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Property name"
+                  required
+                />
+              </td>
+              <td className="px-2 py-2 align-top">
+                <AddressFields
+                  value={address}
+                  onChange={setAddress}
+                  required={false}
+                />
+              </td>
+              <td className="px-2 py-2 align-top">
+                <input
+                  className="input figures w-full text-right"
+                  value={cost}
+                  onChange={(e) => setCost(e.target.value)}
+                />
+              </td>
+              <td className="px-2 py-2 align-top">
+                <input
+                  className="input w-full"
+                  value={lender}
+                  onChange={(e) => setLender(e.target.value)}
+                  placeholder="Optional"
+                />
+              </td>
+              <td className="px-2 py-2 align-top">
+                <input
+                  className="input figures w-full text-right"
+                  value={mortgageBf}
+                  onChange={(e) => {
+                    setMortgageBf(e.target.value);
+                    syncDueFromRate(e.target.value, interestRate);
+                  }}
+                />
+              </td>
+              <td className="px-2 py-2 align-top">
+                <input
+                  className="input figures w-full text-right"
+                  value={interestRate}
+                  onChange={(e) => {
+                    setInterestRate(e.target.value);
+                    syncDueFromRate(mortgageBf, e.target.value);
+                  }}
+                  placeholder="e.g. 4.5"
+                />
+              </td>
+              <td className="px-2 py-2 align-top">
+                <input
+                  className="input figures w-full text-right"
+                  value={interestDue}
+                  onChange={(e) => setInterestDue(e.target.value)}
+                  title="Auto from % × BF; override if needed"
+                />
+              </td>
+              <td className="px-2 py-2 align-top">
+                <input
+                  className="input w-full"
+                  value={secondEntry}
+                  onChange={(e) => setSecondEntry(e.target.value)}
+                  required
+                  placeholder="Cr Bank / Cr Creditor"
+                />
+              </td>
+              <td className="px-2 py-2 align-top">
+                <button
+                  type="submit"
+                  className="btn btn-primary text-xs whitespace-nowrap"
+                  disabled={pending || !name.trim()}
+                >
+                  Add
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p className="border-t border-line px-3 py-2 text-xs text-ink-soft">
+          Interest paid from bank (optional override){" "}
           <input
-            className="input mt-1"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Investment property / Trading premises"
-            required
-          />
-        </label>
-        <label className="label text-xs">
-          Cost £
-          <input
-            className="input mt-1 figures"
-            value={cost}
-            onChange={(e) => setCost(e.target.value)}
-          />
-        </label>
-        <div className="sm:col-span-2 space-y-1.5">
-          <p className="label text-xs mb-0">Address</p>
-          <AddressFields
-            value={address}
-            onChange={setAddress}
-            required
-          />
-        </div>
-        <p className="sm:col-span-2 text-xs font-bold uppercase text-ink-soft">
-          Optional mortgage on this property
-        </p>
-        <label className="label text-xs">
-          Lender
-          <input
-            className="input mt-1"
-            value={lender}
-            onChange={(e) => setLender(e.target.value)}
-            placeholder="Bank / building society"
-          />
-        </label>
-        <label className="label text-xs">
-          Mortgage BF £
-          <input
-            className="input mt-1 figures"
-            value={mortgageBf}
-            onChange={(e) => setMortgageBf(e.target.value)}
-          />
-        </label>
-        <label className="label text-xs">
-          Interest due (accrual) £
-          <input
-            className="input mt-1 figures"
-            value={interestDue}
-            onChange={(e) => setInterestDue(e.target.value)}
-          />
-        </label>
-        <label className="label text-xs">
-          Interest paid from bank £ (blank = roll from Finance category)
-          <input
-            className="input mt-1 figures"
+            className="input ml-2 inline-block w-40 figures"
             value={interestPaid}
             onChange={(e) => setInterestPaid(e.target.value)}
-            placeholder="Leave blank to use bank Finance costs"
+            placeholder="Blank = bank Finance"
           />
-        </label>
-        <button
-          type="submit"
-          className="btn btn-primary text-sm sm:col-span-2 sm:justify-self-start"
-          disabled={pending || !name.trim()}
-        >
-          Add property
-        </button>
+        </p>
       </form>
+      {clubMsg ? <p className="text-sm text-ok">{clubMsg}</p> : null}
 
-      <ul className="space-y-3">
-        {ledger.properties.length === 0 ? (
-          <li className="rounded-xl border border-line px-4 py-6 text-sm text-ink-soft">
-            No properties yet. Add a property and attach a mortgage with interest
-            due and interest paid from the bank.
-          </li>
-        ) : (
-          ledger.properties.map((prop) => (
-            <li
-              key={prop.id}
-              className="rounded-xl border border-line bg-white p-4 text-sm"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="font-semibold text-ink">{prop.name}</p>
-                  {prop.address ? (
-                    <p className="text-xs text-ink-soft">
-                      {addressPartsDisplay(prop.address)}
-                    </p>
-                  ) : null}
-                  <p className="mt-1 figures text-xs">
-                    Cost {gbp(prop.costPence)}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-secondary text-xs"
-                  disabled={pending}
-                  onClick={() =>
-                    start(async () => {
-                      try {
-                        const next = await deleteBankProperty(
-                          clientId,
-                          prop.id,
-                        );
-                        onSaved(next);
-                      } catch (err) {
-                        onError(messageFromUnknown(err, "Delete failed"));
-                      }
-                    })
-                  }
+      <div className="overflow-x-auto rounded-xl border border-line">
+        <table className="w-full min-w-[48rem] border-collapse text-sm">
+          <thead className="bg-sand/40 text-left text-xs uppercase text-ink-soft">
+            <tr>
+              <th className="px-3 py-2">Property</th>
+              <th className="px-3 py-2 text-right">Cost</th>
+              <th className="px-3 py-2">Lender</th>
+              <th className="px-3 py-2 text-right">BF</th>
+              <th className="px-3 py-2 text-right">Rate %</th>
+              <th className="px-3 py-2 text-right">Interest due</th>
+              <th className="px-3 py-2 text-right">Paid (bank)</th>
+              <th className="px-3 py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {ledger.properties.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={8}
+                  className="px-4 py-6 text-center text-ink-soft"
                 >
-                  Remove
-                </button>
-              </div>
-              {prop.mortgages.length ? (
-                <ul className="mt-3 space-y-2 border-t border-line pt-3">
-                  {prop.mortgages.map((m) => {
-                    const paid = mortgageInterestPaidPence(
+                  No properties yet. Add a row above — figures enrich the
+                  accounts draft immediately.
+                </td>
+              </tr>
+            ) : (
+              ledger.properties.map((prop) => {
+                const m = prop.mortgages[0];
+                const paid = m
+                  ? mortgageInterestPaidPence(
                       m,
                       bankLines,
                       periodStart,
                       periodEnd,
-                    );
-                    return (
-                      <li key={m.id} className="rounded-lg bg-sand/40 px-3 py-2">
-                        <p className="font-medium text-ink">{m.lender}</p>
-                        <dl className="mt-1 grid gap-1 text-xs sm:grid-cols-3">
-                          <div>
-                            <dt className="text-ink-soft">BF balance</dt>
-                            <dd className="figures">
-                              {gbp(m.broughtForwardPence)}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="text-ink-soft">Interest due</dt>
-                            <dd className="figures">
-                              {gbp(m.interestDuePence)}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="text-ink-soft">Interest paid (bank)</dt>
-                            <dd className="figures">{gbp(paid)}</dd>
-                          </div>
-                        </dl>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : (
-                <p className="mt-2 text-xs text-ink-soft">No mortgage linked.</p>
-              )}
-            </li>
-          ))
-        )}
-      </ul>
+                    )
+                  : 0;
+                return (
+                  <tr key={prop.id} className="border-t border-line">
+                    <td className="px-3 py-2">
+                      <p className="font-semibold text-ink">{prop.name}</p>
+                      {prop.address ? (
+                        <p className="text-xs text-ink-soft">
+                          {addressPartsDisplay(prop.address)}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-ink-soft">No address</p>
+                      )}
+                      {prop.notes ? (
+                        <p className="mt-0.5 text-xs text-ink-soft">
+                          {prop.notes}
+                        </p>
+                      ) : null}
+                    </td>
+                    <td className="figures px-3 py-2 text-right">
+                      {gbp(prop.costPence)}
+                    </td>
+                    <td className="px-3 py-2">{m?.lender ?? "—"}</td>
+                    <td className="figures px-3 py-2 text-right">
+                      {m ? gbp(m.broughtForwardPence) : "—"}
+                    </td>
+                    <td className="figures px-3 py-2 text-right">
+                      {m?.interestRatePercent != null
+                        ? `${m.interestRatePercent}`
+                        : "—"}
+                    </td>
+                    <td className="figures px-3 py-2 text-right">
+                      {m ? gbp(m.interestDuePence) : "—"}
+                    </td>
+                    <td className="figures px-3 py-2 text-right">
+                      {m ? gbp(paid) : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        className="btn btn-secondary text-xs"
+                        disabled={pending}
+                        onClick={() =>
+                          start(async () => {
+                            try {
+                              const next = await deleteBankProperty(
+                                clientId,
+                                prop.id,
+                              );
+                              onSaved(next);
+                            } catch (err) {
+                              onError(
+                                messageFromUnknown(err, "Delete failed"),
+                              );
+                            }
+                          })
+                        }
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -1188,11 +1385,13 @@ function PartiesPanel({
   const [dBf, setDBf] = useState("0.00");
   const [dInv, setDInv] = useState("0.00");
   const [dClose, setDClose] = useState("");
+  const [dSecond, setDSecond] = useState("Cr Turnover / Cr Other income");
   const [cName, setCName] = useState("");
   const [cBucket, setCBucket] = useState<CreditorBucket>("other");
   const [cBf, setCBf] = useState("0.00");
   const [cBills, setCBills] = useState("0.00");
   const [cClose, setCClose] = useState("");
+  const [cSecond, setCSecond] = useState("Dr Expense / Dr Bank");
   const [unpaidSc, setUnpaidSc] = useState(
     ((ledger.unpaidShareCapitalPence ?? 0) / 100).toFixed(2),
   );
@@ -1244,6 +1443,12 @@ function PartiesPanel({
             onSubmit={(e) => {
               e.preventDefault();
               onError(null);
+              if (!dSecond.trim()) {
+                onError(
+                  "Accubee: debtors need a second entry (e.g. Cr Turnover).",
+                );
+                return;
+              }
               start(async () => {
                 try {
                   const next = await upsertBankDebtor({
@@ -1255,12 +1460,14 @@ function PartiesPanel({
                     closingOverridePence: dClose.trim()
                       ? poundsInputToPence(dClose)
                       : null,
+                    secondEntry: dSecond.trim(),
                   });
                   onSaved(next);
                   setDName("");
                   setDBf("0.00");
                   setDInv("0.00");
                   setDClose("");
+                  setDSecond("Cr Turnover / Cr Other income");
                 } catch (err) {
                   onError(messageFromUnknown(err, "Could not save debtor"));
                 }
@@ -1319,6 +1526,16 @@ function PartiesPanel({
                 />
               </label>
             </div>
+            <label className="label text-xs">
+              2nd entry
+              <input
+                className="input mt-1"
+                value={dSecond}
+                onChange={(e) => setDSecond(e.target.value)}
+                required
+                placeholder="Cr Turnover"
+              />
+            </label>
             <button
               type="submit"
               className="btn btn-primary text-sm"
@@ -1386,6 +1603,12 @@ function PartiesPanel({
             onSubmit={(e) => {
               e.preventDefault();
               onError(null);
+              if (!cSecond.trim()) {
+                onError(
+                  "Accubee: creditors need a second entry (e.g. Dr Expense).",
+                );
+                return;
+              }
               start(async () => {
                 try {
                   const next = await upsertBankCreditor({
@@ -1397,12 +1620,14 @@ function PartiesPanel({
                     closingOverridePence: cClose.trim()
                       ? poundsInputToPence(cClose)
                       : null,
+                    secondEntry: cSecond.trim(),
                   });
                   onSaved(next);
                   setCName("");
                   setCBf("0.00");
                   setCBills("0.00");
                   setCClose("");
+                  setCSecond("Dr Expense / Dr Bank");
                 } catch (err) {
                   onError(messageFromUnknown(err, "Could not save creditor"));
                 }
@@ -1461,6 +1686,16 @@ function PartiesPanel({
                 />
               </label>
             </div>
+            <label className="label text-xs">
+              2nd entry
+              <input
+                className="input mt-1"
+                value={cSecond}
+                onChange={(e) => setCSecond(e.target.value)}
+                required
+                placeholder="Dr Expense"
+              />
+            </label>
             <button
               type="submit"
               className="btn btn-primary text-sm"

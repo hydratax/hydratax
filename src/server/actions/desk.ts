@@ -159,6 +159,19 @@ export async function portalApprovalError(
   }
 }
 
+/** Merge a desk-profile patch (portal requests, SA bank chases, etc.). */
+export async function patchDeskProfile(
+  clientId: string,
+  patch: Partial<DeskProfile>,
+) {
+  const client = await getClient(clientId);
+  if (!client) throw new Error("Client not found");
+  const next = mergeProfile(client.deskProfile, patch);
+  await writeProfile(clientId, next);
+  revalidateClient(clientId);
+  return next;
+}
+
 export async function ensurePortal(clientId: string) {
   const session = await requireSession();
   const client = await getClient(clientId);
@@ -213,6 +226,7 @@ function pushWorkLog(
     label: entry.label,
     detail: entry.detail,
     actorId: entry.actorId,
+    desk: entry.desk,
   });
   // Keep the last 200 entries
   return log.slice(-200);
@@ -224,6 +238,7 @@ export async function appendClientWorkLog(input: {
   kind: ClientWorkLogEntry["kind"];
   label: string;
   detail?: string;
+  desk?: ClientWorkLogEntry["desk"];
 }) {
   const session = await requireSession();
   const client = await getClient(input.clientId);
@@ -233,6 +248,7 @@ export async function appendClientWorkLog(input: {
     label: input.label,
     detail: input.detail,
     actorId: session.userId,
+    desk: input.desk,
   });
   await writeProfile(
     input.clientId,
@@ -260,6 +276,7 @@ export async function setClientWorkStage(input: {
     label,
     detail: input.note?.trim() || undefined,
     actorId: session.userId,
+    desk: "overview",
   });
 
   await writeProfile(
@@ -448,6 +465,16 @@ function categoryForPortalRequest(requestId: string): string {
   if (requestId === "bank") return "accounts";
   if (requestId === "payroll") return "payroll";
   if (requestId === "invoices") return "accounts";
+  // SA missing-bank chase → personal books bank_statement category
+  if (requestId.startsWith("sa-bank-")) {
+    const m = /^sa-bank-(.+)-(\d{4}-\d{2})$/.exec(requestId);
+    if (m?.[1]) {
+      // Inline to avoid circular import at module load
+      return `sa:${m[1]}:bank_statement`;
+    }
+  }
+  // CT / company accounts missing-bank chase
+  if (requestId.startsWith("ct-bank-")) return "accounts";
   return "general";
 }
 
@@ -629,9 +656,59 @@ export async function uploadPortalPaper(formData: FormData) {
     }
   }
 
+  // SA / CT missing-bank upload → notify the team member who emailed the chase.
+  if (requestId.startsWith("sa-bank-") || requestId.startsWith("ct-bank-")) {
+    try {
+      const assigneeUserId =
+        client.deskProfile?.saBankChases?.[requestId] ?? null;
+      if (requestId.startsWith("sa-bank-")) {
+        const { parseSaMissingBankRequestId } = await import(
+          "@/lib/bank/sa-missing-bank-request"
+        );
+        const { notifySaBankStatementsUploaded } = await import(
+          "@/server/actions/sa-bank-missing-request"
+        );
+        const parsed = parseSaMissingBankRequestId(requestId);
+        if (parsed) {
+          await notifySaBankStatementsUploaded({
+            practiceId,
+            clientId: client.id,
+            clientName: client.name,
+            taxpayerId: parsed.taxpayerId,
+            taxYear: parsed.taxYear,
+            filename,
+            documentId,
+            assigneeUserId,
+            periodLabel: portal.requests.find((r) => r.id === requestId)
+              ?.label,
+          });
+        }
+      } else {
+        const { notifySaBankStatementsUploaded } = await import(
+          "@/server/actions/sa-bank-missing-request"
+        );
+        await notifySaBankStatementsUploaded({
+          practiceId,
+          clientId: client.id,
+          clientName: client.name,
+          taxpayerId: "company",
+          taxYear: "accounts",
+          filename,
+          documentId,
+          assigneeUserId,
+          periodLabel: portal.requests.find((r) => r.id === requestId)?.label,
+        });
+      }
+    } catch (err) {
+      console.error("[portal] bank upload notify failed", err);
+    }
+  }
+
   revalidatePath(`/clients/${client.id}/documents`);
   revalidatePath(`/clients/${client.id}/portal`);
   revalidatePath(`/clients/${client.id}/bank`);
+  revalidatePath(`/clients/${client.id}/self-assessment`);
+  revalidatePath("/tasks");
   return { ok: true as const, filename, documentId, requestId: requestId || null };
 }
 
@@ -836,24 +913,41 @@ export async function createPortalSignRequest(input: {
     detail: { title: req.title, filename },
   }).catch(() => undefined);
 
-  // Best-effort email to client contact
+  // Best-effort email to client contact (Channels mailbox when connected)
   const to = client.contactEmail?.trim();
   if (to) {
     try {
-      const { sendTransactionalEmail } = await import(
-        "@/server/email/transactional"
+      const { sendPracticeClientEmail } = await import(
+        "@/server/email/send-practice-outbound"
       );
       const { getEnv } = await import("@/lib/env");
       const appUrl = getEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
       const link = `${appUrl}/portal/${nextPortal.token}`;
-      await sendTransactionalEmail({
-        to,
-        subject: `Please sign: ${req.title}`,
-        text: `Hi,\n\nYour accountant has asked you to sign “${req.title}” on HydraTax.\n\nOpen your client link to review and sign:\n${link}\n\n— HydraTax\n`,
-        html: `<p>Your accountant has asked you to sign <strong>${escapeHtml(req.title)}</strong>.</p><p><a href="${escapeHtml(link)}">Open your client link to sign</a></p>`,
+      let practiceEmail: string | null = null;
+      let practiceName: string | null = null;
+      try {
+        const { getPracticeLetterhead } = await import(
+          "@/server/actions/letterhead"
+        );
+        const lh = await getPracticeLetterhead();
+        practiceEmail = lh.email?.trim() || null;
+        practiceName = lh.practiceName?.trim() || null;
+      } catch {
+        /* optional */
+      }
+      await sendPracticeClientEmail({
+        session,
+        practiceEmail,
+        practiceName,
+        mail: {
+          to,
+          subject: `Please sign: ${req.title}`,
+          text: `Hi,\n\nYour accountant has asked you to sign “${req.title}”.\n\nOpen your client link to review and sign:\n${link}\n`,
+          html: `<p>Your accountant has asked you to sign <strong>${escapeHtml(req.title)}</strong>.</p><p><a href="${escapeHtml(link)}">Open your client link to sign</a></p>`,
+        },
       });
     } catch {
-      // non-fatal
+      // freeze — non-fatal
     }
   }
 

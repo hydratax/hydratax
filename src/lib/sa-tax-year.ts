@@ -44,6 +44,21 @@ export function parseSaTaxYearLabel(label: string): SaTaxYear | null {
   return saTaxYearFromStartYear(startYear);
 }
 
+/** UK tax year containing an ISO date (yyyy-mm-dd). */
+export function saTaxYearContainingDate(isoDate: string): SaTaxYear | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate.trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) {
+    return null;
+  }
+  // Before 6 April → previous tax-year start
+  const startYear = mo < 4 || (mo === 4 && d < 6) ? y - 1 : y;
+  return saTaxYearFromStartYear(startYear);
+}
+
 /**
  * Tax year currently in progress (started on/after the most recent 6 April).
  */

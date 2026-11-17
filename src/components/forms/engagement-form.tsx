@@ -1,5 +1,7 @@
 "use client";
 
+import { UkDateField } from "@/components/forms/uk-date-field";
+
 import { useState, useTransition } from "react";
 import {
   createPortalSignRequest,
@@ -129,20 +131,12 @@ Issued: ${issuedOn || "not yet"}. Signed: ${signedOn || "not yet"}.`;
         </fieldset>
         <label className="block text-sm font-semibold">
           Issued on
-          <input
-            className="input mt-1"
-            type="date"
-            value={issuedOn}
-            onChange={(e) => setIssuedOn(e.target.value)}
+          <UkDateField className="input mt-1" value={issuedOn} onChange={(iso) => setIssuedOn(iso)}
           />
         </label>
         <label className="block text-sm font-semibold">
           Signed on
-          <input
-            className="input mt-1"
-            type="date"
-            value={signedOn}
-            onChange={(e) => setSignedOn(e.target.value)}
+          <UkDateField className="input mt-1" value={signedOn} onChange={(iso) => setSignedOn(iso)}
           />
         </label>
         <div className="flex flex-wrap gap-2">
