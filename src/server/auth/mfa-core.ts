@@ -1,9 +1,12 @@
 import { randomInt } from "crypto";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { isSupabaseConfigured } from "@/lib/env";
 import { MFA_OK_COOKIE, MFA_PENDING_COOKIE } from "@/lib/mfa-cookies";
 import {
   DEVICE_TRUSTED_COOKIE,
+  deskAuthCookieAttrs,
+  isDeviceTrustedCookie,
   sessionTtlSeconds,
 } from "@/lib/session-policy";
 import { rateLimit } from "@/lib/rate-limit";
@@ -59,7 +62,10 @@ export async function logMfaEvent(
   });
 }
 
-function cookieBase() {
+function cookieBase(trusted?: boolean) {
+  if (typeof trusted === "boolean") {
+    return deskAuthCookieAttrs(trusted);
+  }
   return {
     httpOnly: true,
     sameSite: "lax" as const,
@@ -98,7 +104,10 @@ export function maskDestination(channel: "email" | "phone", dest: string) {
   return `***${dest.slice(-4)}`;
 }
 
-export async function readMfaStatus(userId: string): Promise<MfaStatus> {
+/** Per-request dedupe — requireSession hits this on every page. */
+export const readMfaStatus = cache(async function readMfaStatus(
+  userId: string,
+): Promise<MfaStatus> {
   if (!isSupabaseConfigured()) return { state: "off" };
   try {
     const client = await readClient();
@@ -122,7 +131,7 @@ export async function readMfaStatus(userId: string): Promise<MfaStatus> {
   } catch {
     return { state: "unknown" };
   }
-}
+});
 
 /** Has the signed ok-cookie for THIS user been presented? */
 export async function hasValidMfaOkCookie(userId: string): Promise<boolean> {
@@ -141,7 +150,9 @@ export async function hasValidMfaPendingCookie(
  * True when the user has MFA enabled and has not completed step-up in this
  * browser. FAILS CLOSED: any error / unreadable settings => step-up required.
  */
-export async function userNeedsMfaStepUp(userId: string): Promise<boolean> {
+export const userNeedsMfaStepUp = cache(async function userNeedsMfaStepUp(
+  userId: string,
+): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;
   try {
     const status = await readMfaStatus(userId);
@@ -151,17 +162,16 @@ export async function userNeedsMfaStepUp(userId: string): Promise<boolean> {
   } catch {
     return true;
   }
-}
+});
 
 export async function setMfaOkCookie(userId: string, trusted?: boolean) {
   const jar = await cookies();
   const isTrusted =
-    trusted ?? jar.get(DEVICE_TRUSTED_COOKIE)?.value === "1";
+    trusted ?? isDeviceTrustedCookie(jar.get(DEVICE_TRUSTED_COOKIE)?.value);
+  // Signed payload still carries a wall-clock TTL; browser cookie persistence
+  // follows trust (session cookie when untrusted).
   const ttl = sessionTtlSeconds(isTrusted);
-  jar.set(MFA_OK_COOKIE, signMfaCookie("ok", userId, ttl), {
-    ...cookieBase(),
-    maxAge: ttl,
-  });
+  jar.set(MFA_OK_COOKIE, signMfaCookie("ok", userId, ttl), cookieBase(isTrusted));
   jar.delete(MFA_PENDING_COOKIE);
 }
 

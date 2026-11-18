@@ -12,6 +12,8 @@ export type MemoryClient = {
   companyNumber: string | null;
   utr: string | null;
   vrn: string | null;
+  /** ISO date YYYY-MM-DD */
+  vatRegistrationDate?: string | null;
   nino: string | null;
   companyAuthCode: string | null;
   payeRef: string | null;

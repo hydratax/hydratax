@@ -2,30 +2,34 @@ import { cookies } from "next/headers";
 import {
   DEVICE_TRUSTED_COOKIE,
   SESSION_EXPIRES_COOKIE,
+  deskAuthCookieAttrs,
   isSessionExpiryPast,
+  isSupabaseAuthSessionCookie,
   sessionExpiresAtUnix,
-  sessionTtlSeconds,
 } from "@/lib/session-policy";
 import { MFA_OK_COOKIE, MFA_PENDING_COOKIE } from "@/lib/mfa-cookies";
 
-function cookieBase() {
-  return {
-    httpOnly: true,
-    sameSite: "lax" as const,
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-  };
-}
-
-/** Apply trusted / untrusted desk session wall-clock expiry. */
+/**
+ * Apply trusted / untrusted desk session policy.
+ *
+ * Trusted → persistent cookies (7d Max-Age) for Supabase auth + policy cookies.
+ * Untrusted → browser *session* cookies (no Max-Age) so closing the browser
+ * ends the login; wall-clock `ht_session_expires` still caps an open tab at 10h.
+ */
 export async function applyDeviceTrustPolicy(trusted: boolean) {
   const jar = await cookies();
-  const ttl = sessionTtlSeconds(trusted);
   const expires = String(sessionExpiresAtUnix(trusted));
-  const base = cookieBase();
+  const attrs = deskAuthCookieAttrs(trusted);
 
-  jar.set(SESSION_EXPIRES_COOKIE, expires, { ...base, maxAge: ttl });
-  jar.set(DEVICE_TRUSTED_COOKIE, trusted ? "1" : "0", { ...base, maxAge: ttl });
+  jar.set(SESSION_EXPIRES_COOKIE, expires, attrs);
+  jar.set(DEVICE_TRUSTED_COOKIE, trusted ? "1" : "0", attrs);
+
+  // Convert any already-issued Supabase Auth cookies to match persistence.
+  // Declining trust must demote long-lived sb-* cookies to session cookies.
+  for (const c of jar.getAll()) {
+    if (!isSupabaseAuthSessionCookie(c.name) || !c.value) continue;
+    jar.set(c.name, c.value, attrs);
+  }
 
   // Keep MFA step-up cookie aligned with the same desk session. The cookie is
   // HMAC-signed and carries its own expiry, so it is re-issued (not just

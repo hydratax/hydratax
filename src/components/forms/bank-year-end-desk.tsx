@@ -31,13 +31,13 @@ import {
   setBankLedgerPeriod,
   setCapitalAllowances,
   setUnpaidShareCapital,
-  snapshotBankLedgerClosing,
   upsertBankAsset,
   upsertBankCreditor,
   upsertBankDebtor,
   upsertBankLoan,
   upsertBankProperty,
 } from "@/server/actions/bank-ledger";
+import { mainRateFirstYearAllowancePercent } from "@/server/hmrc/ct600/capital-allowances-rates";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { AddressFields } from "@/components/forms/address-fields";
 import { addressPartsDisplay } from "@/lib/address-parts";
@@ -146,12 +146,13 @@ export function BankYearEndDesk({
             Year-end from bank
           </p>
           <h3 className="display mt-1 text-2xl text-ink">
-            Complete year-end accounts from bank
+            Allocate heads for the trial balance
           </h3>
           <p className="mt-1 max-w-2xl text-sm text-ink-soft">
-            Allocate bank lines, reconcile debtors and creditors, add assets and
-            loans, then open the full Digitus-style pack (P&amp;L, balance sheet,
-            trial balance, accountant&apos;s report, Notes 1–3).
+            Same path as SA accounts: allocate company bank heads, reconcile
+            debtors and creditors, add assets and loans, then open the pack
+            (P&amp;L, balance sheet, trial balance) before CT600 / accounts
+            filing.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -165,36 +166,22 @@ export function BankYearEndDesk({
               start(async () => {
                 try {
                   const prior = await pullPriorYearIntoBankDesk(clientId);
-                  setMsg(
-                    prior.source === "none"
-                      ? "No prior-year figures found yet."
-                      : `Prior year loaded from ${prior.source}${prior.madeUpTo ? ` (${prior.madeUpTo})` : ""}.`,
-                  );
-                  refreshPl();
-                } catch (e) {
-                  setErr(messageFromUnknown(e, "Prior year pull failed"));
-                }
-              });
-            }}
-          >
-            Pull prior year figures
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary text-sm"
-            disabled={pending}
-            onClick={() => {
-              setErr(null);
-              setMsg(null);
-              start(async () => {
-                try {
-                  const res = await bringForwardBankLedger(clientId);
-                  if (!res.ok) {
-                    setErr(res.error);
-                    return;
+                  const bf = await bringForwardBankLedger(clientId);
+                  if (bf.ok) setLedger(bf.ledger);
+                  const bits: string[] = [];
+                  if (prior.source !== "none") {
+                    bits.push(
+                      `Comparatives from ${prior.source}${prior.madeUpTo ? ` (${prior.madeUpTo})` : ""}`,
+                    );
                   }
-                  setLedger(res.ledger);
-                  setMsg("Brought forward loans, assets and mortgages.");
+                  if (bf.ok) {
+                    bits.push("loans, assets and mortgages brought forward");
+                  }
+                  setMsg(
+                    bits.length > 0
+                      ? `${bits.join("; ")}.`
+                      : "No prior-year figures found yet — enter balances manually or save last year’s pack first.",
+                  );
                   refreshPl();
                 } catch (e) {
                   setErr(messageFromUnknown(e, "Bring forward failed"));
@@ -202,27 +189,7 @@ export function BankYearEndDesk({
               });
             }}
           >
-            Bring forward last year
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary text-sm"
-            disabled={pending}
-            onClick={() => {
-              setErr(null);
-              setMsg(null);
-              start(async () => {
-                try {
-                  const res = await snapshotBankLedgerClosing(clientId);
-                  setLedger(res.ledger);
-                  setMsg("Closing snapshot saved for next year.");
-                } catch (e) {
-                  setErr(messageFromUnknown(e, "Snapshot failed"));
-                }
-              });
-            }}
-          >
-            Snapshot closings
+            Bring forward prior year
           </button>
           <button
             type="button"
@@ -609,7 +576,7 @@ function LoansPanel({
                   colSpan={5}
                   className="px-4 py-6 text-center text-ink-soft"
                 >
-                  No loan accounts yet. Bring forward last year or add a row
+                  No loan accounts yet. Bring forward prior year or add a row
                   above.
                 </td>
               </tr>
@@ -718,6 +685,13 @@ function AssetsPanel({
   const [otherCa, setOtherCa] = useState(
     ((ca?.otherAllowancesPence ?? 0) / 100).toFixed(2),
   );
+  const [mainRateFyaTrading, setMainRateFyaTrading] = useState(
+    ((ca?.mainRateFyaTradingPence ?? 0) / 100).toFixed(2),
+  );
+  const [mainRateFyaNonTrading, setMainRateFyaNonTrading] = useState(
+    ((ca?.mainRateFyaNonTradingPence ?? 0) / 100).toFixed(2),
+  );
+  const fyaRateHint = mainRateFirstYearAllowancePercent(periodEnd);
   const totalDep = ledger.assets.reduce(
     (s, a) => s + depreciationChargePence(a, periodStart, periodEnd),
     0,
@@ -726,7 +700,9 @@ function AssetsPanel({
     poundsInputToPence(aia) +
     poundsInputToPence(mainWda) +
     poundsInputToPence(specialWda) +
-    poundsInputToPence(otherCa);
+    poundsInputToPence(otherCa) +
+    poundsInputToPence(mainRateFyaTrading) +
+    poundsInputToPence(mainRateFyaNonTrading);
 
   return (
     <div id="year-end-assets" className="space-y-6">
@@ -924,12 +900,11 @@ function AssetsPanel({
           Capital allowances (corporation tax)
         </h3>
         <p className="mt-1 text-sm text-ink-soft">
-          Accounting depreciation this period: {gbp(totalDep)}. Claim AIA /
-          WDA for CT separately (GOV.UK rates — enter the claim the company will
-          use on the CT600).
+          Depreciation {gbp(totalDep)}. Main-rate FYA by spend date
+          {fyaRateHint > 0 ? ` (${fyaRateHint}% at period end)` : ""}.
         </p>
         <form
-          className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+          className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
           onSubmit={(e) => {
             e.preventDefault();
             onError(null);
@@ -941,6 +916,10 @@ function AssetsPanel({
                   mainPoolWdaPence: poundsInputToPence(mainWda),
                   specialRateWdaPence: poundsInputToPence(specialWda),
                   otherAllowancesPence: poundsInputToPence(otherCa),
+                  mainRateFyaTradingPence:
+                    poundsInputToPence(mainRateFyaTrading),
+                  mainRateFyaNonTradingPence:
+                    poundsInputToPence(mainRateFyaNonTrading),
                 });
                 onSaved(next);
               } catch (err) {
@@ -976,6 +955,22 @@ function AssetsPanel({
             />
           </label>
           <label className="label text-xs">
+            Main-rate FYA (trading) £
+            <input
+              className="input mt-1 figures"
+              value={mainRateFyaTrading}
+              onChange={(e) => setMainRateFyaTrading(e.target.value)}
+            />
+          </label>
+          <label className="label text-xs">
+            Main-rate FYA (other) £
+            <input
+              className="input mt-1 figures"
+              value={mainRateFyaNonTrading}
+              onChange={(e) => setMainRateFyaNonTrading(e.target.value)}
+            />
+          </label>
+          <label className="label text-xs">
             Other allowances £
             <input
               className="input mt-1 figures"
@@ -983,7 +978,7 @@ function AssetsPanel({
               onChange={(e) => setOtherCa(e.target.value)}
             />
           </label>
-          <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-4">
+          <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-3">
             <p className="text-sm font-semibold text-ink">
               Total CA claim {gbp(totalCa)}
             </p>

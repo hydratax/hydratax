@@ -288,7 +288,7 @@ export function SaPersonalBooks({
         );
         setMissingStmtMsg(
           missingSummary
-            ? `Missing bank statements — ${missingSummary}`
+            ? `SA · Missing bank statements — ${missingSummary}`
             : null,
         );
         setTimeout(() => {
@@ -569,7 +569,7 @@ export function SaPersonalBooks({
                 type="button"
                 className="btn btn-secondary text-sm"
                 onClick={() =>
-                  downloadBankXlsx(
+                  void downloadBankXlsx(
                     preview,
                     `${(previewLabel ?? "statement").replace(/\.[^.]+$/, "").replace(/\s+/g, "-")}-converted.xlsx`,
                   )
@@ -691,6 +691,7 @@ export function SaPersonalBooks({
                 clientId={clientId}
                 transactions={transactions}
                 customCategories={customCategories}
+                missingDesk="SA"
               />
             </div>
           </details>

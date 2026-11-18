@@ -366,11 +366,11 @@ export function calculateSa302(d: Sa100Draft): Sa302Result {
   if (d.studentLoanPlan !== "none" || d.studentLoanNotification) {
     const thr =
       d.studentLoanPlan === "plan1"
-        ? 26_065
+        ? R.studentLoanPlan1Threshold
         : d.studentLoanPlan === "plan4"
-          ? 32_745
+          ? R.studentLoanPlan4Threshold
           : d.studentLoanPlan === "plan5"
-            ? 25_000
+            ? R.studentLoanPlan5Threshold
             : R.studentLoanPlan2Threshold;
     studentLoan = Math.max(0, (totalIncome - thr) * R.studentLoanRate);
   }

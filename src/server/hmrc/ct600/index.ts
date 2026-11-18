@@ -12,3 +12,5 @@ export * from "@/server/hmrc/ct600/poll";
 export * from "@/server/hmrc/ct600/submit";
 export * from "@/server/hmrc/ct600/official-fill";
 export * from "@/server/hmrc/ct600/review-pdfs";
+export * from "@/server/hmrc/ct600/form-edition";
+export * from "@/server/hmrc/ct600/capital-allowances-rates";

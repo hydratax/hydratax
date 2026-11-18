@@ -6,7 +6,6 @@ import {
   confirmDeviceTrust,
   skipTwoFactorSuggestion,
 } from "@/server/actions/session-policy";
-import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { BrandLogo } from "@/components/brand-logo";
 import { clearNavPending, markNavPending } from "@/components/pending-link";
 
@@ -18,12 +17,10 @@ export function SecureDeviceForm({
   suggest2fa: boolean;
 }) {
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [show2fa, setShow2fa] = useState(suggest2fa);
 
   function finish(trusted: boolean) {
-    setError(null);
     markNavPending(trusted ? "Trusting device…" : "Continuing…");
     start(async () => {
       try {
@@ -32,27 +29,25 @@ export function SecureDeviceForm({
           nextPath,
         });
         if (!res.ok) {
+          // Desk UI: freeze on failure — no technical error banner.
           clearNavPending();
-          setError(res.error ?? "Could not save device preference");
           return;
         }
         router.replace(res.redirectTo);
         router.refresh();
-      } catch (err) {
+      } catch {
         clearNavPending();
-        setError(err instanceof Error ? err.message : "Something went wrong");
       }
     });
   }
 
   function skip2fa() {
-    setError(null);
     start(async () => {
       try {
         await skipTwoFactorSuggestion();
         setShow2fa(false);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not skip");
+      } catch {
+        // Freeze — do not surface a technical error on the desk.
       }
     });
   }
@@ -65,26 +60,24 @@ export function SecureDeviceForm({
         </div>
         <h1 className="display text-3xl text-ink">Trust this device?</h1>
         <p className="mt-2 text-sm text-ink-soft">
-          Choose how long to stay signed in on this browser.
+          Choose whether this browser should remember you after you close it.
         </p>
       </div>
-
-      <FormErrorBanner error={error} />
 
       <ul className="space-y-3 text-sm text-ink text-left">
         <li className="rounded-xl border border-line px-4 py-3">
           <p className="font-semibold">Trust this device</p>
           <p className="mt-1 text-ink-soft">
             Stay signed in for <span className="font-medium text-ink">7 days</span>{" "}
-            on this browser. Use only on a personal computer.
+            even if you close the browser. Use only on a personal computer.
           </p>
         </li>
         <li className="rounded-xl border border-line px-4 py-3">
           <p className="font-semibold">Don&apos;t trust this device</p>
           <p className="mt-1 text-ink-soft">
-            We&apos;ll sign you out automatically after{" "}
-            <span className="font-medium text-ink">10 hours</span>. Prefer this on
-            shared or public computers.
+            Sign out when you close the browser (and after at most{" "}
+            <span className="font-medium text-ink">10 hours</span> while it stays
+            open). Prefer this on shared or public computers.
           </p>
         </li>
       </ul>
@@ -121,7 +114,6 @@ export function SecureDeviceForm({
               className="btn btn-primary text-sm"
               disabled={pending}
               onClick={() => {
-                setError(null);
                 markNavPending("Opening 2FA settings…");
                 start(async () => {
                   try {
@@ -131,16 +123,12 @@ export function SecureDeviceForm({
                     });
                     if (!res.ok) {
                       clearNavPending();
-                      setError(res.error ?? "Could not continue");
                       return;
                     }
                     router.replace(res.redirectTo);
                     router.refresh();
-                  } catch (err) {
+                  } catch {
                     clearNavPending();
-                    setError(
-                      err instanceof Error ? err.message : "Something went wrong",
-                    );
                   }
                 });
               }}

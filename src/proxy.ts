@@ -69,6 +69,37 @@ function copyCookies(from: NextResponse, to: NextResponse) {
 }
 
 /**
+ * When the device is not trusted, re-stamp Supabase + desk policy cookies as
+ * browser-session cookies on every hop. Client-side token refresh can otherwise
+ * re-introduce a persistent Max-Age and keep the user signed in after restart.
+ */
+function enforceUntrustedSessionCookies(
+  request: NextRequest,
+  response: NextResponse,
+) {
+  const trusted = request.cookies.get("ht_device_trusted")?.value === "1";
+  if (trusted) return;
+
+  const attrs = {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+  };
+
+  for (const c of request.cookies.getAll()) {
+    if (
+      (c.name.startsWith("sb-") && !c.name.includes("code-verifier")) ||
+      c.name === "ht_session_expires" ||
+      c.name === "ht_device_trusted" ||
+      c.name === "ht_mfa_ok"
+    ) {
+      if (c.value) response.cookies.set(c.name, c.value, attrs);
+    }
+  }
+}
+
+/**
  * Supabase sometimes returns the OAuth `code` to Site URL (e.g. /dashboard)
  * instead of /auth/callback. Catch that and hand off to the callback route.
  * Only intercept real PKCE codes — never our own `error=auth` flag (that loops).
@@ -180,7 +211,8 @@ export default async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Desk session wall-clock expiry (10h untrusted / 7d trusted).
+  // Desk session wall-clock expiry (10h ceiling untrusted / 7d trusted).
+  // Untrusted auth cookies are also browser-session scoped (no Max-Age).
   if (!isPublicPath(pathname) && !pathname.startsWith("/api/")) {
     const { isSessionExpiryPast, SESSION_EXPIRES_COOKIE } = await import(
       "@/lib/session-policy"
@@ -237,11 +269,16 @@ export default async function proxy(request: NextRequest) {
       process.env.MEMORY_STORE === "true" ||
       process.env.DEMO_MODE === "true")
   ) {
-    return NextResponse.next({ request: { headers: requestHeaders } });
+    const localResponse = NextResponse.next({
+      request: { headers: requestHeaders },
+    });
+    enforceUntrustedSessionCookies(request, localResponse);
+    return localResponse;
   }
 
   // Refresh Supabase session cookies and validate JWT
   const { response, userId, rateLimited } = await updateSession(request);
+  enforceUntrustedSessionCookies(request, response);
 
   // On an Auth rate limit we could not verify the JWT. Do NOT trust cookie
   // contents; just let the request through — every page/action re-verifies

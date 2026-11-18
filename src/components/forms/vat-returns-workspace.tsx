@@ -2,10 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import * as XLSX from "xlsx";
 import {
-  prepareVatReturn,
   prepareVatReturnFromBoxes,
+  pullVatBoxesFromBooks,
   refreshVatObligationsFromHmrc,
   submitPreparedVatReturn,
 } from "@/server/actions/vat";
@@ -15,6 +14,12 @@ import {
   warmFraudHeaders,
 } from "@/components/fraud-metadata";
 import { HmrcVatConnectModal } from "@/components/forms/hmrc-vat-connect-modal";
+import {
+  VatBooksBankPanel,
+  VatQuarterBreakdowns,
+} from "@/components/forms/vat-bank-desk";
+import { VatPullStatementsDialog } from "@/components/forms/vat-pull-statements-dialog";
+import { UkDateField } from "@/components/forms/uk-date-field";
 import { VAT_BOX_DEFINITIONS } from "@/lib/hmrc/filing-guides";
 import { money } from "@/lib/format";
 import { pence } from "@/server/money/pence";
@@ -24,6 +29,39 @@ import {
   TrialSubmitConfirmPanel,
   useTrialSubmitGate,
 } from "@/components/forms/trial-submit-confirm";
+import {
+  clampPeriodsToRegistration,
+  formatPeriodRange,
+  formatVatPeriodLabel,
+  latestVatPeriodWindowStart,
+  makeVatPeriod,
+  nextVatPeriodAfter,
+  periodsFromRegistrationDate,
+  sliceVatPeriodWindow,
+  VAT_PERIOD_WINDOW_SIZE,
+} from "@/lib/vat-periods";
+import type { VatBoxRollupPence } from "@/server/bank/vat-box-map";
+import type { BankStatementDocSummary } from "@/lib/bank/statement-docs";
+import type { CustomCategoryRow } from "@/server/actions/custom-categories";
+import Link from "next/link";
+
+/** Only HMRC-filed / accepted returns belong under Submitted — not draft "ready". */
+function isFiledVatReturn(status: string): boolean {
+  const s = status.trim().toLowerCase();
+  return (
+    s === "submitted" ||
+    s === "accepted" ||
+    s === "fulfilled" ||
+    s === "f"
+  );
+}
+
+/** HMRC open obligation, or any non-fulfilled period — never treat READY as filed. */
+function isOpenObligation(status: string): boolean {
+  const s = status.trim().toUpperCase();
+  if (s === "F" || s === "FULFILLED") return false;
+  return true;
+}
 
 type Obligation = {
   periodKey: string;
@@ -39,6 +77,17 @@ type ReturnRow = {
   periodKey: string;
   status: string;
   boxes?: Record<string, string> | null;
+  periodStart?: string | null;
+  periodEnd?: string | null;
+};
+
+type BankTx = {
+  id: string;
+  dated: string;
+  description: string;
+  amountPence: number;
+  category: string;
+  confidence: string;
 };
 
 type BoxKey = (typeof VAT_BOX_DEFINITIONS)[number]["key"];
@@ -78,8 +127,8 @@ function parsePounds(raw: string): number {
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
-function penceToField(pence: number): string {
-  return (pence / 100).toFixed(2);
+function penceToField(penceValue: number): string {
+  return (penceValue / 100).toFixed(2);
 }
 
 function prettyDate(iso: string) {
@@ -91,58 +140,49 @@ function prettyDate(iso: string) {
   });
 }
 
-function downloadCsvTemplate() {
-  const header = [
-    "box1_vat_due_sales",
-    "box2_vat_due_acquisitions",
-    "box4_vat_reclaimed",
-    "box6_total_sales_ex_vat",
-    "box7_total_purchases_ex_vat",
-    "box8_goods_to_ec_ex_vat",
-    "box9_acquisitions_from_ec_ex_vat",
-  ].join(",");
-  const sample = "100.00,0.00,40.00,500.00,200.00,0.00,0.00";
-  const blob = new Blob([`${header}\n${sample}\n`], {
-    type: "text/csv;charset=utf-8",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "hydratax-vat-boxes-template.csv";
-  a.click();
-  URL.revokeObjectURL(url);
+function boxesFromRollup(b: VatBoxRollupPence): BoxInputs {
+  return {
+    vatDueSales: penceToField(Number(b.vatDueSales)),
+    vatDueAcquisitions: penceToField(Number(b.vatDueAcquisitions)),
+    totalVatDue: penceToField(Number(b.totalVatDue)),
+    vatReclaimedCurrPeriod: penceToField(Number(b.vatReclaimedCurrPeriod)),
+    netVatDue: penceToField(Number(b.netVatDue)),
+    totalValueSalesExVAT: penceToField(Number(b.totalValueSalesExVAT)),
+    totalValuePurchasesExVAT: penceToField(Number(b.totalValuePurchasesExVAT)),
+    totalValueGoodsSuppliedExVAT: penceToField(
+      Number(b.totalValueGoodsSuppliedExVAT),
+    ),
+    totalAcquisitionsExVAT: penceToField(Number(b.totalAcquisitionsExVAT)),
+  };
 }
 
-function parseVatUpload(buffer: ArrayBuffer, filename: string): Partial<BoxInputs> {
-  const lower = filename.toLowerCase();
-  let rows: Record<string, unknown>[];
-  if (lower.endsWith(".csv")) {
-    const text = new TextDecoder("utf-8").decode(buffer);
-    const book = XLSX.read(text, { type: "string" });
-    const sheet = book.Sheets[book.SheetNames[0]!];
-    rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
-  } else {
-    const book = XLSX.read(buffer, { type: "array" });
-    const sheet = book.Sheets[book.SheetNames[0]!];
-    rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+function boxesFromStored(
+  stored: Record<string, string> | null | undefined,
+): BoxInputs {
+  if (!stored) return { ...EMPTY_BOXES };
+  const next = { ...EMPTY_BOXES };
+  for (const key of Object.keys(EMPTY_BOXES) as BoxKey[]) {
+    const raw = stored[key];
+    if (raw == null || raw === "") continue;
+    next[key] = String(raw);
   }
-  if (!rows.length) throw new Error("No rows found in file");
-  const row = rows[0]!;
-  const get = (...keys: string[]) => {
-    const found = Object.entries(row).find(([k]) =>
-      keys.some((key) => k.toLowerCase().replace(/[^a-z0-9]/g, "").includes(key)),
-    );
-    return found ? String(found[1]) : "";
-  };
-  return {
-    vatDueSales: get("box1", "vatduesales", "vatdueonsales") || "",
-    vatDueAcquisitions: get("box2", "vatdueacquisitions") || "",
-    vatReclaimedCurrPeriod: get("box4", "vatreclaimed") || "",
-    totalValueSalesExVAT: get("box6", "totalsales") || "",
-    totalValuePurchasesExVAT: get("box7", "totalpurchases") || "",
-    totalValueGoodsSuppliedExVAT: get("box8", "goodssupplied") || "",
-    totalAcquisitionsExVAT: get("box9", "acquisitions") || "",
-  };
+  return next;
+}
+
+function findDraftForPeriod(
+  rows: ReturnRow[],
+  period: Obligation | null,
+): ReturnRow | null {
+  if (!period) return null;
+  const drafts = rows.filter((r) => !isFiledVatReturn(r.status));
+  return (
+    drafts.find((r) => r.periodKey === period.periodKey) ??
+    drafts.find(
+      (r) =>
+        r.periodStart === period.start && r.periodEnd === period.end,
+    ) ??
+    null
+  );
 }
 
 export function VatReturnsWorkspace({
@@ -150,44 +190,427 @@ export function VatReturnsWorkspace({
   clientName,
   contactEmail = null,
   vrn,
+  vatRegistrationDate = null,
   connected,
   signedIn,
   obligations,
   returns,
+  bankTransactionCount = 0,
+  bankStatements = [],
+  bankTransactions = [],
+  customCategories = [],
+  clientSlug,
 }: {
   clientId: string;
   clientName: string;
   contactEmail?: string | null;
   vrn: string | null;
+  vatRegistrationDate?: string | null;
   connected: boolean;
   signedIn: boolean;
   obligations: Obligation[];
   returns: ReturnRow[];
+  bankTransactionCount?: number;
+  bankEarliest?: string | null;
+  bankLatest?: string | null;
+  bankStatements?: BankStatementDocSummary[];
+  bankTransactions?: BankTx[];
+  customCategories?: CustomCategoryRow[];
+  clientSlug?: string;
 }) {
   const router = useRouter();
-  const fileRef = useRef<HTMLInputElement>(null);
   const [connectOpen, setConnectOpen] = useState(false);
+  const [pullOpen, setPullOpen] = useState(false);
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
   const [pending, start] = useTransition();
   const trialGate = useTrialSubmitGate();
   const [periodList, setPeriodList] = useState<Obligation[]>(obligations);
   const [hmrcPeriods, setHmrcPeriods] = useState(false);
-  const openObligations = periodList.filter((o) => o.status === "O");
+  const [windowStart, setWindowStart] = useState(() =>
+    latestVatPeriodWindowStart(obligations.length),
+  );
+  const openObligations = periodList.filter((o) => isOpenObligation(o.status));
+  const [returnRows, setReturnRows] = useState<ReturnRow[]>(returns);
+  const filedReturns = useMemo(
+    () => returnRows.filter((r) => isFiledVatReturn(r.status)),
+    [returnRows],
+  );
   const [selected, setSelected] = useState(
     openObligations[0]?.periodKey ?? periodList[0]?.periodKey ?? "",
   );
   const [boxes, setBoxes] = useState<BoxInputs>({ ...EMPTY_BOXES });
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [uploadName, setUploadName] = useState<string | null>(null);
+  const userCustomPeriodsRef = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipNextAutosaveRef = useRef(true);
 
-  const obligation = periodList.find((o) => o.periodKey === selected);
+  const hasVrn = Boolean(vrn);
+  const hasVatRegDate = Boolean(
+    vatRegistrationDate && /^\d{4}-\d{2}-\d{2}$/.test(vatRegistrationDate),
+  );
+  const vatIdsReady = hasVrn && hasVatRegDate;
+  const obligation = periodList.find((o) => o.periodKey === selected) ?? null;
+
+  useEffect(() => {
+    setReturnRows(returns);
+  }, [returns]);
+
+  /** Never carry figures across quarters — load this period's draft or blanks. */
+  useEffect(() => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    skipNextAutosaveRef.current = true;
+    const draft = findDraftForPeriod(returnRows, obligation);
+    setBoxes(boxesFromStored(draft?.boxes ?? null));
+    setMessage(null);
+    setError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when period changes
+  }, [selected, obligation?.periodKey, obligation?.start, obligation?.end]);
+
+  function persistBoxesNow(nextBoxes: BoxInputs) {
+    if (!obligation || !vatIdsReady) return;
+    const b1 = parsePounds(nextBoxes.vatDueSales);
+    const b2 = parsePounds(nextBoxes.vatDueAcquisitions);
+    const b4 = parsePounds(nextBoxes.vatReclaimedCurrPeriod);
+    const total = b1 + b2;
+    const net = total - b4;
+    const penceBoxes = {
+      vatDueSales: pence(b1),
+      vatDueAcquisitions: pence(b2),
+      totalVatDue: pence(total),
+      vatReclaimedCurrPeriod: pence(b4),
+      netVatDue: pence(net),
+      totalValueSalesExVAT: pence(
+        parsePounds(nextBoxes.totalValueSalesExVAT),
+      ),
+      totalValuePurchasesExVAT: pence(
+        parsePounds(nextBoxes.totalValuePurchasesExVAT),
+      ),
+      totalValueGoodsSuppliedExVAT: pence(
+        parsePounds(nextBoxes.totalValueGoodsSuppliedExVAT),
+      ),
+      totalAcquisitionsExVAT: pence(
+        parsePounds(nextBoxes.totalAcquisitionsExVAT),
+      ),
+    };
+    const displayBoxes = boxesFromRollup(penceBoxes);
+    start(async () => {
+      try {
+        const saved = await prepareVatReturnFromBoxes({
+          clientId,
+          periodKey: obligation.periodKey,
+          periodStart: obligation.start,
+          periodEnd: obligation.end,
+          boxes: penceBoxes,
+        });
+        setReturnRows((prev) => {
+          const others = prev.filter((r) => {
+            if (isFiledVatReturn(r.status)) return true;
+            const sameKey = r.periodKey === obligation.periodKey;
+            const sameDates =
+              r.periodStart === obligation.start &&
+              r.periodEnd === obligation.end;
+            return !sameKey && !sameDates;
+          });
+          return [
+            ...others,
+            {
+              id: String(saved.id),
+              periodKey: obligation.periodKey,
+              status: String(saved.status ?? "ready"),
+              boxes: displayBoxes,
+              periodStart: obligation.start,
+              periodEnd: obligation.end,
+            },
+          ];
+        });
+      } catch {
+        /* freeze */
+      }
+    });
+  }
+
+  function scheduleAutosave(nextBoxes: BoxInputs) {
+    if (skipNextAutosaveRef.current) {
+      skipNextAutosaveRef.current = false;
+      return;
+    }
+    if (!obligation || !vatIdsReady) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      persistBoxesNow(nextBoxes);
+    }, 600);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
+
+  const sortedPeriods = useMemo(
+    () => [...periodList].sort((a, b) => a.start.localeCompare(b.start)),
+    [periodList],
+  );
+
+  const visiblePeriods = useMemo(
+    () => sliceVatPeriodWindow(sortedPeriods, windowStart),
+    [sortedPeriods, windowStart],
+  );
+
+  const hasEarlierQuarters = windowStart > 0;
+  const hasLaterQuarters =
+    windowStart + VAT_PERIOD_WINDOW_SIZE < sortedPeriods.length;
+  const latestStart = latestVatPeriodWindowStart(sortedPeriods.length);
+
+  function prettyRegDate(iso: string | null | undefined) {
+    if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+    return prettyDate(iso);
+  }
+
+  function periodTitle(o: { periodKey: string; start: string; end: string }) {
+    return formatVatPeriodLabel(o.start, o.end);
+  }
+
+  function returnPeriodLabel(r: ReturnRow): string {
+    if (
+      r.periodStart &&
+      r.periodEnd &&
+      /^\d{4}-\d{2}-\d{2}$/.test(r.periodStart) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(r.periodEnd)
+    ) {
+      return formatVatPeriodLabel(r.periodStart, r.periodEnd);
+    }
+    const match =
+      periodList.find((p) => p.periodKey === r.periodKey) ??
+      obligations.find((p) => p.periodKey === r.periodKey);
+    if (match) return formatVatPeriodLabel(match.start, match.end);
+    return r.periodKey;
+  }
+
+  function periodHasSubmittedReturn(o: Obligation): boolean {
+    return returnRows.some((r) => {
+      if (!isFiledVatReturn(r.status)) return false;
+      if (r.periodKey === o.periodKey) return true;
+      return (
+        r.periodStart === o.start && r.periodEnd === o.end
+      );
+    });
+  }
+
+  function canDeletePeriod(o: Obligation): boolean {
+    if (periodHasSubmittedReturn(o)) return false;
+    if (connected && !isOpenObligation(o.status)) return false;
+    return true;
+  }
+
+  function deletePeriod(o: Obligation) {
+    if (!canDeletePeriod(o)) return;
+    userCustomPeriodsRef.current = true;
+    const next = periodList.filter(
+      (p) =>
+        !(
+          p.periodKey === o.periodKey &&
+          p.start === o.start &&
+          p.end === o.end
+        ),
+    );
+    setPeriodList(next);
+    setHmrcPeriods(false);
+    setReturnRows((prev) =>
+      prev.filter((r) => {
+        if (isFiledVatReturn(r.status)) return true;
+        const sameKey = r.periodKey === o.periodKey;
+        const sameDates =
+          r.periodStart === o.start && r.periodEnd === o.end;
+        return !sameKey && !sameDates;
+      }),
+    );
+    if (
+      selected === o.periodKey ||
+      (obligation?.start === o.start && obligation?.end === o.end)
+    ) {
+      setSelected(next[0]?.periodKey ?? "");
+    }
+    setWindowStart(latestVatPeriodWindowStart(next.length));
+  }
+
+  function applySeededPeriods(
+    seeded: ReturnType<typeof periodsFromRegistrationDate>,
+  ) {
+    if (!seeded.length) return false;
+    const next = seeded.map((p) => ({
+      periodKey: p.periodKey,
+      start: p.start,
+      end: p.end,
+      due: p.due,
+      status: p.status,
+    }));
+    setPeriodList(next);
+    setHmrcPeriods(false);
+    setWindowStart(latestVatPeriodWindowStart(next.length));
+    setSelected(seeded[0]?.periodKey ?? "");
+    return true;
+  }
+
+  /** When HMRC is empty / offline, seed quarters from the registration date. */
+  function seedFromRegistration() {
+    if (!vatRegistrationDate || !hasVatRegDate) return false;
+    if (userCustomPeriodsRef.current) return false;
+    return applySeededPeriods(
+      periodsFromRegistrationDate(
+        vatRegistrationDate,
+        VAT_PERIOD_WINDOW_SIZE,
+      ),
+    );
+  }
+
+  function appendPeriod(period: {
+    periodKey: string;
+    start: string;
+    end: string;
+    due: string;
+    status: string;
+  }) {
+    userCustomPeriodsRef.current = true;
+    const next = [...periodList, period];
+    setPeriodList(next);
+    setHmrcPeriods(false);
+    setWindowStart(latestVatPeriodWindowStart(next.length));
+    setSelected(period.periodKey);
+  }
+
+  function addNextQuarter() {
+    if (!hasVatRegDate) return;
+    const sorted = [...periodList].sort((a, b) =>
+      a.start.localeCompare(b.start),
+    );
+    if (sorted.length === 0) {
+      const seeded = periodsFromRegistrationDate(vatRegistrationDate!, 1);
+      const first = seeded[0];
+      if (!first) return;
+      appendPeriod({
+        periodKey: first.periodKey,
+        start: first.start,
+        end: first.end,
+        due: first.due,
+        status: first.status,
+      });
+      return;
+    }
+    const last = sorted[sorted.length - 1]!;
+    // Continue the same stagger as the last quarter (custom or seeded).
+    const nextPeriod = nextVatPeriodAfter(last.end, last.start);
+    if (
+      sorted.some(
+        (p) => p.start === nextPeriod.start && p.end === nextPeriod.end,
+      )
+    ) {
+      return;
+    }
+    appendPeriod({
+      periodKey: nextPeriod.periodKey,
+      start: nextPeriod.start,
+      end: nextPeriod.end,
+      due: nextPeriod.due,
+      status: "O",
+    });
+  }
+
+  function addCustomQuarter() {
+    if (!hasVatRegDate || !vatRegistrationDate) return;
+    const start = customStart.slice(0, 10);
+    const end = customEnd.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+      return;
+    }
+    if (end < start) return;
+    if (start < vatRegistrationDate) return;
+    if (
+      periodList.some((p) => p.start === start && p.end === end)
+    ) {
+      return;
+    }
+    const period = makeVatPeriod(start, end);
+    appendPeriod({
+      periodKey: period.periodKey,
+      start: period.start,
+      end: period.end,
+      due: period.due,
+      status: "O",
+    });
+    setCustomStart("");
+    setCustomEnd("");
+  }
+
+  const customQuarterReady =
+    hasVatRegDate &&
+    Boolean(vatRegistrationDate) &&
+    /^\d{4}-\d{2}-\d{2}$/.test(customStart) &&
+    /^\d{4}-\d{2}-\d{2}$/.test(customEnd) &&
+    customEnd >= customStart &&
+    customStart >= (vatRegistrationDate ?? "");
 
   useEffect(() => {
     warmFraudHeaders();
   }, []);
 
+  // Once VRN + registration date exist (and HMRC is not driving the list),
+  // auto-seed the registration quarter + next quarters so the desk is never empty.
   useEffect(() => {
-    if (!connected) return;
+    if (!vatIdsReady || !vatRegistrationDate) return;
+    if (hmrcPeriods || userCustomPeriodsRef.current) return;
+    if (connected) {
+      // Connected: wait for HMRC refresh; only clamp SSR placeholders meanwhile.
+      const clamped = clampPeriodsToRegistration(
+        periodList,
+        vatRegistrationDate,
+      );
+      if (clamped.length === 0) return;
+      const changed =
+        clamped.length !== periodList.length ||
+        clamped.some(
+          (p, i) =>
+            p.start !== periodList[i]?.start || p.end !== periodList[i]?.end,
+        );
+      if (changed) {
+        setPeriodList(clamped);
+        setWindowStart(latestVatPeriodWindowStart(clamped.length));
+        const stillSelected = clamped.some((p) => p.periodKey === selected);
+        if (!stillSelected) {
+          const open =
+            clamped.find((o) => isOpenObligation(o.status)) ?? clamped[0];
+          if (open) setSelected(open.periodKey);
+        }
+      }
+      return;
+    }
+    // Re-seed when empty, or when the old calendar-quarter stub remains
+    // (e.g. 1 Mar–31 Mar after mid-quarter registration).
+    const first = [...periodList].sort((a, b) =>
+      a.start.localeCompare(b.start),
+    )[0];
+    const stubDays =
+      first &&
+      (Date.parse(`${first.end}T12:00:00Z`) -
+        Date.parse(`${first.start}T12:00:00Z`)) /
+        86_400_000;
+    const looksLikeOldCalendarStub =
+      typeof stubDays === "number" &&
+      stubDays < 60 &&
+      /-(03-31|06-30|09-30|12-31)$/.test(first!.end);
+    if (periodList.length === 0 || looksLikeOldCalendarStub) {
+      seedFromRegistration();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vatIdsReady, vatRegistrationDate, connected]);
+
+  useEffect(() => {
+    if (!connected || !vatIdsReady) return;
     let cancelled = false;
     start(async () => {
       try {
@@ -195,18 +618,28 @@ export function VatReturnsWorkspace({
           clientId,
           fraudMetadata: gatherFraudMetadata(),
         });
-        if (cancelled || live.length === 0) return;
-        setPeriodList(live);
+        if (cancelled) return;
+        if (live.length === 0) {
+          // HMRC returned nothing — still offer auto quarters.
+          seedFromRegistration();
+          return;
+        }
+        const clamped = clampPeriodsToRegistration(live, vatRegistrationDate);
+        if (!clamped.length) {
+          seedFromRegistration();
+          return;
+        }
+        userCustomPeriodsRef.current = false;
+        setPeriodList(clamped);
         setHmrcPeriods(true);
-        const open = live.find((o) => o.status === "O") ?? live[0];
+        setWindowStart(latestVatPeriodWindowStart(clamped.length));
+        const open =
+          clamped.find((o) => isOpenObligation(o.status)) ?? clamped[0];
         if (open) setSelected(open.periodKey);
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Could not load VAT periods from HMRC",
-          );
+      } catch {
+        // Desk UI: freeze — keep any custom / seeded periods; seed if empty.
+        if (!cancelled && periodList.length === 0) {
+          seedFromRegistration();
         }
       }
     });
@@ -215,7 +648,7 @@ export function VatReturnsWorkspace({
     };
     // Intentional: refresh once when connection becomes available.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connected, clientId]);
+  }, [connected, clientId, vatIdsReady, vatRegistrationDate]);
 
   const derived = useMemo(() => {
     const b1 = parsePounds(boxes.vatDueSales);
@@ -248,7 +681,107 @@ export function VatReturnsWorkspace({
 
   function setBox(key: BoxKey, value: string) {
     if (COMPUTED.includes(key)) return;
-    setBoxes((prev) => ({ ...prev, [key]: value }));
+    setBoxes((prev) => {
+      const next = { ...prev, [key]: value };
+      scheduleAutosave(next);
+      return next;
+    });
+  }
+
+  function confirmPullStatements(selected: BankStatementDocSummary[]) {
+    if (!obligation || !vatIdsReady || selected.length === 0) return;
+    setPullOpen(false);
+    start(async () => {
+      setError(null);
+      try {
+        const res = await pullVatBoxesFromBooks({
+          clientId,
+          periodStart: obligation.start,
+          periodEnd: obligation.end,
+          documentIds: selected.map((d) => d.id),
+        });
+        if (!res.ok || !res.boxes) return;
+        const filled = boxesFromRollup(res.boxes);
+        setBoxes(filled);
+        skipNextAutosaveRef.current = false;
+        persistBoxesNow(filled);
+        setMessage(
+          `VAT boxes filled from ${res.periodLines} bank line${res.periodLines === 1 ? "" : "s"}`,
+        );
+        router.refresh();
+        requestAnimationFrame(() => {
+          const id = `vat-categorised-${obligation.periodKey}-${obligation.start}`;
+          const el = document.getElementById(id);
+          if (el) {
+            const details = el.closest("details");
+            if (details && !details.open) details.open = true;
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        });
+      } catch {
+        /* freeze */
+      }
+    });
+  }
+
+  function renderPeriodList() {
+    return (
+      <ul className="mt-3 space-y-2">
+        {visiblePeriods.map((o) => {
+          const active =
+            o.periodKey === selected ||
+            (obligation?.start === o.start && obligation?.end === o.end);
+          const deletable = canDeletePeriod(o);
+          return (
+            <li key={`${o.periodKey}-${o.start}-${o.end}`} className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelected(o.periodKey);
+                  setMessage(null);
+                  setError(null);
+                }}
+                className={`w-full rounded-xl border px-3 py-2.5 pr-9 text-left text-sm transition ${
+                  active
+                    ? "border-sea bg-sea/5"
+                    : "border-line hover:border-sea/40"
+                }`}
+              >
+                <span className="font-semibold text-ink">
+                  {periodTitle(o)}
+                </span>
+                <span className="mt-0.5 block text-xs text-ink-soft">
+                  {prettyDate(o.start)} – {prettyDate(o.end)}
+                </span>
+                {connected ? (
+                  <span className="mt-1 inline-block text-[10px] font-bold uppercase tracking-wide text-sea">
+                    {isOpenObligation(o.status) ? "Open" : "Fulfilled"}
+                  </span>
+                ) : null}
+                {!deletable && periodHasSubmittedReturn(o) ? (
+                  <span className="mt-1 block text-[10px] font-bold uppercase tracking-wide text-ink-soft">
+                    Submitted
+                  </span>
+                ) : null}
+              </button>
+              {deletable ? (
+                <button
+                  type="button"
+                  aria-label={`Remove ${periodTitle(o)}`}
+                  className="absolute right-2 top-2 rounded-md px-1.5 py-0.5 text-sm font-bold leading-none text-ink-soft transition hover:bg-line/60 hover:text-ink"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deletePeriod(o);
+                  }}
+                >
+                  ×
+                </button>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    );
   }
 
   return (
@@ -262,57 +795,63 @@ export function VatReturnsWorkspace({
         </h1>
         <p className="mt-1 text-ink-soft">
           File MTD VAT to HMRC
-          {vrn ? ` · VRN ${vrn}` : " · connect to load obligations"}
+          {vrn ? ` · VRN ${vrn}` : " · VRN required"}
+          {hasVatRegDate
+            ? ` · registered ${prettyRegDate(vatRegistrationDate)}`
+            : " · registration date required"}
           {connected ? " · connected" : ""}
         </p>
+        {!vatIdsReady ? (
+          <p className="mt-2 text-sm text-ink-soft">
+            Add the VRN and VAT registration date on the{" "}
+            <Link
+              href={`/clients/${clientId}/edit`}
+              className="font-semibold text-sea underline-offset-2 hover:underline"
+            >
+              client record
+            </Link>{" "}
+            (or when connecting to HMRC) before drafting or submitting.
+          </p>
+        ) : null}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
-        {/* Periods sidebar */}
-        <aside className="space-y-4">
-          <div className="panel p-4">
+      <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)] lg:items-stretch lg:gap-6">
+        {/* Left column height tracks the filing card; inner panels scroll. */}
+        <div className="relative min-h-[22rem] lg:min-h-0">
+        <aside className="flex flex-col gap-4 lg:absolute lg:inset-0 lg:overflow-hidden">
+          <div className="panel shrink-0 overflow-y-auto p-4 lg:max-h-[46%]">
             <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
               VAT periods
             </h2>
-            {connected ? (
+
+            {hasEarlierQuarters ? (
+              <button
+                type="button"
+                className="mt-3 w-full rounded-lg border border-line px-3 py-2 text-left text-xs font-semibold text-sea transition hover:border-sea/40"
+                onClick={() =>
+                  setWindowStart((s) =>
+                    Math.max(0, s - VAT_PERIOD_WINDOW_SIZE),
+                  )
+                }
+              >
+                See previous quarters
+              </button>
+            ) : null}
+
+            {connected && vatIdsReady ? (
               <>
-                {!hmrcPeriods ? (
+                {!hmrcPeriods && periodList.length === 0 ? (
                   <p className="mt-3 text-xs text-ink-soft">
                     Loading periods from HMRC…
                   </p>
                 ) : null}
-                <ul className="mt-3 space-y-2">
-                  {periodList.map((o) => {
-                    const active = o.periodKey === selected;
-                    return (
-                      <li key={o.periodKey}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelected(o.periodKey);
-                            setMessage(null);
-                            setError(null);
-                          }}
-                          className={`w-full rounded-xl border px-3 py-2.5 text-left text-sm transition ${
-                            active
-                              ? "border-sea bg-sea/5"
-                              : "border-line hover:border-sea/40"
-                          }`}
-                        >
-                          <span className="font-semibold text-ink">
-                            {o.periodKey}
-                          </span>
-                          <span className="mt-0.5 block text-xs text-ink-soft">
-                            {prettyDate(o.start)} – {prettyDate(o.end)}
-                          </span>
-                          <span className="mt-1 inline-block text-[10px] font-bold uppercase tracking-wide text-sea">
-                            {o.status === "O" ? "Open" : "Fulfilled"}
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
+                {renderPeriodList()}
+                {vatIdsReady && periodList.length === 0 ? (
+                  <p className="mt-3 text-xs text-ink-soft">
+                    No HMRC periods yet — add a quarter below, or we can seed
+                    from the registration date.
+                  </p>
+                ) : null}
                 <button
                   type="button"
                   className="btn btn-ghost mt-3 w-full text-xs"
@@ -325,15 +864,26 @@ export function VatReturnsWorkspace({
                           clientId,
                           fraudMetadata: gatherFraudMetadata(),
                         });
-                        setPeriodList(live);
-                        setHmrcPeriods(true);
-                        setMessage("VAT periods refreshed from HMRC");
-                      } catch (err) {
-                        setError(
-                          err instanceof Error
-                            ? err.message
-                            : "Could not refresh VAT periods",
+                        if (!live.length) {
+                          seedFromRegistration();
+                          return;
+                        }
+                        const clamped = clampPeriodsToRegistration(
+                          live,
+                          vatRegistrationDate,
                         );
+                        if (!clamped.length) {
+                          seedFromRegistration();
+                          return;
+                        }
+                        setPeriodList(clamped);
+                        setHmrcPeriods(true);
+                        setWindowStart(
+                          latestVatPeriodWindowStart(clamped.length),
+                        );
+                        setMessage("VAT periods refreshed from HMRC");
+                      } catch {
+                        // Freeze
                       }
                     })
                   }
@@ -342,93 +892,189 @@ export function VatReturnsWorkspace({
                 </button>
               </>
             ) : (
-              <p className="mt-3 text-sm text-ink-soft">
-                After you connect, your real VAT obligation periods come
-                straight from HMRC — nothing to set up by hand.
-              </p>
+              renderPeriodList()
             )}
+
+            {hasLaterQuarters ? (
+              <button
+                type="button"
+                className="mt-2 w-full rounded-lg border border-line px-3 py-2 text-left text-xs font-semibold text-sea transition hover:border-sea/40"
+                onClick={() => setWindowStart(latestStart)}
+              >
+                Back to current quarters
+              </button>
+            ) : null}
+
+            <div className="mt-4 space-y-3 border-t border-line pt-3">
+              <button
+                type="button"
+                className="btn btn-secondary w-full text-xs"
+                disabled={!hasVatRegDate}
+                onClick={addNextQuarter}
+              >
+                Add Quarter
+              </button>
+
+              <div className="space-y-2 rounded-lg border border-line bg-paper/80 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-soft">
+                  Custom quarter
+                </p>
+                <label className="block text-[11px] text-ink-soft">
+                  Start
+                  <UkDateField
+                    className="input mt-1 w-full text-xs"
+                    value={customStart}
+                    disabled={!hasVatRegDate}
+                    onChange={(iso) => setCustomStart(iso)}
+                  />
+                </label>
+                <label className="block text-[11px] text-ink-soft">
+                  End
+                  <UkDateField
+                    className="input mt-1 w-full text-xs"
+                    value={customEnd}
+                    disabled={!hasVatRegDate}
+                    onChange={(iso) => setCustomEnd(iso)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-primary w-full text-xs"
+                  disabled={!customQuarterReady}
+                  onClick={addCustomQuarter}
+                >
+                  Add custom dates
+                </button>
+              </div>
+            </div>
           </div>
 
-          {returns.length > 0 && (
-            <div className="panel p-4">
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <VatBooksBankPanel
+              clientId={clientId}
+              clientSlug={clientSlug}
+              bankStatements={bankStatements}
+              allowUpload
+            />
+          </div>
+
+          {filedReturns.length > 0 ? (
+            <div className="panel max-h-28 shrink-0 overflow-y-auto p-3">
               <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
                 Submitted
               </h2>
-              <ul className="mt-3 divide-y divide-line text-sm">
-                {returns.map((r) => (
-                  <li
-                    key={r.id}
-                    className="flex flex-wrap items-center justify-between gap-2 py-2"
-                  >
-                    <span className="font-semibold">{r.periodKey}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="badge badge-ok">{r.status}</span>
-                      <EmailToClientButton
-                        clientId={clientId}
-                        defaultEmail={contactEmail}
-                        compact
-                        label="Email"
-                        subject={`VAT return ${r.periodKey} — ${clientName}`}
-                        message={`Please find a summary of the submitted VAT return for period ${r.periodKey}.\n\nKind regards`}
-                        artifact={{
-                          type: "vat_summary",
-                          periodKey: r.periodKey,
-                          status: "submitted",
-                          boxes: r.boxes ?? undefined,
-                        }}
-                      />
-                    </div>
-                  </li>
-                ))}
+              <ul className="mt-2 divide-y divide-line text-sm">
+                {filedReturns.map((r) => {
+                  const label = returnPeriodLabel(r);
+                  return (
+                    <li
+                      key={r.id}
+                      className="flex flex-wrap items-center justify-between gap-2 py-1.5"
+                    >
+                      <span className="font-semibold">{label}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="badge badge-ok">
+                          {r.status.toLowerCase() === "accepted"
+                            ? "Accepted"
+                            : "Submitted"}
+                        </span>
+                        <EmailToClientButton
+                          clientId={clientId}
+                          defaultEmail={contactEmail}
+                          compact
+                          label="Email"
+                          subject={`VAT return ${label} — ${clientName}`}
+                          message={`Please find a summary of the submitted VAT return for ${label}.\n\nKind regards`}
+                          artifact={{
+                            type: "vat_summary",
+                            periodKey: r.periodKey,
+                            status: "submitted",
+                            boxes: r.boxes ?? undefined,
+                          }}
+                        />
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
-          )}
+          ) : null}
         </aside>
+        </div>
 
         {/* Main filing card */}
-        <section className="panel overflow-hidden">
-          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
-            <div>
-              <h2 className="display text-2xl text-ink">
-                File next VAT return to HMRC
-              </h2>
-              {obligation && (
-                <p className="mt-1 text-sm text-ink-soft">
-                  Period {obligation.periodKey}: {prettyDate(obligation.start)}{" "}
-                  – {prettyDate(obligation.end)} · due{" "}
-                  {prettyDate(obligation.due)}
-                </p>
+        <section className="min-w-0">
+          <div className="panel overflow-hidden">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
+              <div>
+                <h2 className="display text-2xl text-ink">
+                  File next VAT return to HMRC
+                </h2>
+                {obligation && (
+                  <p className="mt-1 text-sm text-ink-soft">
+                    {periodTitle(obligation)}: {prettyDate(obligation.start)} –{" "}
+                    {prettyDate(obligation.end)} · due{" "}
+                    {prettyDate(obligation.due)}
+                  </p>
+                )}
+              </div>
+              {connected ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="badge badge-ok">HMRC connected</span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary text-sm"
+                    disabled={pending}
+                    onClick={() =>
+                      start(async () => {
+                        await disconnectHmrcAction(clientId);
+                        router.refresh();
+                      })
+                    }
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              ) : (
+                <span className="badge badge-muted">HMRC not connected</span>
               )}
             </div>
-            {connected ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="badge badge-ok">HMRC connected</span>
-                <button
-                  type="button"
-                  className="btn btn-secondary text-sm"
-                  disabled={pending}
-                  onClick={() =>
-                    start(async () => {
-                      await disconnectHmrcAction(clientId);
-                      router.refresh();
-                    })
-                  }
-                >
-                  Disconnect
-                </button>
-              </div>
-            ) : (
-              <span className="badge badge-muted">HMRC not connected</span>
-            )}
-          </div>
 
-          <div className="grid gap-0 lg:grid-cols-2">
-            {/* Digital record */}
-            <div className="min-w-0 border-b border-line p-5 lg:border-b-0 lg:border-r">
-              <h3 className="text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
-                Create digital record
-              </h3>
-              <ul className="mt-4 space-y-2">
+            <div className="p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
+                  Create digital record
+                </h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-secondary text-xs"
+                    disabled={
+                      pending ||
+                      !obligation ||
+                      !vatIdsReady ||
+                      (bankStatements.length === 0 &&
+                        bankTransactionCount <= 0)
+                    }
+                    onClick={() => {
+                      if (!obligation || !vatIdsReady) return;
+                      setPullOpen(true);
+                    }}
+                  >
+                    {pending
+                      ? "Pulling…"
+                      : obligation
+                        ? `Fill boxes from books · ${periodTitle(obligation)}`
+                        : "Select a VAT period first"}
+                  </button>
+                  {obligation ? (
+                    <span className="text-xs text-ink-soft">
+                      {formatPeriodRange(obligation.start, obligation.end)}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <ul className="mt-3 w-full space-y-1">
                 {VAT_BOX_DEFINITIONS.map((def) => {
                   const computed = COMPUTED.includes(def.key);
                   const value = computed
@@ -437,20 +1083,23 @@ export function VatReturnsWorkspace({
                   return (
                     <li
                       key={def.key}
-                      className={`grid grid-cols-[2rem_minmax(0,1fr)_6.75rem] items-center gap-x-3 rounded-xl px-2 py-2 ${
+                      className={`grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 rounded-lg px-1.5 py-1.5 ${
                         computed ? "bg-sea/5" : ""
                       }`}
                     >
-                      <span className="flex size-8 items-center justify-center rounded-full bg-sea text-xs font-bold text-white">
+                      <span className="flex size-7 items-center justify-center rounded-full bg-sea text-[11px] font-bold text-white">
                         {def.id}
                       </span>
                       <span className="min-w-0 text-sm leading-snug text-ink">
                         {BOX_SHORT[def.key]}
                       </span>
                       <input
-                        className="input mono !h-9 !min-h-0 !w-full py-1.5 text-right text-sm"
+                        className={`input mono !h-8 !min-h-0 !w-[6.5rem] shrink-0 py-1 text-right text-sm ${
+                          computed ? "font-semibold" : ""
+                        }`}
                         inputMode="decimal"
                         readOnly={computed}
+                        disabled={!vatIdsReady}
                         value={value}
                         placeholder="0.00"
                         onChange={(e) => setBox(def.key, e.target.value)}
@@ -460,274 +1109,180 @@ export function VatReturnsWorkspace({
                   );
                 })}
               </ul>
+              <p className="mt-3 text-xs text-ink-soft">
+                Net VAT due:{" "}
+                <span className="mono font-semibold text-ink">
+                  {money(derived.pence.netVatDue)}
+                </span>
+              </p>
             </div>
 
-            {/* Upload */}
-            <div className="min-w-0 p-5">
-              <h3 className="text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
-                Or upload a file
-              </h3>
-              <label className="mt-4 flex min-h-[220px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-sea/50 bg-sea/[0.03] px-6 py-10 text-center transition hover:border-sea hover:bg-sea/5">
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                  className="sr-only"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = "";
-                    if (!file) return;
-                    setError(null);
-                    start(async () => {
-                      try {
-                        const partial = parseVatUpload(
-                          await file.arrayBuffer(),
-                          file.name,
-                        );
-                        setBoxes((prev) => ({ ...prev, ...partial }));
-                        setUploadName(file.name);
-                        setMessage(`Loaded figures from ${file.name}`);
-                      } catch (err) {
-                        setError(
-                          err instanceof Error
-                            ? err.message
-                            : "Could not read file",
-                        );
-                      }
+            <div className="space-y-3 border-t border-line bg-sand/30 px-5 py-4">
+              <FormErrorBanner error={error} />
+              <TrialSubmitConfirmPanel
+                gateError={trialGate.gateError}
+                needsConfirm={trialGate.needsConfirm}
+                paymentFailed={trialGate.paymentFailed}
+                pending={trialGate.pending || pending}
+                onDismiss={() => trialGate.clearGate()}
+                onConfirm={() => {
+                  if (!obligation || !vatIdsReady) return;
+                  trialGate.endTrialThen(async ({ confirmEndTrial }) => {
+                    await prepareVatReturnFromBoxes({
+                      clientId,
+                      periodKey: obligation.periodKey,
+                      periodStart: obligation.start,
+                      periodEnd: obligation.end,
+                      boxes: derived.pence,
                     });
-                  }}
-                />
-                <span className="flex size-12 items-center justify-center rounded-full bg-sea/10 text-sea">
-                  <svg
-                    width="22"
-                    height="22"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    aria-hidden
-                  >
-                    <path d="M12 16V4M12 4l-4 4M12 4l4 4" />
-                    <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-                  </svg>
-                </span>
-                <span className="text-sm text-ink">
-                  Drag and drop your file or{" "}
-                  <span className="font-semibold text-sea">browse</span>
-                </span>
-                <span className="text-xs text-ink-soft">
-                  CSV or Excel (.xls, .xlsx)
-                  {uploadName ? ` · ${uploadName}` : ""}
-                </span>
-              </label>
-              <button
-                type="button"
-                className="mt-3 text-sm font-semibold text-sea underline-offset-2 hover:underline"
-                onClick={downloadCsvTemplate}
-              >
-                Download CSV template
-              </button>
-
-              <div className="mt-8 space-y-2 border-t border-line pt-5">
-                <button
-                  type="button"
-                  className="btn btn-secondary w-full text-sm"
-                  disabled={pending || !obligation}
-                  onClick={() =>
-                    start(async () => {
-                      if (!obligation) return;
-                      setError(null);
-                      try {
-                        const draft = await prepareVatReturn({
-                          clientId,
-                          periodKey: obligation.periodKey,
-                          periodStart: obligation.start,
-                          periodEnd: obligation.end,
-                        });
-                        const b = draft.boxes as Record<BoxKey, number>;
-                        setBoxes({
-                          vatDueSales: penceToField(b.vatDueSales),
-                          vatDueAcquisitions: penceToField(
-                            b.vatDueAcquisitions,
-                          ),
-                          totalVatDue: penceToField(b.totalVatDue),
-                          vatReclaimedCurrPeriod: penceToField(
-                            b.vatReclaimedCurrPeriod,
-                          ),
-                          netVatDue: penceToField(b.netVatDue),
-                          totalValueSalesExVAT: penceToField(
-                            b.totalValueSalesExVAT,
-                          ),
-                          totalValuePurchasesExVAT: penceToField(
-                            b.totalValuePurchasesExVAT,
-                          ),
-                          totalValueGoodsSuppliedExVAT: penceToField(
-                            b.totalValueGoodsSuppliedExVAT,
-                          ),
-                          totalAcquisitionsExVAT: penceToField(
-                            b.totalAcquisitionsExVAT,
-                          ),
-                        });
-                        setMessage("Drafted boxes from client books");
-                      } catch (err) {
-                        setError(
-                          err instanceof Error
-                            ? err.message
-                            : "Could not draft from books",
-                        );
-                      }
-                    })
-                  }
-                >
-                  Fill from books
-                </button>
-                <p className="text-xs text-ink-soft">
-                  Net VAT due:{" "}
-                  <span className="mono font-semibold text-ink">
-                    {money(derived.pence.netVatDue)}
-                  </span>
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-3 border-t border-line bg-sand/30 px-5 py-4">
-            <FormErrorBanner error={error} />
-            <TrialSubmitConfirmPanel
-              gateError={trialGate.gateError}
-              needsConfirm={trialGate.needsConfirm}
-              paymentFailed={trialGate.paymentFailed}
-              pending={trialGate.pending || pending}
-              onDismiss={() => trialGate.clearGate()}
-              onConfirm={() => {
-                if (!obligation) return;
-                trialGate.endTrialThen(async ({ confirmEndTrial }) => {
-                  await prepareVatReturnFromBoxes({
-                    clientId,
-                    periodKey: obligation.periodKey,
-                    periodStart: obligation.start,
-                    periodEnd: obligation.end,
-                    boxes: derived.pence,
+                    const fraudMetadata = gatherFraudMetadata();
+                    const res = await submitPreparedVatReturn({
+                      clientId,
+                      periodKey: obligation.periodKey,
+                      periodStart: obligation.start,
+                      periodEnd: obligation.end,
+                      fraudMetadata,
+                      confirmEndTrial,
+                    });
+                    const bundle =
+                      (res as { hmrcFormBundleNumber?: string })
+                        .hmrcFormBundleNumber ??
+                      (res as { result?: { hmrcFormBundleNumber?: string } })
+                        .result?.hmrcFormBundleNumber ??
+                      "accepted";
+                    setMessage(`Submitted to HMRC · ${bundle}`);
+                    router.refresh();
                   });
-                  const fraudMetadata = gatherFraudMetadata();
-                  const res = await submitPreparedVatReturn({
-                    clientId,
-                    periodKey: obligation.periodKey,
-                    periodStart: obligation.start,
-                    periodEnd: obligation.end,
-                    fraudMetadata,
-                    confirmEndTrial,
-                  });
-                  const bundle =
-                    (res as { hmrcFormBundleNumber?: string })
-                      .hmrcFormBundleNumber ??
-                    (res as { result?: { hmrcFormBundleNumber?: string } })
-                      .result?.hmrcFormBundleNumber ??
-                    "accepted";
-                  setMessage(`Submitted to HMRC · ${bundle}`);
-                  router.refresh();
-                });
-              }}
-            />
-            {message && (
-              <p className="text-sm font-semibold text-ok">{message}</p>
-            )}
-            <div className="flex flex-wrap gap-2">
-              {connected ? (
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  disabled={
-                    pending ||
-                    trialGate.pending ||
-                    !obligation ||
-                    !vrn
-                  }
-                  onClick={() =>
-                    start(async () => {
-                      if (!obligation) return;
-                      if (!vrn) {
-                        setError(
-                          "Connect VAT and enter the VRN before submitting to HMRC.",
-                        );
-                        return;
-                      }
-                      setError(null);
-                      trialGate.clearGate();
-                      try {
-                        await prepareVatReturnFromBoxes({
-                          clientId,
-                          periodKey: obligation.periodKey,
-                          periodStart: obligation.start,
-                          periodEnd: obligation.end,
-                          boxes: derived.pence,
-                        });
-                        const fraudMetadata = gatherFraudMetadata();
-                        const res = await submitPreparedVatReturn({
-                          clientId,
-                          periodKey: obligation.periodKey,
-                          periodStart: obligation.start,
-                          periodEnd: obligation.end,
-                          fraudMetadata,
-                        });
-                        const bundle =
-                          (res as { hmrcFormBundleNumber?: string })
-                            .hmrcFormBundleNumber ??
-                          (res as { result?: { hmrcFormBundleNumber?: string } })
-                            .result?.hmrcFormBundleNumber ??
-                          "accepted";
-                        setMessage(`Submitted to HMRC · ${bundle}`);
-                        router.refresh();
-                      } catch (err) {
-                        if (!trialGate.captureSubmitError(err)) {
-                          setError(
-                            err instanceof Error
-                              ? err.message
-                              : "Submission failed",
-                          );
-                        }
-                      }
-                    })
-                  }
-                >
-                  {pending ? "Submitting…" : "Submit VAT return to HMRC"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => setConnectOpen(true)}
-                >
-                  Connect to HMRC
-                </button>
+                }}
+              />
+              {message && (
+                <p className="text-sm font-semibold text-ok">{message}</p>
               )}
-              {obligation ? (
-                <EmailToClientButton
-                  clientId={clientId}
-                  defaultEmail={contactEmail}
-                  label="Email draft to client"
-                  subject={`Draft VAT return ${obligation.periodKey} — ${clientName}`}
-                  message={`Please review this draft VAT return for period ${obligation.periodKey} before we submit to HMRC.\n\nKind regards`}
-                  artifact={{
-                    type: "vat_summary",
-                    periodKey: obligation.periodKey,
-                    status: "draft",
-                    boxes: Object.fromEntries(
-                      Object.entries(boxes).map(([k, v]) => [k, String(v)]),
-                    ),
-                  }}
-                />
-              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {connected && vatIdsReady ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={
+                      pending ||
+                      trialGate.pending ||
+                      !obligation ||
+                      !vatIdsReady
+                    }
+                    onClick={() =>
+                      start(async () => {
+                        if (!obligation || !vatIdsReady) return;
+                        setError(null);
+                        trialGate.clearGate();
+                        try {
+                          await prepareVatReturnFromBoxes({
+                            clientId,
+                            periodKey: obligation.periodKey,
+                            periodStart: obligation.start,
+                            periodEnd: obligation.end,
+                            boxes: derived.pence,
+                          });
+                          const fraudMetadata = gatherFraudMetadata();
+                          const res = await submitPreparedVatReturn({
+                            clientId,
+                            periodKey: obligation.periodKey,
+                            periodStart: obligation.start,
+                            periodEnd: obligation.end,
+                            fraudMetadata,
+                          });
+                          const bundle =
+                            (res as { hmrcFormBundleNumber?: string })
+                              .hmrcFormBundleNumber ??
+                            (res as {
+                              result?: { hmrcFormBundleNumber?: string };
+                            }).result?.hmrcFormBundleNumber ??
+                            "accepted";
+                          setMessage(`Submitted to HMRC · ${bundle}`);
+                          router.refresh();
+                        } catch (err) {
+                          if (!trialGate.captureSubmitError(err)) {
+                            // Freeze — do not surface technical error text.
+                          }
+                        }
+                      })
+                    }
+                  >
+                    {pending ? "Submitting…" : "Submit VAT return to HMRC"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => setConnectOpen(true)}
+                  >
+                    {vatIdsReady
+                      ? "Connect to HMRC"
+                      : "Enter VRN, registration date & connect"}
+                  </button>
+                )}
+                {obligation ? (
+                  <EmailToClientButton
+                    clientId={clientId}
+                    defaultEmail={contactEmail}
+                    label="Email draft to client"
+                    subject={`Draft VAT return ${periodTitle(obligation)} — ${clientName}`}
+                    message={`Please review this draft VAT return for ${periodTitle(obligation)} before we submit to HMRC.\n\nKind regards`}
+                    artifact={{
+                      type: "vat_summary",
+                      periodKey: obligation.periodKey,
+                      status: "draft",
+                      boxes: Object.fromEntries(
+                        Object.entries(boxes).map(([k, v]) => [k, String(v)]),
+                      ),
+                    }}
+                  />
+                ) : null}
+              </div>
             </div>
           </div>
         </section>
       </div>
+
+      <VatQuarterBreakdowns
+        clientId={clientId}
+        visiblePeriods={visiblePeriods.map((p) => ({
+          periodKey: p.periodKey,
+          start: p.start,
+          end: p.end,
+          title: periodTitle(p),
+        }))}
+        transactions={bankTransactions}
+        customCategories={customCategories}
+        vatRegistrationDate={vatRegistrationDate}
+        hasEarlierQuarters={hasEarlierQuarters}
+        hasLaterQuarters={hasLaterQuarters}
+        canAddQuarter={hasVatRegDate}
+        onSeePrevious={() =>
+          setWindowStart((s) => Math.max(0, s - VAT_PERIOD_WINDOW_SIZE))
+        }
+        onBackToCurrent={() => setWindowStart(latestStart)}
+        onAddQuarter={addNextQuarter}
+      />
+
+      <VatPullStatementsDialog
+        open={pullOpen}
+        statements={bankStatements}
+        periodLabel={
+          obligation
+            ? `${periodTitle(obligation)} · ${formatPeriodRange(obligation.start, obligation.end)}`
+            : "Select a period"
+        }
+        pending={pending}
+        onCancel={() => setPullOpen(false)}
+        onConfirm={confirmPullStatements}
+      />
 
       <HmrcVatConnectModal
         open={connectOpen}
         onClose={() => setConnectOpen(false)}
         clientId={clientId}
         initialVrn={vrn}
+        initialVatRegistrationDate={vatRegistrationDate}
         signedIn={signedIn}
       />
     </div>

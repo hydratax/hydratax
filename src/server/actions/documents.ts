@@ -17,6 +17,10 @@ import { tryGetDb } from "@/server/db";
 
 const MAX_BYTES = 15 * 1024 * 1024;
 
+/** Books desk section + optional document kind (receipt / invoice / …). */
+const booksDeskCategory =
+  /^(self_assessment|vat|corporation_tax|payroll)(:(receipt|invoice|bank_statement|other))?$/;
+
 const categorySchema = z
   .string()
   .min(1)
@@ -32,6 +36,7 @@ const categorySchema = z
         "companies_house",
         "sa_discarded",
       ].includes(v) ||
+      booksDeskCategory.test(v) ||
       /^sa:[^:]+:(invoice|receipt|p60|bank_statement|books|other)$/.test(v) ||
       // Prior-year filed SA100 / SA302: sa_filed:2024-25:return[:taxpayerId]
       /^sa_filed:\d{4}-\d{2}:(return|sa302)(?::[^:]+)?$/.test(v),
@@ -249,6 +254,105 @@ export async function uploadClientDocument(formData: FormData) {
   return doc;
 }
 
+/** Duplicate a document onto another desk/category (same file bytes). */
+export async function copyClientDocument(input: {
+  clientId: string;
+  documentId: string;
+  category: string;
+}) {
+  const session = await requireSession();
+  if (session.role === "readonly") throw new Error("Forbidden");
+  await getClient(input.clientId);
+  const category = categorySchema.parse(input.category);
+
+  if (isSupabaseConfigured()) {
+    const { createClient } = await import("@/lib/supabase/server");
+    const supabase = await createClient();
+    const { data: src, error: srcErr } = await supabase
+      .from("client_documents")
+      .select("*")
+      .eq("id", input.documentId)
+      .eq("practice_id", session.practiceId)
+      .eq("client_id", input.clientId)
+      .single();
+    if (srcErr || !src) throw new Error("Document not found");
+
+    const { data, error } = await supabase
+      .from("client_documents")
+      .insert({
+        practice_id: session.practiceId,
+        client_id: input.clientId,
+        filename: src.filename as string,
+        content_type: src.content_type as string,
+        size_bytes: src.size_bytes as number,
+        r2_key: src.r2_key as string,
+        category,
+        uploaded_by: session.userId,
+      })
+      .select("*")
+      .single();
+    if (error) throw new Error(error.message);
+
+    await appendAuditEvent({
+      practiceId: session.practiceId,
+      clientId: input.clientId,
+      actorId: session.userId,
+      action: "document.copy",
+      entityType: "document",
+      entityId: data.id as string,
+      detail: {
+        fromId: input.documentId,
+        filename: src.filename,
+        category,
+      },
+    });
+    revalidatePath(`/clients/${input.clientId}/self-assessment`);
+    revalidatePath(`/clients/${input.clientId}/documents`);
+    revalidatePath(`/clients/${input.clientId}/bank`);
+    revalidatePath(`/clients/${input.clientId}/vat`);
+    revalidatePath(`/clients/${input.clientId}/corporation-tax`);
+    return {
+      id: data.id as string,
+      category: data.category as string,
+      filename: data.filename as string,
+    };
+  }
+
+  if (isMemoryStore()) {
+    const src = memoryStore.documents.find(
+      (d) => d.id === input.documentId && d.clientId === input.clientId,
+    );
+    if (!src) throw new Error("Document not found");
+    const doc: MemoryDocument = {
+      ...src,
+      id: crypto.randomUUID(),
+      category,
+      uploadedBy: session.userId,
+      createdAt: new Date().toISOString(),
+    };
+    memoryStore.documents.push(doc);
+    await appendAuditEvent({
+      practiceId: session.practiceId,
+      clientId: input.clientId,
+      actorId: session.userId,
+      action: "document.copy",
+      entityType: "document",
+      entityId: doc.id,
+      detail: { fromId: input.documentId, filename: src.filename, category },
+    });
+    revalidatePath(`/clients/${input.clientId}/self-assessment`);
+    revalidatePath(`/clients/${input.clientId}/documents`);
+    revalidatePath(`/clients/${input.clientId}/bank`);
+    return {
+      id: doc.id,
+      category: doc.category,
+      filename: doc.filename,
+    };
+  }
+
+  throw new Error("Could not copy document");
+}
+
 export async function updateClientDocumentCategory(input: {
   clientId: string;
   documentId: string;
@@ -273,6 +377,9 @@ export async function updateClientDocumentCategory(input: {
     if (error) throw new Error(error.message);
     revalidatePath(`/clients/${input.clientId}/self-assessment`);
     revalidatePath(`/clients/${input.clientId}/documents`);
+    revalidatePath(`/clients/${input.clientId}/bank`);
+    revalidatePath(`/clients/${input.clientId}/vat`);
+    revalidatePath(`/clients/${input.clientId}/corporation-tax`);
     return {
       id: data.id as string,
       category: data.category as string,
@@ -290,6 +397,8 @@ export async function updateClientDocumentCategory(input: {
     if (!doc) throw new Error("Document not found");
     doc.category = category;
     revalidatePath(`/clients/${input.clientId}/self-assessment`);
+    revalidatePath(`/clients/${input.clientId}/documents`);
+    revalidatePath(`/clients/${input.clientId}/bank`);
     return {
       id: doc.id,
       category: doc.category,

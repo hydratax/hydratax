@@ -1,34 +1,6 @@
-import { getTaxDraftFromBank, listBankTransactions } from "@/server/actions/bank";
-import {
-  getBankLedger,
-  getLivePlFromBank,
-} from "@/server/actions/bank-ledger";
-import { listCustomBankCategories } from "@/server/actions/custom-categories";
 import { listClientDocuments } from "@/server/actions/documents";
-import { BankWorkspace } from "@/components/forms/bank-workspace";
+import { BooksDocumentsWorkspace } from "@/components/forms/books-documents-workspace";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
-import { emptyBankLedger } from "@/lib/bank-ledger";
-
-function isBankStatementDoc(doc: {
-  filename: string;
-  contentType: string;
-  category: string;
-}) {
-  const name = doc.filename.toLowerCase();
-  const type = doc.contentType.toLowerCase();
-  const bankLike =
-    type.includes("pdf") ||
-    type.includes("csv") ||
-    type.includes("sheet") ||
-    type.includes("excel") ||
-    type.startsWith("image/") ||
-    name.endsWith(".pdf") ||
-    name.endsWith(".csv") ||
-    name.endsWith(".xls") ||
-    name.endsWith(".xlsx") ||
-    /\.(png|jpe?g|webp|tif{1,2})$/i.test(name);
-  return bankLike && (doc.category === "accounts" || doc.category === "general");
-}
 
 export default async function ClientBankPage({
   params,
@@ -36,80 +8,25 @@ export default async function ClientBankPage({
   params: Promise<{ id: string }>;
 }) {
   const { id: ref } = await params;
-  const { slug, clientId, client } = await loadClientPage(ref, "bank");
-  const transactions = await listBankTransactions(clientId).catch(() => []);
-  const draft = await getTaxDraftFromBank(clientId);
-  const customCategories = await listCustomBankCategories().catch(() => []);
+  const { slug, clientId } = await loadClientPage(ref, "bank");
   const documents = await listClientDocuments(clientId).catch(() => []);
-  const live = await getLivePlFromBank(clientId).catch(() => null);
-  const ledger = live?.ledger ?? (await getBankLedger(clientId).catch(() => emptyBankLedger()));
-  const statements = documents
-    .filter(isBankStatementDoc)
-    .slice(0, 12)
-    .map((d) => ({
-      id: d.id,
-      filename: d.filename,
-      blobUrl: d.blobUrl,
-      contentType: d.contentType,
-      sizeBytes: d.sizeBytes,
-      createdAt:
-        typeof d.createdAt === "string"
-          ? d.createdAt
-          : d.createdAt.toISOString(),
-    }));
 
   return (
-    <div>
-      <p className="mb-4 text-sm text-ink-soft">
-        Bank feeds &amp; statements · categorise · draft SA / CT
-      </p>
-      <BankWorkspace
-        clientId={clientId}
-        clientSlug={slug}
-        clientEmail={client.contactEmail ?? null}
-        transactions={transactions.map((t) => ({
-          id: t.id,
-          dated: t.dated,
-          description: t.description,
-          amountPence: t.amountPence,
-          category: t.category,
-          confidence: t.confidence,
-        }))}
-        draft={draft}
-        customCategories={customCategories}
-        statements={statements}
-        yearEndDesk={
-          live
-            ? {
-                ledger,
-                pl: live.pl,
-                periodStart: live.periodStart,
-                periodEnd: live.periodEnd,
-              }
-            : {
-                ledger,
-                pl: {
-                  turnoverPence: 0,
-                  costOfSalesPence: 0,
-                  grossProfitPence: 0,
-                  expensesPence: 0,
-                  depreciationPence: 0,
-                  financeCostsPence: 0,
-                  mortgageInterestPaidPence: 0,
-                  mortgageInterestDuePence: 0,
-                  profitBeforeTaxPence: 0,
-                  fixedAssetsNbvPence: 0,
-                  propertyCostPence: 0,
-                  loansClosingPence: 0,
-                  mortgagesClosingPence: 0,
-                  lineCount: 0,
-                  uncategorisedCount: 0,
-                },
-                periodStart: ledger.periodStart ?? "",
-                periodEnd: ledger.periodEnd ?? "",
-              }
-        }
-      />
-    </div>
+    <BooksDocumentsWorkspace
+      clientId={clientId}
+      clientSlug={slug}
+      documents={documents.map((d) => ({
+        id: String(d.id),
+        filename: String(d.filename),
+        blobUrl: String(d.blobUrl),
+        contentType: String(d.contentType),
+        sizeBytes: Number(d.sizeBytes),
+        createdAt:
+          typeof d.createdAt === "string"
+            ? d.createdAt
+            : d.createdAt.toISOString(),
+        category: String(d.category),
+      }))}
+    />
   );
 }

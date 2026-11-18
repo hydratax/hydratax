@@ -7,6 +7,7 @@ import { createClient } from "@/server/actions/clients";
 import { OrgChTypeahead } from "@/components/forms/org-ch-typeahead";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { AddressFields } from "@/components/forms/address-fields";
+import { UkDateField } from "@/components/forms/uk-date-field";
 import { addressIdentityComplete } from "@/lib/address-parts";
 import { looksLikeCompanyNumber } from "@/lib/company-number";
 
@@ -32,6 +33,7 @@ export function CreateClientForm({
     "sole_trader" | "limited_company" | "partnership"
   >("limited_company");
   const [vatRegistered, setVatRegistered] = useState(defaultVat);
+  const [vatRegDate, setVatRegDate] = useState("");
   const [payeRegistered, setPayeRegistered] = useState(defaultEmployer);
 
   const isLtd = type === "limited_company";
@@ -73,6 +75,9 @@ export function CreateClientForm({
               utr: String(fd.get("utr") || "") || undefined,
               vrn: vatRegistered
                 ? String(fd.get("vrn") || "") || undefined
+                : undefined,
+              vatRegistrationDate: vatRegistered
+                ? vatRegDate || undefined
                 : undefined,
               nino: String(fd.get("nino") || "") || undefined,
               payeRef: payeRegistered
@@ -207,17 +212,30 @@ export function CreateClientForm({
       {(vatRegistered || payeRegistered) && (
         <div className="grid gap-4 sm:grid-cols-2">
           {vatRegistered ? (
-            <div>
-              <label className="label" htmlFor="vrn">
-                VAT registration number
-              </label>
-              <input
-                id="vrn"
-                name="vrn"
-                className="input"
-                placeholder="GB…"
-              />
-            </div>
+            <>
+              <div>
+                <label className="label" htmlFor="vrn">
+                  VAT registration number
+                </label>
+                <input
+                  id="vrn"
+                  name="vrn"
+                  className="input"
+                  placeholder="GB…"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="vatRegistrationDate">
+                  VAT registration date
+                </label>
+                <UkDateField
+                  id="vatRegistrationDate"
+                  className="input mt-1.5"
+                  value={vatRegDate}
+                  onChange={setVatRegDate}
+                />
+              </div>
+            </>
           ) : null}
           {payeRegistered ? (
             <>

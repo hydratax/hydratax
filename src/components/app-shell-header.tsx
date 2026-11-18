@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { signOutSupabase } from "@/server/actions/auth";
 import { RaiseTicketButton } from "@/components/support/raise-ticket-button";
+import { ExitPresentationDemoButton } from "@/components/exit-presentation-demo-button";
 
 type NavItem = { href: string; label: string };
 
@@ -19,6 +20,8 @@ export function AppShellHeader({
   userEmail,
   canManageTeam,
   canViewLogs,
+  platformAdmin = false,
+  presentationDemo = false,
 }: {
   serviceItems: NavItem[];
   links: NavItem[];
@@ -26,6 +29,10 @@ export function AppShellHeader({
   userEmail?: string | null;
   canManageTeam?: boolean;
   canViewLogs?: boolean;
+  /** ADMIN_EMAIL — Sales demo + Admin under account menu only */
+  platformAdmin?: boolean;
+  /** Sales demo isolation active — show Exit */
+  presentationDemo?: boolean;
 }) {
   const [servicesOpen, setServicesOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -227,6 +234,42 @@ export function AppShellHeader({
                   >
                     Account
                   </Link>
+                  {platformAdmin ? (
+                    <>
+                      {presentationDemo ? (
+                        <ExitPresentationDemoButton
+                          className="block w-full px-4 py-2 text-left text-ink-soft hover:bg-sand hover:text-ink"
+                          onDone={() => {
+                            setAccountOpen(false);
+                            setSettingsOpen(false);
+                          }}
+                        />
+                      ) : (
+                        <Link
+                          href="/sales-demo"
+                          role="menuitem"
+                          className="block px-4 py-2 text-ink-soft hover:bg-sand hover:text-ink"
+                          onClick={() => {
+                            setAccountOpen(false);
+                            setSettingsOpen(false);
+                          }}
+                        >
+                          Sales demo
+                        </Link>
+                      )}
+                      <Link
+                        href="/admin"
+                        role="menuitem"
+                        className="block px-4 py-2 text-ink-soft hover:bg-sand hover:text-ink"
+                        onClick={() => {
+                          setAccountOpen(false);
+                          setSettingsOpen(false);
+                        }}
+                      >
+                        Admin
+                      </Link>
+                    </>
+                  ) : null}
                   {settingsItems.length > 0 ? (
                     <div className="relative">
                       <button
@@ -392,6 +435,31 @@ export function AppShellHeader({
               >
                 Account
               </Link>
+              {platformAdmin ? (
+                <>
+                  {presentationDemo ? (
+                    <ExitPresentationDemoButton
+                      className="rounded-lg px-3 py-3 text-left text-ink hover:bg-sand"
+                      onDone={closeMobile}
+                    />
+                  ) : (
+                    <Link
+                      href="/sales-demo"
+                      className="rounded-lg px-3 py-3 text-ink hover:bg-sand"
+                      onClick={closeMobile}
+                    >
+                      Sales demo
+                    </Link>
+                  )}
+                  <Link
+                    href="/admin"
+                    className="rounded-lg px-3 py-3 text-ink hover:bg-sand"
+                    onClick={closeMobile}
+                  >
+                    Admin
+                  </Link>
+                </>
+              ) : null}
               {settingsItems.length > 0 ? (
                 <>
                   <button

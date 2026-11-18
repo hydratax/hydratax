@@ -40,12 +40,15 @@ export function CtMissingBankChase({
   periodEnd,
   datedIsos,
   clientEmail,
+  deskLabel = "CT",
 }: {
   clientId: string;
   periodStart: string;
   periodEnd: string;
   datedIsos: string[];
   clientEmail?: string | null;
+  /** Which desk these missing statements belong to (SA / VAT / CT). */
+  deskLabel?: "SA" | "VAT" | "CT";
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -159,10 +162,12 @@ export function CtMissingBankChase({
       <FormErrorBanner error={error} />
       {ok ? <p className="text-sm text-ok">{ok}</p> : null}
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-        <p className="font-semibold">Missing bank statements</p>
+        <p className="font-semibold">
+          {deskLabel} · Missing bank statements
+        </p>
         <p className="mt-0.5 break-words text-amber-900/90">{phrase}</p>
         <p className="mt-1 text-xs text-amber-900/80">
-          Accounts period {periodStart} → {periodEnd} ·{" "}
+          {deskLabel} accounts period {periodStart} → {periodEnd} ·{" "}
           {coverage.missingMonths.length} month
           {coverage.missingMonths.length === 1 ? "" : "s"} missing
         </p>

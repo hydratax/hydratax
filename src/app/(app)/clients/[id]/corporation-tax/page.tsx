@@ -1,8 +1,14 @@
 import { Suspense } from "react";
 import { listCt600Returns } from "@/server/actions/ct600";
 import { listClientDocuments } from "@/server/actions/documents";
+import { getTaxDraftFromBank, listBankTransactions } from "@/server/actions/bank";
+import {
+  getBankLedger,
+  getLivePlFromBank,
+} from "@/server/actions/bank-ledger";
 import { requireModule } from "@/server/auth/session";
 import { Ct600PeriodWorkspace } from "@/components/forms/ct600-period-workspace";
+import { CtAccountsProduction } from "@/components/forms/ct-accounts-production";
 import { ClientDeskWorklogs } from "@/components/client-desk-worklogs";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
@@ -15,6 +21,7 @@ import {
   listCorporationTaxPeriodsSinceIncorporation,
 } from "@/lib/accounting-periods";
 import { loadPriorYearComparatives } from "@/server/accounts/load-prior-year-comparatives";
+import { emptyBankLedger } from "@/lib/bank-ledger";
 
 export default async function CorporationTaxPage({
   params,
@@ -59,23 +66,62 @@ export default async function CorporationTaxPage({
   const periodEndHint =
     initialEnd ?? ch?.accountsPeriodEnd ?? ch?.lastAccountsMadeUpTo ?? null;
 
-  const [chFiling, documents, priorYear] = await Promise.all([
-    companyNumber && isCompaniesHouseApiConfigured()
-      ? getLastAccountsFiling(companyNumber).catch(() => null)
-      : Promise.resolve(null),
-    listClientDocuments(clientId).catch(() => []),
-    loadPriorYearComparatives({
-      clientId,
-      companyNumber,
-      periodEnd: periodEndHint,
-      savedComparatives:
-        "accountsComparatives" in client ? client.accountsComparatives : null,
-    }).catch(() => ({
-      comparatives: { ...EMPTY_COMPARATIVES },
-      source: "none" as const,
-      madeUpTo: null as string | null,
+  const [chFiling, documents, priorYear, bankTxs, taxDraft, livePl, ledger] =
+    await Promise.all([
+      companyNumber && isCompaniesHouseApiConfigured()
+        ? getLastAccountsFiling(companyNumber).catch(() => null)
+        : Promise.resolve(null),
+      listClientDocuments(clientId).catch(() => []),
+      loadPriorYearComparatives({
+        clientId,
+        companyNumber,
+        periodEnd: periodEndHint,
+        savedComparatives:
+          "accountsComparatives" in client ? client.accountsComparatives : null,
+      }).catch(() => ({
+        comparatives: { ...EMPTY_COMPARATIVES },
+        source: "none" as const,
+        madeUpTo: null as string | null,
+      })),
+      listBankTransactions(clientId).catch(() => []),
+      getTaxDraftFromBank(clientId).catch(() => null),
+      getLivePlFromBank(clientId).catch(() => null),
+      getBankLedger(clientId).catch(() => emptyBankLedger()),
+    ]);
+
+  const accountsProduction = {
+    transactions: bankTxs.map((t) => ({
+      id: String(t.id),
+      dated: String(t.dated),
+      description: String(t.description),
+      amountPence: Number(t.amountPence),
+      category: String(t.category),
     })),
-  ]);
+    ledger: livePl?.ledger ?? ledger,
+    pl: livePl?.pl ?? {
+      turnoverPence: 0,
+      costOfSalesPence: 0,
+      grossProfitPence: 0,
+      expensesPence: 0,
+      depreciationPence: 0,
+      financeCostsPence: 0,
+      mortgageInterestPaidPence: 0,
+      mortgageInterestDuePence: 0,
+      profitBeforeTaxPence: 0,
+      fixedAssetsNbvPence: 0,
+      propertyCostPence: 0,
+      loansClosingPence: 0,
+      mortgagesClosingPence: 0,
+      lineCount: 0,
+      uncategorisedCount: 0,
+    },
+    ctDraft: {
+      turnoverPence: taxDraft?.corporationTax.turnoverPence ?? 0,
+      expensesPence: taxDraft?.corporationTax.expensesPence ?? 0,
+      profitPence: taxDraft?.corporationTax.profitPence ?? 0,
+      lineCount: taxDraft?.lineCount ?? 0,
+    },
+  };
 
   const localAccounts = documents.find((d) => {
     const cat = "category" in d ? String(d.category) : "";
@@ -136,31 +182,34 @@ export default async function CorporationTaxPage({
     ? `/companies-house/accounts-ixbrl?company=${encodeURIComponent(companyNumber)}&clientId=${encodeURIComponent(clientId)}&pay=1`
     : `/companies-house/accounts-ixbrl?clientId=${encodeURIComponent(clientId)}&pay=1`;
 
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const latestCompleted = [...ctPeriods]
+    .filter((p) => p.end < todayIso)
+    .sort((a, b) => a.end.localeCompare(b.end))
+    .at(-1);
+  const apPeriodEnd =
+    initialEnd ??
+    latestCompleted?.end ??
+    ch?.lastAccountsMadeUpTo?.slice(0, 10) ??
+    todayIso;
+  const apPeriodStart =
+    initialStart ??
+    latestCompleted?.start ??
+    (() => {
+      const end = new Date(`${apPeriodEnd}T12:00:00Z`);
+      const start = new Date(end);
+      start.setUTCFullYear(start.getUTCFullYear() - 1);
+      start.setUTCDate(start.getUTCDate() + 1);
+      return start.toISOString().slice(0, 10);
+    })();
+
   return (
     <div>
-      <p className="mb-4 text-sm text-ink-soft">
-        Corporation Tax · UTR {client.utr ?? "not set"} · Co.{" "}
-        {client.companyNumber ?? "not set"}
-        {incorporatedOn ? ` · Incorporated ${incorporatedOn}` : ""}
-      </p>
-      {client.deskProfile?.portal ? (
-        <p className="mb-4 text-sm text-ink-soft">
-          {client.deskProfile.portal.approveCt600
-            ? "The client has approved the Company Tax Return on their link."
-            : "The client link is active. The Company Tax Return waits until they approve it."}
-        </p>
-      ) : null}
-
-      {filedElsewhere && (
+      {filedElsewhere ? (
         <div className="mb-4 rounded-xl border border-sea/30 bg-sea/5 px-4 py-3 text-sm text-ink">
           <p className="font-semibold text-ink">CT600 filed elsewhere</p>
-          <p className="mt-1 text-ink-soft">
-            If this return was submitted outside HydraTax, keep a note on the
-            client documents and continue with the current period when HMRC
-            allows.
-          </p>
         </div>
-      )}
+      ) : null}
 
       {client.type !== "limited_company" ? (
         <div className="panel p-5 text-ink-soft">
@@ -190,6 +239,23 @@ export default async function CorporationTaxPage({
           />
         </Suspense>
       )}
+
+      {client.type === "limited_company" ? (
+        <div className="mt-6">
+          <CtAccountsProduction
+            clientId={clientId}
+            clientSlug={slug}
+            clientEmail={client.contactEmail ?? null}
+            periodStart={apPeriodStart}
+            periodEnd={apPeriodEnd}
+            transactions={accountsProduction.transactions}
+            ledger={accountsProduction.ledger}
+            pl={accountsProduction.pl}
+            ctDraft={accountsProduction.ctDraft}
+          />
+        </div>
+      ) : null}
+
       <ClientDeskWorklogs clientId={clientId} desk="ct" />
     </div>
   );

@@ -515,6 +515,13 @@ export function YearEndFilingForm({
   );
   const [filingMode, setFilingMode] = useState<YearEndFilingMode>(initialMode);
   const [periodStart, setPeriodStart] = useState(() => {
+    if (
+      lockFilingMode &&
+      defaultPeriodStartProp &&
+      /^\d{4}-\d{2}-\d{2}$/.test(defaultPeriodStartProp)
+    ) {
+      return defaultPeriodStartProp;
+    }
     if (typeof restored?.periodStart === "string") return restored.periodStart;
     if (
       defaultPeriodStartProp &&
@@ -525,13 +532,20 @@ export function YearEndFilingForm({
     return defaultPeriodStart(defaultPeriodEnd);
   });
   const [periodEnd, setPeriodEnd] = useState(() => {
+    if (
+      lockFilingMode &&
+      defaultPeriodEnd &&
+      /^\d{4}-\d{2}-\d{2}$/.test(defaultPeriodEnd)
+    ) {
+      return defaultPeriodEnd;
+    }
     if (typeof restored?.periodEnd === "string") return restored.periodEnd;
     return defaultPeriodEnd && /^\d{4}-\d{2}-\d{2}$/.test(defaultPeriodEnd)
       ? defaultPeriodEnd
       : "2026-03-31";
   });
   const [customPeriod, setCustomPeriod] = useState(
-    () => Boolean(restored?.customPeriod),
+    () => (lockFilingMode ? false : Boolean(restored?.customPeriod)),
   );
   const [plCurrent, setPlCurrent] = useState<YearPl>(() =>
     restored?.plCurrent && typeof restored.plCurrent === "object"
@@ -1217,45 +1231,61 @@ export function YearEndFilingForm({
             </div>
           )}
 
-          {/* Accounting period */}
+          {/* Accounting period — CT600 locks dates chosen on the period picker */}
           <section className="space-y-3">
             <h2 className="text-lg font-semibold text-ink">Accounting period</h2>
-            <div className="flex flex-wrap gap-4 text-sm">
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  checked={!customPeriod}
-                  onChange={() => setCustomPeriod(false)}
-                />
-                This year ({formatPeriodLabel(periodStart)} –{" "}
-                {formatPeriodLabel(periodEnd)})
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  checked={customPeriod}
-                  onChange={() => setCustomPeriod(true)}
-                />
-                Custom dates
-              </label>
-            </div>
-            {customPeriod && (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="label" htmlFor="ye-start">
-                    Period start
+            {lockFilingMode ? (
+              <p className="text-sm text-ink">
+                {formatPeriodLabel(periodStart)} – {formatPeriodLabel(periodEnd)}
+              </p>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-4 text-sm">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      checked={!customPeriod}
+                      onChange={() => setCustomPeriod(false)}
+                    />
+                    This year ({formatPeriodLabel(periodStart)} –{" "}
+                    {formatPeriodLabel(periodEnd)})
                   </label>
-                  <UkDateField id="ye-start" className="input" value={periodStart} onChange={(iso) => setPeriodStart(iso)}
-                  />
-                </div>
-                <div>
-                  <label className="label" htmlFor="ye-end">
-                    Period end
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      checked={customPeriod}
+                      onChange={() => setCustomPeriod(true)}
+                    />
+                    Custom dates
                   </label>
-                  <UkDateField id="ye-end" className="input" value={periodEnd} onChange={(iso) => setPeriodEnd(iso)}
-                  />
                 </div>
-              </div>
+                {customPeriod && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="label" htmlFor="ye-start">
+                        Period start
+                      </label>
+                      <UkDateField
+                        id="ye-start"
+                        className="input"
+                        value={periodStart}
+                        onChange={(iso) => setPeriodStart(iso)}
+                      />
+                    </div>
+                    <div>
+                      <label className="label" htmlFor="ye-end">
+                        Period end
+                      </label>
+                      <UkDateField
+                        id="ye-end"
+                        className="input"
+                        value={periodEnd}
+                        onChange={(iso) => setPeriodEnd(iso)}
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </section>
 

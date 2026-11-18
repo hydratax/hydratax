@@ -11,7 +11,7 @@ import {
 } from "@/lib/filing-due";
 import { FileAccountsMenu } from "@/components/file-accounts-menu";
 import { YearEndFiledActionsMenu } from "@/components/year-end-actions-menu";
-import { InvoiceSummaryCards } from "@/components/forms/invoice-workspace";
+import { InvoiceSummaryCards } from "@/components/forms/invoice-summary-cards";
 import { refreshClientCompaniesHouse } from "@/server/actions/clients";
 import { listCt600Returns } from "@/server/actions/ct600";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
@@ -22,7 +22,10 @@ import { ClientWorkingLogs } from "@/components/client-working-logs";
 import { ClientEmailsSent } from "@/components/client-emails-sent";
 import { listClientEmailLogs } from "@/server/actions/client-communications";
 import { normalizeWorkStage } from "@/lib/client-work-stage";
-import { addressPartsDisplay, parseAddressParts } from "@/lib/address-parts";
+import {
+  addressOverviewLines,
+  parseAddressParts,
+} from "@/lib/address-parts";
 import { AgentAuthorisationPanel } from "@/components/forms/agent-authorisation-panel";
 
 function urgencyText(u: FilingUrgency) {
@@ -43,17 +46,21 @@ export default async function ClientOverviewPage({
   const session = await requireSession();
   const { id: ref } = await params;
   const { client, slug, clientId } = await loadClientPage(ref);
-  const connection = await getConnectionStatus(clientId).catch(() => ({
-    connected: false,
-    hmrcEnv: "sandbox" as const,
-    scopes: "",
-  }));
-  const invoices = canAccessModule(session.moduleAccess, "invoices")
-    ? await listClientInvoices(clientId).catch(() => [])
-    : [];
-  const ct600Returns = await listCt600Returns(clientId).catch(() => []);
-  const practiceDirectors = await listPracticeDirectors().catch(() => []);
-  const emailLogs = await listClientEmailLogs(clientId).catch(() => []);
+  const canInvoices = canAccessModule(session.moduleAccess, "invoices");
+  const [connection, invoices, ct600Returns, practiceDirectors, emailLogs] =
+    await Promise.all([
+      getConnectionStatus(clientId).catch(() => ({
+        connected: false,
+        hmrcEnv: "sandbox" as const,
+        scopes: "",
+      })),
+      canInvoices
+        ? listClientInvoices(clientId).catch(() => [])
+        : Promise.resolve([]),
+      listCt600Returns(clientId).catch(() => []),
+      listPracticeDirectors().catch(() => []),
+      listClientEmailLogs(clientId).catch(() => []),
+    ]);
   const workStage = normalizeWorkStage(client.deskProfile?.workStage);
   const workLog = client.deskProfile?.workLog ?? [];
   const ch =
@@ -79,10 +86,32 @@ export default async function ClientOverviewPage({
         null
       : null;
 
-  const identifiers: Array<{
+  const vatRegDateDisplay = client.vatRegistrationDate
+    ? new Date(`${client.vatRegistrationDate}T12:00:00Z`).toLocaleDateString(
+        "en-GB",
+        { day: "numeric", month: "short", year: "numeric" },
+      )
+    : null;
+  const addressRaw =
+    "address" in client
+      ? ((client as { address?: string | null }).address ?? null)
+      : null;
+  const addressLines = addressOverviewLines(addressRaw);
+  const phoneDisplay =
+    "contactPhone" in client
+      ? ((client as { contactPhone?: string | null }).contactPhone ?? null)
+      : null;
+
+  type IdentifierRow = {
     label: string;
     value: string | null | undefined;
-  }> = [
+    /** Soft text fields — wrap left-aligned, not mono figures */
+    soft?: boolean;
+    /** Multi-line soft value (e.g. address street / town / postcode) */
+    lines?: string[];
+  };
+
+  const identifiers: IdentifierRow[] = [
     {
       label: "Company number",
       value: client.companyNumber,
@@ -96,7 +125,12 @@ export default async function ClientOverviewPage({
         ]
       : []),
     { label: "UTR", value: client.utr },
-    { label: "VRN", value: client.vrn },
+    ...(client.vrn
+      ? [{ label: "VAT registration number", value: client.vrn }]
+      : []),
+    ...(vatRegDateDisplay
+      ? [{ label: "VAT registration date", value: vatRegDateDisplay }]
+      : []),
     { label: "PAYE", value: client.payeRef },
     {
       label: "Accounts Office",
@@ -104,21 +138,18 @@ export default async function ClientOverviewPage({
     },
     {
       label: "Address",
-      value:
-        "address" in client
-          ? addressPartsDisplay(
-              (client as { address?: string | null }).address ?? null,
-            ) || null
-          : null,
+      value: addressLines[0] ?? null,
+      soft: true,
+      lines: addressLines.length ? addressLines : undefined,
     },
-    { label: "Email", value: client.contactEmail },
-    {
-      label: "Phone",
-      value:
-        "contactPhone" in client
-          ? ((client as { contactPhone?: string | null }).contactPhone ?? null)
-          : null,
-    },
+    { label: "Email", value: client.contactEmail, soft: true },
+    { label: "Phone", value: phoneDisplay, soft: true },
+  ];
+
+  const idMid = Math.ceil(identifiers.length / 2);
+  const identifierCols = [
+    identifiers.slice(0, idMid),
+    identifiers.slice(idMid),
   ];
 
   const activeDirectors = Array.isArray(ch?.directors)
@@ -155,11 +186,7 @@ export default async function ClientOverviewPage({
             initial={client.deskProfile?.agentAuthorisations ?? {}}
             nino={client.nino}
             vrn={client.vrn}
-            postcode={parseAddressParts(
-              "address" in client
-                ? ((client as { address?: string | null }).address ?? null)
-                : null,
-            ).postcode}
+            postcode={parseAddressParts(addressRaw).postcode}
             payeRef={client.payeRef}
             utr={client.utr}
             isLtd={isLtd}
@@ -186,29 +213,45 @@ export default async function ClientOverviewPage({
                 </Link>
               )}
             </div>
-            <dl className="mt-4 divide-y divide-line text-sm">
-              {identifiers.map((row) => {
-                const empty = !row.value;
-                const mono =
-                  row.label !== "Email" && row.label !== "Phone";
-                return (
-                  <div
-                    key={row.label}
-                    className="grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)] items-baseline gap-x-4 py-2.5"
-                  >
-                    <dt className="text-ink-soft">{row.label}</dt>
-                    <dd
-                      className={`truncate text-right font-medium ${
-                        mono ? "figures tracking-wide" : ""
-                      } ${empty ? "text-ink-soft" : "text-ink"}`}
-                      title={row.value || undefined}
-                    >
-                      {row.value || "—"}
-                    </dd>
-                  </div>
-                );
-              })}
-            </dl>
+            <div className="mt-3 grid gap-x-8 gap-y-1 sm:grid-cols-2">
+              {identifierCols.map((col, colIdx) => (
+                <dl
+                  key={colIdx}
+                  className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 text-sm"
+                >
+                  {col.map((row) => {
+                    const empty = !(row.lines?.length || row.value);
+                    return (
+                      <div
+                        key={row.label}
+                        className="col-span-2 grid grid-cols-subgrid items-start border-t border-line py-1.5 first:border-t-0"
+                      >
+                        <dt className="whitespace-nowrap text-ink-soft">
+                          {row.label}
+                        </dt>
+                        <dd
+                          className={`min-w-0 break-words font-medium ${
+                            row.soft ? "" : "figures tracking-wide"
+                          } ${empty ? "text-ink-soft" : "text-ink"}`}
+                        >
+                          {row.lines?.length ? (
+                            <span className="block leading-snug">
+                              {row.lines.map((line, i) => (
+                                <span key={i} className="block">
+                                  {line}
+                                </span>
+                              ))}
+                            </span>
+                          ) : (
+                            row.value || "—"
+                          )}
+                        </dd>
+                      </div>
+                    );
+                  })}
+                </dl>
+              ))}
+            </div>
           </div>
 
           <div className="panel p-5">

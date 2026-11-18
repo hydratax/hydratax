@@ -38,7 +38,6 @@ const engagementItems = [
 ] as const;
 
 const booksItems = [
-  { href: "/books", label: "Ledger", key: "books" },
   { href: "/bank", label: "Bank", key: "bank" },
   { href: "/documents", label: "Documents", key: "documents" },
   { href: "/portal", label: "Client link", key: "portal" },

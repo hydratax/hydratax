@@ -78,10 +78,13 @@ export function BankCategorisedView({
   clientId,
   transactions,
   customCategories: initialCustom,
+  missingDesk = "CT",
 }: {
   clientId: string;
   transactions: Tx[];
   customCategories: CustomCategoryRow[];
+  /** Which desk the missing-statement note refers to. */
+  missingDesk?: "SA" | "VAT" | "CT";
 }) {
   const router = useRouter();
   const [customCategories, setCustomCategories] =
@@ -350,6 +353,9 @@ export function BankCategorisedView({
     <div className="space-y-4">
       {missingStatementsNote ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          <p className="font-semibold">
+            {missingDesk} · Missing bank statements
+          </p>
           <p className="mt-0.5 text-amber-900/90">{missingStatementsNote}</p>
         </div>
       ) : null}

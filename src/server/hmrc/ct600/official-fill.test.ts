@@ -89,6 +89,79 @@ describe("fillOfficialCt600Pdf", () => {
     expect(boxes[80]).toBe(true);
   });
 
+  it("maps main-rate FYA boxes 696 / 739", () => {
+    const boxes = buildCt600BoxValues({
+      company: {
+        name: "FYA Ltd",
+        companyNumber: "12345678",
+        utr: "1234567890",
+      },
+      figures: {
+        clientId: "x",
+        periodStart: "2027-04-01",
+        periodEnd: "2028-03-31",
+        turnoverPence: pence(100000),
+        costOfSalesPence: pence(0),
+        administrativeExpensesPence: pence(0),
+        otherIncomePence: pence(0),
+        tangibleAssetsPence: pence(0),
+        cashAtBankPence: pence(0),
+        debtorsPence: pence(0),
+        creditorsPence: pence(0),
+        calledUpShareCapitalPence: pence(0),
+        profitAndLossAccountPence: pence(0),
+        corporationTaxPence: pence(0),
+        mainRateFyaTradingPence: pence(400000),
+        mainRateFyaNonTradingPence: pence(100000),
+      },
+      taxableProfitPence: pence(100000),
+      taxChargePence: pence(19000),
+    });
+    expect(boxes[696]).toBe(4000);
+    expect(boxes[739]).toBe(1000);
+  });
+
+  it("fills the 2027 template for APs starting on/after 1 Apr 2027", async () => {
+    const templatePath = path.join(
+      process.cwd(),
+      "src/server/hmrc/ct600/templates/CT600-2027-v3.pdf",
+    );
+    expect(fs.existsSync(templatePath)).toBe(true);
+
+    const bytes = await fillOfficialCt600Pdf({
+      company: {
+        name: "Future Ltd",
+        companyNumber: "14633422",
+        utr: "8612814429",
+        declarantName: "Director Name",
+        declarantStatus: "Director",
+      },
+      figures: {
+        clientId: "test",
+        periodStart: "2027-04-01",
+        periodEnd: "2028-03-31",
+        turnoverPence: pence(10000000),
+        costOfSalesPence: pence(0),
+        administrativeExpensesPence: pence(0),
+        otherIncomePence: pence(0),
+        tangibleAssetsPence: pence(0),
+        cashAtBankPence: pence(0),
+        debtorsPence: pence(0),
+        creditorsPence: pence(0),
+        calledUpShareCapitalPence: pence(100),
+        profitAndLossAccountPence: pence(0),
+        corporationTaxPence: pence(0),
+        mainRateFyaTradingPence: pence(500000),
+      },
+      taxableProfitPence: pence(10000000),
+      taxChargePence: pence(1900000),
+    });
+
+    expect(bytes.length).toBeGreaterThan(400_000);
+    const doc = await PDFDocument.load(bytes);
+    expect(doc.getPageCount()).toBe(12);
+  });
+
   it("zeros all figure boxes for dormant companies", () => {
     const boxes = buildCt600BoxValues({
       company: {

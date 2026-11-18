@@ -84,8 +84,20 @@ export async function GET(request: NextRequest) {
         : next;
 
   const redirectResponse = NextResponse.redirect(`${origin}${destination}`);
+  const {
+    DEVICE_TRUSTED_COOKIE,
+    isDeviceTrustedCookie,
+    isSupabaseAuthSessionCookie,
+    withDeskPersistence,
+  } = await import("@/lib/session-policy");
+  const trusted = isDeviceTrustedCookie(
+    request.cookies.get(DEVICE_TRUSTED_COOKIE)?.value,
+  );
   for (const { name, value, options } of pendingCookies) {
-    redirectResponse.cookies.set(name, value, options);
+    const opts = isSupabaseAuthSessionCookie(name)
+      ? withDeskPersistence(options ?? {}, trusted)
+      : options;
+    redirectResponse.cookies.set(name, value, opts);
   }
   redirectResponse.headers.set("Cache-Control", "private, no-store");
   return redirectResponse;

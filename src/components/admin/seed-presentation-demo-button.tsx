@@ -31,9 +31,9 @@ export function SeedPresentationDemoButton() {
         {pending ? "Loading…" : "Load presentation clients"}
       </button>
       <p className="text-sm text-ink-soft">
-        Adds fictional Ltd, sole trader and partnership clients to{" "}
-        <strong>your</strong> practice so you can walk a prospect through the
-        desk. Safe to click again — existing names are skipped.
+        Loads a full fictional desk (directors, payroll, bank→VAT/accounts,
+        CT600 ready drafts, emails) and hides real clients for this session.
+        Exit sales demo restores them.
       </p>
       {msg ? <p className="text-sm text-ok">{msg}</p> : null}
       {err ? <p className="text-sm text-danger">{err}</p> : null}

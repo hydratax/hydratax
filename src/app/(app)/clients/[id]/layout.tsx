@@ -13,8 +13,10 @@ export default async function ClientWorkspaceLayout({
 }) {
   const session = await requireSession();
   const { id: ref } = await params;
-  const { client, slug } = await loadClientPage(ref);
-  const entitlements = await getPracticeEntitlements().catch(() => null);
+  const [{ client, slug }, entitlements] = await Promise.all([
+    loadClientPage(ref),
+    getPracticeEntitlements().catch(() => null),
+  ]);
 
   return (
     <div>

@@ -675,9 +675,14 @@ body {
     transform: translateY(-2px);
   }
 
+  /*
+    Light Open only on the hovered interactive card/row.
+    Never `.service-tile:hover .open-chip` for shells that wrap many cards —
+    that lit every Open button at once.
+  */
   .panel-interactive:hover .open-chip,
   .client-row:hover .open-chip,
-  .service-tile:hover .open-chip,
+  .service-tile:hover:not(.service-tile--static):not(:has(.panel-interactive)) .open-chip,
   .stat-tile:hover .open-chip {
     background: linear-gradient(180deg, var(--sea) 0%, var(--sea-deep) 100%);
     color: white;
@@ -747,7 +752,7 @@ body {
 
 .panel-interactive:active .open-chip,
 .client-row:active .open-chip,
-.service-tile:active .open-chip,
+.service-tile:active:not(.service-tile--static):not(:has(.panel-interactive)) .open-chip,
 .open-chip.is-pending {
   transform: scale(0.96);
   background: linear-gradient(180deg, var(--sea) 0%, var(--sea-deep) 100%);
@@ -791,7 +796,7 @@ body {
   transition: opacity 0.25s ease, transform 0.35s ease;
 }
 
-.service-tile:hover,
+.service-tile:hover:not(.service-tile--static),
 .stat-tile:hover {
   transform: translateY(-3px);
   border-color: rgba(15, 118, 110, 0.35);
@@ -800,15 +805,21 @@ body {
     0 18px 40px -22px rgba(15, 118, 110, 0.45);
 }
 
-.service-tile:hover .service-tile__sheen,
+.service-tile:hover:not(.service-tile--static) .service-tile__sheen,
 .stat-tile:hover .service-tile__sheen {
   opacity: 1;
   transform: rotate(12deg) translate(6%, 4%);
 }
 
-.service-tile:active,
+.service-tile:active:not(.service-tile--static),
 .stat-tile:active {
   transform: translateY(-1px) scale(0.99);
+}
+
+/* List shells that wrap many interactive cards — never lift the whole block. */
+.service-tile--static {
+  cursor: default;
+  transform: none;
 }
 
 .service-tile--locked {

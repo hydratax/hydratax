@@ -26,7 +26,8 @@ export const STORAGE_INVENTORY: StorageItem[] = [
     kind: "cookie",
     setBy: "supabase",
     purpose: "Keeps you signed in (Supabase Auth session).",
-    duration: "Session / refresh-token lifetime",
+    duration:
+      "Browser session if you did not trust the device; up to 7 days if you did",
     strictlyNecessary: true,
     exemption: "Authentication for a service you requested.",
   },
@@ -53,7 +54,8 @@ export const STORAGE_INVENTORY: StorageItem[] = [
     kind: "cookie",
     setBy: "us",
     purpose: "Two-factor step-up state (signed value; no personal data beyond user id).",
-    duration: "Session to 7 days",
+    duration:
+      "Pending: 15 minutes; ok: browser session (untrusted) or up to 7 days (trusted)",
     strictlyNecessary: true,
     exemption: "Security of an authenticated service.",
   },
@@ -62,9 +64,20 @@ export const STORAGE_INVENTORY: StorageItem[] = [
     kind: "cookie",
     setBy: "us",
     purpose: "Enforces maximum desk session length and your 'trust this device' choice.",
-    duration: "10 hours (or 7 days if you trust the device)",
+    duration:
+      "Browser session + 10h ceiling if untrusted; 7 days if you trust the device",
     strictlyNecessary: true,
     exemption: "Security of an authenticated service; trust is your explicit choice.",
+  },
+  {
+    name: "ht_presentation_demo",
+    kind: "cookie",
+    setBy: "us",
+    purpose:
+      "While a platform admin runs Sales demo, hide real practice clients and show only presentation clients.",
+    duration: "Up to 12 hours; cleared when you exit the demo",
+    strictlyNecessary: true,
+    exemption: "Functionality you requested (sales demo desk isolation).",
   },
   {
     name: "ht_voter",

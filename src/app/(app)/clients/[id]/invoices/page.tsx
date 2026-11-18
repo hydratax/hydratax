@@ -39,7 +39,7 @@ export default async function ClientInvoicesPage({
           vatRateBps: "2000" as const,
         }
       : null;
-  const { client, clientId } = await loadClientPage(ref, "invoices");
+  const { client, clientId, slug } = await loadClientPage(ref, "invoices");
   const [invoices, templates, letterhead, gateways, numberSettings] =
     await Promise.all([
       listClientInvoices(clientId),
@@ -49,7 +49,7 @@ export default async function ClientInvoicesPage({
       getInvoiceNumberSettings(),
     ]);
 
-  const previewInvoiceNumber = `${numberSettings.prefix}-${String(numberSettings.next).padStart(6, "0")}`;
+  const previewInvoiceNumber = `${numberSettings.prefix}-${String(numberSettings.next).padStart(4, "0")}`;
 
   return (
     <div>
@@ -64,6 +64,7 @@ export default async function ClientInvoicesPage({
       </p>
       <InvoiceWorkspace
         clientId={clientId}
+        clientSlug={slug}
         clientName={client.name}
         clientEmail={client.contactEmail}
         invoices={invoices}

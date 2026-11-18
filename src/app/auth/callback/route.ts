@@ -249,8 +249,29 @@ export async function GET(request: NextRequest) {
     ? `/verify-2fa?next=${encodeURIComponent(secureDevicePath)}`
     : secureDevicePath;
   const redirectResponse = NextResponse.redirect(`${origin}${destination}`);
+  const {
+    DEVICE_TRUSTED_COOKIE,
+    SESSION_EXPIRES_COOKIE,
+    deskAuthCookieAttrs,
+    isDeviceTrustedCookie,
+    isSupabaseAuthSessionCookie,
+    withDeskPersistence,
+  } = await import("@/lib/session-policy");
+  // Fresh OAuth exchange is normally untrusted until /secure-device; if a prior
+  // trust cookie is already present, honour it when stamping auth cookies.
+  let trusted = false;
+  try {
+    const { cookies: cookieStore } = await import("next/headers");
+    const jar = await cookieStore();
+    trusted = isDeviceTrustedCookie(jar.get(DEVICE_TRUSTED_COOKIE)?.value);
+  } catch {
+    trusted = false;
+  }
   for (const { name, value, options } of pendingCookies) {
-    redirectResponse.cookies.set(name, value, options);
+    const opts = isSupabaseAuthSessionCookie(name)
+      ? withDeskPersistence(options ?? {}, trusted)
+      : options;
+    redirectResponse.cookies.set(name, value, opts);
   }
 
   try {
@@ -258,18 +279,13 @@ export async function GET(request: NextRequest) {
     const { MFA_OK_COOKIE, MFA_PENDING_COOKIE } = await import(
       "@/lib/mfa-cookies"
     );
-    const {
-      SESSION_EXPIRES_COOKIE,
-      DEVICE_TRUSTED_COOKIE,
-      sessionTtlSeconds,
-    } = await import("@/lib/session-policy");
     const jar = await cookieStore();
     const secure = process.env.NODE_ENV === "production";
+    const deskAttrs = deskAuthCookieAttrs(trusted);
     const pendingVal = jar.get(MFA_PENDING_COOKIE)?.value;
     const okVal = jar.get(MFA_OK_COOKIE)?.value;
     const expiresVal = jar.get(SESSION_EXPIRES_COOKIE)?.value;
     const trustedVal = jar.get(DEVICE_TRUSTED_COOKIE)?.value;
-    const ttl = sessionTtlSeconds(trustedVal === "1");
     if (pendingVal) {
       redirectResponse.cookies.set(MFA_PENDING_COOKIE, pendingVal, {
         httpOnly: true,
@@ -280,31 +296,13 @@ export async function GET(request: NextRequest) {
       });
     }
     if (okVal) {
-      redirectResponse.cookies.set(MFA_OK_COOKIE, okVal, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure,
-        path: "/",
-        maxAge: ttl,
-      });
+      redirectResponse.cookies.set(MFA_OK_COOKIE, okVal, deskAttrs);
     }
     if (expiresVal) {
-      redirectResponse.cookies.set(SESSION_EXPIRES_COOKIE, expiresVal, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure,
-        path: "/",
-        maxAge: ttl,
-      });
+      redirectResponse.cookies.set(SESSION_EXPIRES_COOKIE, expiresVal, deskAttrs);
     }
     if (trustedVal) {
-      redirectResponse.cookies.set(DEVICE_TRUSTED_COOKIE, trustedVal, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure,
-        path: "/",
-        maxAge: ttl,
-      });
+      redirectResponse.cookies.set(DEVICE_TRUSTED_COOKIE, trustedVal, deskAttrs);
     }
   } catch {
     /* MFA cookies already applied via cookies() when available */

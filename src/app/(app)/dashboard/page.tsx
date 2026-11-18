@@ -10,15 +10,17 @@ import {
   pricingHashForModule,
   type ServiceModule,
 } from "@/lib/entitlements";
+import { canAccessModule } from "@/lib/access";
 import { displayPracticeName } from "@/lib/practice-name";
 import { clientSlugFor } from "@/lib/client-slug";
 import { personKeySlug } from "@/lib/sa-taxpayer";
 
 function buildRailLinks(): {
-  module: ServiceModule;
+  module: ServiceModule | "invoices";
   title: string;
   href: string;
   blurb: string;
+  label?: string;
 }[] {
   /** Always the desk list — never deep-link into one client's return. */
   return [
@@ -52,22 +54,35 @@ function buildRailLinks(): {
       href: "/company-secretarial",
       blurb: "Ltd companies · CH web filings",
     },
+    {
+      module: "invoices",
+      title: "Invoices",
+      href: "/invoices",
+      blurb: "Bill any client · search & create",
+      label: "Invoices",
+    },
   ];
 }
 
 export default async function DashboardPage() {
   const session = await requireSession();
-  const clients = await listClients();
-  const peers = clients.map((c) => ({ id: c.id, name: c.name }));
-  const hmrc = await getHmrcEnvInfo();
-  const entitlements = await getPracticeEntitlements();
-  const unlocked = new Set(entitlements.modules);
-  const railLinks = buildRailLinks();
-
   const { listPracticeDirectors } = await import(
     "@/server/actions/sa-directors"
   );
-  const directors = await listPracticeDirectors().catch(() => []);
+  const { isPresentationDemoMode } = await import(
+    "@/server/demo/presentation-mode"
+  );
+  const [clients, hmrc, entitlements, directors, presentationDemo] =
+    await Promise.all([
+      listClients(),
+      getHmrcEnvInfo(),
+      getPracticeEntitlements(),
+      listPracticeDirectors().catch(() => []),
+      isPresentationDemoMode(),
+    ]);
+  const peers = clients.map((c) => ({ id: c.id, name: c.name }));
+  const unlocked = new Set(entitlements.modules);
+  const railLinks = buildRailLinks();
   const saSoleAndPartners = clients.filter(
     (c) => c.type === "sole_trader" || c.type === "partnership",
   );
@@ -137,21 +152,25 @@ export default async function DashboardPage() {
       <div className="dashboard-hero flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
-            Practice overview
+            {presentationDemo ? "Sales demo" : "Practice overview"}
           </p>
           <h1 className="display mt-2 text-4xl text-ink md:text-5xl">
             {displayPracticeName(session.practiceName)}
           </h1>
           <p className="mt-2 max-w-2xl text-ink-soft">
-            {clients.length} clients · HMRC{" "}
-            {hmrc.env === "production" ? "live" : "test"}
-            {hmrc.configured
-              ? " credentials configured"
-              : " · connect credentials in Settings"}
-            {entitlements.orgType === "practice"
-              ? " · accountancy practice"
-              : ""}
-            {entitlements.hasAnyPaid ? "" : " · plan not linked yet"}
+            {presentationDemo
+              ? `${clients.length} presentation clients · real practice hidden`
+              : `${clients.length} clients · HMRC ${
+                  hmrc.env === "production" ? "live" : "test"
+                }${
+                  hmrc.configured
+                    ? " credentials configured"
+                    : " · connect credentials in Settings"
+                }${
+                  entitlements.orgType === "practice"
+                    ? " · accountancy practice"
+                    : ""
+                }${entitlements.hasAnyPaid ? "" : " · plan not linked yet"}`}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -179,14 +198,23 @@ export default async function DashboardPage() {
         </div>
         <div className="mt-4 grid auto-rows-fr gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
           {railLinks.map((rail) => {
-            const open = unlocked.has(rail.module);
-            const pricingHref = `/pricing#${pricingHashForModule(rail.module)}`;
+            const open =
+              rail.module === "invoices"
+                ? canAccessModule(session.moduleAccess, "invoices")
+                : unlocked.has(rail.module);
+            const pricingHref =
+              rail.module === "invoices"
+                ? "/pricing#practice"
+                : `/pricing#${pricingHashForModule(rail.module)}`;
             return (
               <DashboardServiceCard
                 key={rail.title}
                 href={open ? rail.href : pricingHref}
                 module={rail.module}
-                moduleLabel={moduleLabel(rail.module)}
+                moduleLabel={
+                  rail.label ??
+                  moduleLabel(rail.module as ServiceModule)
+                }
                 title={rail.title}
                 blurb={rail.blurb}
                 locked={!open}

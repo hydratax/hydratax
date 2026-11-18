@@ -6,6 +6,7 @@ import Link from "next/link";
 import { updateClient } from "@/server/actions/clients";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { AddressFields } from "@/components/forms/address-fields";
+import { UkDateField } from "@/components/forms/uk-date-field";
 import { addressIdentityComplete } from "@/lib/address-parts";
 
 export type EditClientValues = {
@@ -17,6 +18,7 @@ export type EditClientValues = {
   companyAuthCode: string | null;
   utr: string | null;
   vrn: string | null;
+  vatRegistrationDate: string | null;
   nino: string | null;
   payeRef: string | null;
   accountsOfficeRef: string | null;
@@ -32,6 +34,9 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [vatRegistered, setVatRegistered] = useState(client.isVatRegistered);
+  const [vatRegDate, setVatRegDate] = useState(
+    client.vatRegistrationDate?.slice(0, 10) ?? "",
+  );
   const [payeRegistered, setPayeRegistered] = useState(client.isEmployer);
   const isLtd = client.type === "limited_company";
 
@@ -60,6 +65,7 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
               vrn: vatRegistered
                 ? String(fd.get("vrn") || "") || undefined
                 : "",
+              vatRegistrationDate: vatRegistered ? vatRegDate || "" : "",
               nino: String(fd.get("nino") || "") || undefined,
               payeRef: payeRegistered
                 ? String(fd.get("payeRef") || "") || undefined
@@ -210,18 +216,31 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
       {(vatRegistered || payeRegistered) && (
         <div className="grid gap-4 sm:grid-cols-2">
           {vatRegistered ? (
-            <div>
-              <label className="label" htmlFor="vrn">
-                VAT registration number
-              </label>
-              <input
-                id="vrn"
-                name="vrn"
-                className="input"
-                placeholder="GB…"
-                defaultValue={client.vrn ?? ""}
-              />
-            </div>
+            <>
+              <div>
+                <label className="label" htmlFor="vrn">
+                  VAT registration number
+                </label>
+                <input
+                  id="vrn"
+                  name="vrn"
+                  className="input"
+                  placeholder="GB…"
+                  defaultValue={client.vrn ?? ""}
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="vatRegistrationDate">
+                  VAT registration date
+                </label>
+                <UkDateField
+                  id="vatRegistrationDate"
+                  className="input mt-1.5"
+                  value={vatRegDate}
+                  onChange={setVatRegDate}
+                />
+              </div>
+            </>
           ) : null}
           {payeRegistered ? (
             <>

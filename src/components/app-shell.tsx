@@ -1,12 +1,15 @@
 import { requireSession } from "@/server/auth/session";
 import { isPlatformAdmin } from "@/server/auth/admin";
+import { isPresentationDemoMode } from "@/server/demo/presentation-mode";
 import { AppShellHeader } from "@/components/app-shell-header";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const session = await requireSession();
   const full = session.moduleAccess === "full";
   const admin = isPlatformAdmin(session.email);
+  const presentationDemo = admin ? await isPresentationDemoMode() : false;
 
+  /** Filing rails only — do not add items here without asking. */
   const serviceItems = [
     { href: "/filings", label: "Overview" },
     { href: "/filings/corporation-tax", label: "Corporation Tax" },
@@ -18,13 +21,8 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
           },
           { href: "/filings/annual-accounts", label: "Annual accounts" },
           { href: "/company-secretarial", label: "Company Secretarial" },
-          { href: "/companies-house", label: "Companies House" },
         ]
       : []),
-    ...(full ? [{ href: "/settings/hmrc", label: "HMRC connection" }] : []),
-    ...(full ? [{ href: "/settings/hmrc-rules", label: "HMRC tax rules" }] : []),
-    { href: "/settings/privacy", label: "Privacy & data" },
-    ...(admin ? [{ href: "/admin", label: "Admin" }] : []),
   ];
 
   const links = [
@@ -46,6 +44,8 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
         userEmail={session.email}
         canManageTeam={full}
         canViewLogs={session.role === "owner" || session.role === "admin"}
+        platformAdmin={admin}
+        presentationDemo={presentationDemo}
       />
       <main className="mx-auto max-w-6xl px-4 py-8 md:px-6 md:py-10">
         {children}

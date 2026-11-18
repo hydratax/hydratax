@@ -310,18 +310,9 @@ export function Ct600PeriodWorkspace({
     return (
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.12em] text-sea">
-              CT600 filing
-            </p>
-            <h2 className="display mt-1 text-2xl text-ink">
-              {formatGbDate(selected.start)} → {formatGbDate(selected.end)}
-            </h2>
-            <p className="mt-1 text-sm text-ink-soft">
-              Enter P&amp;L figures manually, import a trial balance, or choose
-              dormant (all zeros). Then review and submit.
-            </p>
-          </div>
+          <h2 className="display text-2xl text-ink">
+            {formatGbDate(selected.start)} → {formatGbDate(selected.end)}
+          </h2>
           <button
             type="button"
             className="btn btn-secondary text-sm"
@@ -357,46 +348,40 @@ export function Ct600PeriodWorkspace({
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="display text-2xl text-ink">Corporation Tax periods</h2>
-        <p className="mt-1 max-w-3xl text-sm text-ink-soft">
-          Choose a CT600 accounting period since incorporation
-          {incorporatedOn ? ` (${formatGbDate(incorporatedOn)})` : ""}. Periods
-          can be removed until a return is submitted for that period.
-        </p>
-      </div>
-
+    <div className="space-y-4">
       <div className="flex flex-col gap-3">
-        <div className="panel flex w-full flex-col p-4">
-          <p className="text-xs font-bold uppercase tracking-[0.12em] text-sea">
+        <div className="panel flex w-full flex-col gap-2 p-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-sea">
             Custom period
           </p>
-          <p className="mt-2 text-sm text-ink-soft">
-            Use when HMRC has a different accounting period (max 12 months).
-          </p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
             <div>
-              <label className="label">Start</label>
-              <UkDateField className="input" value={customStart} onChange={(iso) => setCustomStart(iso)}
+              <label className="text-[11px] text-ink-soft">Start</label>
+              <UkDateField
+                className="input mt-1 w-full text-xs"
+                value={customStart}
+                onChange={(iso) => setCustomStart(iso)}
               />
             </div>
             <div>
-              <label className="label">End</label>
-              <UkDateField className="input" value={customEnd} onChange={(iso) => setCustomEnd(iso)}
+              <label className="text-[11px] text-ink-soft">End</label>
+              <UkDateField
+                className="input mt-1 w-full text-xs"
+                value={customEnd}
+                onChange={(iso) => setCustomEnd(iso)}
               />
             </div>
+            <button
+              type="button"
+              className="btn btn-primary text-xs"
+              onClick={applyCustom}
+            >
+              Add
+            </button>
           </div>
-          {customError && (
-            <p className="mt-2 text-sm text-danger">{customError}</p>
-          )}
-          <button
-            type="button"
-            className="btn btn-primary mt-4 self-start text-sm"
-            onClick={applyCustom}
-          >
-            Add custom period
-          </button>
+          {customError ? (
+            <p className="text-xs text-ink-soft">{customError}</p>
+          ) : null}
         </div>
 
         {hydrated &&

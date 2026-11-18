@@ -1,6 +1,7 @@
 "use server";
 import { safeErr } from "@/lib/redact";
 
+import { cache } from "react";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireSession } from "@/server/auth/session";
@@ -35,6 +36,14 @@ const createClientSchema = z.object({
   companyNumber: z.string().optional(),
   utr: z.string().optional(),
   vrn: z.string().optional(),
+  /** ISO date YYYY-MM-DD (empty clears) */
+  vatRegistrationDate: z
+    .string()
+    .optional()
+    .refine(
+      (v) => !v || v === "" || /^\d{4}-\d{2}-\d{2}$/.test(v),
+      "Invalid VAT registration date",
+    ),
   nino: z.string().optional(),
   companyAuthCode: z.string().optional(),
   payeRef: z.string().optional(),
@@ -46,6 +55,11 @@ const createClientSchema = z.object({
   isVatRegistered: z.boolean().default(false),
   /** Skip CH lookup (bulk importer controls batching) */
   skipCompaniesHouse: z.boolean().optional(),
+  /** Platform-admin sales demo only — ignore plan client caps */
+  bypassClientCap: z.boolean().optional(),
+  /** Platform-admin sales demo — tag desk profile on create */
+  presentationDemo: z.string().optional(),
+  presentationPitch: z.string().optional(),
 });
 
 const updateClientSchema = createClientSchema
@@ -77,6 +91,8 @@ export type ClientRecord = {
   companyNumber: string | null;
   utr: string | null;
   vrn: string | null;
+  /** ISO date YYYY-MM-DD */
+  vatRegistrationDate: string | null;
   nino: string | null;
   companyAuthCode: string | null;
   payeRef: string | null;
@@ -93,6 +109,18 @@ export type ClientRecord = {
   updatedAt: string | Date;
 };
 
+function normalizeVatRegDate(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (typeof value === "string") {
+    const iso = value.slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  return null;
+}
+
 function mapSupabaseClient(row: Record<string, unknown>): ClientRecord {
   return {
     id: row.id as string,
@@ -102,6 +130,9 @@ function mapSupabaseClient(row: Record<string, unknown>): ClientRecord {
     companyNumber: (row.company_number as string | null) ?? null,
     utr: (row.utr as string | null) ?? null,
     vrn: (row.vrn as string | null) ?? null,
+    vatRegistrationDate: normalizeVatRegDate(
+      row.vat_registration_date ?? row.vatRegistrationDate,
+    ),
     nino: (row.nino as string | null) ?? null,
     companyAuthCode: (row.company_auth_code as string | null) ?? null,
     payeRef: (row.paye_ref as string | null) ?? null,
@@ -148,55 +179,9 @@ async function safeAudit(
 export type ClientIdName = { id: string; name: string };
 
 export async function listClientIdNames(): Promise<ClientIdName[]> {
-  const session = await requireSession();
-  if (isDemoMode()) {
-    return demoStore.clients
-      .filter(
-        (c) =>
-          c.practiceId === session.practiceId ||
-          c.practiceId === demoStore.practice.id,
-      )
-      .map((c) => ({ id: c.id, name: c.name }));
-  }
-
-  if (isSupabaseConfigured()) {
-    try {
-      const { createClient: createSupabase } = await import(
-        "@/lib/supabase/server"
-      );
-      const supabase = await createSupabase();
-      const { data, error } = await supabase
-        .from("clients")
-        .select("id, name")
-        .eq("practice_id", session.practiceId)
-        .order("created_at", { ascending: false });
-      if (error) {
-        console.warn("[clients] supabase id list failed", error.message);
-      } else if (data) {
-        return data.map((row) => ({
-          id: row.id as string,
-          name: row.name as string,
-        }));
-      }
-    } catch (err) {
-      console.warn("[clients] supabase id list error", safeErr(err));
-    }
-  }
-
-  const { getDb, hasDatabase } = await import("@/server/db");
-  if (!hasDatabase()) return [];
-
-  try {
-    const { clients } = await import("@/server/db/schema");
-    const { eq } = await import("drizzle-orm");
-    const rows = await getDb()
-      .select({ id: clients.id, name: clients.name })
-      .from(clients)
-      .where(eq(clients.practiceId, session.practiceId));
-    return rows;
-  } catch {
-    return [];
-  }
+  // Same visibility as listClients (hides presentation clients outside sales demo).
+  const clients = await listClients();
+  return clients.map((c) => ({ id: c.id, name: c.name }));
 }
 
 export async function fetchClientRecord(
@@ -268,6 +253,7 @@ function mapMemoryClient(
     companyNumber: c.companyNumber,
     utr: c.utr,
     vrn: c.vrn,
+    vatRegistrationDate: normalizeVatRegDate(c.vatRegistrationDate),
     nino: c.nino,
     companyAuthCode: c.companyAuthCode,
     payeRef: c.payeRef,
@@ -294,6 +280,7 @@ function mapDrizzleClient(row: Record<string, unknown>): ClientRecord {
     companyNumber: (row.companyNumber as string | null) ?? null,
     utr: (row.utr as string | null) ?? null,
     vrn: (row.vrn as string | null) ?? null,
+    vatRegistrationDate: normalizeVatRegDate(row.vatRegistrationDate),
     nino: (row.nino as string | null) ?? null,
     companyAuthCode: (row.companyAuthCode as string | null) ?? null,
     payeRef: (row.payeRef as string | null) ?? null,
@@ -314,7 +301,8 @@ function mapDrizzleClient(row: Record<string, unknown>): ClientRecord {
   };
 }
 
-export async function listClients(): Promise<ClientRecord[]> {
+/** All practice clients (ignores sales-demo filter). */
+async function listAllClientsForPractice(): Promise<ClientRecord[]> {
   const session = await requireSession();
   if (isDemoMode()) {
     return demoStore.clients
@@ -361,6 +349,40 @@ export async function listClients(): Promise<ClientRecord[]> {
   } catch {
     return [];
   }
+}
+
+function isPresentationTagged(
+  client: ClientRecord,
+  tag: string,
+): boolean {
+  return client.deskProfile?.presentationDemo === tag;
+}
+
+/**
+ * Per-request dedupe — dashboard + directors + layout used to fetch twice.
+ * Sales-demo mode: only presentation clients.
+ * Normal desk: presentation clients are hidden (they never mix with the practice).
+ */
+export const listClients = cache(async function listClients(): Promise<
+  ClientRecord[]
+> {
+  const all = await listAllClientsForPractice();
+  const { isPresentationDemoMode } = await import(
+    "@/server/demo/presentation-mode"
+  );
+  const { PRESENTATION_DEMO_TAG } = await import(
+    "@/server/demo/presentation-seed"
+  );
+  const demoOn = await isPresentationDemoMode();
+  if (demoOn) {
+    return all.filter((c) => isPresentationTagged(c, PRESENTATION_DEMO_TAG));
+  }
+  return all.filter((c) => !isPresentationTagged(c, PRESENTATION_DEMO_TAG));
+});
+
+/** Unfiltered practice list (sales-demo seed / ops). Includes presentation clients. */
+export async function listClientsIncludingHidden(): Promise<ClientRecord[]> {
+  return listAllClientsForPractice();
 }
 
 export async function getClient(ref: string) {
@@ -425,31 +447,37 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
     );
   }
 
-  // Enforce plan client caps (Solo = 1, Practice = 10, etc.).
-  try {
-    const { getPracticeEntitlements } = await import(
-      "@/server/actions/account"
-    );
-    const ent = await getPracticeEntitlements();
-    if (ent.maxClients != null) {
-      const existing = await listClients();
-      if (existing.length >= ent.maxClients) {
-        throw new Error(
-          `Your plan allows ${ent.maxClients} client${ent.maxClients === 1 ? "" : "s"}. Upgrade on Pricing to add more clients.`,
-        );
-      }
-    }
-  } catch (err) {
-    if (
-      err instanceof Error &&
-      /plan allows|Upgrade to add/i.test(err.message)
-    ) {
-      throw err;
-    }
-    /* entitlements lookup best-effort when offline */
-  }
-
   const data = createClientSchema.parse(input);
+
+  // Enforce plan client caps (Solo = 1, Practice = 10, etc.).
+  // Platform-admin sales-demo seed may bypass via bypassClientCap.
+  const { isPlatformAdmin } = await import("@/server/auth/admin");
+  const allowCapBypass =
+    Boolean(data.bypassClientCap) && isPlatformAdmin(session.email);
+  if (!allowCapBypass) {
+    try {
+      const { getPracticeEntitlements } = await import(
+        "@/server/actions/account"
+      );
+      const ent = await getPracticeEntitlements();
+      if (ent.maxClients != null) {
+        const existing = await listClients();
+        if (existing.length >= ent.maxClients) {
+          throw new Error(
+            `Your plan allows ${ent.maxClients} client${ent.maxClients === 1 ? "" : "s"}. Upgrade on Pricing to add more clients.`,
+          );
+        }
+      }
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        /plan allows|Upgrade to add/i.test(err.message)
+      ) {
+        throw err;
+      }
+      /* entitlements lookup best-effort when offline */
+    }
+  }
   const now = new Date().toISOString();
 
   const ch = await resolveCompaniesHouse(
@@ -470,8 +498,16 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
   const { documentInboxKeyFromName } = await import(
     "@/lib/client-document-email"
   );
-  const initialDeskProfile = {
+  const initialDeskProfile: DeskProfile = {
     documentInboxKey: documentInboxKeyFromName(name),
+    ...(allowCapBypass && data.presentationDemo?.trim()
+      ? {
+          presentationDemo: data.presentationDemo.trim(),
+          ...(data.presentationPitch?.trim()
+            ? { presentationPitch: data.presentationPitch.trim() }
+            : {}),
+        }
+      : {}),
   };
 
   if (isDemoMode()) {
@@ -483,6 +519,9 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
       companyNumber,
       utr: data.utr ?? null,
       vrn: data.vrn ?? null,
+      vatRegistrationDate: data.isVatRegistered
+        ? normalizeVatRegDate(data.vatRegistrationDate)
+        : null,
       nino: data.nino ?? null,
       companyAuthCode: normalizeCompanyAuthCode(data.companyAuthCode),
       payeRef: data.payeRef ?? null,
@@ -537,6 +576,9 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
         company_number: companyNumber,
         utr: data.utr ?? null,
         vrn: data.vrn ?? null,
+        vat_registration_date: data.isVatRegistered
+          ? normalizeVatRegDate(data.vatRegistrationDate)
+          : null,
         nino: data.nino ?? null,
         company_auth_code: normalizeCompanyAuthCode(data.companyAuthCode),
         paye_ref: data.payeRef ?? null,
@@ -586,6 +628,9 @@ export async function createClient(input: z.infer<typeof createClientSchema>) {
       companyNumber,
       utr: data.utr ?? null,
       vrn: data.vrn ?? null,
+      vatRegistrationDate: data.isVatRegistered
+        ? normalizeVatRegDate(data.vatRegistrationDate)
+        : null,
       nino: data.nino ?? null,
       companyAuthCode: normalizeCompanyAuthCode(data.companyAuthCode),
       payeRef: data.payeRef ?? null,
@@ -638,6 +683,12 @@ export async function updateClient(input: z.infer<typeof updateClientSchema>) {
         : existing.companyNumber,
     utr: data.utr !== undefined ? data.utr.trim() || null : existing.utr,
     vrn: data.vrn !== undefined ? data.vrn.trim() || null : existing.vrn,
+    vatRegistrationDate:
+      data.isVatRegistered === false
+        ? null
+        : data.vatRegistrationDate !== undefined
+          ? normalizeVatRegDate(data.vatRegistrationDate)
+          : existing.vatRegistrationDate,
     nino: data.nino !== undefined ? data.nino.trim() || null : existing.nino,
     companyAuthCode:
       data.companyAuthCode !== undefined
@@ -702,6 +753,7 @@ export async function updateClient(input: z.infer<typeof updateClientSchema>) {
         company_number: patch.companyNumber,
         utr: patch.utr,
         vrn: patch.vrn,
+        vat_registration_date: patch.vatRegistrationDate,
         nino: patch.nino,
         company_auth_code: patch.companyAuthCode,
         paye_ref: patch.payeRef,
@@ -742,6 +794,7 @@ export async function updateClient(input: z.infer<typeof updateClientSchema>) {
       companyNumber: patch.companyNumber,
       utr: patch.utr,
       vrn: patch.vrn,
+      vatRegistrationDate: patch.vatRegistrationDate,
       nino: patch.nino,
       companyAuthCode: patch.companyAuthCode,
       payeRef: patch.payeRef,

@@ -77,6 +77,48 @@ export const CT_RATES: RateFact[] = [
     },
   },
   {
+    id: "ct-main-rate-fya",
+    domain: "ct",
+    label: "Main-rate first-year allowance",
+    value: "40% (2026) / 50% (from 1 Jan 2027)",
+    detail:
+      "Qualifying plant & machinery spend from 1 Jan 2026. CT600 boxes 696 (trading) and 739 (non-trading) on the April 2027 form. Rate follows expenditure date.",
+    period: "Spend from 1 Jan 2026; 50% from 1 Jan 2027",
+    source: {
+      title: "SDS CT600 (2027) draft guidance — boxes 696 / 739",
+      url: "https://www.gov.uk/guidance/changes-and-issues-affecting-the-corporation-tax-online-service",
+      updated: "2026-11-17",
+    },
+  },
+  {
+    id: "ct-zec-ev-fya-cutoff",
+    domain: "ct",
+    label: "Zero-emission cars / EV charge-points FYA",
+    value: "Until 31 Mar 2027",
+    detail:
+      "100% FYA not available for expenditure on or after 1 Apr 2027. Dedicated CT600 boxes not in use for APs starting on or after 1 Apr 2027.",
+    period: "Extended to 31 Mar 2027 (SDS CT600 2027)",
+    source: {
+      title: "SDS CT600 (2027) draft guidance",
+      url: "https://www.gov.uk/guidance/changes-and-issues-affecting-the-corporation-tax-online-service",
+      updated: "2026-11-17",
+    },
+  },
+  {
+    id: "ct-s455-rate",
+    domain: "ct",
+    label: "Loans to participators (s455) rate",
+    value: "35.75% from 6 Apr 2026",
+    detail:
+      "CT600A boxes A20 / A45 / A70 — rate follows loan or benefit date (25% pre–6 Apr 2016; then dividend upper rate).",
+    period: "From 6 Apr 2026",
+    source: {
+      title: "SDS CT600A guidance changes 2027",
+      url: "https://www.gov.uk/guidance/changes-and-issues-affecting-the-corporation-tax-online-service",
+      updated: "2026-11-17",
+    },
+  },
+  {
     id: "ct-rd-claim-notification",
     domain: "ct",
     label: "R&D relief — claim notification form",
@@ -412,6 +454,20 @@ export const SA_RATES: RateFact[] = [
     detail: "Plus 0% starting rate for savings up to £5,000 (reduced by non-savings income).",
     period: "2024–25 · 2025–26 · 2026–27",
     source: IT_SRC,
+  },
+  {
+    id: "sa-student-loan-thresholds-2627",
+    domain: "sa",
+    label: "Student loan repayment thresholds",
+    value: "Plan 1 £26,900 · Plan 2 £29,385 · Plan 4 £33,795 · Plan 5 £25,000",
+    detail:
+      "9% above threshold. Postgraduate loan threshold £21,000 at 6%. From SDS Calculate Tax and NIC MTR 2026-27 v1.4.0.",
+    period: "2026–27",
+    source: {
+      title: "SDS Calculate Tax and NIC MTR 2026-27 v1.4.0",
+      url: "https://www.gov.uk/repaying-your-student-loan",
+      updated: "2026-11-16",
+    },
   },
   {
     id: "ni-c4-main-2425",

@@ -488,13 +488,15 @@ const connectSchema = z.object({
     .trim()
     .regex(/^\d{9}$/, "VAT number must be 9 digits"),
   agentArn: z.string().trim().optional(),
-  vatRegistrationDate: z.string().optional(),
+  vatRegistrationDate: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter the VAT registration date"),
 });
 
 /**
- * Persist VRN (and optional agent details) before redirecting to HMRC OAuth.
- * ARN / registration date are kept on the practice profile in memory + audit log
- * so agents are not asked again on this client.
+ * Persist VRN + VAT registration date (durable client identifiers) before
+ * HMRC OAuth. ARN stays on the practice profile for agent filers.
  */
 export async function saveVatHmrcConnectDetails(
   input: z.infer<typeof connectSchema>,
@@ -503,21 +505,18 @@ export async function saveVatHmrcConnectDetails(
   if (session.role === "readonly") throw new Error("Forbidden");
   const data = connectSchema.parse(input);
 
-  if (data.filingAs === "agent") {
-    if (!data.agentArn?.trim()) {
-      throw new Error("Enter your Agent Reference Number (ARN)");
-    }
-    if (!data.vatRegistrationDate?.trim()) {
-      throw new Error("Enter the client’s VAT registration date");
-    }
+  if (data.filingAs === "agent" && !data.agentArn?.trim()) {
+    throw new Error("Enter your Agent Reference Number (ARN)");
   }
 
   const client = await getClient(data.clientId);
+  const vatRegistrationDate = data.vatRegistrationDate;
 
   if (isDemoMode()) {
     const row = demoStore.clients.find((c) => c.id === data.clientId);
     if (!row) throw new Error("Client not found");
     row.vrn = data.vrn;
+    row.vatRegistrationDate = vatRegistrationDate;
     row.isVatRegistered = true;
     row.updatedAt = new Date().toISOString();
     if (!demoStore.accountProfile) {
@@ -531,8 +530,6 @@ export async function saveVatHmrcConnectDetails(
     Object.assign(demoStore.accountProfile, {
       agentArn: data.filingAs === "agent" ? data.agentArn : undefined,
     });
-    (row as { vatRegistrationDate?: string }).vatRegistrationDate =
-      data.vatRegistrationDate ?? undefined;
   } else {
     const supabase = await getSupabaseDataClient();
     if (supabase) {
@@ -540,6 +537,7 @@ export async function saveVatHmrcConnectDetails(
         .from("clients")
         .update({
           vrn: data.vrn,
+          vat_registration_date: vatRegistrationDate,
           is_vat_registered: true,
           updated_at: new Date().toISOString(),
         })
@@ -559,6 +557,7 @@ export async function saveVatHmrcConnectDetails(
         .update(clients)
         .set({
           vrn: data.vrn,
+          vatRegistrationDate,
           isVatRegistered: true,
           updatedAt: new Date(),
         })
@@ -582,13 +581,15 @@ export async function saveVatHmrcConnectDetails(
       filingAs: data.filingAs,
       vrn: data.vrn,
       hasArn: Boolean(data.agentArn),
-      hasVatRegDate: Boolean(data.vatRegistrationDate),
+      hasVatRegDate: true,
+      vatRegistrationDate,
       clientName: client.name,
     },
   });
 
   revalidatePath(`/clients/${data.clientId}/vat`);
   revalidatePath(`/clients/${data.clientId}`);
+  revalidatePath(`/clients/${data.clientId}/edit`);
   return {
     ok: true as const,
     authorizeUrl: `/api/hmrc/authorize?clientId=${encodeURIComponent(data.clientId)}&returnTo=vat`,
@@ -610,7 +611,16 @@ export async function prepareVatReturnFromBoxes(
   const session = await requireSession();
   const data = manualBoxesSchema.parse(input);
   const client = await getClient(data.clientId);
-  if (!client.isVatRegistered || !client.vrn) {
+  const regDate =
+    "vatRegistrationDate" in client
+      ? (client.vatRegistrationDate as string | null)
+      : null;
+  if (
+    !client.isVatRegistered ||
+    !client.vrn ||
+    !regDate ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(regDate)
+  ) {
     throw new Error("Client is not VAT registered — connect to HMRC first");
   }
 
@@ -651,6 +661,418 @@ export async function prepareVatReturnFromBoxes(
 
   revalidatePath(`/clients/${data.clientId}/vat`);
   return draft;
+}
+
+type VatDraftLine = {
+  dated: string;
+  category: string;
+  amountPence: number;
+};
+
+function sliceVatPeriodLines(
+  lines: VatDraftLine[],
+  periodStart: string,
+  periodEnd: string,
+  regDate: string,
+) {
+  const effectiveStart = periodStart < regDate ? regDate : periodStart;
+  return lines.filter(
+    (t) => t.dated >= effectiveStart && t.dated <= periodEnd,
+  );
+}
+
+/**
+ * Draft VAT nine-box figures from the client's bank transactions.
+ * Prefer {@link draftVatBoxesFromSelectedStatements} so the accountant
+ * chooses CT / VAT / SA statement files before the pull.
+ */
+export async function draftVatBoxesFromBank(input: {
+  clientId: string;
+  periodStart: string;
+  periodEnd: string;
+}) {
+  await requireSession();
+  const { clientId, periodStart, periodEnd } = input;
+  const client = await getClient(clientId);
+  const regDate =
+    "vatRegistrationDate" in client
+      ? (client.vatRegistrationDate as string | null)
+      : null;
+  if (!client.vrn || !regDate || !/^\d{4}-\d{2}-\d{2}$/.test(regDate)) {
+    return {
+      ok: false as const,
+      error: "missing_vat_identifiers",
+      boxes: null,
+      breakdown: null,
+      totalLines: 0,
+      periodLines: 0,
+    };
+  }
+
+  const { listBankTransactions } = await import("@/server/actions/bank");
+  const { mapBankToVatBoxes } = await import("@/server/bank/vat-box-map");
+
+  const allTxs = await listBankTransactions(clientId);
+  const periodTxs = sliceVatPeriodLines(
+    allTxs.map((t) => ({
+      dated: t.dated,
+      category: t.category,
+      amountPence: t.amountPence,
+    })),
+    periodStart,
+    periodEnd,
+    regDate,
+  );
+
+  if (!periodTxs.length) {
+    return {
+      ok: false as const,
+      error: "No bank transactions found in this VAT period. Upload or import statements first.",
+      boxes: null,
+      breakdown: null,
+      totalLines: allTxs.length,
+      periodLines: 0,
+    };
+  }
+
+  const result = mapBankToVatBoxes(periodTxs);
+
+  return {
+    ok: true as const,
+    boxes: result.boxes,
+    breakdown: result.breakdown,
+    totalLines: allTxs.length,
+    periodLines: periodTxs.length,
+    outsideScopeLines: result.outsideScopeLineCount,
+  };
+}
+
+/**
+ * Draft VAT boxes from lines pulled from accountant-selected statement files.
+ * Prefer {@link pullVatBoxesFromBooks} — it loads the company ledger and
+ * selected files server-side (client blob fetch was failing silently).
+ */
+export async function draftVatBoxesFromSelectedStatements(input: {
+  clientId: string;
+  periodStart: string;
+  periodEnd: string;
+  /** Converted lines from the selected Books statement files. */
+  lines: VatDraftLine[];
+  /** Document ids confirmed in the pull dialog (audit only). */
+  documentIds?: string[];
+}) {
+  const session = await requireSession();
+  const { clientId, periodStart, periodEnd, lines, documentIds } = input;
+  const client = await getClient(clientId);
+  const regDate =
+    "vatRegistrationDate" in client
+      ? (client.vatRegistrationDate as string | null)
+      : null;
+  if (!client.vrn || !regDate || !/^\d{4}-\d{2}-\d{2}$/.test(regDate)) {
+    return {
+      ok: false as const,
+      error: "missing_vat_identifiers",
+      boxes: null,
+      breakdown: null,
+      totalLines: 0,
+      periodLines: 0,
+    };
+  }
+
+  if (!lines.length) {
+    return {
+      ok: false as const,
+      error: "No lines in the selected statements.",
+      boxes: null,
+      breakdown: null,
+      totalLines: 0,
+      periodLines: 0,
+    };
+  }
+
+  const { mapBankToVatBoxes } = await import("@/server/bank/vat-box-map");
+  const periodTxs = sliceVatPeriodLines(
+    lines,
+    periodStart,
+    periodEnd,
+    regDate,
+  );
+
+  if (!periodTxs.length) {
+    return {
+      ok: false as const,
+      error:
+        "No transactions in this VAT period from the selected statements.",
+      boxes: null,
+      breakdown: null,
+      totalLines: lines.length,
+      periodLines: 0,
+    };
+  }
+
+  const result = mapBankToVatBoxes(periodTxs);
+
+  await appendAuditEvent({
+    practiceId: session.practiceId,
+    clientId,
+    actorId: session.userId,
+    action: "vat.boxes.drafted_from_statements",
+    entityType: "vat_return",
+    entityId: clientId,
+    detail: {
+      periodStart,
+      periodEnd,
+      documentIds: documentIds ?? [],
+      totalLines: lines.length,
+      periodLines: periodTxs.length,
+    },
+  }).catch(() => undefined);
+
+  return {
+    ok: true as const,
+    boxes: result.boxes,
+    breakdown: result.breakdown,
+    totalLines: lines.length,
+    periodLines: periodTxs.length,
+    outsideScopeLines: result.outsideScopeLineCount,
+  };
+}
+
+async function loadDocumentFileBytes(doc: {
+  filename: string;
+  contentType: string;
+  blobUrl: string;
+}): Promise<File | null> {
+  try {
+    if (doc.blobUrl.startsWith("data:")) {
+      const comma = doc.blobUrl.indexOf(",");
+      if (comma < 0) return null;
+      const meta = doc.blobUrl.slice(0, comma);
+      const data = doc.blobUrl.slice(comma + 1);
+      const buf = meta.includes(";base64")
+        ? Buffer.from(data, "base64")
+        : Buffer.from(decodeURIComponent(data), "utf8");
+      return new File([buf], doc.filename, {
+        type: doc.contentType || "application/octet-stream",
+      });
+    }
+
+    const keyMatch = doc.blobUrl.match(/[?&]key=([^&]+)/);
+    if (keyMatch?.[1]) {
+      const key = decodeURIComponent(keyMatch[1]);
+      const { getR2Object, isR2Configured } = await import(
+        "@/server/storage/r2"
+      );
+      if (!isR2Configured()) return null;
+      const obj = await getR2Object(key);
+      if (!obj.body) return null;
+      return new File([obj.body], doc.filename, {
+        type: obj.contentType || doc.contentType || "application/octet-stream",
+      });
+    }
+
+    if (doc.blobUrl.startsWith("http")) {
+      const res = await fetch(doc.blobUrl);
+      if (!res.ok) return null;
+      const buf = Buffer.from(await res.arrayBuffer());
+      return new File([buf], doc.filename, {
+        type: doc.contentType || res.headers.get("content-type") || "application/octet-stream",
+      });
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Confirm-and-pull for VAT: uses company Books ledger when CT/VAT statements
+ * are selected, and parses SA statement files only when explicitly chosen.
+ * Avoids brittle client-side blob fetch/re-parse of archived PDFs.
+ */
+export async function pullVatBoxesFromBooks(input: {
+  clientId: string;
+  periodStart: string;
+  periodEnd: string;
+  documentIds: string[];
+}) {
+  const session = await requireSession();
+  const { clientId, periodStart, periodEnd, documentIds } = input;
+  const client = await getClient(clientId);
+  const regDate =
+    "vatRegistrationDate" in client
+      ? (client.vatRegistrationDate as string | null)
+      : null;
+  if (!client.vrn || !regDate || !/^\d{4}-\d{2}-\d{2}$/.test(regDate)) {
+    return {
+      ok: false as const,
+      error: "missing_vat_identifiers",
+      boxes: null,
+      breakdown: null,
+      totalLines: 0,
+      periodLines: 0,
+    };
+  }
+  if (!documentIds.length) {
+    return {
+      ok: false as const,
+      error: "No statements selected.",
+      boxes: null,
+      breakdown: null,
+      totalLines: 0,
+      periodLines: 0,
+    };
+  }
+
+  const { listClientDocuments } = await import("@/server/actions/documents");
+  const { bankStatementDesk } = await import("@/lib/bank/statement-docs");
+  const { listBankTransactions } = await import("@/server/actions/bank");
+  const { parseBankStatementFile } = await import(
+    "@/server/bank/parse-statement-file"
+  );
+  const { mapBankToVatBoxes } = await import("@/server/bank/vat-box-map");
+
+  const allDocs = await listClientDocuments(clientId);
+  const selected = allDocs.filter((d) => documentIds.includes(d.id));
+  const desks = new Set(
+    selected
+      .map((d) => bankStatementDesk(d.category))
+      .filter((d): d is "ct" | "vat" | "sa" => Boolean(d)),
+  );
+
+  const lines: VatDraftLine[] = [];
+  const seen = new Set<string>();
+
+  function pushLine(line: VatDraftLine) {
+    const key = `${line.dated}|${line.category}|${line.amountPence}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    lines.push(line);
+  }
+
+  // Company tax / VAT selections → use the shared Books ledger for the period.
+  if (desks.has("ct") || desks.has("vat")) {
+    const txs = await listBankTransactions(clientId);
+    for (const t of txs) {
+      pushLine({
+        dated: t.dated,
+        category: t.category,
+        amountPence: t.amountPence,
+      });
+    }
+  }
+
+  // Explicit SA selections → parse those personal statement files only.
+  for (const doc of selected) {
+    if (bankStatementDesk(doc.category) !== "sa") continue;
+    const file = await loadDocumentFileBytes(doc);
+    if (!file) continue;
+    try {
+      const parsed = await parseBankStatementFile(file);
+      for (const line of parsed.lines) {
+        pushLine({
+          dated: line.dated,
+          category: line.category,
+          amountPence: line.amountPence,
+        });
+      }
+    } catch {
+      /* skip unreadable SA file */
+    }
+  }
+
+  // If only SA was selected and parse failed, or CT/VAT with empty ledger —
+  // also try parsing the selected CT/VAT source files as a fallback.
+  if (!lines.length) {
+    for (const doc of selected) {
+      const desk = bankStatementDesk(doc.category);
+      if (desk !== "ct" && desk !== "vat") continue;
+      const file = await loadDocumentFileBytes(doc);
+      if (!file) continue;
+      try {
+        const parsed = await parseBankStatementFile(file);
+        for (const line of parsed.lines) {
+          pushLine({
+            dated: line.dated,
+            category: line.category,
+            amountPence: line.amountPence,
+          });
+        }
+      } catch {
+        /* skip */
+      }
+    }
+  }
+
+  const periodTxs = sliceVatPeriodLines(
+    lines,
+    periodStart,
+    periodEnd,
+    regDate,
+  );
+
+  if (!periodTxs.length) {
+    return {
+      ok: false as const,
+      error:
+        "No transactions in this VAT period from the selected Books statements.",
+      boxes: null,
+      breakdown: null,
+      totalLines: lines.length,
+      periodLines: 0,
+    };
+  }
+
+  const result = mapBankToVatBoxes(periodTxs);
+
+  await appendAuditEvent({
+    practiceId: session.practiceId,
+    clientId,
+    actorId: session.userId,
+    action: "vat.boxes.pulled_from_books",
+    entityType: "vat_return",
+    entityId: clientId,
+    detail: {
+      periodStart,
+      periodEnd,
+      documentIds,
+      desks: [...desks],
+      totalLines: lines.length,
+      periodLines: periodTxs.length,
+    },
+  }).catch(() => undefined);
+
+  return {
+    ok: true as const,
+    boxes: result.boxes,
+    breakdown: result.breakdown,
+    totalLines: lines.length,
+    periodLines: periodTxs.length,
+    outsideScopeLines: result.outsideScopeLineCount,
+  };
+}
+
+/**
+ * Check if a client has existing bank transactions (from CT/year-end desk).
+ * Returns count + date range so the VAT desk knows if it can reuse them.
+ */
+export async function checkBankTransactionsForVat(clientId: string) {
+  await requireSession();
+  await getClient(clientId);
+
+  const { listBankTransactions } = await import("@/server/actions/bank");
+  const txs = await listBankTransactions(clientId);
+
+  if (!txs.length) {
+    return { count: 0, earliest: null, latest: null };
+  }
+
+  const dates = txs.map((t) => t.dated).sort();
+  return {
+    count: txs.length,
+    earliest: dates[0] ?? null,
+    latest: dates[dates.length - 1] ?? null,
+  };
 }
 
 /** @deprecated Use listVatObligations */

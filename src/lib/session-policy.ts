@@ -3,10 +3,14 @@
 export const SESSION_EXPIRES_COOKIE = "ht_session_expires";
 export const DEVICE_TRUSTED_COOKIE = "ht_device_trusted";
 
-/** Untrusted / default desk session. */
+/**
+ * Wall-clock ceiling while the browser stays open (untrusted / default).
+ * Untrusted auth cookies are *session* cookies (no Max-Age) so closing the
+ * browser ends the session even if this ceiling has not been reached.
+ */
 export const SESSION_TTL_UNTRUSTED_SEC = 10 * 60 * 60; // 10 hours
 
-/** Trusted device desk session. */
+/** Trusted device desk session (persistent cookie). */
 export const SESSION_TTL_TRUSTED_SEC = 7 * 24 * 60 * 60; // 7 days
 
 export function sessionTtlSeconds(trusted: boolean): number {
@@ -27,10 +31,71 @@ export function isSessionExpiryPast(
   return Math.floor(now / 1000) >= n;
 }
 
+export function isDeviceTrustedCookie(
+  value: string | undefined | null,
+): boolean {
+  return value === "1";
+}
+
+/** Supabase Auth session token cookies (not the short-lived PKCE verifier). */
+export function isSupabaseAuthSessionCookie(name: string): boolean {
+  return name.startsWith("sb-") && !name.includes("code-verifier");
+}
+
+export type DeskCookieAttrs = {
+  httpOnly: boolean;
+  sameSite: "lax";
+  secure: boolean;
+  path: string;
+  /** Only set when the device is trusted — omit for browser-session cookies. */
+  maxAge?: number;
+};
+
+/**
+ * Cookie attributes for desk auth / policy cookies.
+ * - Trusted → persistent Max-Age (7 days).
+ * - Untrusted → session cookie (deleted when the browser closes).
+ */
+export function deskAuthCookieAttrs(trusted: boolean): DeskCookieAttrs {
+  const base: DeskCookieAttrs = {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+  };
+  if (trusted) {
+    return { ...base, maxAge: SESSION_TTL_TRUSTED_SEC };
+  }
+  return base;
+}
+
+type CookieOptionBag = {
+  maxAge?: number;
+  expires?: Date | string | number;
+  [key: string]: unknown;
+};
+
+/**
+ * Align Set-Cookie options with the trust choice.
+ * Untrusted strips Max-Age/Expires so the browser treats it as a session cookie.
+ */
+export function withDeskPersistence<T extends CookieOptionBag>(
+  options: T,
+  trusted: boolean,
+): T {
+  if (trusted) {
+    return { ...options, maxAge: SESSION_TTL_TRUSTED_SEC, expires: undefined };
+  }
+  const next = { ...options };
+  delete next.maxAge;
+  delete next.expires;
+  return next;
+}
+
 /**
  * After password/OAuth, send the user to the device-trust screen from the
  * **second** successful login onward. First signup/login keeps the provisional
- * 10-hour untrusted session and goes straight to `next`.
+ * untrusted session and goes straight to `next`.
  */
 export function postLoginPath(
   nextPath: string,

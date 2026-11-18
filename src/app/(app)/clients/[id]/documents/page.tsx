@@ -2,6 +2,7 @@ import Link from "next/link";
 import { listClientDocuments } from "@/server/actions/documents";
 import { DocumentUploadForm } from "@/components/forms/document-upload-form";
 import { DocumentInboxCard } from "@/components/forms/document-inbox-card";
+import { DocumentsCategorisedList } from "@/components/forms/documents-categorised-list";
 import { EmailDocumentsForm } from "@/components/forms/email-documents-form";
 import { isBlobConfigured, isMemoryStore } from "@/lib/env";
 import { loadClientPage } from "@/server/clients/resolve-client-page";
@@ -58,7 +59,9 @@ export default async function ClientDocumentsPage({
 
       <div className="mt-6 panel overflow-hidden">
         <div className="border-b border-line bg-sand/60 px-4 py-3">
-          <h2 className="font-semibold text-ink">Files ({docs.length})</h2>
+          <h2 className="font-semibold text-ink">
+            Files by desk ({docs.length})
+          </h2>
         </div>
         {docs.length === 0 ? (
           <p className="p-6 text-sm text-ink-soft">
@@ -67,35 +70,18 @@ export default async function ClientDocumentsPage({
             <span className="mono text-ink">{inbox.inboxEmail}</span>.
           </p>
         ) : (
-          <ul className="divide-y divide-line">
-            {docs.map((doc) => (
-              <li
-                key={doc.id}
-                className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"
-              >
-                <div>
-                  <p className="font-semibold text-ink">{doc.filename}</p>
-                  <p className="text-xs text-ink-soft">
-                    {doc.category} · {(doc.sizeBytes / 1024).toFixed(0)} KB ·{" "}
-                    {new Date(doc.createdAt).toLocaleString("en-GB")}
-                  </p>
-                </div>
-                {doc.blobUrl.startsWith("http") ||
-                doc.blobUrl.startsWith("/api/") ? (
-                  <a
-                    href={doc.blobUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn btn-secondary text-xs"
-                  >
-                    Open
-                  </a>
-                ) : (
-                  <span className="badge badge-muted">Stored locally</span>
-                )}
-              </li>
-            ))}
-          </ul>
+          <DocumentsCategorisedList
+            clientId={clientId}
+            documents={docs.map((d) => ({
+              id: String(d.id),
+              filename: String(d.filename),
+              blobUrl: String(d.blobUrl),
+              contentType: String(d.contentType ?? ""),
+              sizeBytes: Number(d.sizeBytes ?? 0),
+              createdAt: String(d.createdAt),
+              category: String(d.category ?? "general"),
+            }))}
+          />
         )}
       </div>
 
@@ -104,15 +90,11 @@ export default async function ClientDocumentsPage({
         <ol className="mt-2 list-decimal space-y-1 pl-5">
           <li>Upload source documents to this client file.</li>
           <li>
-            Enter books under{" "}
-            <Link href={`/clients/${slug}/books`} className="font-semibold text-sea">
-              Books
-            </Link>
-            ; prepare VAT / SA / CT600 / Payroll. Or use{" "}
+            Sort files by desk here, or copy/paste between cards under{" "}
             <Link href={`/clients/${slug}/bank`} className="font-semibold text-sea">
               Bank
-            </Link>{" "}
-            CSV categorisation for SA / CT drafts.
+            </Link>
+            . Prepare VAT / SA / CT600 from those desks.
           </li>
           <li>
             <Link href="/settings/hmrc" className="font-semibold text-sea">

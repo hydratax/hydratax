@@ -76,6 +76,8 @@ export type BankImportResult =
 async function storeBankSourceFile(
   clientId: string,
   file: File,
+  /** Books desk bucket — company tax default; VAT uploads pass `vat`. */
+  category: "accounts" | "vat" | "corporation_tax" = "accounts",
 ): Promise<{
   id: string;
   filename: string;
@@ -86,7 +88,7 @@ async function storeBankSourceFile(
     const { uploadClientDocument } = await import("@/server/actions/documents");
     const fd = new FormData();
     fd.set("clientId", clientId);
-    fd.set("category", "accounts");
+    fd.set("category", category);
     fd.set("file", file);
     const doc = await uploadClientDocument(fd);
     return {
@@ -226,6 +228,48 @@ export async function convertBankStatementText(input: {
   }
 }
 
+/**
+ * Parse a statement file to categorised lines without saving to Books.
+ * Used by VAT “pull from Books” after the accountant picks statement files.
+ */
+export async function previewBankStatementLines(formData: FormData): Promise<{
+  ok: true;
+  lines: ConvertedBankLine[];
+  source: "csv" | "spreadsheet" | "pdf" | "ocr";
+} | { ok: false; error: string }> {
+  try {
+    await requireSession();
+    const file = formData.get("file");
+    if (!(file instanceof File)) {
+      return { ok: false, error: "Choose a statement file." };
+    }
+    const parsed = await parseBankStatementFile(file);
+    if (!parsed.lines.length) {
+      return {
+        ok: false,
+        error: parsed.warning || "No transactions found in that file.",
+      };
+    }
+    return {
+      ok: true,
+      lines: parsed.lines.map((l) => ({
+        dated: l.dated,
+        description: l.description,
+        amountPence: l.amountPence,
+        category: l.category,
+        confidence: l.confidence,
+      })),
+      source: parsed.source,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error:
+        err instanceof Error ? err.message : "Could not read that statement.",
+    };
+  }
+}
+
 /** Persist already-converted lines (from the converter preview) onto the client. */
 export async function importBankConvertedLines(input: {
   clientId: string;
@@ -234,6 +278,12 @@ export async function importBankConvertedLines(input: {
   source?: "pdf" | "ocr" | "csv" | "spreadsheet";
   /** SA occupation — keeps trade-biased allocation on save. */
   occupation?: string | null;
+  /**
+   * `replace` (default) — wipe then insert (CT / SA bank desk).
+   * `merge` — append, skipping dated|description|amount duplicates (VAT desk
+   * reuses CT books without wiping year-end statements).
+   */
+  mode?: "replace" | "merge";
 }): Promise<BankImportResult> {
   try {
     const session = await requireSession();
@@ -265,32 +315,82 @@ export async function importBankConvertedLines(input: {
 
     const parseSource = input.source ?? "pdf";
     const clientId = input.clientId;
+    const merge = input.mode === "merge";
 
     if (isMemoryStore()) {
-      memoryStore.bankTransactions = memoryStore.bankTransactions.filter(
-        (t) => t.clientId !== clientId,
-      );
-      for (const line of lines) {
-        memoryStore.bankTransactions.push({
-          id: crypto.randomUUID(),
-          clientId,
-          practiceId: session.practiceId,
-          ...line,
-          source: parseSource,
-          createdAt: new Date().toISOString(),
-        });
+      if (merge) {
+        const existingKeys = new Set(
+          memoryStore.bankTransactions
+            .filter((t) => t.clientId === clientId)
+            .map((t) => `${t.dated}|${t.description}|${t.amountPence}`),
+        );
+        for (const line of lines) {
+          const key = `${line.dated}|${line.description}|${line.amountPence}`;
+          if (existingKeys.has(key)) continue;
+          existingKeys.add(key);
+          memoryStore.bankTransactions.push({
+            id: crypto.randomUUID(),
+            clientId,
+            practiceId: session.practiceId,
+            ...line,
+            source: parseSource,
+            createdAt: new Date().toISOString(),
+          });
+        }
+      } else {
+        memoryStore.bankTransactions = memoryStore.bankTransactions.filter(
+          (t) => t.clientId !== clientId,
+        );
+        for (const line of lines) {
+          memoryStore.bankTransactions.push({
+            id: crypto.randomUUID(),
+            clientId,
+            practiceId: session.practiceId,
+            ...line,
+            source: parseSource,
+            createdAt: new Date().toISOString(),
+          });
+        }
       }
     } else if (isDeskStoreConfigured()) {
-      await deskReplaceBankTransactions(
-        clientId,
-        lines.map((line) => ({
-          client_id: clientId,
-          dated: line.dated,
-          description: line.description,
-          amount_pence: line.amountPence,
-          category: line.category,
-        })),
-      );
+      if (merge) {
+        const existing = await deskListBankTransactions(clientId);
+        const existingKeys = new Set(
+          existing.map(
+            (row) =>
+              `${String(row.dated)}|${String(row.description)}|${Number(row.amount_pence ?? row.amountPence ?? 0)}`,
+          ),
+        );
+        const toInsert = lines.filter((line) => {
+          const key = `${line.dated}|${line.description}|${line.amountPence}`;
+          if (existingKeys.has(key)) return false;
+          existingKeys.add(key);
+          return true;
+        });
+        if (toInsert.length) {
+          await deskInsertBankTransactions(
+            toInsert.map((line) => ({
+              client_id: clientId,
+              dated: line.dated,
+              description: line.description,
+              amount_pence: line.amountPence,
+              category: line.category,
+            })),
+          );
+        }
+        lines = toInsert;
+      } else {
+        await deskReplaceBankTransactions(
+          clientId,
+          lines.map((line) => ({
+            client_id: clientId,
+            dated: line.dated,
+            description: line.description,
+            amount_pence: line.amountPence,
+            category: line.category,
+          })),
+        );
+      }
     } else {
       const { getDb, hasDatabase } = await import("@/server/db");
       if (!hasDatabase()) {
@@ -302,9 +402,29 @@ export async function importBankConvertedLines(input: {
       }
       const { bankTransactions } = await import("@/server/db/schema");
       const { eq } = await import("drizzle-orm");
-      await getDb()
-        .delete(bankTransactions)
-        .where(eq(bankTransactions.clientId, clientId));
+      if (merge) {
+        const existing = await getDb()
+          .select({
+            dated: bankTransactions.dated,
+            description: bankTransactions.description,
+            amountPence: bankTransactions.amountPence,
+          })
+          .from(bankTransactions)
+          .where(eq(bankTransactions.clientId, clientId));
+        const existingKeys = new Set(
+          existing.map((t) => `${t.dated}|${t.description}|${t.amountPence}`),
+        );
+        lines = lines.filter((line) => {
+          const key = `${line.dated}|${line.description}|${line.amountPence}`;
+          if (existingKeys.has(key)) return false;
+          existingKeys.add(key);
+          return true;
+        });
+      } else {
+        await getDb()
+          .delete(bankTransactions)
+          .where(eq(bankTransactions.clientId, clientId));
+      }
       const mapped = lines.map((line) => ({
         practiceId: session.practiceId,
         clientId,
@@ -334,6 +454,7 @@ export async function importBankConvertedLines(input: {
         filename: input.filename,
         source: parseSource,
         via: "converter",
+        mode: merge ? "merge" : "replace",
       },
     });
 
@@ -342,17 +463,22 @@ export async function importBankConvertedLines(input: {
     revalidatePath(`/clients/${clientId}/self-assessment`);
     revalidatePath(`/clients/${clientId}/corporation-tax`);
     revalidatePath(`/clients/${clientId}/accounts-pack`);
+    revalidatePath(`/clients/${clientId}/vat`);
     revalidatePath(`/self-assessment`);
 
     const headNote =
       provisional.created.length > 0
         ? ` Created ${provisional.created.length} review head${provisional.created.length === 1 ? "" : "s"} for material unknown payees — map each Review section to the correct accounts head.`
         : "";
+    const message =
+      merge && lines.length === 0
+        ? "Those lines were already on the books — nothing new to add."
+        : `Saved ${lines.length} transaction${lines.length === 1 ? "" : "s"} to this client’s books.${headNote}`;
     return {
       ok: true,
       lines,
       pdfStored: parseSource === "pdf" || parseSource === "ocr",
-      message: `Saved ${lines.length} transactions to this client’s books.${headNote}`,
+      message,
       provisionalHeads: provisional.created.length,
     };
   } catch (err) {
@@ -437,32 +563,83 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
   );
   lines = provisional.lines;
 
+  const merge = String(formData.get("mode") ?? "") === "merge";
+
   if (isMemoryStore()) {
-    memoryStore.bankTransactions = memoryStore.bankTransactions.filter(
-      (t) => t.clientId !== clientId,
-    );
-    for (const line of lines) {
-      memoryStore.bankTransactions.push({
-        id: crypto.randomUUID(),
-        clientId,
-        practiceId: session.practiceId,
-        ...line,
-        source: parseSource,
-        createdAt: new Date().toISOString(),
-      });
+    if (merge) {
+      const existingKeys = new Set(
+        memoryStore.bankTransactions
+          .filter((t) => t.clientId === clientId)
+          .map((t) => `${t.dated}|${t.description}|${t.amountPence}`),
+      );
+      for (const line of lines) {
+        const key = `${line.dated}|${line.description}|${line.amountPence}`;
+        if (existingKeys.has(key)) continue;
+        existingKeys.add(key);
+        memoryStore.bankTransactions.push({
+          id: crypto.randomUUID(),
+          clientId,
+          practiceId: session.practiceId,
+          ...line,
+          source: parseSource,
+          createdAt: new Date().toISOString(),
+        });
+      }
+    } else {
+      memoryStore.bankTransactions = memoryStore.bankTransactions.filter(
+        (t) => t.clientId !== clientId,
+      );
+      for (const line of lines) {
+        memoryStore.bankTransactions.push({
+          id: crypto.randomUUID(),
+          clientId,
+          practiceId: session.practiceId,
+          ...line,
+          source: parseSource,
+          createdAt: new Date().toISOString(),
+        });
+      }
     }
   } else if (isDeskStoreConfigured()) {
     try {
-      await deskReplaceBankTransactions(
-        clientId,
-        lines.map((line) => ({
-          client_id: clientId,
-          dated: line.dated,
-          description: line.description,
-          amount_pence: line.amountPence,
-          category: line.category,
-        })),
-      );
+      if (merge) {
+        const existing = await deskListBankTransactions(clientId);
+        const existingKeys = new Set(
+          existing.map(
+            (row) =>
+              `${String(row.dated)}|${String(row.description)}|${Number(row.amount_pence ?? row.amountPence ?? 0)}`,
+          ),
+        );
+        const toInsert = lines.filter((line) => {
+          const key = `${line.dated}|${line.description}|${line.amountPence}`;
+          if (existingKeys.has(key)) return false;
+          existingKeys.add(key);
+          return true;
+        });
+        if (toInsert.length) {
+          await deskInsertBankTransactions(
+            toInsert.map((line) => ({
+              client_id: clientId,
+              dated: line.dated,
+              description: line.description,
+              amount_pence: line.amountPence,
+              category: line.category,
+            })),
+          );
+        }
+        lines = toInsert;
+      } else {
+        await deskReplaceBankTransactions(
+          clientId,
+          lines.map((line) => ({
+            client_id: clientId,
+            dated: line.dated,
+            description: line.description,
+            amount_pence: line.amountPence,
+            category: line.category,
+          })),
+        );
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Could not save bank transactions.";
@@ -479,9 +656,29 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
     }
     const { bankTransactions } = await import("@/server/db/schema");
     const { eq } = await import("drizzle-orm");
-    await getDb()
-      .delete(bankTransactions)
-      .where(eq(bankTransactions.clientId, clientId));
+    if (merge) {
+      const existing = await getDb()
+        .select({
+          dated: bankTransactions.dated,
+          description: bankTransactions.description,
+          amountPence: bankTransactions.amountPence,
+        })
+        .from(bankTransactions)
+        .where(eq(bankTransactions.clientId, clientId));
+      const existingKeys = new Set(
+        existing.map((t) => `${t.dated}|${t.description}|${t.amountPence}`),
+      );
+      lines = lines.filter((line) => {
+        const key = `${line.dated}|${line.description}|${line.amountPence}`;
+        if (existingKeys.has(key)) return false;
+        existingKeys.add(key);
+        return true;
+      });
+    } else {
+      await getDb()
+        .delete(bankTransactions)
+        .where(eq(bankTransactions.clientId, clientId));
+    }
     const chunkSize = 100;
     const mapped = lines.map((line) => ({
       practiceId: session.practiceId,
@@ -531,6 +728,7 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
   revalidatePath(`/clients/${clientId}/self-assessment`);
   revalidatePath(`/clients/${clientId}/corporation-tax`);
   revalidatePath(`/clients/${clientId}/accounts-pack`);
+  revalidatePath(`/clients/${clientId}/vat`);
 
   const bankBit = bankHint ? ` (${bankHint})` : "";
   const confirmBit =
@@ -542,6 +740,7 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
     provisional.created.length > 0
       ? ` Created ${provisional.created.length} review head${provisional.created.length === 1 ? "" : "s"} for material unknown payees — map each Review section to the correct accounts head.`
       : "";
+  const mergeBit = merge ? " Merged into existing books." : "";
 
   return {
     ok: true,
@@ -549,7 +748,7 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
     pdfStored: parseSource === "pdf" || parseSource === "ocr",
     document: document ?? undefined,
     provisionalHeads: provisional.created.length,
-    message: `Imported ${lines.length} transactions from ${file.name}${bankBit}.${confirmBit}${headBit}${warnBit} Download categorised CSV or Excel below.`,
+    message: `Imported ${lines.length} transactions from ${file.name}${bankBit}.${confirmBit}${headBit}${warnBit}${mergeBit} Download categorised CSV or Excel below.`,
   };
   } catch (err) {
     const message =

@@ -25,7 +25,7 @@ async function SecureDeviceInner({
   const nextPath = safeReturnPath(sp.next);
   const suggest2fa = sp.suggest2fa === "1";
 
-  // First signup/login never asks — keep provisional 10h session and continue.
+  // First signup/login never asks — keep provisional untrusted (session) cookies.
   if (isSupabaseConfigured()) {
     let skipTrust = false;
     try {

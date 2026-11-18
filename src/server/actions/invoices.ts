@@ -78,7 +78,7 @@ async function nextInvoiceNumber(practiceId: string): Promise<string> {
           .from("practices")
           .update({ invoice_number_next: n + 1 })
           .eq("id", practiceId);
-        return `${p}-${String(n).padStart(6, "0")}`;
+        return `${p}-${String(n).padStart(4, "0")}`;
       }
     } catch {
       /* memory */
@@ -87,7 +87,7 @@ async function nextInvoiceNumber(practiceId: string): Promise<string> {
 
   const n = memoryStore.invoiceNumberNext[practiceId] ?? 1;
   memoryStore.invoiceNumberNext[practiceId] = n + 1;
-  return `${prefix}-${String(n).padStart(6, "0")}`;
+  return `${prefix}-${String(n).padStart(4, "0")}`;
 }
 
 function mapInvoiceRow(r: Record<string, unknown>): MemoryInvoice {
@@ -173,6 +173,30 @@ export async function listClientInvoices(clientId: string) {
       (i) =>
         i.clientId === clientId && i.practiceId === session.practiceId,
     )
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+}
+
+/** Every invoice across the practice (dashboard / multi-client desk). */
+export async function listPracticeInvoices() {
+  const session = await requireModule("invoices");
+
+  if (isSupabaseConfigured()) {
+    try {
+      const { createClient } = await import("@/lib/supabase/server");
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("client_invoices")
+        .select("*")
+        .eq("practice_id", session.practiceId)
+        .order("due_date", { ascending: true });
+      if (data) return data.map((r) => mapInvoiceRow(r as Record<string, unknown>));
+    } catch {
+      /* memory */
+    }
+  }
+
+  return memoryStore.invoices
+    .filter((i) => i.practiceId === session.practiceId)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 }
 
@@ -327,8 +351,11 @@ export async function createClientInvoice(input: z.infer<typeof createSchema>) {
     })),
   });
 
+  // Same record shows on the client card and the practice Invoices desk.
   revalidatePath(`/clients/${data.clientId}`);
   revalidatePath(`/clients/${data.clientId}/invoices`);
+  revalidatePath("/invoices");
+  revalidatePath("/clients", "layout");
   return invoice;
 }
 
@@ -449,6 +476,7 @@ export async function setInvoiceStatus(
         }
         revalidatePath(`/clients/${invoice.clientId}`);
         revalidatePath(`/clients/${invoice.clientId}/invoices`);
+        revalidatePath("/invoices");
         return invoice;
       }
     } catch {
@@ -463,6 +491,7 @@ export async function setInvoiceStatus(
   invoice.updatedAt = new Date().toISOString();
   revalidatePath(`/clients/${invoice.clientId}`);
   revalidatePath(`/clients/${invoice.clientId}/invoices`);
+  revalidatePath("/invoices");
   return invoice;
 }
 

@@ -449,6 +449,8 @@ const capitalAllowancesSchema = z.object({
   mainPoolWdaPence: z.number().int().nonnegative(),
   specialRateWdaPence: z.number().int().nonnegative(),
   otherAllowancesPence: z.number().int().nonnegative().default(0),
+  mainRateFyaTradingPence: z.number().int().nonnegative().default(0),
+  mainRateFyaNonTradingPence: z.number().int().nonnegative().default(0),
   notes: z.string().max(500).optional(),
 });
 
@@ -466,6 +468,8 @@ export async function setCapitalAllowances(
       mainPoolWdaPence: data.mainPoolWdaPence,
       specialRateWdaPence: data.specialRateWdaPence,
       otherAllowancesPence: data.otherAllowancesPence,
+      mainRateFyaTradingPence: data.mainRateFyaTradingPence,
+      mainRateFyaNonTradingPence: data.mainRateFyaNonTradingPence,
       notes: data.notes,
     },
   });

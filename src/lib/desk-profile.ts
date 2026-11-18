@@ -212,6 +212,8 @@ export type DeskProfile = {
   /** Set when seeded for sales demos (Admin → Load presentation clients). */
   presentationDemo?: string;
   presentationPitch?: string;
+  /** Set when rich desk fixtures (people/bank/VAT/CT/emails) have been loaded. */
+  presentationRich?: string;
   /** PAYE / payroll desk settings for this employer. */
   payrollSettings?: PayrollDeskSettings;
   /**

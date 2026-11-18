@@ -49,7 +49,10 @@ export type SaTaxYearRates = {
   hicbcFrom: number;
   hicbcFullAt: number;
 
+  studentLoanPlan1Threshold: number;
   studentLoanPlan2Threshold: number;
+  studentLoanPlan4Threshold: number;
+  studentLoanPlan5Threshold: number;
   studentLoanRate: number;
   pgLoanThreshold: number;
   pgLoanRate: number;
@@ -81,6 +84,8 @@ const SHARED_BANDS = {
   hicbcFrom: 60_000,
   hicbcFullAt: 80_000,
   studentLoanRate: 0.09,
+  /** Plan 5 threshold has been £25,000 since introduction. */
+  studentLoanPlan5Threshold: 25_000,
   pgLoanThreshold: 21_000,
   pgLoanRate: 0.06,
 } as const;
@@ -98,7 +103,9 @@ export const RATES_2024_25: SaTaxYearRates = {
   class2SmallProfitsThreshold: 6_725,
   class2Compulsory: false,
   class4Main: 0.06,
+  studentLoanPlan1Threshold: 24_990,
   studentLoanPlan2Threshold: 27_295,
+  studentLoanPlan4Threshold: 31_395,
 };
 
 /** Tax year 6 Apr 2025 – 5 Apr 2026 (HydraTax SA100 2026 stationery) */
@@ -114,7 +121,9 @@ export const RATES_2025_26: SaTaxYearRates = {
   class2SmallProfitsThreshold: 6_845,
   class2Compulsory: false,
   class4Main: 0.06,
+  studentLoanPlan1Threshold: 26_065,
   studentLoanPlan2Threshold: 28_470,
+  studentLoanPlan4Threshold: 32_745,
 };
 
 /** Tax year 6 Apr 2026 – 5 Apr 2027 */
@@ -131,7 +140,13 @@ export const RATES_2026_27: SaTaxYearRates = {
   class2SmallProfitsThreshold: 7_105,
   class2Compulsory: false,
   class4Main: 0.06,
-  studentLoanPlan2Threshold: 28_470,
+  /**
+   * SDS MTR Calculate Tax and NIC 2026-27 v1.4.0 rate bands:
+   * SL_limit1/2/4/5.
+   */
+  studentLoanPlan1Threshold: 26_900,
+  studentLoanPlan2Threshold: 29_385,
+  studentLoanPlan4Threshold: 33_795,
 };
 
 /**

@@ -16,16 +16,17 @@ import Link from "next/link";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { messageFromUnknown } from "@/lib/action-error";
 import { BankCategorisedView } from "@/components/forms/bank-categorised-view";
-import { BankYearEndDesk } from "@/components/forms/bank-year-end-desk";
-import { CtMissingBankChase } from "@/components/forms/ct-missing-bank-chase";
 import { recategoriseBankTransactions } from "@/server/actions/bank-recategorise";
 import { downloadBankCsv, downloadBankXlsx } from "@/lib/bank-export";
 import { extractStatementInBrowser } from "@/lib/bank/extract-statement-browser";
-import type { BankLedger, LivePlSummary } from "@/lib/bank-ledger";
 import {
   formatMissingMonthsSummary,
   missingBankMonthsByTaxYear,
 } from "@/lib/bank/missing-statement-months";
+import {
+  groupBankStatementsByDesk,
+  type BankStatementDocSummary,
+} from "@/lib/bank/statement-docs";
 
 type Tx = {
   id: string;
@@ -36,14 +37,7 @@ type Tx = {
   confidence: string;
 };
 
-type StatementDoc = {
-  id: string;
-  filename: string;
-  blobUrl: string;
-  contentType: string;
-  sizeBytes: number;
-  createdAt: string;
-};
+type StatementDoc = BankStatementDocSummary;
 
 function canOpenDoc(url: string) {
   return (
@@ -60,14 +54,13 @@ export function BankWorkspace({
   draft,
   customCategories,
   statements,
-  yearEndDesk,
-  clientEmail,
 }: {
   clientId: string;
   clientSlug: string;
   transactions: Tx[];
   customCategories: Array<{ id: string; label: string }>;
   statements: StatementDoc[];
+  /** @deprecated Year-end / CT accounts production lives on the CT desk. */
   clientEmail?: string | null;
   draft: {
     selfAssessment: {
@@ -85,12 +78,6 @@ export function BankWorkspace({
     };
     lineCount: number;
     clientType?: "sole_trader" | "limited_company" | "partnership";
-  };
-  yearEndDesk?: {
-    ledger: BankLedger;
-    pl: LivePlSummary;
-    periodStart: string;
-    periodEnd: string;
   };
 }) {
   const formRef = useRef<HTMLFormElement>(null);
@@ -191,7 +178,7 @@ export function BankWorkspace({
           : converted.message;
         setMsg(
           missingSummary
-            ? `${baseMsg} Missing bank statements — ${missingSummary}`
+            ? `${baseMsg} CT · Missing bank statements — ${missingSummary}`
             : baseMsg,
         );
         // Preview mounts after this transition tick — scroll once it's in the DOM.
@@ -311,7 +298,7 @@ export function BankWorkspace({
                 type="button"
                 className="btn btn-secondary text-sm"
                 onClick={() =>
-                  downloadBankXlsx(
+                  void downloadBankXlsx(
                     preview,
                     `${(fileName ?? "statement").replace(/\.[^.]+$/, "")}-converted.xlsx`,
                   )
@@ -402,7 +389,7 @@ export function BankWorkspace({
           <div>
             <h3 className="display text-xl text-ink">Uploaded statements</h3>
             <p className="mt-1 text-sm text-ink-soft">
-              Source files saved to the client file. Also listed under{" "}
+              Grouped by Company tax, VAT, and Self Assessment. Also under{" "}
               <Link
                 href={`/clients/${clientSlug}/documents`}
                 className="font-semibold text-sea"
@@ -427,7 +414,7 @@ export function BankWorkspace({
                 type="button"
                 className="btn btn-secondary text-sm"
                 onClick={() =>
-                  downloadBankXlsx(transactions, "bank-categorised.xlsx")
+                  void downloadBankXlsx(transactions, "bank-categorised.xlsx")
                 }
               >
                 Download Excel
@@ -441,35 +428,44 @@ export function BankWorkspace({
             appears here so you can open or download it.
           </p>
         ) : (
-          <ul className="mt-4 divide-y divide-line rounded-lg border border-line">
-            {statements.map((doc) => (
-              <li
-                key={doc.id}
-                className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"
-              >
-                <div>
-                  <p className="font-semibold text-ink">{doc.filename}</p>
-                  <p className="text-xs text-ink-soft">
-                    {(doc.sizeBytes / 1024).toFixed(0)} KB ·{" "}
-                    {new Date(doc.createdAt).toLocaleString("en-GB")}
-                  </p>
-                </div>
-                {canOpenDoc(doc.blobUrl) ? (
-                  <a
-                    href={doc.blobUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn btn-secondary text-xs"
-                    download={doc.filename}
-                  >
-                    Open / download
-                  </a>
-                ) : (
-                  <span className="badge badge-muted">Stored</span>
-                )}
-              </li>
+          <div className="mt-4 space-y-4">
+            {groupBankStatementsByDesk(statements).map((group) => (
+              <section key={group.desk}>
+                <h4 className="text-xs font-bold uppercase tracking-[0.12em] text-ink-soft">
+                  {group.label}
+                </h4>
+                <ul className="mt-2 divide-y divide-line rounded-lg border border-line">
+                  {group.docs.map((doc) => (
+                    <li
+                      key={doc.id}
+                      className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"
+                    >
+                      <div>
+                        <p className="font-semibold text-ink">{doc.filename}</p>
+                        <p className="text-xs text-ink-soft">
+                          {(doc.sizeBytes / 1024).toFixed(0)} KB ·{" "}
+                          {new Date(doc.createdAt).toLocaleString("en-GB")}
+                        </p>
+                      </div>
+                      {canOpenDoc(doc.blobUrl) ? (
+                        <a
+                          href={doc.blobUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="btn btn-secondary text-xs"
+                          download={doc.filename}
+                        >
+                          Open / download
+                        </a>
+                      ) : (
+                        <span className="badge badge-muted">Stored</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
         )}
         {!hasTransactions && statements.length > 0 ? (
           <p className="mt-3 text-sm text-ink-soft">
@@ -479,149 +475,82 @@ export function BankWorkspace({
         ) : null}
       </div>
 
-      {hasTransactions ? (
-        <div className="panel overflow-hidden border-sea/30 bg-sea/5 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <h3 className="display text-xl text-ink">Ready for accounts</h3>
-              <p className="mt-1 text-sm text-ink-soft">
-                {draft.lineCount} categorised lines — review sections below, then
-                use the year-end desk for a live P&amp;L, loans, assets and
-                mortgages. Download CSV / Excel above for the converted file.
-              </p>
-            </div>
-            <Link
-              href={`/clients/${clientSlug}/accounts-pack`}
-              className="btn btn-primary shrink-0"
-            >
-              Open accounts pack →
-            </Link>
-          </div>
-        </div>
-      ) : null}
-
-      {yearEndDesk ? (
-        <>
-          <CtMissingBankChase
-            clientId={clientId}
-            periodStart={yearEndDesk.periodStart}
-            periodEnd={yearEndDesk.periodEnd}
-            datedIsos={transactions.map((t) => t.dated)}
-            clientEmail={clientEmail}
-          />
-          <BankYearEndDesk
-            clientId={clientId}
-            clientSlug={clientSlug}
-            initialLedger={yearEndDesk.ledger}
-            initialPl={yearEndDesk.pl}
-            periodStart={yearEndDesk.periodStart}
-            periodEnd={yearEndDesk.periodEnd}
-            transactions={transactions.map((t) => ({
-              id: t.id,
-              description: t.description,
-              category: t.category,
-              amountPence: t.amountPence,
-              dated: t.dated,
-            }))}
-          />
-        </>
-      ) : null}
-
       <div className="panel p-5">
-        <h3 className="display text-xl text-ink">One-click tax drafts</h3>
+        <h3 className="display text-xl text-ink">Director SA income</h3>
         <p className="mt-1 text-sm text-ink-soft">
-          From {draft.lineCount} categorised lines (review before HMRC submit).
+          From {draft.lineCount} categorised company bank lines. Year-end and
+          CT accounts production live on Corporation Tax → Accounts Production.
         </p>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-lg border border-line bg-sand/40 p-4">
-            <p className="text-xs font-bold uppercase text-ink-soft">
-              {draft.selfAssessment.fromCompanyBank
-                ? "Director SA income (from company bank)"
-                : "Self Assessment draft"}
+        <div className="mt-4 rounded-lg border border-line bg-sand/40 p-4">
+          <p className="text-xs font-bold uppercase text-ink-soft">
+            {draft.selfAssessment.fromCompanyBank
+              ? "Director SA income (from company bank)"
+              : "Self Assessment draft"}
+          </p>
+          {draft.selfAssessment.fromCompanyBank ? (
+            <p className="mt-1 text-xs text-ink-soft">
+              Business turnover feeds Corporation Tax only. Tag director pay and
+              dividends below for the director&apos;s personal return.
             </p>
-            {draft.selfAssessment.fromCompanyBank ? (
-              <p className="mt-1 text-xs text-ink-soft">
-                Business turnover feeds Corporation Tax only. Tag director pay
-                and dividends below for the director&apos;s personal return.
-              </p>
-            ) : null}
-            <dl className="mt-2 space-y-1 text-sm">
-              <div className="flex justify-between">
-                <dt>
-                  {draft.selfAssessment.fromCompanyBank
-                    ? "Director remuneration"
-                    : "Turnover"}
-                </dt>
-                <dd className="mono">
-                  {gbp(
-                    draft.selfAssessment.fromCompanyBank
-                      ? (draft.selfAssessment.directorRemunerationPence ?? 0)
-                      : draft.selfAssessment.turnoverPence,
-                  )}
-                </dd>
-              </div>
-              <div className="flex justify-between">
-                <dt>
-                  {draft.selfAssessment.fromCompanyBank
-                    ? "Dividends"
-                    : "Other income"}
-                </dt>
-                <dd className="mono">
-                  {gbp(
-                    draft.selfAssessment.fromCompanyBank
-                      ? (draft.selfAssessment.dividendPence ?? 0)
-                      : draft.selfAssessment.otherIncomePence,
-                  )}
-                </dd>
-              </div>
-              {!draft.selfAssessment.fromCompanyBank ? (
-                <div className="flex justify-between">
-                  <dt>Expenses</dt>
-                  <dd className="mono">
-                    {gbp(draft.selfAssessment.expensesPence)}
-                  </dd>
-                </div>
-              ) : null}
-            </dl>
-            {draft.clientType === "limited_company" ? (
-              <p className="mt-3 text-xs text-ink-soft">
-                Open the director&apos;s personal client record for the full
-                SA100 return.
-              </p>
-            ) : (
-              <Link
-                href={`/clients/${clientSlug}/self-assessment`}
-                className="btn btn-primary mt-4 text-sm"
-              >
-                Open Self Assessment
-              </Link>
-            )}
-          </div>
-          <div className="rounded-lg border border-line bg-sand/40 p-4">
-            <p className="text-xs font-bold uppercase text-ink-soft">
-              Corporation Tax draft
-            </p>
-            <dl className="mt-2 space-y-1 text-sm">
-              <div className="flex justify-between">
-                <dt>Turnover</dt>
-                <dd className="mono">{gbp(draft.corporationTax.turnoverPence)}</dd>
-              </div>
+          ) : null}
+          <dl className="mt-2 space-y-1 text-sm">
+            <div className="flex justify-between">
+              <dt>
+                {draft.selfAssessment.fromCompanyBank
+                  ? "Director remuneration"
+                  : "Turnover"}
+              </dt>
+              <dd className="mono">
+                {gbp(
+                  draft.selfAssessment.fromCompanyBank
+                    ? (draft.selfAssessment.directorRemunerationPence ?? 0)
+                    : draft.selfAssessment.turnoverPence,
+                )}
+              </dd>
+            </div>
+            <div className="flex justify-between">
+              <dt>
+                {draft.selfAssessment.fromCompanyBank
+                  ? "Dividends"
+                  : "Other income"}
+              </dt>
+              <dd className="mono">
+                {gbp(
+                  draft.selfAssessment.fromCompanyBank
+                    ? (draft.selfAssessment.dividendPence ?? 0)
+                    : draft.selfAssessment.otherIncomePence,
+                )}
+              </dd>
+            </div>
+            {!draft.selfAssessment.fromCompanyBank ? (
               <div className="flex justify-between">
                 <dt>Expenses</dt>
-                <dd className="mono">{gbp(draft.corporationTax.expensesPence)}</dd>
+                <dd className="mono">
+                  {gbp(draft.selfAssessment.expensesPence)}
+                </dd>
               </div>
-              <div className="flex justify-between font-semibold">
-                <dt>Profit draft</dt>
-                <dd className="mono">{gbp(draft.corporationTax.profitPence)}</dd>
-              </div>
-            </dl>
+            ) : null}
+          </dl>
+          {draft.clientType === "limited_company" ? (
+            <p className="mt-3 text-xs text-ink-soft">
+              Open the director&apos;s personal client record for the full SA100
+              return. Open{" "}
+              <Link
+                href={`/clients/${clientSlug}/corporation-tax`}
+                className="font-semibold text-sea hover:underline"
+              >
+                Corporation Tax → Accounts Production
+              </Link>{" "}
+              for the company year-end pack.
+            </p>
+          ) : (
             <Link
-              href={`/clients/${clientSlug}/corporation-tax`}
+              href={`/clients/${clientSlug}/self-assessment`}
               className="btn btn-primary mt-4 text-sm"
             >
-              Open CT600
+              Open Self Assessment
             </Link>
-          </div>
+          )}
         </div>
       </div>
 
@@ -729,6 +658,7 @@ export function BankWorkspace({
           clientId={clientId}
           transactions={transactions}
           customCategories={customCategories}
+          missingDesk="CT"
         />
       </div>
     </div>

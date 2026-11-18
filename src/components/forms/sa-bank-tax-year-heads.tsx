@@ -434,7 +434,7 @@ export function SaBankTaxYearHeads({
             <div className="space-y-2 border-t border-line px-3 py-3">
               {missing.length && periodPhrase && bounds ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                  <p className="font-semibold">Missing bank statements</p>
+                  <p className="font-semibold">SA · Missing bank statements</p>
                   <p className="mt-0.5 break-words text-amber-900/90">
                     {periodPhrase}
                   </p>

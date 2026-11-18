@@ -23,6 +23,7 @@ import {
 } from "@/lib/invoices/totals";
 import { computeInvoiceTotals } from "@/lib/invoices/compute-totals";
 import { messageFromUnknown } from "@/lib/action-error";
+import { InvoiceRowActionsMenu } from "@/components/forms/invoice-row-actions-menu";
 
 type LineDraft = {
   description: string;
@@ -91,6 +92,7 @@ function lineDraftTotals(lines: LineDraft[]) {
 
 export function InvoiceWorkspace({
   clientId,
+  clientSlug: clientSlugProp = null,
   clientName,
   clientEmail,
   invoices,
@@ -99,9 +101,14 @@ export function InvoiceWorkspace({
   defaultPaymentInstructions = "",
   brandingIncomplete = false,
   stripeConnected = false,
-  previewInvoiceNumber = "INV-000001",
+  previewInvoiceNumber = "INV-0001",
+  clientChoices = null,
+  onClientChange = null,
+  practiceWide = false,
 }: {
   clientId: string;
+  /** Canonical URL slug — required for print/PDF routes (not the UUID). */
+  clientSlug?: string | null;
   clientName: string;
   clientEmail?: string | null;
   invoices: MemoryInvoice[];
@@ -112,6 +119,16 @@ export function InvoiceWorkspace({
   /** Practice has Stripe Connect linked */
   stripeConnected?: boolean;
   previewInvoiceNumber?: string;
+  /** Practice desk — searchable list of clients to bill */
+  clientChoices?: Array<{
+    id: string;
+    slug: string;
+    name: string;
+    email?: string | null;
+  }> | null;
+  onClientChange?: ((slug: string) => void) | null;
+  /** List + totals cover every client; customer field searches the practice */
+  practiceWide?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -120,6 +137,12 @@ export function InvoiceWorkspace({
   const [emailingId, setEmailingId] = useState<string | null>(null);
   const [emailTo, setEmailTo] = useState(clientEmail ?? "");
   const dueTotals = useMemo(() => openInvoiceTotals(invoices), [invoices]);
+  const [filterCompany, setFilterCompany] = useState("");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [sortBy, setSortBy] = useState<
+    "due_asc" | "due_desc" | "amount_asc" | "amount_desc" | "issue_desc"
+  >("due_asc");
   const [lines, setLines] = useState<LineDraft[]>([
     initialLine ?? emptyLine(),
   ]);
@@ -150,6 +173,90 @@ export function InvoiceWorkspace({
     null,
   );
   const sendRecipientRef = useRef<HTMLDivElement>(null);
+  const [customerQuery, setCustomerQuery] = useState(clientName);
+  const [customerOpen, setCustomerOpen] = useState(false);
+
+  const customerMatches = useMemo(() => {
+    if (!clientChoices?.length) return [];
+    const q = customerQuery.trim().toLowerCase();
+    if (!q) return clientChoices.slice(0, 40);
+    return clientChoices
+      .filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          c.slug.toLowerCase().includes(q) ||
+          (c.email ?? "").toLowerCase().includes(q),
+      )
+      .slice(0, 40);
+  }, [clientChoices, customerQuery]);
+
+  const clientNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of clientChoices ?? []) map.set(c.id, c.name);
+    return map;
+  }, [clientChoices]);
+
+  const clientEmailById = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const c of clientChoices ?? []) map.set(c.id, c.email ?? null);
+    return map;
+  }, [clientChoices]);
+
+  const clientSlugById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of clientChoices ?? []) map.set(c.id, c.slug);
+    return map;
+  }, [clientChoices]);
+
+  const billToSlug =
+    clientSlugProp ||
+    clientSlugById.get(clientId) ||
+    clientId;
+
+  const visibleInvoices = useMemo(() => {
+    const companyQ = filterCompany.trim().toLowerCase();
+    let rows = invoices.filter((inv) => {
+      if (companyQ) {
+        const name =
+          clientNameById.get(inv.clientId) ??
+          (inv.clientId === clientId ? clientName : "");
+        if (!name.toLowerCase().includes(companyQ)) return false;
+      }
+      if (filterDateFrom && inv.issueDate < filterDateFrom) return false;
+      if (filterDateTo && inv.issueDate > filterDateTo) return false;
+      return true;
+    });
+    rows = [...rows].sort((a, b) => {
+      if (sortBy === "amount_asc") return a.totalPence - b.totalPence;
+      if (sortBy === "amount_desc") return b.totalPence - a.totalPence;
+      if (sortBy === "issue_desc")
+        return b.issueDate.localeCompare(a.issueDate);
+      if (sortBy === "due_desc") return b.dueDate.localeCompare(a.dueDate);
+      return a.dueDate.localeCompare(b.dueDate);
+    });
+    return rows;
+  }, [
+    invoices,
+    filterCompany,
+    filterDateFrom,
+    filterDateTo,
+    sortBy,
+    clientNameById,
+    clientId,
+    clientName,
+  ]);
+
+  const visibleTotals = useMemo(
+    () => openInvoiceTotals(visibleInvoices),
+    [visibleInvoices],
+  );
+
+  function invoicePrintPath(forClientId: string, invoiceId: string) {
+    const slug =
+      clientSlugById.get(forClientId) ||
+      (forClientId === clientId ? billToSlug : forClientId);
+    return `/clients/${encodeURIComponent(slug)}/invoices/${encodeURIComponent(invoiceId)}/print`;
+  }
 
   const lineMaths = useMemo(() => lineDraftTotals(lines), [lines]);
   const totals = useMemo(() => {
@@ -273,7 +380,11 @@ export function InvoiceWorkspace({
   }
 
   function copyLastInvoice() {
-    const last = [...invoices].sort((a, b) =>
+    const pool = practiceWide
+      ? invoices.filter((i) => i.clientId === clientId)
+      : invoices;
+    const source = pool.length > 0 ? pool : invoices;
+    const last = [...source].sort((a, b) =>
       b.issueDate.localeCompare(a.issueDate),
     )[0];
     if (!last?.lines.length) {
@@ -453,6 +564,7 @@ export function InvoiceWorkspace({
               Bill to{" "}
               <span className="font-semibold text-ink">{clientName}</span>
               {clientEmail ? ` · ${clientEmail}` : ""}
+              {practiceWide ? " · practice desk" : ""}
             </p>
           </div>
           <button
@@ -465,17 +577,76 @@ export function InvoiceWorkspace({
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <label className="text-sm font-semibold sm:col-span-2 lg:col-span-1">
+          <label className="relative text-sm font-semibold sm:col-span-2 lg:col-span-1">
             <span className="text-danger">*</span> Customer name
-            <input
-              className="input mt-1 font-normal"
-              value={clientName}
-              readOnly
-              aria-readonly
-            />
-            <span className="mt-1 block text-xs font-normal text-ink-soft">
-              Open another client card to invoice someone else.
-            </span>
+            {practiceWide && clientChoices && onClientChange ? (
+              <>
+                <input
+                  className="input mt-1 font-normal"
+                  value={customerQuery}
+                  placeholder="Search all clients by name…"
+                  autoComplete="off"
+                  onFocus={() => setCustomerOpen(true)}
+                  onChange={(e) => {
+                    setCustomerQuery(e.target.value);
+                    setCustomerOpen(true);
+                  }}
+                  onBlur={() => {
+                    window.setTimeout(() => setCustomerOpen(false), 150);
+                  }}
+                />
+                {customerOpen ? (
+                  <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-line bg-white shadow-lg">
+                    {customerMatches.length === 0 ? (
+                      <li className="px-3 py-2 text-xs font-normal text-ink-soft">
+                        No matching clients.
+                      </li>
+                    ) : (
+                      customerMatches.map((c) => (
+                        <li key={c.id}>
+                          <button
+                            type="button"
+                            className="flex w-full flex-col items-start px-3 py-2 text-left text-sm font-normal hover:bg-sea/5"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setCustomerQuery(c.name);
+                              setCustomerOpen(false);
+                              onClientChange(c.slug);
+                            }}
+                          >
+                            <span className="font-semibold text-ink">
+                              {c.name}
+                            </span>
+                            {c.email ? (
+                              <span className="text-xs text-ink-soft">
+                                {c.email}
+                              </span>
+                            ) : null}
+                          </button>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                ) : null}
+                <span className="mt-1 block text-xs font-normal text-ink-soft">
+                  Type to search every client — same invoice tools as on their
+                  card.
+                </span>
+              </>
+            ) : (
+              <>
+                <input
+                  className="input mt-1 font-normal"
+                  value={clientName}
+                  readOnly
+                  aria-readonly
+                />
+                <span className="mt-1 block text-xs font-normal text-ink-soft">
+                  Open another client card to invoice someone else, or use
+                  Invoices on the dashboard.
+                </span>
+              </>
+            )}
           </label>
 
           <label className="relative text-sm font-semibold">
@@ -773,7 +944,7 @@ export function InvoiceWorkspace({
                 for now. Direct invoice attachments ship next.
               </p>
               <Link
-                href={`/clients/${clientId}`}
+                href={`/clients/${encodeURIComponent(billToSlug)}/documents`}
                 className="mt-2 inline-flex font-semibold text-sea hover:underline"
               >
                 Open client documents →
@@ -929,7 +1100,7 @@ export function InvoiceWorkspace({
                 send.
               </p>
               <a
-                href={`/clients/${clientId}/invoices/${armedSendInvoiceId}/print?download=1`}
+                href={`${invoicePrintPath(clientId, armedSendInvoiceId)}?download=1`}
                 className="btn btn-secondary text-sm"
                 target="_blank"
                 rel="noreferrer"
@@ -947,203 +1118,235 @@ export function InvoiceWorkspace({
       <div className="panel overflow-hidden">
         <div className="border-b border-line px-4 py-3">
           <h2 className="font-semibold text-ink">
-            Invoices ({invoices.length})
+            {practiceWide ? "All invoices" : "Invoices"} ({visibleInvoices.length}
+            {visibleInvoices.length !== invoices.length
+              ? ` of ${invoices.length}`
+              : ""}
+            )
           </h2>
           <p className="mt-1 text-sm text-ink-soft">
-            Outstanding: {money(dueTotals.amountDuePence)}
-            {dueTotals.overdueCount
-              ? ` · ${money(dueTotals.overduePence)} overdue`
+            Outstanding: {money(visibleTotals.amountDuePence)}
+            {visibleTotals.overdueCount
+              ? ` · ${money(visibleTotals.overduePence)} overdue`
               : ""}
+            {practiceWide ? " · every client" : ""}
           </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="text-xs font-semibold text-ink-soft">
+              Company
+              <input
+                className="input mt-1 w-full text-sm font-normal"
+                value={filterCompany}
+                placeholder="Filter by name…"
+                onChange={(e) => setFilterCompany(e.target.value)}
+              />
+            </label>
+            <label className="text-xs font-semibold text-ink-soft">
+              Issued from
+              <UkDateField
+                className="input mt-1 w-full text-sm font-normal"
+                value={filterDateFrom}
+                onChange={setFilterDateFrom}
+              />
+            </label>
+            <label className="text-xs font-semibold text-ink-soft">
+              Issued to
+              <UkDateField
+                className="input mt-1 w-full text-sm font-normal"
+                value={filterDateTo}
+                onChange={setFilterDateTo}
+              />
+            </label>
+            <label className="text-xs font-semibold text-ink-soft">
+              Sort
+              <select
+                className="input mt-1 w-full text-sm font-normal"
+                value={sortBy}
+                onChange={(e) =>
+                  setSortBy(
+                    e.target.value as
+                      | "due_asc"
+                      | "due_desc"
+                      | "amount_asc"
+                      | "amount_desc"
+                      | "issue_desc",
+                  )
+                }
+              >
+                <option value="due_asc">Due date (earliest)</option>
+                <option value="due_desc">Due date (latest)</option>
+                <option value="issue_desc">Issue date (newest)</option>
+                <option value="amount_desc">Amount (high → low)</option>
+                <option value="amount_asc">Amount (low → high)</option>
+              </select>
+            </label>
+          </div>
         </div>
         <ul className="divide-y divide-line">
-          {invoices.length === 0 && (
+          {visibleInvoices.length === 0 && (
             <li className="px-4 py-8 text-center text-ink-soft">
-              No invoices yet.
+              {invoices.length === 0
+                ? "No invoices yet."
+                : "No invoices match these filters."}
             </li>
           )}
-          {invoices.map((inv) => (
-            <li
-              key={inv.id}
-              className={`px-4 py-4 ${isInvoiceOverdue(inv) ? "client-card--overdue" : ""}`}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="mono font-semibold text-ink">
-                    {inv.invoiceNumber}
-                  </p>
-                  <p className="mt-1 text-sm text-ink-soft">
-                    Issued {inv.issueDate} · Due {inv.dueDate}
-                    {isInvoiceOverdue(inv) ? " · Overdue" : ""}
-                    {inv.reference ? ` · Ref ${inv.reference}` : ""}
-                    {inv.subject ? ` · ${inv.subject}` : ""}
-                  </p>
-                  <ul className="mt-2 text-sm text-ink-soft">
-                    {inv.lines.map((l, i) => (
-                      <li key={i}>
-                        {l.description} × {l.quantity}
-                      </li>
-                    ))}
-                  </ul>
-                  {inv.enableOnlinePay && inv.payToken ? (
-                    <p className="mt-2 text-xs">
-                      <a
-                        href={`/pay/${inv.payToken}`}
-                        className="font-semibold text-sea hover:underline"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Pay link
-                      </a>
+          {visibleInvoices.map((inv) => {
+            const rowClientId = inv.clientId || clientId;
+            const rowClientName =
+              clientNameById.get(rowClientId) ??
+              (rowClientId === clientId ? clientName : "Client");
+            const rowClientEmail =
+              clientEmailById.get(rowClientId) ??
+              (rowClientId === clientId ? clientEmail : null);
+            const printPath = invoicePrintPath(rowClientId, inv.id);
+            return (
+              <li
+                key={inv.id}
+                className={`px-4 py-4 ${isInvoiceOverdue(inv) ? "client-card--overdue" : ""}`}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="mono font-semibold text-ink">
+                      {inv.invoiceNumber}
                     </p>
-                  ) : null}
-                  {emailingId === inv.id ? (
-                    <div className="mt-3 space-y-2 rounded-lg border border-line bg-mist/40 p-3">
-                      <label className="block text-xs font-semibold text-ink">
-                        Send to
-                        <input
-                          type="email"
-                          className="input mt-1 block w-full max-w-sm"
-                          value={emailTo}
-                          onChange={(e) => setEmailTo(e.target.value)}
-                          placeholder="client@firm.co.uk"
-                        />
-                      </label>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className="btn btn-primary text-sm"
-                          disabled={pending}
-                          onClick={() =>
-                            start(async () => {
-                              setError(null);
-                              setOk(null);
-                              try {
-                                const res = await sendClientInvoiceEmail({
-                                  invoiceId: inv.id,
-                                  toEmail: emailTo,
-                                });
-                                if (!res.ok) {
-                                  setError(res.error);
-                                  return;
-                                }
-                                setOk(
-                                  res.delivery === "logged"
-                                    ? `Invoice saved, but email was not delivered — ask your admin to configure outbound email (Resend).`
-                                    : `Invoice emailed to ${res.toEmail}.`,
-                                );
-                                setEmailingId(null);
-                                router.refresh();
-                              } catch (err) {
-                                setError(
-                                  messageFromUnknown(
-                                    err,
-                                    "Could not email invoice",
-                                  ),
-                                );
-                              }
-                            })
-                          }
-                        >
-                          {pending ? "Sending…" : "Send email"}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-ghost text-sm"
-                          onClick={() => setEmailingId(null)}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="w-full sm:w-auto sm:text-right">
-                  <p className="mono text-lg font-semibold">
-                    {money(inv.totalPence)}
-                  </p>
-                  <span className={statusBadge(inv.status)}>{inv.status}</span>
-                  <div className="mt-3 flex flex-wrap gap-2 sm:justify-end">
-                    <a
-                      href={`/clients/${clientId}/invoices/${inv.id}/print?download=1`}
-                      className="btn btn-secondary px-3 py-1.5 text-sm"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Download PDF
-                    </a>
-                    <Link
-                      href={`/clients/${clientId}/invoices/${inv.id}/print`}
-                      className="btn btn-ghost px-3 py-1.5 text-sm"
-                      target="_blank"
-                    >
-                      Preview
-                    </Link>
-                    {inv.status !== "void" ? (
-                      <button
-                        type="button"
-                        className="btn btn-secondary px-3 py-1.5 text-sm"
-                        disabled={pending}
-                        onClick={() => {
-                          setEmailingId(inv.id);
-                          setEmailTo(clientEmail ?? "");
-                          setError(null);
-                          setOk(null);
-                        }}
-                      >
-                        Email
-                      </button>
+                    {practiceWide ? (
+                      <p className="mt-0.5 text-sm font-semibold text-ink">
+                        {rowClientName}
+                      </p>
                     ) : null}
-                    {inv.status === "draft" && (
-                      <button
-                        type="button"
-                        className="btn btn-ghost px-3 py-1.5 text-sm"
-                        disabled={pending}
-                        onClick={() =>
-                          start(async () => {
-                            await setInvoiceStatus(inv.id, "sent");
-                            router.refresh();
-                          })
-                        }
-                      >
-                        Mark sent
-                      </button>
-                    )}
-                    {inv.status !== "paid" && inv.status !== "void" && (
-                      <button
-                        type="button"
-                        className="btn btn-ghost px-3 py-1.5 text-sm"
-                        disabled={pending}
-                        onClick={() =>
-                          start(async () => {
-                            await setInvoiceStatus(inv.id, "paid");
-                            router.refresh();
-                          })
-                        }
-                      >
-                        Mark paid
-                      </button>
-                    )}
-                    {inv.status !== "void" && inv.status !== "paid" && (
-                      <button
-                        type="button"
-                        className="btn btn-ghost px-3 py-1.5 text-sm text-danger"
-                        disabled={pending}
-                        onClick={() =>
-                          start(async () => {
-                            await setInvoiceStatus(inv.id, "void");
-                            router.refresh();
-                          })
-                        }
-                      >
-                        Void
-                      </button>
-                    )}
+                    <p className="mt-1 text-sm text-ink-soft">
+                      Issued {inv.issueDate} · Due {inv.dueDate}
+                      {isInvoiceOverdue(inv) ? " · Overdue" : ""}
+                      {inv.reference ? ` · Ref ${inv.reference}` : ""}
+                      {inv.subject ? ` · ${inv.subject}` : ""}
+                    </p>
+                    <ul className="mt-2 text-sm text-ink-soft">
+                      {inv.lines.map((l, i) => (
+                        <li key={i}>
+                          {l.description} × {l.quantity}
+                        </li>
+                      ))}
+                    </ul>
+                    {inv.enableOnlinePay && inv.payToken ? (
+                      <p className="mt-2 text-xs">
+                        <a
+                          href={`/pay/${inv.payToken}`}
+                          className="font-semibold text-sea hover:underline"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Pay link
+                        </a>
+                      </p>
+                    ) : null}
+                    {emailingId === inv.id ? (
+                      <div className="mt-3 space-y-2 rounded-lg border border-line bg-mist/40 p-3">
+                        <label className="block text-xs font-semibold text-ink">
+                          Send to
+                          <input
+                            type="email"
+                            className="input mt-1 block w-full max-w-sm"
+                            value={emailTo}
+                            onChange={(e) => setEmailTo(e.target.value)}
+                            placeholder="client@firm.co.uk"
+                          />
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            className="btn btn-primary text-sm"
+                            disabled={pending}
+                            onClick={() =>
+                              start(async () => {
+                                setError(null);
+                                setOk(null);
+                                try {
+                                  const res = await sendClientInvoiceEmail({
+                                    invoiceId: inv.id,
+                                    toEmail: emailTo,
+                                  });
+                                  if (!res.ok) {
+                                    setError(res.error);
+                                    return;
+                                  }
+                                  setOk(
+                                    res.delivery === "logged"
+                                      ? `Invoice saved, but email was not delivered — ask your admin to configure outbound email (Resend).`
+                                      : `Invoice emailed to ${res.toEmail}.`,
+                                  );
+                                  setEmailingId(null);
+                                  router.refresh();
+                                } catch (err) {
+                                  setError(
+                                    messageFromUnknown(
+                                      err,
+                                      "Could not email invoice",
+                                    ),
+                                  );
+                                }
+                              })
+                            }
+                          >
+                            {pending ? "Sending…" : "Send email"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost text-sm"
+                            onClick={() => setEmailingId(null)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+                    <p className="mono text-lg font-semibold">
+                      {money(inv.totalPence)}
+                    </p>
+                    <span className={statusBadge(inv.status)}>{inv.status}</span>
+                    <InvoiceRowActionsMenu
+                      previewHref={printPath}
+                      downloadHref={`${printPath}?download=1`}
+                      pending={pending}
+                      canEmail={inv.status !== "void"}
+                      canMarkSent={inv.status === "draft"}
+                      canMarkPaid={
+                        inv.status !== "paid" && inv.status !== "void"
+                      }
+                      canVoid={
+                        inv.status !== "void" && inv.status !== "paid"
+                      }
+                      onEmail={() => {
+                        setEmailingId(inv.id);
+                        setEmailTo(rowClientEmail ?? "");
+                        setError(null);
+                        setOk(null);
+                      }}
+                      onMarkSent={() =>
+                        start(async () => {
+                          await setInvoiceStatus(inv.id, "sent");
+                          router.refresh();
+                        })
+                      }
+                      onMarkPaid={() =>
+                        start(async () => {
+                          await setInvoiceStatus(inv.id, "paid");
+                          router.refresh();
+                        })
+                      }
+                      onVoid={() =>
+                        start(async () => {
+                          await setInvoiceStatus(inv.id, "void");
+                          router.refresh();
+                        })
+                      }
+                    />
                   </div>
                 </div>
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       </div>
 
@@ -1243,7 +1446,7 @@ export function InvoiceWorkspace({
           </button>
           {armedSendInvoiceId ? (
             <a
-              href={`/clients/${clientId}/invoices/${armedSendInvoiceId}/print?download=1`}
+              href={`${invoicePrintPath(clientId, armedSendInvoiceId)}?download=1`}
               className="btn btn-secondary text-sm"
               target="_blank"
               rel="noreferrer"
@@ -1266,62 +1469,5 @@ export function InvoiceWorkspace({
   );
 }
 
-export function InvoiceSummaryCards({
-  clientId,
-  invoices,
-  title = "Invoices",
-}: {
-  clientId: string;
-  invoices: MemoryInvoice[];
-  title?: string;
-}) {
-  const totals = openInvoiceTotals(invoices);
-
-  return (
-    <Link
-      href={`/clients/${clientId}/invoices`}
-      className={`panel panel-interactive block p-5 ${
-        totals.overdueCount ? "border-danger/35 ring-1 ring-danger/15" : ""
-      }`}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="display text-2xl">{title}</h2>
-        <span className="open-chip">Open</span>
-      </div>
-      <p className="mt-2 display text-2xl text-ink">
-        {money(totals.amountDuePence)}
-      </p>
-      <p className="text-sm text-ink-soft">Amount due on open invoices</p>
-      {totals.overdueCount > 0 && (
-        <p className="mt-2 text-sm text-danger">
-          {totals.overdueCount} overdue · {money(totals.overduePence)}
-        </p>
-      )}
-      <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
-        <div>
-          <dt className="text-ink-soft">Open</dt>
-          <dd className="display text-2xl">{totals.openCount}</dd>
-        </div>
-        <div>
-          <dt className="text-ink-soft">Due</dt>
-          <dd className="display text-2xl text-violet">{totals.dueSoonCount}</dd>
-        </div>
-        <div>
-          <dt className="text-ink-soft">Overdue</dt>
-          <dd className="display text-2xl text-danger">{totals.overdueCount}</dd>
-        </div>
-      </dl>
-      <ul className="mt-4 divide-y divide-line text-sm">
-        {invoices.slice(0, 5).map((inv) => (
-          <li key={inv.id} className="flex justify-between py-2">
-            <span className="mono">{inv.invoiceNumber}</span>
-            <span className="font-semibold">{money(inv.totalPence)}</span>
-          </li>
-        ))}
-        {invoices.length === 0 && (
-          <li className="py-3 text-ink-soft">No invoices yet.</li>
-        )}
-      </ul>
-    </Link>
-  );
-}
+/** @deprecated Import from `@/components/forms/invoice-summary-cards` */
+export { InvoiceSummaryCards } from "@/components/forms/invoice-summary-cards";

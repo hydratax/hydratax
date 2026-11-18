@@ -154,6 +154,13 @@ export type CapitalAllowancesClaim = {
   specialRateWdaPence: number;
   /** Optional first-year / other allowances. */
   otherAllowancesPence: number;
+  /**
+   * Main-rate first-year allowance in trading profits (CT600 box 696).
+   * Rate is date-gated: 40% (1 Jan–31 Dec 2026 spend) / 50% (from 1 Jan 2027).
+   */
+  mainRateFyaTradingPence?: number;
+  /** Main-rate first-year allowance not in trading profits (CT600 box 739). */
+  mainRateFyaNonTradingPence?: number;
   notes?: string;
 };
 

@@ -8,7 +8,10 @@ import { getClient } from "./clients";
 import { isDemoMode, isSupabaseConfigured } from "@/lib/env";
 import { demoStore } from "@/server/demo/store";
 import { ct600FiguresSchema } from "@/server/money/schemas";
+import type { Ct600Figures } from "@/server/hmrc/ct600/types";
 import { poundsToPence } from "@/server/money/pence";
+import type { BankLedger } from "@/lib/bank-ledger";
+import type { DeskProfile } from "@/lib/desk-profile";
 import { appendAuditEvent } from "@/server/audit/log";
 import { tryGetDb } from "@/server/db";
 import {
@@ -73,6 +76,23 @@ function formToFigures(data: z.infer<typeof figuresFormSchema>) {
     creditorsPence: poundsToPence(data.creditorsPounds),
     calledUpShareCapitalPence: poundsToPence(data.calledUpShareCapitalPounds),
     profitAndLossAccountPence: poundsToPence(data.profitAndLossAccountPounds),
+  });
+}
+
+/** Overlay bank-desk capital allowances (main-rate FYA) onto CT600 figures. */
+function figuresWithLedgerCapitalAllowances(
+  figures: Ct600Figures,
+  client: { deskProfile?: DeskProfile | null },
+): Ct600Figures {
+  const ledger = client.deskProfile?.bankLedger as BankLedger | undefined;
+  const ca = ledger?.capitalAllowances;
+  if (!ca) return figures;
+  return ct600FiguresSchema.parse({
+    ...figures,
+    mainRateFyaTradingPence:
+      ca.mainRateFyaTradingPence ?? figures.mainRateFyaTradingPence,
+    mainRateFyaNonTradingPence:
+      ca.mainRateFyaNonTradingPence ?? figures.mainRateFyaNonTradingPence,
   });
 }
 
@@ -562,7 +582,10 @@ export async function downloadCt600Draft(
   const draft = await loadDraft(returnId, clientId);
   if (!draft) throw new Error("CT600 draft not found");
 
-  const figures = ct600FiguresSchema.parse(draft.figures);
+  const figures = figuresWithLedgerCapitalAllowances(
+    ct600FiguresSchema.parse(draft.figures),
+    client,
+  );
   const built = buildCt600Package(
     {
       companyName: client.name,

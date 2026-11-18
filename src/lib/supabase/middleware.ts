@@ -1,6 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isSupabaseConfigured } from "@/lib/env";
+import {
+  DEVICE_TRUSTED_COOKIE,
+  isDeviceTrustedCookie,
+  isSupabaseAuthSessionCookie,
+  withDeskPersistence,
+} from "@/lib/session-policy";
 
 function isRateLimitedError(err: unknown): boolean {
   if (!err || typeof err !== "object") {
@@ -43,6 +49,10 @@ export async function updateSession(request: NextRequest): Promise<{
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
+  const trusted = isDeviceTrustedCookie(
+    request.cookies.get(DEVICE_TRUSTED_COOKIE)?.value,
+  );
+
   const supabase = createServerClient(url, key, {
     cookies: {
       getAll() {
@@ -55,9 +65,15 @@ export async function updateSession(request: NextRequest): Promise<{
         supabaseResponse = NextResponse.next({
           request: { headers: requestHeaders },
         });
-        cookiesToSet.forEach(({ name, value, options }) =>
-          supabaseResponse.cookies.set(name, value, options),
-        );
+        cookiesToSet.forEach(({ name, value, options }) => {
+          const opts =
+            isSupabaseAuthSessionCookie(name) && options
+              ? withDeskPersistence(options, trusted)
+              : isSupabaseAuthSessionCookie(name)
+                ? withDeskPersistence({}, trusted)
+                : options;
+          supabaseResponse.cookies.set(name, value, opts);
+        });
       },
     },
   });

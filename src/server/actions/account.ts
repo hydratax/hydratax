@@ -1,5 +1,6 @@
 "use server";
 
+import { cache } from "react";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { entitlementsForPlans } from "@/lib/entitlements";
@@ -107,35 +108,14 @@ export async function createAccountProfile(
   };
 }
 
-export async function getPracticeEntitlements() {
+/**
+ * Plan modules for the signed-in practice.
+ * Stripe checkout recovery is NOT on this read path — webhooks / post-checkout
+ * sync plans. Calling Stripe here made every client page wait on sessions.list.
+ * Cached once per React request (layout + page no longer double-fetch).
+ */
+export const getPracticeEntitlements = cache(async function getPracticeEntitlements() {
   const session = await requireSession();
-
-  // Recover paid Stripe checkouts for this account (email match)
-  if (isStripeConfigured()) {
-    try {
-      let email: string | null = null;
-      if (isSupabaseConfigured()) {
-        const { createClient } = await import("@/lib/supabase/server");
-        const supabase = await createClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-        // Only a VERIFIED email may claim email-matched Stripe purchases.
-        email =
-          user?.email && (user.email_confirmed_at || user.confirmed_at)
-            ? user.email
-            : null;
-      }
-      if (email) {
-        const { syncPaidCheckoutsForEmail } = await import(
-          "@/server/stripe/orders"
-        );
-        await syncPaidCheckoutsForEmail(email, session.practiceId);
-      }
-    } catch {
-      /* Stripe sync is best-effort */
-    }
-  }
 
   const planKeys: string[] = [];
 
@@ -298,7 +278,7 @@ export async function getPracticeEntitlements() {
     modules: [...ent.modules],
     orgType: memoryStore.accountProfile?.orgType ?? null,
   };
-}
+});
 
 /** Explicit one-click claim — starts Stripe Checkout with card + 7-day trial. */
 export async function claimPracticeFreeTrial() {

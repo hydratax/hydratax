@@ -5,12 +5,19 @@ import { uploadClientDocument } from "@/server/actions/documents";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 const CATEGORIES = [
-  { value: "general", label: "General" },
-  { value: "accounts", label: "Accounts" },
-  { value: "vat", label: "VAT" },
-  { value: "payroll", label: "Payroll" },
-  { value: "corporation_tax", label: "Corporation Tax" },
-  { value: "self_assessment", label: "Self Assessment" },
+  { value: "self_assessment:other", label: "Self Assessment" },
+  { value: "vat:other", label: "VAT" },
+  { value: "corporation_tax:other", label: "Corporation Tax" },
+  { value: "self_assessment:bank_statement", label: "SA · Bank statement" },
+  { value: "vat:bank_statement", label: "VAT · Bank statement" },
+  { value: "corporation_tax:bank_statement", label: "CT · Bank statement" },
+  { value: "self_assessment:receipt", label: "SA · Receipt" },
+  { value: "vat:receipt", label: "VAT · Receipt" },
+  { value: "corporation_tax:receipt", label: "CT · Receipt" },
+  { value: "self_assessment:invoice", label: "SA · Invoice" },
+  { value: "vat:invoice", label: "VAT · Invoice" },
+  { value: "corporation_tax:invoice", label: "CT · Invoice" },
+  { value: "general", label: "Other" },
   { value: "companies_house", label: "Companies House" },
 ] as const;
 
@@ -53,7 +60,7 @@ export function DocumentUploadForm({ clientId }: { clientId: string }) {
         Category
         <select
           name="category"
-          defaultValue="general"
+          defaultValue="corporation_tax:other"
           className="mt-1.5 w-full rounded-lg border border-line bg-white px-3 py-2 font-normal"
         >
           {CATEGORIES.map((c) => (

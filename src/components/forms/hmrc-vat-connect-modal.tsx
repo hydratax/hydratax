@@ -3,12 +3,10 @@
 import { UkDateField } from "@/components/forms/uk-date-field";
 
 import { useEffect, useState, useTransition } from "react";
-import Link from "next/link";
 import { saveVatHmrcConnectDetails } from "@/server/actions/vat";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 
 const ARN_STORAGE_KEY = "hydratax_hmrc_agent_arn";
-const REG_DATE_PREFIX = "hydratax_vat_reg_date_";
 
 type FilingAs = "business" | "agent";
 
@@ -17,38 +15,42 @@ export function HmrcVatConnectModal({
   onClose,
   clientId,
   initialVrn,
+  initialVatRegistrationDate,
   signedIn,
 }: {
   open: boolean;
   onClose: () => void;
   clientId: string;
   initialVrn?: string | null;
+  initialVatRegistrationDate?: string | null;
   signedIn: boolean;
 }) {
   const [filingAs, setFilingAs] = useState<FilingAs>("business");
   const [vrn, setVrn] = useState(initialVrn?.replace(/\D/g, "").slice(0, 9) ?? "");
   const [arn, setArn] = useState("");
-  const [vatRegDate, setVatRegDate] = useState("");
+  const [vatRegDate, setVatRegDate] = useState(
+    initialVatRegistrationDate?.slice(0, 10) ?? "",
+  );
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   useEffect(() => {
     if (!open) return;
     setVrn(initialVrn?.replace(/\D/g, "").slice(0, 9) ?? "");
+    setVatRegDate(initialVatRegistrationDate?.slice(0, 10) ?? "");
     setError(null);
     try {
       setArn(localStorage.getItem(ARN_STORAGE_KEY) ?? "");
-      setVatRegDate(
-        localStorage.getItem(`${REG_DATE_PREFIX}${clientId}`) ?? "",
-      );
     } catch {
       /* ignore */
     }
-  }, [open, initialVrn, clientId]);
+  }, [open, initialVrn, initialVatRegistrationDate, clientId]);
 
   if (!open) return null;
 
   const agentBlocked = filingAs === "agent" && !signedIn;
+  const canSubmit =
+    vrn.length === 9 && /^\d{4}-\d{2}-\d{2}$/.test(vatRegDate) && !agentBlocked;
 
   return (
     <div
@@ -80,10 +82,7 @@ export function HmrcVatConnectModal({
           onSubmit={(e) => {
             e.preventDefault();
             setError(null);
-            if (agentBlocked) {
-              setError("You must be signed in to file as an agent.");
-              return;
-            }
+            if (agentBlocked || !canSubmit) return;
             start(async () => {
               try {
                 const res = await saveVatHmrcConnectDetails({
@@ -91,25 +90,19 @@ export function HmrcVatConnectModal({
                   filingAs,
                   vrn,
                   agentArn: filingAs === "agent" ? arn : undefined,
-                  vatRegistrationDate:
-                    filingAs === "agent" ? vatRegDate : undefined,
+                  vatRegistrationDate: vatRegDate,
                 });
                 try {
                   if (filingAs === "agent") {
                     localStorage.setItem(ARN_STORAGE_KEY, arn.trim());
-                    localStorage.setItem(
-                      `${REG_DATE_PREFIX}${clientId}`,
-                      vatRegDate,
-                    );
                   }
                 } catch {
                   /* ignore */
                 }
                 window.location.href = res.authorizeUrl;
-              } catch (err) {
-                setError(
-                  err instanceof Error ? err.message : "Could not connect",
-                );
+              } catch {
+                // Desk UI: freeze — FormErrorBanner is silent on desk surface.
+                setError("connect_failed");
               }
             });
           }}
@@ -161,65 +154,41 @@ export function HmrcVatConnectModal({
             />
           </div>
 
+          <div>
+            <label className="label" htmlFor="hmrc-vat-reg">
+              VAT registration date
+            </label>
+            <UkDateField
+              id="hmrc-vat-reg"
+              className="input mt-1.5"
+              value={vatRegDate}
+              onChange={(iso) => setVatRegDate(iso)}
+              required
+            />
+          </div>
+
           {filingAs === "agent" && (
-            <>
-              <div>
-                <label className="label" htmlFor="hmrc-arn">
-                  Your ARN
-                </label>
-                <input
-                  id="hmrc-arn"
-                  className="input mt-1.5 mono"
-                  placeholder="TARN0000000"
-                  value={arn}
-                  onChange={(e) => setArn(e.target.value)}
-                  required
-                />
-                <p className="mt-1.5 text-xs text-ink-soft">
-                  Your Agent Reference Number from your HMRC Agent Services
-                  Account. We store this so you won&apos;t need to enter it
-                  again.
-                </p>
-              </div>
-              <div>
-                <label className="label" htmlFor="hmrc-vat-reg">
-                  VAT registration date
-                </label>
-                <UkDateField id="hmrc-vat-reg" className="input mt-1.5" value={vatRegDate} onChange={(iso) => setVatRegDate(iso)}
-                  required
-                />
-                <p className="mt-1.5 text-xs text-ink-soft">
-                  HMRC&apos;s one-time anti-fraud check on this client. We store
-                  this and won&apos;t ask again — return submissions don&apos;t
-                  need it.
-                </p>
-              </div>
-            </>
+            <div>
+              <label className="label" htmlFor="hmrc-arn">
+                Your ARN
+              </label>
+              <input
+                id="hmrc-arn"
+                className="input mt-1.5 mono"
+                placeholder="TARN0000000"
+                value={arn}
+                onChange={(e) => setArn(e.target.value)}
+                required
+              />
+            </div>
           )}
 
-          {(error || agentBlocked) && (
-            <FormErrorBanner
-              error={error ?? "You must be signed in to file as an agent."}
-              title="HMRC connection blocked"
-            >
-              {agentBlocked ? (
-                <p className="form-error-banner__body mt-2">
-                  <Link
-                    href={`/sign-in?next=${encodeURIComponent(`/clients/${clientId}/vat`)}`}
-                    className="font-semibold underline"
-                  >
-                    Sign in
-                  </Link>{" "}
-                  to continue as an agent.
-                </p>
-              ) : null}
-            </FormErrorBanner>
-          )}
+          <FormErrorBanner error={error} />
 
           <button
             type="submit"
             className="btn btn-primary w-full"
-            disabled={pending || agentBlocked}
+            disabled={pending || !canSubmit}
           >
             {pending
               ? "Connecting…"

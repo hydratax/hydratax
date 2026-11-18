@@ -36,6 +36,7 @@ export default async function EditClientPage({
             companyAuthCode: client.companyAuthCode,
             utr: client.utr,
             vrn: client.vrn,
+            vatRegistrationDate: client.vatRegistrationDate ?? null,
             nino: client.nino,
             payeRef: client.payeRef,
             accountsOfficeRef: client.accountsOfficeRef,

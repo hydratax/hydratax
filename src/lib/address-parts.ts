@@ -90,3 +90,14 @@ export function addressLinesFromParts(parts: AddressParts): string[] {
     .map((l) => l.trim())
     .filter(Boolean);
 }
+
+/** Compact overview: street / town / postcode+country (up to 3 lines). */
+export function addressOverviewLines(
+  raw: string | null | undefined,
+): string[] {
+  const p = parseAddressParts(raw);
+  if (!p.street && !p.city && !p.postcode) return [];
+  const post = p.postcode.trim().toUpperCase();
+  const postCountry = [post, p.country.trim()].filter(Boolean).join(" ");
+  return [p.street, p.city, postCountry].map((l) => l.trim()).filter(Boolean);
+}

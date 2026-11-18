@@ -1,5 +1,6 @@
 import {
   boolean,
+  date,
   integer,
   jsonb,
   pgEnum,
@@ -79,9 +80,11 @@ export const clients = pgTable(
     companyNumber: text("company_number"),
     utr: text("utr"),
     vrn: text("vrn"),
-  nino: text("nino"),
-  companyAuthCode: text("company_auth_code"),
-  payeRef: text("paye_ref"),
+    /** ISO date (YYYY-MM-DD) — VAT registration date; desk identifier with VRN */
+    vatRegistrationDate: date("vat_registration_date"),
+    nino: text("nino"),
+    companyAuthCode: text("company_auth_code"),
+    payeRef: text("paye_ref"),
     accountsOfficeRef: text("accounts_office_ref"),
     address: text("address"),
     isEmployer: boolean("is_employer").notNull().default(false),

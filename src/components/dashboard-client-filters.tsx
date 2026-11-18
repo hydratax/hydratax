@@ -170,7 +170,7 @@ export function DashboardClientFilters({
             </Link>
           </section>
         ) : (
-          <section className="service-tile overflow-hidden p-5">
+          <section className="service-tile service-tile--static overflow-hidden p-5">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
                 <h2 className="display text-2xl text-ink">Self Assessment</h2>
@@ -248,7 +248,7 @@ export function DashboardClientFilters({
           </button>
         </section>
       ) : (
-        <section className="service-tile overflow-hidden p-5">
+        <section className="service-tile service-tile--static overflow-hidden p-5">
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <div>
               <h2 className="display text-2xl text-ink">{activeLabel}</h2>

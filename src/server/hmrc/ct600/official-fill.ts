@@ -3,11 +3,16 @@ import path from "path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import type { Ct600Figures, Ct600ReviewCompany } from "@/server/hmrc/ct600/types";
 import { computeCt600TaxSchedule } from "@/server/hmrc/ct600/tax-schedule";
-import ct600Spec from "@/server/hmrc/ct600/templates/spec-ct600-v3.json";
+import {
+  ct600FormEditionForPeriod,
+  ct600TemplateFileName,
+  type Ct600FormEdition,
+} from "@/server/hmrc/ct600/form-edition";
+import ct600Spec2026 from "@/server/hmrc/ct600/templates/spec-ct600-v3.json";
+import ct600Spec2027 from "@/server/hmrc/ct600/templates/spec-ct600-2027-v3.json";
 
 const MM = 72 / 25.4;
 const FONT_SIZE = 12;
-const CT600_TEMPLATE_NAME = "CT600-2026-v3.pdf";
 
 type SpecRow = [number, string, ...number[]];
 
@@ -130,28 +135,28 @@ function parseSpecRow(row: SpecRow): { box: number; ann: Annotation } {
   }
 }
 
-let specByBox: Map<number, Annotation[]> | null = null;
+const specCache = new Map<Ct600FormEdition, Map<number, Annotation[]>>();
 
-function resolveCt600TemplatePath(): string {
+function resolveCt600TemplatePath(edition: Ct600FormEdition): string {
+  const fileName = ct600TemplateFileName(edition);
   const candidates = [
-    path.join(process.cwd(), "public/hmrc", CT600_TEMPLATE_NAME),
-    path.join(
-      process.cwd(),
-      "src/server/hmrc/ct600/templates",
-      CT600_TEMPLATE_NAME,
-    ),
+    path.join(process.cwd(), "public/hmrc", fileName),
+    path.join(process.cwd(), "src/server/hmrc/ct600/templates", fileName),
   ];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate;
   }
   throw new Error(
-    `HMRC CT600 template PDF not found (expected ${CT600_TEMPLATE_NAME} in public/hmrc).`,
+    `HMRC CT600 template PDF not found (expected ${fileName} in public/hmrc).`,
   );
 }
 
-function loadSpecByBox(): Map<number, Annotation[]> {
-  if (specByBox) return specByBox;
-  const raw = ct600Spec as SpecRow[];
+function loadSpecByBox(edition: Ct600FormEdition): Map<number, Annotation[]> {
+  const cached = specCache.get(edition);
+  if (cached) return cached;
+  const raw = (
+    edition === "2027" ? ct600Spec2027 : ct600Spec2026
+  ) as SpecRow[];
   const map = new Map<number, Annotation[]>();
   for (const row of raw) {
     const { box, ann } = parseSpecRow(row);
@@ -159,7 +164,7 @@ function loadSpecByBox(): Map<number, Annotation[]> {
     list.push(ann);
     map.set(box, list);
   }
-  specByBox = map;
+  specCache.set(edition, map);
   return map;
 }
 
@@ -384,6 +389,16 @@ export function buildCt600BoxValues(opts: {
     values[395] = s.taxPence / 100;
   }
 
+  // Main-rate first-year allowance — CT600 (2027) boxes 696 / 739
+  const mainRateTrading = Math.trunc(
+    Number(figures.mainRateFyaTradingPence ?? 0) / 100,
+  );
+  const mainRateNonTrading = Math.trunc(
+    Number(figures.mainRateFyaNonTradingPence ?? 0) / 100,
+  );
+  if (mainRateTrading > 0) values[696] = mainRateTrading;
+  if (mainRateNonTrading > 0) values[739] = mainRateNonTrading;
+
   return values;
 }
 
@@ -394,11 +409,12 @@ export async function fillOfficialCt600Pdf(opts: {
   taxableProfitPence: number;
   taxChargePence: number;
 }): Promise<Uint8Array> {
-  const templatePath = resolveCt600TemplatePath();
+  const edition = ct600FormEditionForPeriod(opts.figures.periodStart);
+  const templatePath = resolveCt600TemplatePath(edition);
   const templateBytes = fs.readFileSync(templatePath);
   const doc = await PDFDocument.load(templateBytes);
   const font = await doc.embedFont(StandardFonts.CourierBold);
-  const spec = loadSpecByBox();
+  const spec = loadSpecByBox(edition);
   const values = buildCt600BoxValues(opts);
 
   for (const [boxKey, value] of Object.entries(values)) {
