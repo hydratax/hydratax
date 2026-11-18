@@ -350,12 +350,13 @@ async function seedVatReady(
     return;
   }
 
+  const { vatReturnBoxesSchema } = await import("@/server/money/schemas");
   await prepareVatReturnFromBoxes({
     clientId: client.id,
     periodKey: period.key,
     periodStart: period.start,
     periodEnd: period.end,
-    boxes,
+    boxes: vatReturnBoxesSchema.parse(boxes),
   }).catch((e) => logRich("vatReady", e));
 }
 

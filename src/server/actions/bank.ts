@@ -354,7 +354,7 @@ export async function importBankConvertedLines(input: {
       }
     } else if (isDeskStoreConfigured()) {
       if (merge) {
-        const existing = await deskListBankTransactions(clientId);
+        const existing = (await deskListBankTransactions(clientId)) ?? [];
         const existingKeys = new Set(
           existing.map(
             (row) =>
@@ -603,7 +603,7 @@ export async function importBankCsv(formData: FormData): Promise<BankImportResul
   } else if (isDeskStoreConfigured()) {
     try {
       if (merge) {
-        const existing = await deskListBankTransactions(clientId);
+        const existing = (await deskListBankTransactions(clientId)) ?? [];
         const existingKeys = new Set(
           existing.map(
             (row) =>
