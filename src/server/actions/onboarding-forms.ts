@@ -106,22 +106,29 @@ export async function listClientOnboardingForms(clientId: string) {
   const existing = client.deskProfile?.onboardingForms ?? [];
   if (existing.length > 0) return existing;
 
+  // Seed runs during RSC page render — never revalidatePath here (crashes the page).
+  // Soft-fail writes so a storage/permission error still leaves the desk usable.
   const session = await requireSession();
   const seeded = buildSeedForms(session.userId);
-  await writeProfile(
-    clientId,
-    mergeProfile(client.deskProfile, { onboardingForms: seeded }),
-  );
-  await appendAuditEvent({
-    practiceId: session.practiceId,
-    clientId,
-    actorId: session.userId,
-    action: "forms.standards_seeded",
-    entityType: "onboarding_form",
-    entityId: clientId,
-    detail: { count: seeded.length },
-  }).catch(() => undefined);
-  revalidateForms(clientId);
+  try {
+    if (session.role !== "readonly") {
+      await writeProfile(
+        clientId,
+        mergeProfile(client.deskProfile, { onboardingForms: seeded }),
+      );
+      await appendAuditEvent({
+        practiceId: session.practiceId,
+        clientId,
+        actorId: session.userId,
+        action: "forms.standards_seeded",
+        entityType: "onboarding_form",
+        entityId: clientId,
+        detail: { count: seeded.length },
+      }).catch(() => undefined);
+    }
+  } catch {
+    // Return in-memory pack; next successful mutation can persist.
+  }
   return seeded;
 }
 

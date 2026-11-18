@@ -174,9 +174,6 @@ export default async function DashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href="/clients" className="btn btn-secondary text-sm">
-            Clients
-          </Link>
           <Link href="/tasks" className="btn btn-secondary text-sm">
             Tasks
           </Link>
