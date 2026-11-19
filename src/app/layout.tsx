@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { DM_Sans, Fraunces, IBM_Plex_Mono, Source_Serif_4 } from "next/font/google";
+import { DM_Sans, Fraunces, Inter, Source_Serif_4 } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { isClerkConfigured } from "@/lib/env";
 import { defaultMetadata } from "@/lib/seo";
@@ -22,9 +22,10 @@ const sourceSerif = Source_Serif_4({
   subsets: ["latin"],
 });
 
-const ibmPlex = IBM_Plex_Mono({
-  variable: "--font-ibm-plex",
-  weight: ["400", "500", "600"],
+/** PAYE money / IDs — modern proportional sans (plain zero, tabular lining figures). */
+const payeDigits = Inter({
+  variable: "--font-paye-digits",
+  weight: ["400", "500", "600", "700"],
   subsets: ["latin"],
 });
 
@@ -63,7 +64,7 @@ export default function RootLayout({
   const body = (
     <html lang="en-GB">
       <body
-        className={`${dmSans.variable} ${fraunces.variable} ${sourceSerif.variable} ${ibmPlex.variable} antialiased`}
+        className={`${dmSans.variable} ${fraunces.variable} ${sourceSerif.variable} ${payeDigits.variable} antialiased`}
       >
         <NavPendingReset />
         {children}

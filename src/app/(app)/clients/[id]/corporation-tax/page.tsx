@@ -22,6 +22,7 @@ import {
 } from "@/lib/accounting-periods";
 import { loadPriorYearComparatives } from "@/server/accounts/load-prior-year-comparatives";
 import { emptyBankLedger } from "@/lib/bank-ledger";
+import { AbbrInfo } from "@/components/desk/abbr-info";
 
 export default async function CorporationTaxPage({
   params,
@@ -207,13 +208,21 @@ export default async function CorporationTaxPage({
     <div>
       {filedElsewhere ? (
         <div className="mb-4 rounded-xl border border-sea/30 bg-sea/5 px-4 py-3 text-sm text-ink">
-          <p className="font-semibold text-ink">CT600 filed elsewhere</p>
+          <p className="inline-flex items-center gap-1 font-semibold text-ink">
+            CT600
+            <AbbrInfo code="CT600" />
+            filed elsewhere
+          </p>
         </div>
       ) : null}
 
       {client.type !== "limited_company" ? (
         <div className="panel p-5 text-ink-soft">
-          Corporation Tax CT600 is for limited companies.
+          <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+            CT600
+            <AbbrInfo code="CT600" />
+          </span>{" "}
+          is for limited companies.
         </div>
       ) : (
         <Suspense

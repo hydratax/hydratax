@@ -263,16 +263,33 @@ async function writeDemoCompaniesHouse(
   }
 }
 
-async function seedPayroll(client: ClientRecord, employees: RichEmployee[]) {
-  if (!client.isEmployer) return;
-  const { enableEmployerPayroll, addEmployee, listEmployees } = await import(
+/** Insert PAYE people only — must finish before sales-demo request returns. */
+async function seedPayrollEmployees(
+  client: ClientRecord,
+  employees: RichEmployee[],
+  opts?: { skipEnableEmployer?: boolean },
+) {
+  const { enableEmployerPayroll, listEmployees } = await import(
     "@/server/actions/payroll"
   );
-  await enableEmployerPayroll({
-    clientId: client.id,
-    payeRef: client.payeRef || "123/A246",
-    accountsOfficeRef: client.accountsOfficeRef || "123PA00012345",
-  }).catch((e) => logRich("enableEmployer", e));
+  const { generatePayrollId } = await import("@/lib/payroll");
+  const { poundsToPence } = await import("@/server/money/pence");
+  const { isDemoMode, isSupabaseConfigured } = await import("@/lib/env");
+  const { isDeskStoreConfigured, deskInsertEmployee } = await import(
+    "@/server/db/desk-store"
+  );
+  const { ensureD1PayrollSchema } = await import(
+    "@/server/db/ensure-d1-payroll-schema"
+  );
+  await ensureD1PayrollSchema().catch((e) => logRich("d1Schema", e));
+
+  if (!opts?.skipEnableEmployer) {
+    await enableEmployerPayroll({
+      clientId: client.id,
+      payeRef: client.payeRef || "123/A246",
+      accountsOfficeRef: client.accountsOfficeRef || "123PA00012345",
+    }).catch((e) => logRich("enableEmployer", e));
+  }
 
   const existing = await listEmployees(client.id, {
     includeLeavers: true,
@@ -280,10 +297,18 @@ async function seedPayroll(client: ClientRecord, employees: RichEmployee[]) {
   const keys = new Set(
     existing.map((e) => `${e.forename}|${e.surname}|${e.nino}`.toLowerCase()),
   );
+  const usedPayrollIds = existing.map((e) => e.payrollId);
+
   for (const emp of employees) {
     const key = `${emp.forename}|${emp.surname}|${emp.nino}`.toLowerCase();
     if (keys.has(key)) continue;
-    await addEmployee({
+    const payrollId = generatePayrollId(usedPayrollIds);
+    usedPayrollIds.push(payrollId);
+    const annualSalaryPence = Number(
+      poundsToPence(emp.annualSalaryPounds) || 0,
+    );
+    const row = {
+      id: crypto.randomUUID(),
       clientId: client.id,
       forename: emp.forename,
       surname: emp.surname,
@@ -291,15 +316,381 @@ async function seedPayroll(client: ClientRecord, employees: RichEmployee[]) {
       gender: emp.gender,
       dateOfBirth: emp.dateOfBirth,
       address: emp.address,
-      annualSalaryPounds: emp.annualSalaryPounds,
-      startDate: emp.startDate,
-      jobTitle: emp.jobTitle,
       taxCode: emp.taxCode ?? "1257L",
-      payFrequency: "M1",
+      annualSalaryPence,
+      startDate: emp.startDate,
+      payrollId,
+      payFrequency: "M1" as const,
       niCategory: "A",
-      starterDeclaration: "A",
-      payBasis: "salary",
-    }).catch((e) => logRich(`employee:${emp.forename}`, e));
+      jobTitle: emp.jobTitle,
+      leaveDate: null as string | null,
+      starterDeclaration: "A" as const,
+      firstFpsSent: false,
+      previousPayrollId: null as string | null,
+      hoursPerWeek: 3750,
+      hourlyRatePence: 0,
+      payBasis: "salary" as const,
+      pensionOptOut: false,
+      sspQualifyingDays: 5,
+      taxBasis: "cumulative" as const,
+      studentLoanPlan: null as string | null,
+      postgraduateLoan: false,
+      isDirector: /director/i.test(emp.jobTitle ?? ""),
+      directorsNicMethod: "AN" as const,
+      bankSortCode: null as string | null,
+      bankAccountNumber: null as string | null,
+      bankAccountName: null as string | null,
+      bfTaxYear: null as string | null,
+      bfTaxablePence: 0,
+      bfTaxPence: 0,
+      bfEmployeeNiPence: 0,
+      active: true,
+    };
+    const deskRow = {
+      id: row.id,
+      client_id: row.clientId,
+      forename: row.forename,
+      surname: row.surname,
+      nino: row.nino,
+      gender: row.gender,
+      date_of_birth: row.dateOfBirth,
+      address: row.address,
+      tax_code: row.taxCode,
+      annual_salary_pence: row.annualSalaryPence,
+      start_date: row.startDate,
+      payroll_id: row.payrollId,
+      pay_frequency: row.payFrequency,
+      ni_category: row.niCategory,
+      job_title: row.jobTitle,
+      leave_date: row.leaveDate,
+      starter_declaration: row.starterDeclaration,
+      first_fps_sent: row.firstFpsSent,
+      previous_payroll_id: row.previousPayrollId,
+      hours_per_week: row.hoursPerWeek,
+      hourly_rate_pence: row.hourlyRatePence,
+      pay_basis: row.payBasis,
+      pension_opt_out: row.pensionOptOut,
+      ssp_qualifying_days: row.sspQualifyingDays,
+      tax_basis: row.taxBasis,
+      student_loan_plan: row.studentLoanPlan,
+      postgraduate_loan: row.postgraduateLoan,
+      is_director: row.isDirector,
+      directors_nic_method: row.directorsNicMethod,
+      bank_sort_code: row.bankSortCode,
+      bank_account_number: row.bankAccountNumber,
+      bank_account_name: row.bankAccountName,
+      bf_tax_year: row.bfTaxYear,
+      bf_taxable_pence: row.bfTaxablePence,
+      bf_tax_pence: row.bfTaxPence,
+      bf_employee_ni_pence: row.bfEmployeeNiPence,
+      active: true,
+    };
+    try {
+      if (isDemoMode()) {
+        const { demoStore } = await import("@/server/demo/store");
+        demoStore.employees.push(row);
+      } else if (isDeskStoreConfigured()) {
+        await deskInsertEmployee(deskRow);
+        // Keep Supabase in sync when D1 is the primary desk store.
+        if (isSupabaseConfigured() && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+          try {
+            const { getSupabaseAdmin } = await import("@/lib/supabase");
+            await getSupabaseAdmin().from("employees").upsert(deskRow, {
+              onConflict: "id",
+            });
+          } catch (e) {
+            logRich(`employeeSupabase:${emp.forename}`, e);
+          }
+        }
+      } else {
+        const { getDb } = await import("@/server/db");
+        const { employees: employeesTable } = await import(
+          "@/server/db/schema"
+        );
+        await getDb().insert(employeesTable).values({
+          id: row.id,
+          clientId: row.clientId,
+          forename: row.forename,
+          surname: row.surname,
+          nino: row.nino,
+          gender: row.gender,
+          dateOfBirth: row.dateOfBirth,
+          address: row.address,
+          taxCode: row.taxCode,
+          annualSalaryPence: row.annualSalaryPence,
+          startDate: row.startDate,
+          payrollId: row.payrollId,
+          payFrequency: row.payFrequency,
+          niCategory: row.niCategory,
+          jobTitle: row.jobTitle,
+          leaveDate: row.leaveDate,
+          starterDeclaration: row.starterDeclaration,
+          firstFpsSent: row.firstFpsSent,
+          previousPayrollId: row.previousPayrollId,
+          hoursPerWeek: row.hoursPerWeek,
+          hourlyRatePence: row.hourlyRatePence,
+          payBasis: row.payBasis,
+          pensionOptOut: row.pensionOptOut,
+          sspQualifyingDays: row.sspQualifyingDays,
+          taxBasis: row.taxBasis,
+          studentLoanPlan: row.studentLoanPlan,
+          postgraduateLoan: row.postgraduateLoan,
+          isDirector: row.isDirector,
+          directorsNicMethod: row.directorsNicMethod,
+          bankSortCode: row.bankSortCode,
+          bankAccountNumber: row.bankAccountNumber,
+          bankAccountName: row.bankAccountName,
+          bfTaxYear: row.bfTaxYear,
+          bfTaxablePence: row.bfTaxablePence,
+          bfTaxPence: row.bfTaxPence,
+          bfEmployeeNiPence: row.bfEmployeeNiPence,
+          active: true,
+        });
+      }
+      keys.add(key);
+    } catch (e) {
+      logRich(`employee:${emp.forename}`, e);
+    }
+  }
+}
+
+async function seedPayroll(
+  client: ClientRecord,
+  employees: RichEmployee[],
+  opts?: { historyYears?: number },
+) {
+  const {
+    listEmployees,
+    previewPayRun,
+    savePayrollPackPassword,
+  } = await import("@/server/actions/payroll");
+  const { savePayrollDeskSettings } = await import(
+    "@/server/actions/payroll-settings"
+  );
+  const { defaultPayPeriod, taxYearFromDate } = await import("@/lib/payroll");
+  const { isDemoMode } = await import("@/lib/env");
+  const {
+    isDeskStoreConfigured,
+    deskUpsertTimesheet,
+    deskInsertPayRun,
+    deskListPayRuns,
+  } = await import("@/server/db/desk-store");
+
+  await seedPayrollEmployees(client, employees);
+
+  const live = await listEmployees(client.id, { includeLeavers: false }).catch(
+    () => [],
+  );
+  if (live.length === 0) return;
+
+  const period = defaultPayPeriod("M1");
+  const scenarioByNino = new Map(
+    employees.map((e) => [e.nino.replace(/\s/g, "").toUpperCase(), e.scenario]),
+  );
+  const timesheetRows = live.map((emp) => {
+    const scenario =
+      scenarioByNino.get(emp.nino.replace(/\s/g, "").toUpperCase()) ??
+      "ordinary";
+    const base = {
+      nino: emp.nino,
+      name: `${emp.forename} ${emp.surname}`,
+      payrollId: emp.payrollId,
+      ordinaryHours: 160,
+      raw: {},
+    };
+    if (scenario === "ssp") {
+      return { ...base, ordinaryHours: 120, sickDays: 4 };
+    }
+    if (scenario === "smp") {
+      return {
+        ...base,
+        ordinaryHours: 0,
+        maternityWeeks: 4,
+        maternityWeekFrom: 1,
+      };
+    }
+    if (scenario === "unpaid_absence") {
+      return { ...base, ordinaryHours: 0, unpaidAbsence: true };
+    }
+    return base;
+  });
+
+  try {
+    if (isDemoMode()) {
+      const { demoStore } = await import("@/server/demo/store");
+      demoStore.payrollTimesheets = demoStore.payrollTimesheets.filter(
+        (t) =>
+          !(
+            t.clientId === client.id &&
+            t.periodStart === period.periodStart &&
+            t.periodEnd === period.periodEnd
+          ),
+      );
+      demoStore.payrollTimesheets.push({
+        id: crypto.randomUUID(),
+        clientId: client.id,
+        periodStart: period.periodStart,
+        periodEnd: period.periodEnd,
+        filename: "demo-seed-timesheet.csv",
+        rows: timesheetRows,
+        createdAt: new Date().toISOString(),
+      });
+    } else if (isDeskStoreConfigured()) {
+      await deskUpsertTimesheet({
+        client_id: client.id,
+        period_start: period.periodStart,
+        period_end: period.periodEnd,
+        filename: "demo-seed-timesheet.csv",
+        rows: timesheetRows,
+      });
+    }
+  } catch (e) {
+    logRich("timesheet", e);
+  }
+
+  const taxYearLabel = (() => {
+    const short = taxYearFromDate(period.payDate); // e.g. 25-26
+    const [a, b] = short.split("-");
+    if (!a || !b) return "2025-26";
+    const start = Number(a) > 50 ? `19${a}` : `20${a}`;
+    const end = Number(b) > 50 ? `19${b}` : `20${b}`;
+    return `${start}-${end.slice(2)}`;
+  })();
+
+  await savePayrollDeskSettings({
+    clientId: client.id,
+    activeTaxYear: taxYearLabel,
+  }).catch((e) => logRich("taxYear", e));
+
+  await savePayrollPackPassword({
+    clientId: client.id,
+    password: "demopack1",
+  }).catch((e) => logRich("packPassword", e));
+
+  const { recentPayrollMonths } = await import("@/lib/payroll");
+  const historyYears = Math.max(0, opts?.historyYears ?? 0);
+  // ~5 tax years ≈ 60 calendar months; default stays 3 recent months.
+  const monthCount = historyYears > 0 ? historyYears * 12 : 3;
+  const months = recentPayrollMonths(monthCount);
+
+  async function existingPayDates(): Promise<Set<string>> {
+    if (isDemoMode()) {
+      const { demoStore } = await import("@/server/demo/store");
+      return new Set(
+        demoStore.payRuns
+          .filter((r) => r.clientId === client.id && r.kind === "FPS")
+          .map((r) => String(r.payDate)),
+      );
+    }
+    if (isDeskStoreConfigured()) {
+      const runs = (await deskListPayRuns(client.id)) ?? [];
+      return new Set(
+        runs
+          .filter((r) => String(r.kind ?? "FPS") === "FPS")
+          .map((r) => String(r.pay_date)),
+      );
+    }
+    return new Set();
+  }
+
+  const known = await existingPayDates();
+
+  // One real calc for the newest month; older months clone lines (idempotent archive).
+  let template: Awaited<ReturnType<typeof previewPayRun>> | null = null;
+  const newest = months[0];
+  if (newest) {
+    try {
+      template = await previewPayRun({
+        clientId: client.id,
+        payDate: newest.period.payDate,
+        periodStart: newest.period.periodStart,
+        periodEnd: newest.period.periodEnd,
+        frequency: "M1",
+        submit: false,
+      });
+    } catch (e) {
+      logRich("payRun:template", e);
+    }
+  }
+  if (!template?.lines.length) return;
+
+  for (let i = 0; i < months.length; i++) {
+    const month = months[i]!;
+    if (known.has(month.period.payDate)) continue;
+
+    try {
+      let pack = template;
+      // Recalc a few recent months so statutory/scenario variance stays realistic.
+      if (i > 0 && i < 3) {
+        try {
+          const fresh = await previewPayRun({
+            clientId: client.id,
+            payDate: month.period.payDate,
+            periodStart: month.period.periodStart,
+            periodEnd: month.period.periodEnd,
+            frequency: "M1",
+            submit: false,
+          });
+          if (fresh.lines.length) pack = fresh;
+        } catch {
+          /* keep template */
+        }
+      }
+
+      // Newest = generated (not filed). Older = filed archive for P60 / YTD.
+      const isNewest = i === 0 && historyYears > 0;
+      const status = isNewest ? "ready" : historyYears > 0 ? "accepted" : "ready";
+      const corr = isNewest
+        ? null
+        : (`DEMO-SEED-${month.period.payDate}` as string | null);
+
+      const payRun = {
+        id: crypto.randomUUID(),
+        clientId: client.id,
+        payDate: month.period.payDate,
+        periodStart: month.period.periodStart,
+        periodEnd: month.period.periodEnd,
+        payFrequency: "M1" as const,
+        kind: "FPS",
+        status,
+        totals: pack.totals,
+        lines: pack.lines,
+        fpsXmlHash: null as string | null,
+        hmrcCorrelationId: corr,
+        submittedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+
+      if (isDemoMode()) {
+        const { demoStore } = await import("@/server/demo/store");
+        demoStore.payRuns.push(payRun);
+        if (status === "accepted") {
+          for (const line of pack.lines) {
+            const emp = demoStore.employees.find((e) => e.id === line.employeeId);
+            if (emp) emp.firstFpsSent = true;
+          }
+        }
+      } else if (isDeskStoreConfigured()) {
+        await deskInsertPayRun({
+          id: payRun.id,
+          client_id: payRun.clientId,
+          pay_date: payRun.payDate,
+          period_start: payRun.periodStart,
+          period_end: payRun.periodEnd,
+          pay_frequency: payRun.payFrequency,
+          kind: payRun.kind,
+          status: payRun.status,
+          totals: payRun.totals,
+          lines: payRun.lines,
+          fps_xml_hash: payRun.fpsXmlHash,
+          hmrc_correlation_id: payRun.hmrcCorrelationId,
+          submitted_at: payRun.submittedAt,
+        });
+      }
+      known.add(month.period.payDate);
+    } catch (e) {
+      logRich(`payRun:${month.key}`, e);
+    }
   }
 }
 
@@ -513,7 +904,7 @@ async function seedEmailsAndWork(
           {
             subject: "Payroll people on the desk",
             preview:
-              "Four employees are loaded for Meridian. Open PAYE to preview a pay run (FPS submit needs live Gateway credentials).",
+              "Ten employees loaded (SSP, SMP and unpaid absence). Open PAYE → History for payslip download or email pack (password demopack1).",
             kind: "payroll",
             desk: "paye" as const,
             label: "Emailed payroll headcount",
@@ -679,7 +1070,7 @@ async function enrichNorthstar(
     profile?.people ?? [],
     client.companyNumber,
   );
-  await seedPayroll(client, MERIDIAN_EMPLOYEES.slice(0, 2));
+  await seedPayroll(client, MERIDIAN_EMPLOYEES, { historyYears: 5 });
   await seedBank(
     client,
     MERIDIAN_BANK_LINES.slice(0, 12),
@@ -792,6 +1183,79 @@ async function enrichOnePresentationClient(
 }
 
 /**
+ * Guarantee Meridian / Northstar have PAYE people before the sales-demo
+ * timed enrich race returns. Safe to call repeatedly.
+ */
+export async function ensureDemoPayrollEmployees(): Promise<{ seeded: number }> {
+  await requireAdmin();
+  const { listClientsIncludingHidden } = await import(
+    "@/server/actions/clients"
+  );
+  const clients = (await listClientsIncludingHidden().catch(() => [])).filter(
+    (c) => c.deskProfile?.presentationDemo === PRESENTATION_DEMO_TAG,
+  );
+  let seeded = 0;
+  await Promise.all(
+    clients.map(async (client) => {
+      const name = client.name.trim().toLowerCase();
+      if (
+        name !== "meridian retail limited" &&
+        name !== "northstar digital ltd"
+      ) {
+        return;
+      }
+      try {
+        await seedPayrollEmployees(client, MERIDIAN_EMPLOYEES);
+        seeded += 1;
+      } catch (err) {
+        logRich(`payroll:${client.name}`, err);
+      }
+    }),
+  );
+  return { seeded };
+}
+
+/**
+ * RSC-safe heal for an open payroll desk — no enableEmployer / revalidatePath.
+ */
+export async function ensureDemoPayrollEmployeesQuiet(
+  clientId: string,
+): Promise<{ seeded: number }> {
+  const { getClient } = await import("@/server/actions/clients");
+  const client = await getClient(clientId);
+  const name = client.name.trim().toLowerCase();
+  if (
+    name !== "meridian retail limited" &&
+    name !== "northstar digital ltd"
+  ) {
+    return { seeded: 0 };
+  }
+  await seedPayrollEmployees(client, MERIDIAN_EMPLOYEES, {
+    skipEnableEmployer: true,
+  });
+  return { seeded: 1 };
+}
+
+/** Seed recent monthly payslips for presentation employers (no HMRC submit). */
+export async function ensureDemoPayHistoryQuiet(
+  clientId: string,
+): Promise<{ seeded: number }> {
+  const { getClient } = await import("@/server/actions/clients");
+  const client = await getClient(clientId);
+  const name = client.name.trim().toLowerCase();
+  if (
+    name !== "meridian retail limited" &&
+    name !== "northstar digital ltd"
+  ) {
+    return { seeded: 0 };
+  }
+  await seedPayroll(client, MERIDIAN_EMPLOYEES, {
+    historyYears: name === "northstar digital ltd" ? 5 : 0,
+  });
+  return { seeded: 1 };
+}
+
+/**
  * Fast path for sales-demo open: identities + people for every presentation
  * client in parallel, then heavier desks only where still needed.
  */
@@ -822,8 +1286,9 @@ export async function enrichPresentationDemoFast(): Promise<{
       try {
         await fillDemoIdentifiers(client);
         const profile = demoProfileFor(client.name);
+        const name = client.name.trim().toLowerCase();
         const people =
-          client.name.trim().toLowerCase() === "meridian retail limited"
+          name === "meridian retail limited"
             ? MERIDIAN_PEOPLE
             : (profile?.people ?? []);
         if (people.length) {

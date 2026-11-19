@@ -8,6 +8,7 @@ import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { AddressFields } from "@/components/forms/address-fields";
 import { UkDateField } from "@/components/forms/uk-date-field";
 import { addressIdentityComplete } from "@/lib/address-parts";
+import { AbbrInfo } from "@/components/desk/abbr-info";
 
 export type EditClientValues = {
   id: string;
@@ -168,8 +169,9 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
           </div>
         ) : (
           <div>
-            <label className="label" htmlFor="nino">
+            <label className="label inline-flex items-center gap-1" htmlFor="nino">
               NINO
+              <AbbrInfo code="NINO" />
             </label>
             <input
               id="nino"
@@ -180,8 +182,9 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
           </div>
         )}
         <div>
-          <label className="label" htmlFor="utr">
+          <label className="label inline-flex items-center gap-1" htmlFor="utr">
             UTR
+            <AbbrInfo code="UTR" />
           </label>
           <input
             id="utr"
@@ -200,7 +203,10 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
             checked={vatRegistered}
             onChange={(e) => setVatRegistered(e.target.checked)}
           />
-          VAT registered
+          <span className="inline-flex items-center gap-1">
+            VAT registered
+            <AbbrInfo code="VAT" />
+          </span>
         </label>
         <label className="flex items-center gap-2">
           <input
@@ -209,7 +215,10 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
             checked={payeRegistered}
             onChange={(e) => setPayeRegistered(e.target.checked)}
           />
-          PAYE registered
+          <span className="inline-flex items-center gap-1">
+            PAYE registered
+            <AbbrInfo code="PAYE" />
+          </span>
         </label>
       </div>
 
@@ -218,8 +227,12 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
           {vatRegistered ? (
             <>
               <div>
-                <label className="label" htmlFor="vrn">
+                <label
+                  className="label inline-flex items-center gap-1"
+                  htmlFor="vrn"
+                >
                   VAT registration number
+                  <AbbrInfo code="VRN" />
                 </label>
                 <input
                   id="vrn"
@@ -245,8 +258,12 @@ export function EditClientForm({ client }: { client: EditClientValues }) {
           {payeRegistered ? (
             <>
               <div>
-                <label className="label" htmlFor="payeRef">
+                <label
+                  className="label inline-flex items-center gap-1"
+                  htmlFor="payeRef"
+                >
                   PAYE reference number
+                  <AbbrInfo code="PAYE" />
                 </label>
                 <input
                   id="payeRef"

@@ -20,7 +20,9 @@ import {
 import type { CustomCategoryRow } from "@/server/actions/custom-categories";
 import {
   formatMissingMonthsSummary,
+  formatMissingPeriodPhraseForAccounts,
   missingBankMonthsByTaxYear,
+  missingBankMonthsInPeriod,
 } from "@/lib/bank/missing-statement-months";
 
 type Tx = {
@@ -79,12 +81,17 @@ export function BankCategorisedView({
   transactions,
   customCategories: initialCustom,
   missingDesk = "CT",
+  periodStart,
+  periodEnd,
 }: {
   clientId: string;
   transactions: Tx[];
   customCategories: CustomCategoryRow[];
   /** Which desk the missing-statement note refers to. */
   missingDesk?: "SA" | "VAT" | "CT";
+  /** When set (e.g. VAT quarter), missing months are scoped to this range only. */
+  periodStart?: string | null;
+  periodEnd?: string | null;
 }) {
   const router = useRouter();
   const [customCategories, setCustomCategories] =
@@ -213,11 +220,24 @@ export function BankCategorisedView({
   }, [transactions, customCategories]);
 
   const missingStatementsNote = useMemo(() => {
-    const rows = missingBankMonthsByTaxYear(
-      transactions.map((t) => t.dated),
-    ).filter((r) => r.missingMonths.length > 0);
+    const dates = transactions.map((t) => t.dated);
+    if (
+      periodStart &&
+      periodEnd &&
+      /^\d{4}-\d{2}-\d{2}$/.test(periodStart) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(periodEnd)
+    ) {
+      const row = missingBankMonthsInPeriod(dates, periodStart, periodEnd);
+      if (!row?.missingMonths.length) return "";
+      const phrase = formatMissingPeriodPhraseForAccounts(row, periodStart);
+      if (!phrase) return "";
+      return phrase.replace(/^Bank statements missing /i, "missing ");
+    }
+    const rows = missingBankMonthsByTaxYear(dates).filter(
+      (r) => r.missingMonths.length > 0,
+    );
     return formatMissingMonthsSummary(rows);
-  }, [transactions]);
+  }, [transactions, periodStart, periodEnd]);
 
   useEffect(() => {
     setCustomCategories(initialCustom);
@@ -342,10 +362,21 @@ export function BankCategorisedView({
 
   if (!transactions.length) {
     return (
-      <p className="p-6 text-sm text-ink-soft">
-        No bank lines yet. Upload a CSV, Excel, PDF, or photo of a UK statement —
-        transactions appear here grouped by category (fuel, insurance, salaries…).
-      </p>
+      <div className="space-y-3 p-4">
+        {missingStatementsNote ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            <p className="font-semibold">
+              {missingDesk} · Missing bank statements
+            </p>
+            <p className="mt-0.5 text-amber-900/90">{missingStatementsNote}</p>
+          </div>
+        ) : null}
+        <p className="text-sm text-ink-soft">
+          No bank lines yet. Upload a CSV, Excel, PDF, or photo of a UK statement
+          — transactions appear here grouped by category (fuel, insurance,
+          salaries…).
+        </p>
+      </div>
     );
   }
 

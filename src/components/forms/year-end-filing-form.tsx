@@ -35,6 +35,7 @@ import {
   type PriorYearComparatives,
 } from "@/lib/accounting-periods";
 import { computeTaxChargePence } from "@/server/hmrc/ct600/tax-charge";
+import { AbbrInfo } from "@/components/desk/abbr-info";
 
 export type YearEndFilingMode = "ct600" | "accounts" | "both";
 
@@ -578,9 +579,9 @@ export function YearEndFilingForm({
     if (priorYearComparatives) return comparativesToPlBs(priorYearComparatives).bs;
     return { ...BLANK_BS };
   });
-  const [plOpen, setPlOpen] = useState(true);
-  const [bsOpen, setBsOpen] = useState(true);
-  const [taxOpen, setTaxOpen] = useState(true);
+  const [plOpen, setPlOpen] = useState(false);
+  const [bsOpen, setBsOpen] = useState(false);
+  const [taxOpen, setTaxOpen] = useState(false);
 
   const [additions, setAdditions] = useState("0");
   const [deductions, setDeductions] = useState("0");
@@ -1289,8 +1290,8 @@ export function YearEndFilingForm({
             )}
           </section>
 
-          {/* Profit & Loss — CT600 / both, trading only */}
-          {showPl && (
+          {/* P&L / BS / Tax stay collapsed until opened; only after a period is set above. */}
+          {showPl && periodStart && periodEnd && (
             <Collapsible
               title="Profit & Loss"
               open={plOpen}
@@ -1454,7 +1455,7 @@ export function YearEndFilingForm({
           )}
 
           {/* Balance Sheet — Companies House accounts / both */}
-          {showBalanceSheet && (
+          {showBalanceSheet && periodStart && periodEnd && (
           <Collapsible
             title="Balance Sheet"
             open={bsOpen}
@@ -1625,7 +1626,7 @@ export function YearEndFilingForm({
           )}
 
           {/* Tax Computation — CT600 only & both */}
-          {needsCt && (
+          {needsCt && periodStart && periodEnd && (
             <Collapsible
               title="Tax Computation — Current Year"
               open={taxOpen}
@@ -2007,7 +2008,14 @@ export function YearEndFilingForm({
 
           {needsCt && (
             <div className="rounded-2xl border border-line p-5">
-              <h2 className="font-semibold text-ink">Corporation Tax (CT600)</h2>
+              <h2 className="inline-flex flex-wrap items-center gap-1.5 font-semibold text-ink">
+                Corporation Tax (
+                <span className="inline-flex items-center gap-0.5">
+                  CT600
+                  <AbbrInfo code="CT600" />
+                </span>
+                )
+              </h2>
               {clientId ? (
                 <>
                   <p className="mt-1 text-sm text-ink-soft">
@@ -2106,8 +2114,9 @@ export function YearEndFilingForm({
                         </svg>
                       </span>
                       <span>
-                        <span className="block font-semibold text-ink">
+                        <span className="inline-flex items-center gap-1 font-semibold text-ink">
                           CT600 download
+                          <AbbrInfo code="CT600" />
                         </span>
                         <span className="mt-0.5 block text-sm text-ink-soft">
                           Filled CT600 form with your return figures
@@ -2153,8 +2162,9 @@ export function YearEndFilingForm({
                         </svg>
                       </span>
                       <span>
-                        <span className="block font-semibold text-ink">
+                        <span className="inline-flex items-center gap-1 font-semibold text-ink">
                           CT computation
+                          <AbbrInfo code="CT" />
                         </span>
                         <span className="mt-0.5 block text-sm text-ink-soft">
                           Taxable profits and corporation tax charge

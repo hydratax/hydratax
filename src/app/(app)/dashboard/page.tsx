@@ -32,9 +32,9 @@ function buildRailLinks(): {
     },
     {
       module: "corporation_tax",
-      title: "Companies · CT600",
+      title: "CT600",
       href: "/clients?desk=ct600",
-      blurb: "Company cards · CT600 & accounts",
+      blurb: "Accounts Production and CT600 Submission",
     },
     {
       module: "self_assessment",

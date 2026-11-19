@@ -42,8 +42,11 @@ export type AccountsPackCompany = {
   approvalDate?: string; // ISO
 };
 
+/** Narrow placeholder — avoid wide em-dashes in money columns. */
+const EMPTY = "–";
+
 function gbp(pence: number, blankZero = false): string {
-  if (blankZero && pence === 0) return "-";
+  if (blankZero && pence === 0) return EMPTY;
   const neg = pence < 0;
   const abs = Math.abs(pence) / 100;
   const formatted = abs.toLocaleString("en-GB", {
@@ -54,8 +57,13 @@ function gbp(pence: number, blankZero = false): string {
 }
 
 function gbpOrDash(pence: StatementAmount | undefined, blankZero = false): string {
-  if (pence === null || pence === undefined) return "-";
+  if (pence === null || pence === undefined) return EMPTY;
   return gbp(pence, blankZero);
+}
+
+function hasUsefulText(value: string | null | undefined): boolean {
+  const t = (value ?? "").trim();
+  return Boolean(t) && t !== "-" && t !== "–" && t !== "—";
 }
 
 function yearLabel(iso: string): string {
@@ -110,7 +118,7 @@ export function renderYearEndAccountsHtml(
     negate = false,
   ) => {
     const fmt = (v: StatementAmount | number | null | undefined) => {
-      if (v === null || v === undefined) return "-";
+      if (v === null || v === undefined) return EMPTY;
       const n = negate ? -(v as number) : (v as number);
       return gbp(n);
     };
@@ -119,7 +127,7 @@ export function renderYearEndAccountsHtml(
       <td>${label}</td>
       <td class="note">${note ?? ""}</td>
       <td class="num">${fmt(cur)}</td>
-      ${showPrior ? `<td class="num">${prev === undefined ? "-" : fmt(prev)}</td>` : ""}
+      ${showPrior ? `<td class="num">${prev === undefined ? EMPTY : fmt(prev)}</td>` : ""}
     </tr>`;
   };
 
@@ -132,7 +140,7 @@ export function renderYearEndAccountsHtml(
         return `<tr>
       <td style="padding-left:12px">${draft.note8Labels[k]}</td>
       <td class="num">${gbp(cur)}</td>
-      ${showPrior ? `<td class="num">${prev === undefined ? "-" : gbp(prev)}</td>` : ""}
+      ${showPrior ? `<td class="num">${prev === undefined ? EMPTY : gbp(prev)}</td>` : ""}
     </tr>`;
       })
       .join("");
@@ -146,18 +154,23 @@ export function renderYearEndAccountsHtml(
       ([label, amount]) => `<tr>
       <td style="padding-left:12px">${escapeHtml(label)}</td>
       <td class="num">${gbp(amount)}</td>
-      ${showPrior ? `<td class="num">-</td>` : ""}
+      ${showPrior ? `<td class="num">${EMPTY}</td>` : ""}
     </tr>`,
     )
     .join("");
+
+  const bankersBlock = hasUsefulText(company.bankers)
+    ? `<div class="info-row"><div class="info-label">Bankers</div><div class="info-value">${escapeHtml(company.bankers!.trim())}</div></div>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="en-GB">
 <head>
 <meta charset="utf-8" />
-<title>${escapeHtml(company.name)} — Financial Statements ${endLabel}</title>
+<title>${escapeHtml(company.name)} - Financial Statements ${endLabel}</title>
 <style>
-  @page { size: A4; margin: 18mm 16mm; }
+  /* Zero @page margin suppresses browser URL / date headers in Chromium print. */
+  @page { size: A4; margin: 0; }
   * { box-sizing: border-box; }
   body {
     font-family: "Times New Roman", Times, serif;
@@ -167,13 +180,18 @@ export function renderYearEndAccountsHtml(
     margin: 0;
   }
   h1, h2, h3 { font-weight: 700; letter-spacing: 0.02em; }
-  .cover, .page { page-break-after: always; padding: 8mm 4mm; min-height: 240mm; }
-  .page { counter-increment: page; position: relative; }
+  .cover, .page {
+    page-break-after: always;
+    padding: 18mm 16mm;
+    min-height: 240mm;
+    position: relative;
+  }
+  .page { counter-increment: page; }
   .page::after {
     content: counter(page);
     position: absolute;
-    bottom: 0;
-    right: 0;
+    bottom: 10mm;
+    right: 16mm;
     font-size: 10pt;
     color: #444;
   }
@@ -192,30 +210,37 @@ export function renderYearEndAccountsHtml(
   table.fin td.note { width: 10%; text-align: center; color: #444; }
   .section-title { text-align: center; margin: 10mm 0 6mm; font-size: 13pt; text-transform: uppercase; }
   .company { text-align: center; font-weight: 700; text-transform: uppercase; margin-bottom: 2mm; }
+  .info-block { margin-top: 14mm; max-width: 140mm; }
+  .info-row { display: grid; grid-template-columns: 42mm 1fr; gap: 4mm 8mm; margin: 0 0 5mm; align-items: start; }
+  .info-label { font-weight: 700; }
+  .info-value { line-height: 1.4; }
   .sig { margin-top: 16mm; }
   .small { font-size: 9.5pt; }
   ul.plain { list-style: none; padding: 0; }
   .toolbar {
     position: sticky; top: 0; z-index: 5;
-    display: flex; gap: 8px; align-items: center; justify-content: flex-end;
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end;
     padding: 10px 14px; background: #0b3d4a; color: #fff;
     font-family: system-ui, sans-serif; font-size: 13px;
   }
+  .toolbar .hint { margin-right: auto; opacity: .85; font-size: 12px; max-width: 52ch; }
   .toolbar button, .toolbar a {
     background: #f4efe6; color: #0b3d4a; border: 0; border-radius: 8px;
     padding: 8px 12px; font-weight: 600; cursor: pointer; text-decoration: none;
   }
-  @media print { .toolbar { display: none; } .cover, .page { padding: 0; } }
+  @media print {
+    .toolbar { display: none !important; }
+  }
 </style>
 </head>
 <body>
   <div class="toolbar">
-    <span style="margin-right:auto;opacity:.85">Year-end accounts pack</span>
+    <span class="hint">Print tip: turn off Headers and footers in the print dialog so only one page number appears.</span>
     <button type="button" onclick="window.print()">Print / Save as PDF</button>
   </div>
 
   <section class="cover center">
-    <p class="muted">COMPANY NUMBER: ${escapeHtml(company.companyNumber || "—")}</p>
+    <p class="muted">COMPANY NUMBER: ${escapeHtml(hasUsefulText(company.companyNumber) ? company.companyNumber : EMPTY)}</p>
     <h1>${escapeHtml(company.name.toUpperCase())}</h1>
     <p class="meta"><strong>FINANCIAL STATEMENTS</strong><br/>FOR THE PERIOD ENDED<br/>${escapeHtml(endLabel.toUpperCase())}</p>
   </section>
@@ -227,8 +252,8 @@ export function renderYearEndAccountsHtml(
     <table class="fin" style="margin-top:16mm">
       <tr><td>CONTENTS</td><td class="num">PAGE</td></tr>
       <tr><td>Company Information</td><td class="num">1</td></tr>
-      <tr><td>Director’s Report</td><td class="num">2</td></tr>
-      <tr><td>Statement of Director’s Responsibilities</td><td class="num">3</td></tr>
+      <tr><td>Director's Report</td><td class="num">2</td></tr>
+      <tr><td>Statement of Director's Responsibilities</td><td class="num">3</td></tr>
       <tr><td>Accountant's Report</td><td class="num">4</td></tr>
       <tr><td>Balance Sheet</td><td class="num">5</td></tr>
       <tr><td>Profit and Loss Account</td><td class="num">6</td></tr>
@@ -241,13 +266,13 @@ export function renderYearEndAccountsHtml(
     <div class="company">${escapeHtml(company.name)}</div>
     <h2 class="section-title">Company Information</h2>
     <p class="center muted">FOR THE PERIOD ${escapeHtml(startLabel.toUpperCase())} TO ${escapeHtml(endLabel.toUpperCase())}</p>
-    <p><strong>Director:</strong> ${escapeHtml(director)}</p>
-    <p><strong>Company Number:</strong> ${escapeHtml(company.companyNumber || "—")}</p>
-    <p><strong>Registered Office:</strong><br/>${office.map(escapeHtml).join("<br/>") || "—"}</p>
-    <p><strong>Accountants:</strong><br/>${escapeHtml(accountants)}
-      ${(company.accountantsAddress ?? []).map(escapeHtml).join("<br/>")}
-    </p>
-    <p><strong>Bankers:</strong> ${escapeHtml(company.bankers ?? "—")}</p>
+    <div class="info-block">
+      <div class="info-row"><div class="info-label">Director</div><div class="info-value">${escapeHtml(director)}</div></div>
+      <div class="info-row"><div class="info-label">Company Number</div><div class="info-value">${escapeHtml(hasUsefulText(company.companyNumber) ? company.companyNumber : EMPTY)}</div></div>
+      <div class="info-row"><div class="info-label">Registered Office</div><div class="info-value">${office.map(escapeHtml).join("<br/>") || EMPTY}</div></div>
+      <div class="info-row"><div class="info-label">Accountants</div><div class="info-value">${escapeHtml(accountants)}${(company.accountantsAddress ?? []).length ? `<br/>${(company.accountantsAddress ?? []).map(escapeHtml).join("<br/>")}` : ""}</div></div>
+      ${bankersBlock}
+    </div>
   </section>
 
   <section class="page">
@@ -263,7 +288,7 @@ export function renderYearEndAccountsHtml(
     <p>Shareholders</p>
     <table class="fin" style="max-width:70mm">
       <tr><th></th><th class="num">${escapeHtml(y)}</th>${showPrior ? `<th class="num">${escapeHtml(py)}</th>` : ""}</tr>
-      <tr><td>${escapeHtml(director)}</td><td class="num">1</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+      <tr><td>${escapeHtml(director)}</td><td class="num">1</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
     </table>
     <p class="small">Ordinary shares of £1 each</p>
     <p><strong>6. Donations</strong><br/>There were no charitable or political contributions during the year.</p>
@@ -468,46 +493,46 @@ export function renderYearEndAccountsHtml(
       <h3>2.) OTHER DEBTORS</h3>
       <table class="fin">
         <tr><th></th><th class="num">${escapeHtml(y)} £</th>${showPrior ? `<th class="num">${escapeHtml(py)} £</th>` : ""}</tr>
-        <tr><td>Trade Debtors</td><td class="num">${gbp(note2?.debtors.trade ?? draft.balanceSheet.otherDebtorsPence)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-        <tr><td>VAT</td><td class="num">${gbp(note2?.debtors.vat ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-        <tr><td>PAYE</td><td class="num">${gbp(note2?.debtors.paye ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-        <tr><td>Tax Debtors</td><td class="num">${gbp(note2?.debtors.tax ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-        <tr><td>Unpaid Share Capital</td><td class="num">${gbp(note2?.debtors.unpaid_share_capital ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-        <tr><td>Other Debtors</td><td class="num">${gbp(note2?.debtors.other ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-        <tr><td><strong>Total</strong></td><td class="num"><strong>${gbp(note2?.debtorsTotalPence ?? draft.balanceSheet.otherDebtorsPence)}</strong></td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td>Trade Debtors</td><td class="num">${gbp(note2?.debtors.trade ?? draft.balanceSheet.otherDebtorsPence)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+        <tr><td>VAT</td><td class="num">${gbp(note2?.debtors.vat ?? 0, true)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+        <tr><td>PAYE</td><td class="num">${gbp(note2?.debtors.paye ?? 0, true)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+        <tr><td>Tax Debtors</td><td class="num">${gbp(note2?.debtors.tax ?? 0, true)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+        <tr><td>Unpaid Share Capital</td><td class="num">${gbp(note2?.debtors.unpaid_share_capital ?? 0, true)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+        <tr><td>Other Debtors</td><td class="num">${gbp(note2?.debtors.other ?? 0, true)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+        <tr><td><strong>Total</strong></td><td class="num"><strong>${gbp(note2?.debtorsTotalPence ?? draft.balanceSheet.otherDebtorsPence)}</strong></td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
       </table>
     </div>
     <div class="subnote">
       <h3>3.) CREDITORS — due within one year</h3>
       <table class="fin">
         <tr><th></th><th class="num">${escapeHtml(y)} £</th>${showPrior ? `<th class="num">${escapeHtml(py)} £</th>` : ""}</tr>
-        <tr><td>Trade Creditors</td><td class="num">${gbp(note2?.creditorsWithin.trade ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-        <tr><td>Corporation Tax</td><td class="num">${gbp(note2?.creditorsWithin.corporation_tax ?? draft.taxationPence)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-        <tr><td>Accountancy</td><td class="num">${gbp(note2?.creditorsWithin.accountancy ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-        <tr><td>Accruals</td><td class="num">${gbp(note2?.creditorsWithin.accruals ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-        <tr><td>VAT</td><td class="num">${gbp(note2?.creditorsWithin.vat ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-        <tr><td>PAYE</td><td class="num">${gbp(note2?.creditorsWithin.paye ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-        <tr><td>Bank Overdraft</td><td class="num">${gbp(note2?.creditorsWithin.bank_overdraft ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-        <tr><td>Other Creditors</td><td class="num">${gbp(note2?.creditorsWithin.other ?? 0, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-        <tr><td><strong>Total</strong></td><td class="num"><strong>${gbp(note2?.creditorsWithinTotalPence ?? draft.balanceSheet.creditorsWithinOneYearPence)}</strong></td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
+        <tr><td>Trade Creditors</td><td class="num">${gbp(note2?.creditorsWithin.trade ?? 0, true)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+        <tr><td>Corporation Tax</td><td class="num">${gbp(note2?.creditorsWithin.corporation_tax ?? draft.taxationPence)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+        <tr><td>Accountancy</td><td class="num">${gbp(note2?.creditorsWithin.accountancy ?? 0, true)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+        <tr><td>Accruals</td><td class="num">${gbp(note2?.creditorsWithin.accruals ?? 0, true)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+        <tr><td>VAT</td><td class="num">${gbp(note2?.creditorsWithin.vat ?? 0, true)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+        <tr><td>PAYE</td><td class="num">${gbp(note2?.creditorsWithin.paye ?? 0, true)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+        <tr><td>Bank Overdraft</td><td class="num">${gbp(note2?.creditorsWithin.bank_overdraft ?? 0, true)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+        <tr><td>Other Creditors</td><td class="num">${gbp(note2?.creditorsWithin.other ?? 0, true)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+        <tr><td><strong>Total</strong></td><td class="num"><strong>${gbp(note2?.creditorsWithinTotalPence ?? draft.balanceSheet.creditorsWithinOneYearPence)}</strong></td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
       </table>
     </div>
     <div class="subnote">
       <h3>4.) CREDITORS — due after one year</h3>
       <table class="fin"><tr><th></th><th class="num">${escapeHtml(y)} £</th>${showPrior ? `<th class="num">${escapeHtml(py)} £</th>` : ""}</tr>
-      <tr><td>Bank loan</td><td class="num">${gbpOrDash(draft.balanceSheet.creditorsAfterOneYearPence)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr></table>
+      <tr><td>Bank loan</td><td class="num">${gbpOrDash(draft.balanceSheet.creditorsAfterOneYearPence)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr></table>
     </div>
     <div class="subnote">
       <h3>5.) CALLED UP SHARE CAPITAL</h3>
       <table class="fin"><tr><th></th><th class="num">${escapeHtml(y)} £</th>${showPrior ? `<th class="num">${escapeHtml(py)} £</th>` : ""}</tr>
-      <tr><td>Authorised / Issued and fully paid</td><td class="num">${gbpOrDash(draft.balanceSheet.shareCapitalPence, true)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr></table>
+      <tr><td>Authorised / Issued and fully paid</td><td class="num">${gbpOrDash(draft.balanceSheet.shareCapitalPence, true)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr></table>
     </div>
     <div class="subnote">
       <h3>6.) PROFIT AND LOSS ACCOUNT</h3>
       <table class="fin"><tr><th></th><th class="num">${escapeHtml(y)} £</th>${showPrior ? `<th class="num">${escapeHtml(py)} £</th>` : ""}</tr>
-      <tr><td>As at start of period</td><td class="num">${gbpOrDash(draft.retainedBroughtForwardPence)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-      <tr><td>Profit/(loss) for the year</td><td class="num">${gbp(draft.profitAfterTaxPence)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr>
-      <tr><td>At end of period</td><td class="num">${gbpOrDash(draft.retainedCarriedForwardPence)}</td>${showPrior ? `<td class="num">-</td>` : ""}</tr></table>
+      <tr><td>As at start of period</td><td class="num">${gbpOrDash(draft.retainedBroughtForwardPence)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+      <tr><td>Profit/(loss) for the year</td><td class="num">${gbp(draft.profitAfterTaxPence)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr>
+      <tr><td>At end of period</td><td class="num">${gbpOrDash(draft.retainedCarriedForwardPence)}</td>${showPrior ? `<td class="num">${EMPTY}</td>` : ""}</tr></table>
     </div>
   </section>
 
@@ -528,7 +553,7 @@ export function renderYearEndAccountsHtml(
         <tr>
           <td><strong>TOTAL EXPENDITURE</strong></td>
           <td class="num"><strong>${gbp(draft.adminExpensesPence)}</strong></td>
-          ${showPrior ? `<td class="num"><strong>${prior ? gbp(prior.adminExpensesPence ?? 0) : "-"}</strong></td>` : ""}
+          ${showPrior ? `<td class="num"><strong>${prior ? gbp(prior.adminExpensesPence ?? 0) : EMPTY}</strong></td>` : ""}
         </tr>
       </tbody>
     </table>

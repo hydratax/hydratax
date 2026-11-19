@@ -11,8 +11,12 @@ export const TAX_YEAR_2026_27 = {
   smpFirstWeeks: 6,
   smpTotalWeeks: 39,
   lelWeeklyPence: 129_00,
+  /** AE qualifying earnings lower — GOV.UK / TPR 2026–27 (£6,240 / year). */
   aeLowerWeeklyPence: 120_00,
   aeLowerMonthlyPence: 520_00,
+  /** AE earnings trigger — £10,000 / year (£192 week · £833 month). */
+  aeTriggerWeeklyPence: 192_00,
+  aeTriggerMonthlyPence: 833_00,
   aeUpperWeeklyPence: 967_00,
   aeUpperMonthlyPence: 4_189_00,
   aeEmployeeBps: 500, // 5%

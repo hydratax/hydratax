@@ -2,6 +2,15 @@
 
 import { useMemo, useState } from "react";
 import { PendingLink } from "@/components/pending-link";
+import { DeskFilterBar } from "@/components/desk-filter-bar";
+import { useDeskFilterPrefs } from "@/hooks/use-desk-filter-prefs";
+import {
+  cardTintClass,
+  chipColorClass,
+  colorForMapsTo,
+  resolveFilterMapsTo,
+  type DeskFilterColor,
+} from "@/lib/desk-filter-prefs";
 import { maskUtr } from "@/lib/mask-identifiers";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import {
@@ -25,6 +34,21 @@ export type ClientListItem = {
   companiesHouse?: ClientCompaniesHouseSnapshot | null;
 };
 
+const FILTER_DEFAULTS = [
+  { id: "all", label: "All" },
+  { id: "cs_due_soon", label: "CS due soon" },
+  { id: "cs_overdue", label: "CS overdue" },
+  { id: "accounts_due_soon", label: "Accounts due soon" },
+  { id: "accounts_overdue", label: "Accounts overdue" },
+  { id: "any_due_soon", label: "Any due soon" },
+  { id: "any_overdue", label: "Any overdue" },
+] as const;
+
+const MAP_OPTIONS = FILTER_DEFAULTS.filter((f) => f.id !== "all").map((f) => ({
+  id: f.id,
+  label: f.label,
+}));
+
 function matchesClientSearch(client: ClientListItem, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
@@ -39,29 +63,29 @@ function matchesClientSearch(client: ClientListItem, query: string): boolean {
   );
 }
 
-const FILTERS: { id: FilingFilter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "cs_due_soon", label: "CS due soon" },
-  { id: "cs_overdue", label: "CS overdue" },
-  { id: "accounts_due_soon", label: "Accounts due soon" },
-  { id: "accounts_overdue", label: "Accounts overdue" },
-  { id: "any_due_soon", label: "Any due soon" },
-  { id: "any_overdue", label: "Any overdue" },
-];
-
-function urgencyClass(u: FilingUrgency) {
-  if (u === "overdue") return "filing-btn filing-btn--overdue";
-  if (u === "due_soon") return "filing-btn filing-btn--due-soon";
-  if (u === "ok") return "filing-btn filing-btn--ok";
-  return "filing-btn filing-btn--muted";
+function urgencyColor(
+  prefs: ReturnType<typeof useDeskFilterPrefs>["prefs"],
+  kind: "cs" | "accounts",
+  urgency: FilingUrgency,
+): DeskFilterColor {
+  if (urgency === "overdue") {
+    return colorForMapsTo(prefs, `${kind}_overdue`);
+  }
+  if (urgency === "due_soon") {
+    return colorForMapsTo(prefs, `${kind}_due_soon`);
+  }
+  if (urgency === "ok") return "green";
+  return "colorless";
 }
 
 function ConfirmationStatusButton({
   urgency,
   due,
+  color,
 }: {
   urgency: FilingUrgency;
   due: string | null;
+  color: DeskFilterColor;
 }) {
   const label =
     urgency === "overdue"
@@ -74,7 +98,7 @@ function ConfirmationStatusButton({
   const date = formatDueShort(due);
   return (
     <span
-      className={urgencyClass(urgency)}
+      className={chipColorClass(color)}
       title={date ? `Confirmation statement due ${date}` : "No CS due date"}
     >
       {label}
@@ -86,9 +110,11 @@ function ConfirmationStatusButton({
 function AccountsStatusButton({
   urgency,
   due,
+  color,
 }: {
   urgency: FilingUrgency;
   due: string | null;
+  color: DeskFilterColor;
 }) {
   const label =
     urgency === "overdue"
@@ -101,7 +127,7 @@ function AccountsStatusButton({
   const date = formatDueShort(due);
   return (
     <span
-      className={urgencyClass(urgency)}
+      className={chipColorClass(color)}
       title={date ? `Annual accounts due ${date}` : "No accounts due date"}
     >
       {label}
@@ -127,8 +153,9 @@ export function ClientsList({
   /** When opening from a domain desk, land on that tab. */
   openPath?: ClientOpenPath;
 }) {
-  const [filter, setFilter] = useState<FilingFilter>("all");
+  const [filterId, setFilterId] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const filterPrefs = useDeskFilterPrefs("clients", [...FILTER_DEFAULTS]);
 
   const enriched = useMemo(
     () =>
@@ -143,10 +170,13 @@ export function ClientsList({
 
   const counts = useMemo(() => {
     const c = {
+      all: clients.length,
       cs_due_soon: 0,
       cs_overdue: 0,
       accounts_due_soon: 0,
       accounts_overdue: 0,
+      any_due_soon: 0,
+      any_overdue: 0,
     };
     for (const row of enriched) {
       if (row.status.confirmation === "due_soon") c.cs_due_soon += 1;
@@ -154,17 +184,24 @@ export function ClientsList({
       if (row.status.accounts === "due_soon") c.accounts_due_soon += 1;
       if (row.status.accounts === "overdue") c.accounts_overdue += 1;
     }
+    c.any_due_soon = c.cs_due_soon + c.accounts_due_soon;
+    c.any_overdue = c.cs_overdue + c.accounts_overdue;
     return c;
-  }, [enriched]);
+  }, [clients.length, enriched]);
+
+  const activeMapsTo = resolveFilterMapsTo(
+    filterPrefs.prefs,
+    filterId,
+  ) as FilingFilter;
 
   const visible = useMemo(
     () =>
       enriched.filter(
         (row) =>
-          matchesFilingFilter(row.status, filter) &&
+          matchesFilingFilter(row.status, activeMapsTo) &&
           matchesClientSearch(row.client, searchQuery),
       ),
-    [enriched, filter, searchQuery],
+    [enriched, activeMapsTo, searchQuery],
   );
 
   const searchTrimmed = searchQuery.trim();
@@ -183,46 +220,20 @@ export function ClientsList({
         onChange={(e) => setSearchQuery(e.target.value)}
       />
 
-      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Filing filters">
-        {FILTERS.map((f) => {
-          const active = filter === f.id;
-          const count =
-            f.id === "cs_due_soon"
-              ? counts.cs_due_soon
-              : f.id === "cs_overdue"
-                ? counts.cs_overdue
-                : f.id === "accounts_due_soon"
-                  ? counts.accounts_due_soon
-                  : f.id === "accounts_overdue"
-                    ? counts.accounts_overdue
-                    : f.id === "any_due_soon"
-                      ? counts.cs_due_soon + counts.accounts_due_soon
-                      : f.id === "any_overdue"
-                        ? counts.cs_overdue + counts.accounts_overdue
-                        : clients.length;
-
-          const tone =
-            f.id.includes("overdue")
-              ? "is-overdue"
-              : f.id.includes("due_soon")
-                ? "is-due-soon"
-                : "";
-
-          return (
-            <button
-              key={f.id}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setFilter(f.id)}
-              className={`filing-filter ${tone} ${active ? "is-active" : ""}`}
-            >
-              {f.label}
-              <span className="filing-filter__count">{count}</span>
-            </button>
-          );
-        })}
-      </div>
+      <DeskFilterBar
+        label="Filing filters"
+        prefs={filterPrefs.prefs}
+        selectedId={filterId}
+        counts={counts}
+        mapOptions={MAP_OPTIONS}
+        onSelect={setFilterId}
+        onSetColor={filterPrefs.setColor}
+        onSetLabel={filterPrefs.setLabel}
+        onHide={filterPrefs.hideFilter}
+        onShow={filterPrefs.showFilter}
+        onDelete={filterPrefs.deleteFilter}
+        onAdd={filterPrefs.addFilter}
+      />
 
       <div className="grid gap-3 md:grid-cols-2">
         {visible.length === 0 && (
@@ -233,72 +244,91 @@ export function ClientsList({
           </p>
         )}
         {visible.map(({ client: c, status }) => {
-          const highlight =
+          const tintKey =
             status.worst === "overdue"
-              ? "client-card--overdue"
+              ? status.confirmation === "overdue"
+                ? "cs_overdue"
+                : "accounts_overdue"
               : status.worst === "due_soon"
-                ? "client-card--due-soon"
-                : "";
+                ? status.confirmation === "due_soon"
+                  ? "cs_due_soon"
+                  : "accounts_due_soon"
+                : "all";
+          const tint = cardTintClass(
+            colorForMapsTo(filterPrefs.prefs, tintKey),
+          );
 
           return (
             <PendingLink
               key={c.id}
               href={`/clients/${c.slug}${openPath}`}
-              className={`panel panel-interactive client-card relative z-0 flex h-full flex-col p-5 hover:z-10 ${highlight}`}
+              className={`panel panel-interactive client-card relative z-0 flex h-full flex-col p-5 hover:z-10 ${tint}`}
               pendingLabel="Opening client…"
             >
               {(pending) => (
                 <>
-              <div className="flex items-start justify-between gap-3">
-                <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
-                  {c.name}
-                </h2>
-                <span className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}>
-                  {pending ? "Opening…" : "Open"}
-                </span>
-              </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
+                      {c.name}
+                    </h2>
+                    <span
+                      className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}
+                    >
+                      {pending ? "Opening…" : "Open"}
+                    </span>
+                  </div>
 
-              <p className="mt-1 text-sm capitalize text-ink-soft">
-                {c.type.replace("_", " ")}
-              </p>
+                  <p className="mt-1 text-sm capitalize text-ink-soft">
+                    {c.type.replace("_", " ")}
+                  </p>
 
-              {c.type === "limited_company" && (
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <ConfirmationStatusButton
-                    urgency={status.confirmation}
-                    due={status.confirmationDue}
-                  />
-                  <AccountsStatusButton
-                    urgency={status.accounts}
-                    due={status.accountsDue}
-                  />
-                </div>
-              )}
+                  {c.type === "limited_company" && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <ConfirmationStatusButton
+                        urgency={status.confirmation}
+                        due={status.confirmationDue}
+                        color={urgencyColor(
+                          filterPrefs.prefs,
+                          "cs",
+                          status.confirmation,
+                        )}
+                      />
+                      <AccountsStatusButton
+                        urgency={status.accounts}
+                        due={status.accountsDue}
+                        color={urgencyColor(
+                          filterPrefs.prefs,
+                          "accounts",
+                          status.accounts,
+                        )}
+                      />
+                    </div>
+                  )}
 
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                {c.isVatRegistered && (
-                  <span className="badge badge-sea">VAT</span>
-                )}
-                {c.isEmployer && (
-                  <span className="badge badge-muted">PAYE</span>
-                )}
-                {c.type === "limited_company" && (
-                  <span className="badge badge-muted">CT600</span>
-                )}
-                {c.type !== "limited_company" && (
-                  <span className="badge badge-muted">Self Assessment</span>
-                )}
-              </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {c.isVatRegistered && (
+                      <span className="badge badge-sea">VAT</span>
+                    )}
+                    {c.isEmployer && (
+                      <span className="badge badge-muted">PAYE</span>
+                    )}
+                    {c.type === "limited_company" && (
+                      <span className="badge badge-muted">CT600</span>
+                    )}
+                    {c.type !== "limited_company" && (
+                      <span className="badge badge-muted">Self Assessment</span>
+                    )}
+                  </div>
 
-              <p className="mono mt-auto pt-4 text-xs text-ink-soft">
-                {[
-                  c.vrn && `VRN ${c.vrn}`,
-                  c.utr && `UTR ${maskUtr(c.utr)}`,
-                  c.companyNumber,
-                ]
-                  .filter(Boolean)
-                  .join(" · ") || "No identifiers yet"}
-              </p>
+                  <p className="mono mt-auto pt-4 text-xs text-ink-soft">
+                    {[
+                      c.vrn && `VRN ${c.vrn}`,
+                      c.utr && `UTR ${maskUtr(c.utr)}`,
+                      c.companyNumber,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "No identifiers yet"}
+                  </p>
                 </>
               )}
             </PendingLink>

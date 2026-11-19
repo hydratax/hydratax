@@ -8,6 +8,15 @@ import { RaiseTicketButton } from "@/components/support/raise-ticket-button";
 import { ExitPresentationDemoButton } from "@/components/exit-presentation-demo-button";
 
 type NavItem = { href: string; label: string };
+type ServiceNavItem =
+  | NavItem
+  | { label: string; children: NavItem[] };
+
+function isServiceGroup(
+  item: ServiceNavItem,
+): item is { label: string; children: NavItem[] } {
+  return "children" in item && Array.isArray(item.children);
+}
 
 /**
  * Practice desk header — desktop links + account menu;
@@ -23,7 +32,7 @@ export function AppShellHeader({
   platformAdmin = false,
   presentationDemo = false,
 }: {
-  serviceItems: NavItem[];
+  serviceItems: ServiceNavItem[];
   links: NavItem[];
   accessBadge?: string | null;
   userEmail?: string | null;
@@ -164,17 +173,44 @@ export function AppShellHeader({
                   className="absolute right-0 top-full z-40 min-w-[220px] pt-2 sm:left-0 sm:right-auto"
                 >
                   <div className="rounded-lg border border-line bg-white py-2 shadow-lg">
-                    {serviceItems.map((item) => (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        role="menuitem"
-                        className="block px-4 py-2 text-ink-soft hover:bg-sand hover:text-ink"
-                        onClick={() => setServicesOpen(false)}
-                      >
-                        {item.label}
-                      </Link>
-                    ))}
+                    {serviceItems.map((item) =>
+                      isServiceGroup(item) ? (
+                        <details
+                          key={item.label}
+                          className="group border-t border-line first:border-t-0"
+                        >
+                          <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-2 text-ink-soft hover:bg-sand hover:text-ink marker:content-none [&::-webkit-details-marker]:hidden">
+                            <span>{item.label}</span>
+                            <span className="text-[0.65rem] opacity-70" aria-hidden>
+                              ▾
+                            </span>
+                          </summary>
+                          <div className="pb-1">
+                            {item.children.map((child) => (
+                              <Link
+                                key={child.href}
+                                href={child.href}
+                                role="menuitem"
+                                className="block px-6 py-2 text-sm text-ink-soft hover:bg-sand hover:text-ink"
+                                onClick={() => setServicesOpen(false)}
+                              >
+                                {child.label}
+                              </Link>
+                            ))}
+                          </div>
+                        </details>
+                      ) : (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          role="menuitem"
+                          className="block px-4 py-2 text-ink-soft hover:bg-sand hover:text-ink"
+                          onClick={() => setServicesOpen(false)}
+                        >
+                          {item.label}
+                        </Link>
+                      ),
+                    )}
                   </div>
                 </div>
               )}
@@ -399,16 +435,42 @@ export function AppShellHeader({
                   <p className="px-3 pb-2 pt-1 text-xs font-bold uppercase tracking-[0.14em] text-ink-soft">
                     Services
                   </p>
-                  {serviceItems.map((item) => (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className="rounded-lg px-3 py-3 text-ink hover:bg-sand"
-                      onClick={closeMobile}
-                    >
-                      {item.label}
-                    </Link>
-                  ))}
+                  {serviceItems.map((item) =>
+                    isServiceGroup(item) ? (
+                      <details
+                        key={item.label}
+                        className="rounded-lg px-1 py-1"
+                      >
+                        <summary className="flex cursor-pointer list-none items-center justify-between rounded-lg px-2 py-3 text-ink hover:bg-sand marker:content-none [&::-webkit-details-marker]:hidden">
+                          <span>{item.label}</span>
+                          <span className="text-xs text-ink-soft" aria-hidden>
+                            ▾
+                          </span>
+                        </summary>
+                        <div className="pb-1 pl-2">
+                          {item.children.map((child) => (
+                            <Link
+                              key={child.href}
+                              href={child.href}
+                              className="block rounded-lg px-3 py-2.5 text-sm text-ink-soft hover:bg-sand hover:text-ink"
+                              onClick={closeMobile}
+                            >
+                              {child.label}
+                            </Link>
+                          ))}
+                        </div>
+                      </details>
+                    ) : (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className="rounded-lg px-3 py-3 text-ink hover:bg-sand"
+                        onClick={closeMobile}
+                      >
+                        {item.label}
+                      </Link>
+                    ),
+                  )}
                   <div className="my-2 border-t border-line" />
                 </>
               ) : null}

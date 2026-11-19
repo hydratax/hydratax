@@ -1,12 +1,39 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { isSupabaseConfigured } from "@/lib/env";
 
-/** Floating Book a demo — shown on public marketing pages only. */
+/** Floating Book a demo — public marketing pages only; hidden when signed in. */
 export function BookDemoFab() {
   const pathname = usePathname() || "/";
-  const hide =
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) {
+      setSignedIn(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const supabase = createClient();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!cancelled) setSignedIn(Boolean(session?.user));
+      } catch {
+        if (!cancelled) setSignedIn(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const hidePath =
     pathname.startsWith("/dashboard") ||
     pathname.startsWith("/clients") ||
     pathname.startsWith("/settings") ||
@@ -17,9 +44,14 @@ export function BookDemoFab() {
     pathname.startsWith("/create-account") ||
     pathname.startsWith("/book-demo") ||
     pathname.startsWith("/checkout") ||
-    pathname.startsWith("/portal");
+    pathname.startsWith("/portal") ||
+    pathname.startsWith("/invoices") ||
+    pathname.startsWith("/payroll") ||
+    pathname.startsWith("/self-assessment") ||
+    pathname.startsWith("/vat") ||
+    pathname.startsWith("/corporation-tax");
 
-  if (hide) return null;
+  if (hidePath || signedIn === true || signedIn === null) return null;
 
   return (
     <Link

@@ -33,6 +33,7 @@ import { saFiledCategory } from "@/lib/sa-filed-docs";
 import { messageFromUnknown } from "@/lib/action-error";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { SaTaxYearActionsMenu } from "@/components/forms/sa-tax-year-actions-menu";
+import { AbbrInfo } from "@/components/desk/abbr-info";
 
 export type SaFiledDocRow = {
   id: string;
@@ -133,21 +134,14 @@ export function SaTaxYearWorkspace({
   );
 
   const yearCards = useMemo(() => {
-    // Only show years the user has started (draft/filed) or explicitly added.
-    // Never auto-seed overdue empty years onto the desk.
+    // Only show years the user has started (draft/filed) or explicitly added
+    // via “Add tax year” above — never auto-drop an empty filing year onto the desk.
     const fromReturns = returns.map((r) => r.taxYear);
     const fromDocs = filedDocs
       .map((d) => d.taxYear)
       .filter((y): y is string => Boolean(y));
-    const filingUrgency = saFilingUrgency(filingYear, "none");
-    const includeFilingYear = filingUrgency !== "overdue";
     const labels = Array.from(
-      new Set([
-        ...(includeFilingYear ? [filingYear.label] : []),
-        ...fromReturns,
-        ...fromDocs,
-        ...extraYears,
-      ]),
+      new Set([...fromReturns, ...fromDocs, ...extraYears]),
     ).filter(
       (l) => !hiddenYears.includes(l) && !removedYears.includes(l),
     );
@@ -176,7 +170,6 @@ export function SaTaxYearWorkspace({
     extraYears,
     hiddenYears,
     removedYears,
-    filingYear,
     returnYears,
     docsByYear,
   ]);
@@ -425,8 +418,13 @@ export function SaTaxYearWorkspace({
       <div ref={rootRef} id="sa-tax-return" className="space-y-6 scroll-mt-24">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.12em] text-sea">
-              Filing · SA100 {active.label}
+            <p className="inline-flex flex-wrap items-center gap-1 text-xs font-bold uppercase tracking-[0.12em] text-sea">
+              Filing ·
+              <span className="inline-flex items-center gap-0.5">
+                SA100
+                <AbbrInfo code="SA100" />
+              </span>{" "}
+              {active.label}
             </p>
             <p className="mt-1 text-sm text-ink-soft">
               Expand each section to add details
@@ -559,115 +557,79 @@ export function SaTaxYearWorkspace({
             : saUrgencyLabel(urgency, submitted);
           return (
             <li key={year.label} className="relative overflow-visible">
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => openFiling(year)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    openFiling(year);
-                  }
-                }}
-                className={`panel panel-interactive flex w-full cursor-pointer flex-col gap-3 overflow-visible p-4 text-left sm:flex-row sm:items-center sm:justify-between ${saCardUrgencyClass(urgency, submitted)}`}
+              <details
+                className={`panel group overflow-visible ${saCardUrgencyClass(urgency, submitted)}`}
               >
-                <div className="min-w-0 flex-1 space-y-1.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="display text-xl text-ink">
-                      {year.label}
-                    </span>
-                    <span className="text-xs text-ink-soft">
-                      {formatSaTaxYearRange(year)}
-                    </span>
-                    {badge ? (
-                      <span
-                        className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
-                          submitted
-                            ? "bg-emerald-50 text-emerald-800"
-                            : isDraft
-                              ? "bg-sand text-ink"
-                              : urgency === "overdue"
-                                ? "bg-red-50 text-red-800"
-                                : "bg-sea/10 text-sea"
-                        }`}
-                      >
-                        {badge}
+                <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 p-4 marker:content-none [&::-webkit-details-marker]:hidden">
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="display text-xl text-ink">
+                        {year.label}
                       </span>
-                    ) : (
-                      <span className="rounded-md border border-line px-2 py-0.5 text-xs font-semibold text-ink-soft">
-                        Not started
+                      <span className="text-xs text-ink-soft">
+                        {formatSaTaxYearRange(year)}
                       </span>
-                    )}
-                  </div>
-                  {(docs?.return || docs?.sa302) && (
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-soft">
-                      {docs.return ? (
+                      {badge ? (
                         <span
-                          role="link"
-                          tabIndex={0}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            window.open(
-                              docs.return!.blobUrl,
-                              "_blank",
-                              "noopener,noreferrer",
-                            );
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              window.open(
-                                docs.return!.blobUrl,
-                                "_blank",
-                                "noopener,noreferrer",
-                              );
-                            }
-                          }}
-                          className="font-medium text-sea hover:underline"
-                          title={docs.return.filename}
+                          className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
+                            submitted
+                              ? "bg-emerald-50 text-emerald-800"
+                              : isDraft
+                                ? "bg-sand text-ink"
+                                : urgency === "overdue"
+                                  ? "bg-red-50 text-red-800"
+                                  : "bg-sea/10 text-sea"
+                          }`}
                         >
-                          view SA100
+                          {badge}
+                        </span>
+                      ) : (
+                        <span className="rounded-md border border-line px-2 py-0.5 text-xs font-semibold text-ink-soft">
+                          Not started
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft group-open:hidden">
+                    Open ▾
+                  </span>
+                  <span className="hidden text-xs font-semibold uppercase tracking-wide text-ink-soft group-open:inline">
+                    Close ▴
+                  </span>
+                </summary>
+                <div className="space-y-3 border-t border-line px-4 pb-4 pt-3">
+                  {(docs?.return || docs?.sa302) && (
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-soft">
+                      {docs.return ? (
+                        <span className="inline-flex items-center gap-1">
+                          <a
+                            href={docs.return.blobUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-medium text-sea hover:underline"
+                            title={docs.return.filename}
+                          >
+                            view SA100
+                          </a>
+                          <AbbrInfo code="SA100" />
                         </span>
                       ) : null}
                       {docs.sa302 ? (
-                        <span
-                          role="link"
-                          tabIndex={0}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            window.open(
-                              docs.sa302!.blobUrl,
-                              "_blank",
-                              "noopener,noreferrer",
-                            );
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              window.open(
-                                docs.sa302!.blobUrl,
-                                "_blank",
-                                "noopener,noreferrer",
-                              );
-                            }
-                          }}
-                          className="font-medium text-sea hover:underline"
-                          title={docs.sa302.filename}
-                        >
-                          view SA302
+                        <span className="inline-flex items-center gap-1">
+                          <a
+                            href={docs.sa302.blobUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-medium text-sea hover:underline"
+                            title={docs.sa302.filename}
+                          >
+                            view SA302
+                          </a>
+                          <AbbrInfo code="SA302" />
                         </span>
                       ) : null}
                     </div>
                   )}
-                </div>
-
-                <div
-                  className="relative flex shrink-0"
-                  onClick={(e) => e.stopPropagation()}
-                  onKeyDown={(e) => e.stopPropagation()}
-                >
                   <div className="inline-flex overflow-hidden rounded-lg border border-sea/40 bg-white shadow-sm">
                     <button
                       type="button"
@@ -695,7 +657,7 @@ export function SaTaxYearWorkspace({
                     />
                   </div>
                 </div>
-              </div>
+              </details>
             </li>
           );
         })}
@@ -791,7 +753,10 @@ export function SaTaxYearWorkspace({
                             });
                           }}
                         >
-                          As SA100
+                          <span className="inline-flex items-center gap-1">
+                            As SA100
+                            <AbbrInfo code="SA100" />
+                          </span>
                         </button>
                         <button
                           type="button"
@@ -823,7 +788,10 @@ export function SaTaxYearWorkspace({
                             });
                           }}
                         >
-                          As SA302
+                          <span className="inline-flex items-center gap-1">
+                            As SA302
+                            <AbbrInfo code="SA302" />
+                          </span>
                         </button>
                       </div>
                     </li>

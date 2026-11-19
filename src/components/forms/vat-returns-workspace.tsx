@@ -20,6 +20,7 @@ import {
 } from "@/components/forms/vat-bank-desk";
 import { VatPullStatementsDialog } from "@/components/forms/vat-pull-statements-dialog";
 import { UkDateField } from "@/components/forms/uk-date-field";
+import { AbbrInfo } from "@/components/desk/abbr-info";
 import { VAT_BOX_DEFINITIONS } from "@/lib/hmrc/filing-guides";
 import { money } from "@/lib/format";
 import { pence } from "@/server/money/pence";
@@ -790,12 +791,39 @@ export function VatReturnsWorkspace({
         <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
           {clientName}
         </p>
-        <h1 className="display mt-1 text-4xl text-ink md:text-5xl">
-          VAT Returns
+        <h1 className="display mt-1 inline-flex flex-wrap items-center gap-2 text-4xl text-ink md:text-5xl">
+          <span className="inline-flex items-center gap-1.5">
+            VAT
+            <AbbrInfo code="VAT" />
+          </span>
+          Returns
         </h1>
-        <p className="mt-1 text-ink-soft">
-          File MTD VAT to HMRC
-          {vrn ? ` · VRN ${vrn}` : " · VRN required"}
+        <p className="mt-1 flex flex-wrap items-center gap-x-1 text-ink-soft">
+          File
+          <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+            MTD
+            <AbbrInfo code="MTD" />
+          </span>
+          VAT to HMRC
+          {vrn ? (
+            <>
+              {" · "}
+              <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+                VRN
+                <AbbrInfo code="VRN" />
+              </span>{" "}
+              {vrn}
+            </>
+          ) : (
+            <>
+              {" · "}
+              <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+                VRN
+                <AbbrInfo code="VRN" />
+              </span>{" "}
+              required
+            </>
+          )}
           {hasVatRegDate
             ? ` · registered ${prettyRegDate(vatRegistrationDate)}`
             : " · registration date required"}
@@ -820,8 +848,9 @@ export function VatReturnsWorkspace({
         <div className="relative min-h-[22rem] lg:min-h-0">
         <aside className="flex flex-col gap-4 lg:absolute lg:inset-0 lg:overflow-hidden">
           <div className="panel shrink-0 overflow-y-auto p-4 lg:max-h-[46%]">
-            <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
+            <h2 className="inline-flex items-center gap-1 text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
               VAT periods
+              <AbbrInfo code="VAT" />
             </h2>
 
             {hasEarlierQuarters ? (

@@ -135,6 +135,24 @@ describe("RTI EPS package", () => {
     });
     xsdValidate("eps", "26-27", eps.bodyInner);
   });
+
+  it("XSD-validates EPS with RecoverableAmountsYTD", () => {
+    const eps = buildEpsXml({
+      employerPayeRef: "123/AB45678",
+      accountsOfficeRef: "123PA00045678",
+      taxYear: "26-27",
+      periodStart: "2026-10-06",
+      periodEnd: "2026-11-05",
+      noPaymentForPeriod: false,
+      recoverables: {
+        taxMonth: 7,
+        smpRecoveredPence: 50_000,
+        nicCompensationOnSmpPence: 4_000,
+      },
+    });
+    expect(eps.bodyInner).toContain("<SMPRecovered>500.00</SMPRecovered>");
+    xsdValidate("eps", "26-27", eps.bodyInner);
+  });
 });
 
 describe("RTI FPS package (HMRC FullPaymentSubmission XSD)", () => {
@@ -173,6 +191,30 @@ describe("RTI FPS package (HMRC FullPaymentSubmission XSD)", () => {
       frequency: "M1",
       lines: [line],
     });
+    xsdValidate("fps", "26-27", fps.bodyInner);
+  });
+
+  it("XSD-validates FPS with student loan and postgraduate loan", () => {
+    const line = calculatePeriodPay(
+      baseEmp({
+        studentLoanPlan: "02",
+        postgraduateLoan: true,
+        payDate: "2026-11-28",
+        taxYear: "26-27",
+      }),
+      "M1",
+    );
+    expect(line.studentLoanPence).toBeGreaterThan(0);
+    const fps = buildFpsXml({
+      employerPayeRef: "123/AB45678",
+      accountsOfficeRef: "123PA00045678",
+      payDate: "2026-11-28",
+      taxYear: "26-27",
+      frequency: "M1",
+      lines: [line],
+    });
+    expect(fps.bodyInner).toContain('StudentLoanRecovered PlanType="02"');
+    expect(fps.bodyInner).toContain("<PostgradLoanRecovered>");
     xsdValidate("fps", "26-27", fps.bodyInner);
   });
 

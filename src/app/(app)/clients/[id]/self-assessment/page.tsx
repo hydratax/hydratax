@@ -23,6 +23,7 @@ import { SaDirectorIncomeDesk } from "@/components/forms/sa-director-income-desk
 import { SaPersonProfile } from "@/components/forms/sa-person-profile";
 import { SaTaxYearWorkspace } from "@/components/forms/sa-tax-year-workspace";
 import { ClientDeskWorklogs } from "@/components/client-desk-worklogs";
+import { AbbrInfo } from "@/components/desk/abbr-info";
 import { money } from "@/lib/format";
 import {
   normalizePersonName,
@@ -159,7 +160,13 @@ export default async function SelfAssessmentPage({
           <h1 className="display text-3xl text-ink md:text-4xl">
             Self Assessment
           </h1>
-          <p className="mt-1 text-sm text-ink-soft">Tax year 2025–26 · SA100</p>
+          <p className="mt-1 inline-flex flex-wrap items-center gap-1 text-sm text-ink-soft">
+            Tax year 2025–26 ·
+            <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+              SA100
+              <AbbrInfo code="SA100" />
+            </span>
+          </p>
         </div>
       ) : null}
 

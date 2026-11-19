@@ -356,19 +356,14 @@ export function VatQuarterBreakdowns({
               </div>
             </summary>
             <div className="border-t border-line px-2 pb-3 pt-1" id={id}>
-              {lines.length === 0 ? (
-                <p className="px-3 py-4 text-sm text-ink-soft">
-                  No bank lines in {title} yet. Upload on Books bank data or
-                  convert statements on Books.
-                </p>
-              ) : (
-                <BankCategorisedView
-                  clientId={clientId}
-                  transactions={lines}
-                  customCategories={customCategories}
-                  missingDesk="VAT"
-                />
-              )}
+              <BankCategorisedView
+                clientId={clientId}
+                transactions={lines}
+                customCategories={customCategories}
+                missingDesk="VAT"
+                periodStart={period.start}
+                periodEnd={period.end}
+              />
               <p className="mt-2 px-3 text-xs text-ink-soft">
                 Range {formatPeriodRange(period.start, period.end)}
               </p>

@@ -146,11 +146,21 @@ export async function seedPresentationDemoClients(): Promise<SeedPresentationRes
     }
   }
 
-  const { enrichPresentationDemoFast } = await import(
-    "@/server/actions/presentation-rich-demo"
-  );
+  const {
+    enrichPresentationDemoFast,
+    ensureDemoPayrollEmployees,
+  } = await import("@/server/actions/presentation-rich-demo");
 
-  // Cap enrich so the action cannot hang the sales-demo page indefinitely.
+  // Payroll headcount must finish before the timed enrich race — otherwise the
+  // sales-demo request returns and employees never land.
+  await ensureDemoPayrollEmployees().catch((err) => {
+    console.error(
+      "[presentation-demo] payroll seed failed",
+      err instanceof Error ? err.message : err,
+    );
+  });
+
+  // Cap remaining enrich so the action cannot hang the sales-demo page indefinitely.
   await Promise.race([
     enrichPresentationDemoFast().catch((err) => {
       console.error(

@@ -245,6 +245,19 @@ export const employees = pgTable(
     payBasis: text("pay_basis").notNull().default("salary"),
     pensionOptOut: boolean("pension_opt_out").notNull().default(false),
     sspQualifyingDays: integer("ssp_qualifying_days").notNull().default(5),
+    /** cumulative | week1Month1 — Week1/Month1 tax basis. */
+    taxBasis: text("tax_basis").notNull().default("cumulative"),
+    /** FPS PlanType 01|02|04|05 or empty. */
+    studentLoanPlan: text("student_loan_plan"),
+    postgraduateLoan: boolean("postgraduate_loan").notNull().default(false),
+    /** Director → NIC on FPS. */
+    isDirector: boolean("is_director").notNull().default(false),
+    /** AN = annual earnings period; AL = alternative (period) method. */
+    directorsNicMethod: text("directors_nic_method").notNull().default("AN"),
+    /** Future BACS — sort code digits only. */
+    bankSortCode: text("bank_sort_code"),
+    bankAccountNumber: text("bank_account_number"),
+    bankAccountName: text("bank_account_name"),
     /** P45 figures from a previous employer in the same tax year (pence). */
     bfTaxYear: text("bf_tax_year"),
     bfTaxablePence: integer("bf_taxable_pence").notNull().default(0),
@@ -656,9 +669,123 @@ export const hmrcSaFormTemplates = pgTable(
   ],
 );
 
+/** Bureau bulk employee CSV pack jobs (DB-backed queue). */
+export const bulkImportJobs = pgTable(
+  "bulk_import_jobs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    practiceId: uuid("practice_id")
+      .notNull()
+      .references(() => practices.id),
+    createdBy: text("created_by"),
+    kind: text("kind").notNull().default("employee_csv_pack"),
+    status: text("status").notNull().default("queued"),
+    sourceLabel: text("source_label"),
+    artifactKey: text("artifact_key"),
+    totalItems: integer("total_items").notNull().default(0),
+    completedItems: integer("completed_items").notNull().default(0),
+    failedItems: integer("failed_items").notNull().default(0),
+    progressPct: integer("progress_pct").notNull().default(0),
+    errorSummary: text("error_summary"),
+    meta: jsonb("meta").notNull().default({}),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("bulk_import_jobs_practice_idx").on(t.practiceId),
+    index("bulk_import_jobs_status_idx").on(t.status),
+  ],
+);
+
+export const bulkImportJobItems = pgTable(
+  "bulk_import_job_items",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => bulkImportJobs.id),
+    practiceId: uuid("practice_id")
+      .notNull()
+      .references(() => practices.id),
+    clientId: uuid("client_id").references(() => clients.id),
+    matchKey: text("match_key").notNull(),
+    matchKind: text("match_kind").notNull().default("company_number"),
+    filename: text("filename"),
+    status: text("status").notNull().default("queued"),
+    csvText: text("csv_text"),
+    employeesCreated: integer("employees_created").notNull().default(0),
+    employeesUpdated: integer("employees_updated").notNull().default(0),
+    employeesSkipped: integer("employees_skipped").notNull().default(0),
+    errorMessage: text("error_message"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    claimedBy: text("claimed_by"),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("bulk_import_job_items_job_idx").on(t.jobId),
+    index("bulk_import_job_items_claim_idx").on(t.status),
+  ],
+);
+
+/** Throttled RTI FPS/EPS submit queue (per practice serialization). */
+export const rtiSubmitJobs = pgTable(
+  "rti_submit_jobs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    practiceId: uuid("practice_id")
+      .notNull()
+      .references(() => practices.id),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id),
+    payRunId: uuid("pay_run_id"),
+    kind: text("kind").notNull(),
+    status: text("status").notNull().default("queued"),
+    priority: integer("priority").notNull().default(100),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(5),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastError: text("last_error"),
+    correlationId: text("correlation_id"),
+    envelopeXml: text("envelope_xml"),
+    meta: jsonb("meta").notNull().default({}),
+    createdBy: text("created_by"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    claimedBy: text("claimed_by"),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("rti_submit_jobs_practice_queue_idx").on(t.practiceId, t.status),
+    index("rti_submit_jobs_claim_idx").on(t.status),
+  ],
+);
+
 export type Practice = typeof practices.$inferSelect;
 export type Client = typeof clients.$inferSelect;
 export type LedgerEntry = typeof ledgerEntries.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type ClientDocument = typeof clientDocuments.$inferSelect;
 export type CheckoutOrder = typeof checkoutOrders.$inferSelect;
+export type BulkImportJob = typeof bulkImportJobs.$inferSelect;
+export type BulkImportJobItem = typeof bulkImportJobItems.$inferSelect;
+export type RtiSubmitJob = typeof rtiSubmitJobs.$inferSelect;

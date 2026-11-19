@@ -93,6 +93,14 @@ export const employeeInputSchema = z.object({
   payBasis: z.enum(["salary", "hourly"]).default("salary"),
   pensionOptOut: z.boolean().default(false),
   sspQualifyingDays: z.number().int().min(1).max(7).default(5),
+  taxBasis: z.enum(["cumulative", "week1Month1"]).default("cumulative"),
+  studentLoanPlan: z.string().max(8).optional().nullable(),
+  postgraduateLoan: z.boolean().default(false),
+  isDirector: z.boolean().default(false),
+  directorsNicMethod: z.enum(["AN", "AL"]).default("AN"),
+  bankSortCode: z.string().max(6).optional().nullable(),
+  bankAccountNumber: z.string().max(8).optional().nullable(),
+  bankAccountName: z.string().max(80).optional().nullable(),
 });
 
 export const payRunInputSchema = z.object({

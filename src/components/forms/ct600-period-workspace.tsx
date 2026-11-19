@@ -17,6 +17,7 @@ import {
   type CtAccountingPeriod,
   type PriorYearComparatives,
 } from "@/lib/accounting-periods";
+import { AbbrInfo } from "@/components/desk/abbr-info";
 
 type FiledReturn = {
   id: string;
@@ -470,7 +471,11 @@ export function Ct600PeriodWorkspace({
                     />
                   ) : (
                     <>
-                      <span className="open-chip">File CT600 →</span>
+                      <span className="open-chip inline-flex items-center gap-1">
+                        File CT600
+                        <AbbrInfo code="CT600" />
+                        →
+                      </span>
                       <button
                         type="button"
                         className="btn btn-secondary text-sm"

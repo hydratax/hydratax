@@ -27,6 +27,8 @@ import {
   parseAddressParts,
 } from "@/lib/address-parts";
 import { AgentAuthorisationPanel } from "@/components/forms/agent-authorisation-panel";
+import { AbbrInfo } from "@/components/desk/abbr-info";
+import type { DeskAbbrCode } from "@/lib/desk-abbreviations";
 
 function urgencyText(u: FilingUrgency) {
   if (u === "overdue") return "text-danger font-semibold";
@@ -109,6 +111,8 @@ export default async function ClientOverviewPage({
     soft?: boolean;
     /** Multi-line soft value (e.g. address street / town / postcode) */
     lines?: string[];
+    /** Optional desk abbreviation tip next to the label */
+    abbr?: DeskAbbrCode;
   };
 
   const identifiers: IdentifierRow[] = [
@@ -124,14 +128,20 @@ export default async function ClientOverviewPage({
           },
         ]
       : []),
-    { label: "UTR", value: client.utr },
+    { label: "UTR", value: client.utr, abbr: "UTR" },
     ...(client.vrn
-      ? [{ label: "VAT registration number", value: client.vrn }]
+      ? [
+          {
+            label: "VAT registration number",
+            value: client.vrn,
+            abbr: "VRN" as const,
+          },
+        ]
       : []),
     ...(vatRegDateDisplay
       ? [{ label: "VAT registration date", value: vatRegDateDisplay }]
       : []),
-    { label: "PAYE", value: client.payeRef },
+    { label: "PAYE", value: client.payeRef, abbr: "PAYE" },
     {
       label: "Accounts Office",
       value: client.accountsOfficeRef,
@@ -226,8 +236,9 @@ export default async function ClientOverviewPage({
                         key={row.label}
                         className="col-span-2 grid grid-cols-subgrid items-start border-t border-line py-1.5 first:border-t-0"
                       >
-                        <dt className="whitespace-nowrap text-ink-soft">
+                        <dt className="inline-flex items-center gap-1 whitespace-nowrap text-ink-soft">
                           {row.label}
+                          {row.abbr ? <AbbrInfo code={row.abbr} /> : null}
                         </dt>
                         <dd
                           className={`min-w-0 break-words font-medium ${

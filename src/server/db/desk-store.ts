@@ -54,8 +54,11 @@ export async function deskInsertEmployee(row: Record<string, unknown>) {
         start_date, payroll_id, pay_frequency, ni_category, job_title, leave_date,
         starter_declaration, first_fps_sent, previous_payroll_id, hours_per_week,
         hourly_rate_pence, pay_basis, pension_opt_out, ssp_qualifying_days,
+        tax_basis, student_loan_plan, postgraduate_loan, is_director,
+        directors_nic_method,
+        bank_sort_code, bank_account_number, bank_account_name,
         bf_tax_year, bf_taxable_pence, bf_tax_pence, bf_employee_ni_pence, active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.id,
         row.client_id,
@@ -80,6 +83,14 @@ export async function deskInsertEmployee(row: Record<string, unknown>) {
         row.pay_basis ?? "salary",
         d1BoolInt(Boolean(row.pension_opt_out)),
         row.ssp_qualifying_days ?? 5,
+        row.tax_basis ?? "cumulative",
+        row.student_loan_plan ?? null,
+        d1BoolInt(Boolean(row.postgraduate_loan)),
+        d1BoolInt(Boolean(row.is_director)),
+        row.directors_nic_method === "AL" ? "AL" : "AN",
+        row.bank_sort_code ?? null,
+        row.bank_account_number ?? null,
+        row.bank_account_name ?? null,
         row.bf_tax_year ?? null,
         row.bf_taxable_pence ?? 0,
         row.bf_tax_pence ?? 0,
@@ -201,6 +212,71 @@ export async function deskInsertPayRun(row: Record<string, unknown>) {
   if (!supabase) throw new Error("Desk storage is not configured");
   const { error } = await supabase.from("pay_runs").insert(row);
   if (error) throw new Error(`Could not save pay run: ${error.message}`);
+}
+
+/** Update lines / totals / status / submit meta on an existing pay run. */
+export async function deskUpdatePayRun(
+  runId: string,
+  patch: {
+    lines?: unknown;
+    totals?: unknown;
+    status?: string;
+    fps_xml_hash?: string | null;
+    hmrc_correlation_id?: string | null;
+    submitted_at?: string | null;
+  },
+) {
+  if (isD1Configured()) {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    if (patch.lines !== undefined) {
+      sets.push("lines = ?");
+      params.push(d1Json(patch.lines));
+    }
+    if (patch.totals !== undefined) {
+      sets.push("totals = ?");
+      params.push(d1Json(patch.totals));
+    }
+    if (patch.status !== undefined) {
+      sets.push("status = ?");
+      params.push(patch.status);
+    }
+    if (patch.fps_xml_hash !== undefined) {
+      sets.push("fps_xml_hash = ?");
+      params.push(patch.fps_xml_hash);
+    }
+    if (patch.hmrc_correlation_id !== undefined) {
+      sets.push("hmrc_correlation_id = ?");
+      params.push(patch.hmrc_correlation_id);
+    }
+    if (patch.submitted_at !== undefined) {
+      sets.push("submitted_at = ?");
+      params.push(patch.submitted_at);
+    }
+    if (!sets.length) return;
+    params.push(runId);
+    await d1Execute(
+      `UPDATE pay_runs SET ${sets.join(", ")} WHERE id = ?`,
+      params,
+    );
+    return;
+  }
+  const supabase = await getSupabaseDataClient();
+  if (!supabase) throw new Error("Desk storage is not configured");
+  const body: Record<string, unknown> = {};
+  if (patch.lines !== undefined) body.lines = patch.lines;
+  if (patch.totals !== undefined) body.totals = patch.totals;
+  if (patch.status !== undefined) body.status = patch.status;
+  if (patch.fps_xml_hash !== undefined) body.fps_xml_hash = patch.fps_xml_hash;
+  if (patch.hmrc_correlation_id !== undefined) {
+    body.hmrc_correlation_id = patch.hmrc_correlation_id;
+  }
+  if (patch.submitted_at !== undefined) body.submitted_at = patch.submitted_at;
+  const { error } = await supabase
+    .from("pay_runs")
+    .update(body)
+    .eq("id", runId);
+  if (error) throw new Error(`Could not update pay run: ${error.message}`);
 }
 
 // ── Timesheets ─────────────────────────────────────────────────────────────

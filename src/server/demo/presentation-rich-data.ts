@@ -3,7 +3,7 @@
  * Amounts are illustrative; never use as live client data.
  */
 
-export const PRESENTATION_RICH_TAG = "presentation-rich-v3";
+export const PRESENTATION_RICH_TAG = "presentation-rich-v5";
 
 export const DEMO_ADDR = {
   london: "14 Meridian Way, London, E1 6AN",
@@ -43,6 +43,12 @@ export type RichPerson = {
   appointedOn?: string;
 };
 
+export type RichEmployeeScenario =
+  | "ordinary"
+  | "ssp"
+  | "smp"
+  | "unpaid_absence";
+
 export type RichEmployee = {
   forename: string;
   surname: string;
@@ -54,6 +60,8 @@ export type RichEmployee = {
   startDate: string;
   jobTitle: string;
   taxCode?: string;
+  /** Demo timesheet scenario for the seeded pay period. */
+  scenario?: RichEmployeeScenario;
 };
 
 export type RichBankLine = {
@@ -105,6 +113,7 @@ export const MERIDIAN_PEOPLE: RichPerson[] = [
   },
 ];
 
+/** Ten staff with mixed wages; one SSP, one SMP, one unpaid absence for payslip demos. */
 export const MERIDIAN_EMPLOYEES: RichEmployee[] = [
   {
     forename: "Sam",
@@ -113,9 +122,10 @@ export const MERIDIAN_EMPLOYEES: RichEmployee[] = [
     gender: "M",
     dateOfBirth: "1994-05-08",
     address: DEMO_ADDR.london,
-    annualSalaryPounds: "32000",
+    annualSalaryPounds: "38500",
     startDate: "2024-04-06",
     jobTitle: "Store manager",
+    scenario: "ordinary",
   },
   {
     forename: "Hannah",
@@ -124,9 +134,10 @@ export const MERIDIAN_EMPLOYEES: RichEmployee[] = [
     gender: "F",
     dateOfBirth: "1991-09-19",
     address: DEMO_ADDR.london,
-    annualSalaryPounds: "28000",
+    annualSalaryPounds: "27400",
     startDate: "2024-06-01",
     jobTitle: "Sales assistant",
+    scenario: "ssp",
   },
   {
     forename: "Luis",
@@ -135,9 +146,10 @@ export const MERIDIAN_EMPLOYEES: RichEmployee[] = [
     gender: "M",
     dateOfBirth: "1997-01-30",
     address: DEMO_ADDR.london,
-    annualSalaryPounds: "24500",
+    annualSalaryPounds: "22800",
     startDate: "2025-02-01",
     jobTitle: "Warehouse operative",
+    scenario: "unpaid_absence",
   },
   {
     forename: "Mei",
@@ -146,9 +158,82 @@ export const MERIDIAN_EMPLOYEES: RichEmployee[] = [
     gender: "F",
     dateOfBirth: "1990-12-12",
     address: DEMO_ADDR.london,
-    annualSalaryPounds: "36000",
+    annualSalaryPounds: "41200",
     startDate: "2023-09-01",
     jobTitle: "Buyer",
+    scenario: "smp",
+  },
+  {
+    forename: "Omar",
+    surname: "Haddad",
+    nino: "QQ889900H",
+    gender: "M",
+    dateOfBirth: "1989-04-21",
+    address: DEMO_ADDR.london,
+    annualSalaryPounds: "33600",
+    startDate: "2024-08-12",
+    jobTitle: "Supervisor",
+    scenario: "ordinary",
+  },
+  {
+    forename: "Chloe",
+    surname: "Patel",
+    nino: "QQ990011A",
+    gender: "F",
+    dateOfBirth: "1995-11-03",
+    address: DEMO_ADDR.london,
+    annualSalaryPounds: "25150",
+    startDate: "2025-01-06",
+    jobTitle: "Cashier",
+    scenario: "ordinary",
+  },
+  {
+    forename: "Daniel",
+    surname: "Wright",
+    nino: "QQ101112B",
+    gender: "M",
+    dateOfBirth: "1986-07-17",
+    address: DEMO_ADDR.manchester,
+    annualSalaryPounds: "47800",
+    startDate: "2022-11-01",
+    jobTitle: "Operations lead",
+    scenario: "ordinary",
+  },
+  {
+    forename: "Aisha",
+    surname: "Khan",
+    nino: "QQ121314C",
+    gender: "F",
+    dateOfBirth: "1998-02-28",
+    address: DEMO_ADDR.london,
+    annualSalaryPounds: "19800",
+    startDate: "2025-03-17",
+    jobTitle: "Apprentice retail",
+    scenario: "ordinary",
+  },
+  {
+    forename: "Tom",
+    surname: "Nguyen",
+    nino: "QQ151617D",
+    gender: "M",
+    dateOfBirth: "1993-06-09",
+    address: DEMO_ADDR.london,
+    annualSalaryPounds: "30500",
+    startDate: "2024-10-01",
+    jobTitle: "Stock controller",
+    scenario: "ordinary",
+  },
+  {
+    forename: "Elena",
+    surname: "Rossi",
+    nino: "QQ181920E",
+    gender: "F",
+    dateOfBirth: "1992-08-14",
+    address: DEMO_ADDR.london,
+    annualSalaryPounds: "36250",
+    startDate: "2023-05-22",
+    jobTitle: "Visual merchandiser",
+    scenario: "ordinary",
   },
 ];
 

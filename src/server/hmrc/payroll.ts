@@ -1,12 +1,29 @@
-import { pence, multiplyPence, type Pence } from "@/server/money/pence";
+import { pence, type Pence } from "@/server/money/pence";
 import { sha256Hex } from "./crypto";
 import { getHmrcConfig } from "./config";
 import {
   autoEnrolmentPension,
   buildStatutoryElements,
-  TAX_YEAR_2026_27,
   type TimesheetAdjustments,
 } from "@/server/payroll/statutory";
+import {
+  calculateClass1Ni,
+  calculatePayeTax,
+  calculateStudentLoans,
+  parseStudentLoanPlan,
+  type StudentLoanPlanType,
+  type TaxBasis,
+} from "@/server/payroll/engine";
+import {
+  buildRecoverableAmountsYtdXml,
+  hasRecoverableAmounts,
+  type EpsRecoverableAmounts,
+} from "@/server/payroll/eps-recoverables";
+import {
+  buildApprenticeshipLevyXml,
+  hasApprenticeshipLevy,
+  type ApprenticeshipLevyAmounts,
+} from "@/server/payroll/eps-levy";
 import {
   wrapRtiGovTalk,
   submitAndPollRtiXml,
@@ -15,7 +32,6 @@ import {
 } from "@/server/hmrc/rti-submit";
 import { computeRtiIrmark, injectRtiIrmark } from "@/server/hmrc/rti-irmark";
 import {
-  approximateNiBandsYtd,
   fpsAddressFromText,
   fpsNameToken,
   hoursWorkedCode,
@@ -53,6 +69,18 @@ export type EmployeePayInput = {
   pensionOptOut?: boolean;
   sspQualifyingDays?: number;
   adjustments?: TimesheetAdjustments | null;
+  /** Payment date — drives cumulative period number. */
+  payDate?: string;
+  /** RTI tax year e.g. 26-27 or 2026-27. */
+  taxYear?: string;
+  /** Cumulative (default) or Week1/Month1. */
+  taxBasis?: TaxBasis;
+  studentLoanPlan?: StudentLoanPlanType | string | null;
+  postgraduateLoan?: boolean;
+  /** Director — NIC method AN (annual) or AL (alternative / period). */
+  isDirector?: boolean;
+  /** Default AN when director. AL = period thresholds like a normal employee. */
+  directorsNicMethod?: "AN" | "AL";
 };
 
 export type PayLine = {
@@ -90,6 +118,9 @@ export type PayLine = {
   taxPence: number;
   employeeNiPence: number;
   employerNiPence: number;
+  studentLoanPlan: StudentLoanPlanType | null;
+  studentLoanPence: number;
+  postgraduateLoanPence: number;
   pensionEmployeePence: number;
   pensionEmployerPence: number;
   netPence: number;
@@ -98,13 +129,35 @@ export type PayLine = {
   ytdTaxPence: number;
   ytdEmployeeNiPence: number;
   ytdEmployerNiPence: number;
+  ytdStudentLoanPence: number;
+  ytdPostgraduateLoanPence: number;
   ytdSmpPence: number;
   ytdSppPence: number;
   ytdSapPence: number;
   ytdShppPence: number;
   ytdSpbpPence: number;
   ytdSncpPence: number;
+  /** FPS TaxCode BasisNonCumulative. */
+  basisNonCumulative: boolean;
+  /** FPS TaxCode TaxRegime S|C when applicable. */
+  taxRegime: "S" | "C" | null;
+  /** FPS TaxCode value (regime prefix stripped). */
+  fpsTaxCode: string;
+  /** FPS DirectorsNIC AN|AL when director. */
+  directorsNic: "AN" | "AL" | null;
+  /** FPS TaxWkOfApptOfDirector when director appointed mid-year. */
+  taxWeekOfAppointment: string | null;
+  niBandsYtd: {
+    atLelYtdPence: number;
+    lelToPtYtdPence: number;
+    ptToUelYtdPence: number;
+  };
   notes: string[];
+  /** Desk: payslip reversed after RTI — excluded from YTD until amend filed. */
+  reversed?: boolean;
+  reversedAt?: string | null;
+  /** Desk: this line belongs to an amend draft of a prior filed run. */
+  amendsRunId?: string | null;
 };
 
 export type YtdTotals = {
@@ -113,6 +166,8 @@ export type YtdTotals = {
   taxPence: number;
   employeeNiPence: number;
   employerNiPence?: number;
+  studentLoanPence?: number;
+  postgraduateLoanPence?: number;
   smpPence?: number;
   sppPence?: number;
   sapPence?: number;
@@ -121,7 +176,7 @@ export type YtdTotals = {
   sncpPence?: number;
 };
 
-/** Simplified UK PAYE calculator (not a full HMRC tax engine). Monthly default. */
+/** Monthly convenience wrapper around calculatePeriodPay. */
 export function calculateMonthlyPay(
   emp: Omit<EmployeePayInput, "payrollId"> & { payrollId?: string },
   ytd?: YtdTotals,
@@ -141,7 +196,7 @@ export function calculatePeriodPay(
   frequency: PayFrequency,
   ytd?: YtdTotals,
 ): PayLine {
-  const periods = frequency === "W1" ? 52 : 12;
+  const taxYear = emp.taxYear ?? "26-27";
   const elements = buildStatutoryElements({
     frequency,
     annualSalaryPence: emp.annualSalaryPence,
@@ -170,41 +225,14 @@ export function calculatePeriodPay(
     optedOut: Boolean(emp.pensionOptOut),
   });
   const taxablePay = pence(Math.max(0, Number(gross) - pension.employeePence));
-  const personalAllowancePeriod = pence(
-    Math.round(TAX_YEAR_2026_27.personalAllowancePence / periods),
-  );
-  const taxBand = pence(
-    Math.max(0, Number(taxablePay) - Number(personalAllowancePeriod)),
-  );
-  const tax = multiplyPence(taxBand, 0.2);
-  const pt =
-    frequency === "W1"
-      ? TAX_YEAR_2026_27.niPtWeeklyPence
-      : TAX_YEAR_2026_27.niPtMonthlyPence;
-  const st =
-    frequency === "W1"
-      ? TAX_YEAR_2026_27.niStWeeklyPence
-      : TAX_YEAR_2026_27.niStMonthlyPence;
-  const employeeNi = multiplyPence(
-    pence(Math.max(0, Number(gross) - pt)),
-    TAX_YEAR_2026_27.niEmployeeBps / 10_000,
-  );
-  const employerNi = multiplyPence(
-    pence(Math.max(0, Number(gross) - st)),
-    TAX_YEAR_2026_27.niEmployerBps / 10_000,
-  );
-  const net = pence(
-    Number(gross) -
-      Number(tax) -
-      Number(employeeNi) -
-      pension.employeePence,
-  );
   const prior = ytd ?? {
     grossPence: 0,
     taxablePence: 0,
     taxPence: 0,
     employeeNiPence: 0,
     employerNiPence: 0,
+    studentLoanPence: 0,
+    postgraduateLoanPence: 0,
     smpPence: 0,
     sppPence: 0,
     sapPence: 0,
@@ -212,6 +240,68 @@ export function calculatePeriodPay(
     spbpPence: 0,
     sncpPence: 0,
   };
+
+  const payDate = emp.payDate ?? new Date().toISOString().slice(0, 10);
+  const periodsElapsed = periodsElapsedInTaxYear(frequency, payDate);
+
+  const taxResult = calculatePayeTax({
+    taxCode: emp.taxCode,
+    taxBasis: emp.taxBasis,
+    frequency,
+    taxablePayPence: Number(taxablePay),
+    ytdTaxablePence: prior.taxablePence ?? prior.grossPence,
+    ytdTaxPence: prior.taxPence,
+    periodsElapsed,
+    taxYear,
+  });
+
+  const isDirector = Boolean(emp.isDirector);
+  const directorsMethod: "AN" | "AL" | null = isDirector
+    ? emp.directorsNicMethod === "AL"
+      ? "AL"
+      : "AN"
+    : null;
+  const niResult = calculateClass1Ni({
+    category: emp.niCategory || "A",
+    frequency,
+    grossPence: Number(gross),
+    ytdGrossPence: prior.grossPence,
+    ytdEmployeeNiPence: prior.employeeNiPence,
+    ytdEmployerNiPence: prior.employerNiPence ?? 0,
+    periodsElapsed,
+    taxYear,
+    // AN = annual earnings period; AL = ordinary period method (HMRC alternative).
+    directorsAnnualMethod: directorsMethod === "AN",
+  });
+  const taxWeekOfAppointment =
+    isDirector && emp.startDate
+      ? String(rtiTaxWeekNo(emp.startDate))
+      : null;
+
+  const plan = parseStudentLoanPlan(
+    emp.studentLoanPlan == null ? null : String(emp.studentLoanPlan),
+  );
+  const loans = calculateStudentLoans({
+    frequency,
+    niableEarningsPence: Number(gross),
+    studentLoanPlan: plan,
+    postgraduateLoan: Boolean(emp.postgraduateLoan),
+    taxYear,
+  });
+
+  const net = pence(
+    Number(gross) -
+      taxResult.taxPence -
+      niResult.employeeNiPence -
+      loans.studentLoanPence -
+      loans.postgraduateLoanPence -
+      pension.employeePence,
+  );
+
+  const taxRegime =
+    taxResult.parsed.regime === "S" || taxResult.parsed.regime === "C"
+      ? taxResult.parsed.regime
+      : null;
 
   return {
     employeeId: emp.id,
@@ -245,23 +335,37 @@ export function calculatePeriodPay(
     onStrike: elements.onStrike,
     grossPence: Number(gross),
     taxablePence: Number(taxablePay),
-    taxPence: Number(tax),
-    employeeNiPence: Number(employeeNi),
-    employerNiPence: Number(employerNi),
+    taxPence: taxResult.taxPence,
+    employeeNiPence: niResult.employeeNiPence,
+    employerNiPence: niResult.employerNiPence,
+    studentLoanPlan: loans.planType,
+    studentLoanPence: loans.studentLoanPence,
+    postgraduateLoanPence: loans.postgraduateLoanPence,
     pensionEmployeePence: pension.employeePence,
     pensionEmployerPence: pension.employerPence,
     netPence: Number(net),
     ytdGrossPence: prior.grossPence + Number(gross),
-    ytdTaxablePence: (prior.taxablePence ?? prior.grossPence) + Number(taxablePay),
-    ytdTaxPence: prior.taxPence + Number(tax),
-    ytdEmployeeNiPence: prior.employeeNiPence + Number(employeeNi),
-    ytdEmployerNiPence: (prior.employerNiPence ?? 0) + Number(employerNi),
+    ytdTaxablePence:
+      (prior.taxablePence ?? prior.grossPence) + Number(taxablePay),
+    ytdTaxPence: taxResult.ytdTaxPence,
+    ytdEmployeeNiPence: niResult.ytdEmployeeNiPence,
+    ytdEmployerNiPence: niResult.ytdEmployerNiPence,
+    ytdStudentLoanPence:
+      (prior.studentLoanPence ?? 0) + loans.studentLoanPence,
+    ytdPostgraduateLoanPence:
+      (prior.postgraduateLoanPence ?? 0) + loans.postgraduateLoanPence,
     ytdSmpPence: (prior.smpPence ?? 0) + elements.smpPence,
     ytdSppPence: (prior.sppPence ?? 0) + elements.sppPence,
     ytdSapPence: (prior.sapPence ?? 0) + elements.sapPence,
     ytdShppPence: (prior.shppPence ?? 0) + elements.shppPence,
     ytdSpbpPence: (prior.spbpPence ?? 0) + elements.spbpPence,
     ytdSncpPence: (prior.sncpPence ?? 0) + elements.sncpPence,
+    basisNonCumulative: taxResult.parsed.basis === "week1Month1",
+    taxRegime,
+    fpsTaxCode: taxResult.parsed.fpsCode,
+    directorsNic: directorsMethod,
+    taxWeekOfAppointment,
+    niBandsYtd: niResult.bandsYtd,
     notes: elements.notes,
   };
 }
@@ -346,13 +450,31 @@ function buildFpsEmployeeXml(
           <BirthDate>${escapeXml(l.dateOfBirth)}</BirthDate>`
     : "";
 
+  const studentLoanStarter =
+    l.studentLoanPlan || l.postgraduateLoanPence > 0 || l.studentLoanPence > 0
+      ? `${l.studentLoanPlan ? `\n            <StudentLoan>yes</StudentLoan>` : ""}${
+          l.postgraduateLoanPence > 0 || (l.ytdPostgraduateLoanPence ?? 0) > 0
+            ? `\n            <PostgradLoan>yes</PostgradLoan>`
+            : ""
+        }`
+      : "";
   const starter =
     l.isStarterThisRun && l.starterDeclaration
       ? `
           <Starter>
             ${l.startDate ? `<StartDate>${escapeXml(l.startDate)}</StartDate>` : ""}
-            <StartDec>${escapeXml(l.starterDeclaration)}</StartDec>
+            <StartDec>${escapeXml(l.starterDeclaration)}</StartDec>${studentLoanStarter}
           </Starter>`
+      : "";
+  const directorsNic =
+    l.directorsNic === "AN" || l.directorsNic === "AL"
+      ? `
+          <DirectorsNIC>${l.directorsNic}</DirectorsNIC>`
+      : "";
+  const taxWkAppt =
+    l.directorsNic && l.taxWeekOfAppointment
+      ? `
+          <TaxWkOfApptOfDirector>${escapeXml(l.taxWeekOfAppointment)}</TaxWkOfApptOfDirector>`
       : "";
   const pidChange =
     l.payrollIdChanged && l.previousPayrollId
@@ -374,7 +496,11 @@ function buildFpsEmployeeXml(
   const hours = hoursWorkedCode(l.hoursPerWeekHundredths);
   const payAfterStat = Math.max(
     0,
-    (l.taxablePence ?? l.grossPence) - l.taxPence - l.employeeNiPence,
+    (l.taxablePence ?? l.grossPence) -
+      l.taxPence -
+      l.employeeNiPence -
+      (l.studentLoanPence ?? 0) -
+      (l.postgraduateLoanPence ?? 0),
   );
   const pensionPaid =
     l.pensionEmployeePence > 0
@@ -390,27 +516,37 @@ function buildFpsEmployeeXml(
                             <OnStrike>yes</OnStrike>`
     : "";
 
-  const periods = periodsElapsedInTaxYear(opts.frequency, opts.payDate);
-  const lel =
-    opts.frequency === "W1"
-      ? TAX_YEAR_2026_27.lelWeeklyPence
-      : Math.round((TAX_YEAR_2026_27.lelWeeklyPence * 52) / 12);
-  const pt =
-    opts.frequency === "W1"
-      ? TAX_YEAR_2026_27.niPtWeeklyPence
-      : TAX_YEAR_2026_27.niPtMonthlyPence;
-  const uel =
-    opts.frequency === "W1"
-      ? TAX_YEAR_2026_27.niUelWeeklyPence
-      : TAX_YEAR_2026_27.niUelMonthlyPence;
-  const bands = approximateNiBandsYtd({
-    frequency: opts.frequency,
-    ytdGrossPence: l.ytdGrossPence,
-    periodsElapsed: periods,
-    lelPeriodPence: lel,
-    ptPeriodPence: pt,
-    uelPeriodPence: uel,
-  });
+  const bands = l.niBandsYtd;
+  const taxCodeAttrs = [
+    l.basisNonCumulative ? `BasisNonCumulative="yes"` : "",
+    l.taxRegime ? `TaxRegime="${l.taxRegime}"` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const taxCodeXml = taxCodeAttrs
+    ? `<TaxCode ${taxCodeAttrs}>${escapeXml(l.fpsTaxCode || l.taxCode)}</TaxCode>`
+    : `<TaxCode>${escapeXml(l.fpsTaxCode || l.taxCode)}</TaxCode>`;
+
+  const studentLoanRecovered =
+    l.studentLoanPence > 0 && l.studentLoanPlan
+      ? `
+                            <StudentLoanRecovered PlanType="${l.studentLoanPlan}">${penceXml(l.studentLoanPence)}</StudentLoanRecovered>`
+      : "";
+  const pglRecovered =
+    l.postgraduateLoanPence > 0
+      ? `
+                            <PostgradLoanRecovered>${penceXml(l.postgraduateLoanPence)}</PostgradLoanRecovered>`
+      : "";
+  const studentLoansTd =
+    l.ytdStudentLoanPence > 0
+      ? `
+            <StudentLoansTD>${penceXml(l.ytdStudentLoanPence)}</StudentLoansTD>`
+      : "";
+  const pglTd =
+    l.ytdPostgraduateLoanPence > 0
+      ? `
+            <PostgradLoansTD>${penceXml(l.ytdPostgraduateLoanPence)}</PostgradLoansTD>`
+      : "";
 
   return `
       <Employee>
@@ -422,11 +558,11 @@ function buildFpsEmployeeXml(
           </Name>${addressXml}${birthXml}
           <Gender>${l.gender}</Gender>
         </EmployeeDetails>
-        <Employment>${starter}
+        <Employment>${directorsNic}${taxWkAppt}${starter}
           <PayId>${escapeXml(l.payrollId)}</PayId>${pidChange}${leaver}
           <FiguresToDate>
             <TaxablePay>${penceXml(l.ytdTaxablePence ?? l.ytdGrossPence)}</TaxablePay>
-            <TotalTax>${penceXml(l.ytdTaxPence)}</TotalTax>
+            <TotalTax>${penceXml(l.ytdTaxPence)}</TotalTax>${studentLoansTd}${pglTd}
           </FiguresToDate>
           <Payment>
             <PayFreq>${opts.frequency}</PayFreq>
@@ -434,9 +570,9 @@ function buildFpsEmployeeXml(
             ${periodNo}
             <PeriodsCovered>1</PeriodsCovered>
             <HoursWorked>${hours}</HoursWorked>
-            <TaxCode>${escapeXml(l.taxCode)}</TaxCode>
+            ${taxCodeXml}
             <TaxablePay>${penceXml(l.taxablePence ?? l.grossPence)}</TaxablePay>
-            <PayAfterStatDedns>${penceXml(payAfterStat)}</PayAfterStatDedns>${pensionPaid}
+            <PayAfterStatDedns>${penceXml(payAfterStat)}</PayAfterStatDedns>${pensionPaid}${studentLoanRecovered}${pglRecovered}
             <TaxDeductedOrRefunded>${penceXml(l.taxPence)}</TaxDeductedOrRefunded>${strike}${unpaid}${optionalMoneyXml("SMPYTD", l.ytdSmpPence)}${optionalMoneyXml("SPPYTD", l.ytdSppPence)}${optionalMoneyXml("SAPYTD", l.ytdSapPence)}${optionalMoneyXml("ShPPYTD", l.ytdShppPence)}${optionalMoneyXml("SPBPYTD", l.ytdSpbpPence)}${optionalMoneyXml("SNCPYTD", l.ytdSncpPence)}
           </Payment>
           <NIlettersAndValues>
@@ -502,6 +638,8 @@ function buildEpsBodyInner(opts: {
   periodStart: string;
   periodEnd: string;
   noPaymentForPeriod?: boolean;
+  recoverables?: EpsRecoverableAmounts | null;
+  apprenticeshipLevy?: ApprenticeshipLevyAmounts | null;
 }): { bodyInner: string; irmark: string } {
   const { officeNo, reference } = parsePayeRef(opts.employerPayeRef);
   // HMRC EPS schema: NoPaymentForPeriod + NoPaymentDates/From|To (no NoPaymentPeriod wrapper).
@@ -514,8 +652,19 @@ function buildEpsBodyInner(opts: {
         </NoPaymentDates>`
     : "";
 
+  const recoverablesXml =
+    opts.recoverables && hasRecoverableAmounts(opts.recoverables)
+      ? `\n        ${buildRecoverableAmountsYtdXml(opts.recoverables)}`
+      : "";
+
+  const levyXml =
+    opts.apprenticeshipLevy && hasApprenticeshipLevy(opts.apprenticeshipLevy)
+      ? `\n        ${buildApprenticeshipLevyXml(opts.apprenticeshipLevy)}`
+      : "";
+
   // Element order is schema-fixed (HMRC EmployerPaymentSummary XSD):
-  // EmpRefs → optional NoPayment* → … → RelatedTaxYear (required, near end).
+  // EmpRefs → optional NoPayment* → EmpAllceInd → RecoverableAmountsYTD →
+  // ApprenticeshipLevy → Account → RelatedTaxYear.
   const draft = `<IRenvelope xmlns="${rtiSchemaNs("EmployerPaymentSummary", opts.taxYear)}">
       ${buildRtiIrHeader({
         employerPayeRef: opts.employerPayeRef,
@@ -527,7 +676,7 @@ function buildEpsBodyInner(opts: {
           <PayeRef>${escapeXml(reference)}</PayeRef>
           <AORef>${escapeXml(opts.accountsOfficeRef)}</AORef>
         </EmpRefs>
-        ${noPay}
+        ${noPay}${recoverablesXml}${levyXml}
         <RelatedTaxYear>${escapeXml(opts.taxYear)}</RelatedTaxYear>
       </EmployerPaymentSummary>
     </IRenvelope>`;
@@ -563,27 +712,21 @@ export function buildFpsXml(opts: {
 }
 
 /**
- * HydraTax EPS live path is no-payment only. Recoverable SMP/SPP, apprenticeship
- * levy and Bacs Account blocks are not collected — refuse rather than omit.
+ * Live EPS supports: no-payment, RecoverableAmountsYTD, and/or ApprenticeshipLevy.
+ * Bacs Account refund block remains blocked.
  */
 export function assertEpsLiveSupported(opts: {
   noPaymentForPeriod?: boolean;
   recoverableAmountsRequested?: boolean;
   apprenticeshipLevyRequested?: boolean;
 }): void {
-  if (opts.recoverableAmountsRequested) {
+  if (
+    !opts.noPaymentForPeriod &&
+    !opts.recoverableAmountsRequested &&
+    !opts.apprenticeshipLevyRequested
+  ) {
     throw new Error(
-      "EPS RecoverableAmountsYTD is not supported yet. File recoverables in another RTI product, or send a no-payment EPS only.",
-    );
-  }
-  if (opts.apprenticeshipLevyRequested) {
-    throw new Error(
-      "EPS apprenticeship levy is not supported yet. File levy in another RTI product.",
-    );
-  }
-  if (!opts.noPaymentForPeriod) {
-    throw new Error(
-      "Only no-payment EPS is supported. Ordinary payment EPS (with recoverables/levy) is not available.",
+      "EPS needs a no-payment period, statutory recoveries, or apprenticeship levy figures.",
     );
   }
 }
@@ -595,12 +738,21 @@ export function buildEpsXml(opts: {
   periodStart: string;
   periodEnd: string;
   noPaymentForPeriod?: boolean;
+  recoverables?: EpsRecoverableAmounts | null;
+  apprenticeshipLevy?: ApprenticeshipLevyAmounts | null;
   senderId?: string;
   senderPassword?: string;
   gatewayTest?: boolean;
 }): { xml: string; hash: string; bodyInner: string; irmark: string } {
+  const hasRec =
+    Boolean(opts.recoverables) && hasRecoverableAmounts(opts.recoverables!);
+  const hasLevy =
+    Boolean(opts.apprenticeshipLevy) &&
+    hasApprenticeshipLevy(opts.apprenticeshipLevy!);
   assertEpsLiveSupported({
     noPaymentForPeriod: opts.noPaymentForPeriod,
+    recoverableAmountsRequested: hasRec,
+    apprenticeshipLevyRequested: hasLevy,
   });
   const { bodyInner, irmark } = buildEpsBodyInner(opts);
   const cfg = getHmrcConfig();

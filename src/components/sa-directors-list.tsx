@@ -2,17 +2,28 @@
 
 import { useMemo, useState } from "react";
 import { PendingLink } from "@/components/pending-link";
+import { DeskFilterBar } from "@/components/desk-filter-bar";
+import { useDeskFilterPrefs } from "@/hooks/use-desk-filter-prefs";
+import {
+  cardTintClass,
+  chipColorClass,
+  colorForMapsTo,
+  resolveFilterMapsTo,
+} from "@/lib/desk-filter-prefs";
 import {
   formatSaFilingDue,
-  saCardUrgencyClass,
   saUrgencyLabel,
 } from "@/lib/sa-tax-year";
 import { urgencyForDueDate } from "@/lib/filing-due";
+import { maskNino, maskUtr } from "@/lib/mask-identifiers";
 import {
-  WORK_STAGE_FILTERS,
-  WORK_STAGE_LABEL,
+  SA_DESK_FILTERS,
+  matchesSaDeskFilter,
   mergeSaWorkStage,
+  saDeskFilterFromStage,
+  saDeskFilterLabel,
   type ClientWorkStage,
+  type SaDeskFilter,
 } from "@/lib/client-work-stage";
 import type { PracticeDirector } from "@/server/actions/sa-directors";
 import { personKeySlug } from "@/lib/sa-taxpayer";
@@ -34,6 +45,19 @@ type DirectorRow = PracticeDirector & {
   emailCount?: number;
 };
 
+const MAP_OPTIONS = SA_DESK_FILTERS.filter((f) => f.id !== "all").map((f) => ({
+  id: f.id,
+  label: f.label,
+}));
+
+function identifiersLine(nino: string | null | undefined, utr: string | null | undefined) {
+  const parts = [
+    nino ? `NINO ${maskNino(nino)}` : null,
+    utr ? `Personal UTR ${maskUtr(utr)}` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "NINO / Personal UTR not set";
+}
+
 export function SaDirectorsList({
   directors,
   soleTraders,
@@ -42,23 +66,38 @@ export function SaDirectorsList({
   soleTraders: SoleTrader[];
 }) {
   const [query, setQuery] = useState("");
-  const [stageFilter, setStageFilter] = useState<ClientWorkStage | "all">(
-    "all",
-  );
+  const [filterId, setFilterId] = useState("all");
+  const filterPrefs = useDeskFilterPrefs("sa", [...SA_DESK_FILTERS]);
 
   const stageOf = (row: {
     workStage?: ClientWorkStage;
     filing?: { status?: string };
   }) => mergeSaWorkStage(row.workStage, row.filing?.status);
 
+  const deskStageOf = (row: {
+    workStage?: ClientWorkStage;
+    filing?: { status?: string };
+  }) => saDeskFilterFromStage(stageOf(row), row.filing?.status);
+
+  const activeMapsTo = resolveFilterMapsTo(
+    filterPrefs.prefs,
+    filterId,
+  ) as SaDeskFilter;
+
   const filteredDirectors = useMemo(() => {
     const q = query.trim().toLowerCase();
     return directors.filter((d) => {
       const stage = stageOf(d);
-      if (stageFilter !== "all" && stage !== stageFilter) return false;
+      if (!matchesSaDeskFilter(stage, activeMapsTo, d.filing?.status)) {
+        return false;
+      }
       if (!q) return true;
+      const nino = d.taxpayer?.nino ?? "";
+      const utr = d.taxpayer?.utr ?? "";
       return (
         d.fullName.toLowerCase().includes(q) ||
+        nino.toLowerCase().includes(q) ||
+        utr.toLowerCase().includes(q) ||
         d.companies.some(
           (c) =>
             c.companyName.toLowerCase().includes(q) ||
@@ -66,13 +105,15 @@ export function SaDirectorsList({
         )
       );
     });
-  }, [directors, query, stageFilter]);
+  }, [directors, query, activeMapsTo]);
 
   const filteredSole = useMemo(() => {
     const q = query.trim().toLowerCase();
     return soleTraders.filter((c) => {
       const stage = stageOf(c);
-      if (stageFilter !== "all" && stage !== stageFilter) return false;
+      if (!matchesSaDeskFilter(stage, activeMapsTo, c.filing?.status)) {
+        return false;
+      }
       if (!q) return true;
       return (
         c.name.toLowerCase().includes(q) ||
@@ -80,17 +121,17 @@ export function SaDirectorsList({
         (c.nino ?? "").toLowerCase().includes(q)
       );
     });
-  }, [soleTraders, query, stageFilter]);
+  }, [soleTraders, query, activeMapsTo]);
 
   const counts = useMemo(() => {
-    const all = [
-      ...directors.map((d) => stageOf(d)),
-      ...soleTraders.map((c) => stageOf(c)),
+    const rows = [
+      ...directors.map((d) => deskStageOf(d)),
+      ...soleTraders.map((c) => deskStageOf(c)),
     ];
-    const map: Record<string, number> = { all: all.length };
-    for (const f of WORK_STAGE_FILTERS) {
+    const map: Record<string, number> = { all: rows.length };
+    for (const f of SA_DESK_FILTERS) {
       if (f.id === "all") continue;
-      map[f.id] = all.filter((s) => s === f.id).length;
+      map[f.id] = rows.filter((s) => s === f.id).length;
     }
     return map;
   }, [directors, soleTraders]);
@@ -99,109 +140,122 @@ export function SaDirectorsList({
     filteredDirectors.length === 0 && filteredSole.length === 0;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <input
           type="search"
           className="input max-w-md"
-          placeholder="Search person…"
+          placeholder="Search name, NINO, Personal UTR…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
       </div>
 
-      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Progress">
-        {WORK_STAGE_FILTERS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            role="tab"
-            aria-selected={stageFilter === f.id}
-            className={`filing-filter ${stageFilter === f.id ? "is-active" : ""}`}
-            onClick={() => setStageFilter(f.id)}
-          >
-            {f.label}
-            <span className="filing-filter__count">{counts[f.id] ?? 0}</span>
-          </button>
-        ))}
-      </div>
+      <DeskFilterBar
+        label="Progress"
+        prefs={filterPrefs.prefs}
+        selectedId={filterId}
+        counts={counts}
+        mapOptions={MAP_OPTIONS}
+        onSelect={setFilterId}
+        onSetColor={filterPrefs.setColor}
+        onSetLabel={filterPrefs.setLabel}
+        onHide={filterPrefs.hideFilter}
+        onShow={filterPrefs.showFilter}
+        onDelete={filterPrefs.deleteFilter}
+        onAdd={filterPrefs.addFilter}
+      />
 
       {empty ? (
-        <div className="panel px-5 py-8 text-center text-sm text-ink-soft">
-          {query.trim() || stageFilter !== "all"
+        <p className="py-10 text-center text-ink-soft">
+          {query.trim() || activeMapsTo !== "all"
             ? "No people match this filter."
             : "No Self Assessment people yet. Add a sole trader client, or open a limited company and fetch Companies House."}
-        </div>
+        </p>
       ) : null}
 
       {filteredDirectors.length > 0 ? (
         <section className="space-y-2">
           <h2 className="display text-2xl text-ink">People</h2>
-          <ul className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2">
             {filteredDirectors.map((d) => {
-              // Person desk — not the limited company workspace.
               const href = `/self-assessment/${personKeySlug(d.key)}`;
               const submitted =
                 d.filing.status === "submitted" ||
                 d.filing.status === "accepted";
-              const cardClass = saCardUrgencyClass(d.filing.urgency, submitted);
               const badge = saUrgencyLabel(d.filing.urgency, submitted);
-              const stage = stageOf(d);
+              const deskStage = deskStageOf(d);
               const emails = d.emailCount ?? 0;
+              const tint = cardTintClass(
+                colorForMapsTo(filterPrefs.prefs, deskStage),
+              );
               return (
-                <li key={d.key}>
-                  <PendingLink
-                    href={href}
-                    pendingLabel={`Opening ${d.fullName}…`}
-                    className={`panel panel-interactive client-card client-card--compact block px-4 py-3 ${cardClass}`}
-                  >
-                    {(pending) => (
+                <PendingLink
+                  key={d.key}
+                  href={href}
+                  pendingLabel={`Opening ${d.fullName}…`}
+                  className={`panel panel-interactive client-card relative z-0 flex h-full flex-col p-5 hover:z-10 ${tint}`}
+                >
+                  {(pending) => (
+                    <>
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="font-semibold text-ink">
-                            {d.fullName}
-                          </p>
-                          <p className="mt-1 text-xs text-ink-soft">
-                            SA {d.filing.taxYear} · file by{" "}
-                            {formatSaFilingDue({
-                              label: d.filing.taxYear,
-                              start: "",
-                              end: "",
-                              filingDue: d.filing.filingDue,
-                            })}
-                          </p>
-                          <p className="mt-1 text-xs text-ink-soft">
-                            {WORK_STAGE_LABEL[stage]}
-                            {emails > 0
-                              ? ` · ${emails} email${emails === 1 ? "" : "s"}`
-                              : ""}
-                          </p>
-                          {badge ? (
-                            <p
-                              className={`mt-1 text-xs font-semibold ${
-                                submitted
-                                  ? "text-ok"
-                                  : d.filing.urgency === "overdue"
-                                    ? "text-danger"
-                                    : "text-sea"
-                              }`}
-                            >
-                              {badge}
-                            </p>
-                          ) : null}
-                        </div>
+                        <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
+                          {d.fullName}
+                        </h2>
                         <span
                           className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}
                         >
-                          {pending ? "Opening…" : "Open SA"}
+                          {pending ? "Opening…" : "Open"}
                         </span>
                       </div>
-                    )}
-                  </PendingLink>
-                </li>
+
+                      <p className="mt-1 text-sm text-ink-soft">
+                        SA {d.filing.taxYear} · file by{" "}
+                        {formatSaFilingDue({
+                          label: d.filing.taxYear,
+                          start: "",
+                          end: "",
+                          filingDue: d.filing.filingDue,
+                        })}
+                      </p>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span
+                          className={chipColorClass(
+                            colorForMapsTo(filterPrefs.prefs, deskStage),
+                          )}
+                        >
+                          {saDeskFilterLabel(deskStage)}
+                        </span>
+                        {emails > 0 ? (
+                          <span className="filing-btn filing-btn--muted">
+                            {emails} email{emails === 1 ? "" : "s"}
+                          </span>
+                        ) : null}
+                        {badge ? (
+                          <span
+                            className={
+                              submitted
+                                ? "filing-btn filing-btn--tint-green"
+                                : d.filing.urgency === "overdue"
+                                  ? "filing-btn filing-btn--tint-red"
+                                  : "filing-btn filing-btn--tint-teal"
+                            }
+                          >
+                            {badge}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <p className="mono mt-auto pt-4 text-xs text-ink-soft">
+                        {identifiersLine(d.taxpayer?.nino, d.taxpayer?.utr)}
+                      </p>
+                    </>
+                  )}
+                </PendingLink>
               );
             })}
-          </ul>
+          </div>
         </section>
       ) : null}
 
@@ -210,7 +264,7 @@ export function SaDirectorsList({
           <h2 className="display text-2xl text-ink">
             Sole traders &amp; partners
           </h2>
-          <ul className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2">
             {filteredSole.map((c) => {
               const filing = c.filing;
               const submitted =
@@ -219,68 +273,87 @@ export function SaDirectorsList({
               const urgency =
                 filing?.urgency ??
                 urgencyForDueDate(filing?.filingDue ?? null);
-              const cardClass = filing
-                ? saCardUrgencyClass(urgency, Boolean(submitted))
-                : "";
               const badge = filing
                 ? saUrgencyLabel(urgency, Boolean(submitted))
                 : null;
-              const stage = stageOf(c);
+              const deskStage = deskStageOf(c);
               const emails = c.emailCount ?? 0;
+              const tint = cardTintClass(
+                colorForMapsTo(filterPrefs.prefs, deskStage),
+              );
               return (
-                <li key={c.id}>
-                  <PendingLink
-                    href={`/clients/${c.slug}/self-assessment`}
-                    pendingLabel={`Opening ${c.name}…`}
-                    className={`panel panel-interactive client-card client-card--compact block px-4 py-3 ${cardClass}`}
-                  >
-                    {(pending) => (
+                <PendingLink
+                  key={c.id}
+                  href={`/clients/${c.slug}/self-assessment`}
+                  pendingLabel={`Opening ${c.name}…`}
+                  className={`panel panel-interactive client-card relative z-0 flex h-full flex-col p-5 hover:z-10 ${tint}`}
+                >
+                  {(pending) => (
+                    <>
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="font-semibold text-ink">{c.name}</p>
-                          {filing ? (
-                            <p className="mt-1 text-xs text-ink-soft">
-                              SA {filing.taxYear} · file by{" "}
-                              {formatSaFilingDue({
-                                label: filing.taxYear,
-                                start: "",
-                                end: "",
-                                filingDue: filing.filingDue,
-                              })}
-                            </p>
-                          ) : null}
-                          <p className="mt-1 text-xs text-ink-soft">
-                            {WORK_STAGE_LABEL[stage]}
-                            {emails > 0
-                              ? ` · ${emails} email${emails === 1 ? "" : "s"}`
-                              : ""}
-                          </p>
-                          {badge ? (
-                            <p
-                              className={`mt-1 text-xs font-semibold ${
-                                submitted
-                                  ? "text-ok"
-                                  : urgency === "overdue"
-                                    ? "text-danger"
-                                    : "text-sea"
-                              }`}
-                            >
-                              {badge}
-                            </p>
-                          ) : null}
-                        </div>
+                        <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
+                          {c.name}
+                        </h2>
                         <span
                           className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}
                         >
-                          {pending ? "Opening…" : "Open SA"}
+                          {pending ? "Opening…" : "Open"}
                         </span>
                       </div>
-                    )}
-                  </PendingLink>
-                </li>
+
+                      {filing ? (
+                        <p className="mt-1 text-sm text-ink-soft">
+                          SA {filing.taxYear} · file by{" "}
+                          {formatSaFilingDue({
+                            label: filing.taxYear,
+                            start: "",
+                            end: "",
+                            filingDue: filing.filingDue,
+                          })}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-sm text-ink-soft">
+                          Self Assessment
+                        </p>
+                      )}
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span
+                          className={chipColorClass(
+                            colorForMapsTo(filterPrefs.prefs, deskStage),
+                          )}
+                        >
+                          {saDeskFilterLabel(deskStage)}
+                        </span>
+                        {emails > 0 ? (
+                          <span className="filing-btn filing-btn--muted">
+                            {emails} email{emails === 1 ? "" : "s"}
+                          </span>
+                        ) : null}
+                        {badge ? (
+                          <span
+                            className={
+                              submitted
+                                ? "filing-btn filing-btn--tint-green"
+                                : urgency === "overdue"
+                                  ? "filing-btn filing-btn--tint-red"
+                                  : "filing-btn filing-btn--tint-teal"
+                            }
+                          >
+                            {badge}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <p className="mono mt-auto pt-4 text-xs text-ink-soft">
+                        {identifiersLine(c.nino, c.utr)}
+                      </p>
+                    </>
+                  )}
+                </PendingLink>
               );
             })}
-          </ul>
+          </div>
         </section>
       ) : null}
     </div>

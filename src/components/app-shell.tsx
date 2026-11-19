@@ -9,21 +9,23 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
   const admin = isPlatformAdmin(session.email);
   const presentationDemo = admin ? await isPresentationDemoMode() : false;
 
-  /** Filing rails — add items only when the user asks. */
+  /** Filing rails — nested groups stay collapsed until opened. */
   const serviceItems = [
     { href: "/filings", label: "Overview" },
     { href: "/filings/corporation-tax", label: "Corporation Tax" },
-    { href: "/clients?desk=payroll", label: "PAYE" },
-    { href: "/clients?desk=vat", label: "VAT" },
-    { href: "/clients?desk=sa", label: "Self Assessment" },
     ...(full
       ? [
           {
-            href: "/filings/confirmation-statement",
-            label: "Confirmation Statement",
+            label: "Companies House",
+            children: [
+              {
+                href: "/filings/confirmation-statement",
+                label: "Confirmation Statement",
+              },
+              { href: "/filings/annual-accounts", label: "Annual accounts" },
+              { href: "/company-secretarial", label: "Company Secretarial" },
+            ],
           },
-          { href: "/filings/annual-accounts", label: "Annual accounts" },
-          { href: "/company-secretarial", label: "Company Secretarial" },
         ]
       : []),
   ];

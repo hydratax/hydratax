@@ -4,9 +4,10 @@ import { requireSession } from "@/server/auth/session";
 import { buildPracticeFilings } from "@/lib/practice-filings";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import type { FilingUrgency } from "@/lib/filing-due";
+import { AbbrInfo } from "@/components/desk/abbr-info";
 
 export const metadata = {
-  title: "Corporation Tax — HydraTax",
+  title: "CT600 — HydraTax",
 };
 
 const URGENCY_RANK: Record<FilingUrgency, number> = {
@@ -92,11 +93,17 @@ export default async function CorporationTaxListPage() {
           <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
             HMRC
           </p>
-          <h1 className="display mt-2 text-4xl text-ink md:text-5xl">
-            Corporation Tax
+          <h1 className="display mt-2 inline-flex flex-wrap items-center gap-2 text-4xl text-ink md:text-5xl">
+            CT600
+            <AbbrInfo code="CT600" />
           </h1>
           <p className="mt-2 max-w-2xl text-ink-soft">
-            Choose a company, then open a CT600 accounting period.
+            Choose a company, then open a{" "}
+            <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+              CT600
+              <AbbrInfo code="CT600" />
+            </span>{" "}
+            accounting period.
           </p>
         </div>
         <Link href="/filings" className="btn btn-secondary text-sm">

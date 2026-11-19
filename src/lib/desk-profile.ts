@@ -242,6 +242,17 @@ export type PayrollPayRate = {
   createdAt: string;
 };
 
+/** Per-employee expenses & benefits for P11D / EXB (pence). */
+export type PayrollBenefitRow = {
+  employeeId: string;
+  taxYear: string;
+  companyCarPence?: number;
+  privateMedicalPence?: number;
+  otherBenefitsPence?: number;
+  expensesPence?: number;
+  notes?: string;
+};
+
 export type PayrollDeskSettings = {
   contactName?: string;
   contactEmail?: string;
@@ -254,6 +265,18 @@ export type PayrollDeskSettings = {
   payRates?: PayrollPayRate[];
   /** Tax year label for history filter, e.g. 2025-26 */
   activeTaxYear?: string;
+  /** P11D / benefits working figures by employee */
+  benefits?: PayrollBenefitRow[];
+  /** Bacs Standard 18 — Service User Number (6 digits from bank/bureau). */
+  bacsServiceUserNumber?: string;
+  /** Paying account sort code (digits). */
+  bacsOriginatorSortCode?: string;
+  /** Paying account number (digits). */
+  bacsOriginatorAccountNumber?: string;
+  /** Name on the paying account (max 18 on the file). */
+  bacsOriginatorName?: string;
+  /** Optional 6-char file serial override. */
+  bacsFileSerial?: string;
 };
 
 export type PracticeLetterhead = {

@@ -5,6 +5,7 @@ import { BankYearEndDesk } from "@/components/forms/bank-year-end-desk";
 import { CtMissingBankChase } from "@/components/forms/ct-missing-bank-chase";
 import type { BankLedger, LivePlSummary } from "@/lib/bank-ledger";
 import { money } from "@/lib/format";
+import { AbbrInfo } from "@/components/desk/abbr-info";
 
 type Tx = {
   id: string;
@@ -66,8 +67,10 @@ export function CtAccountsProduction({
         />
 
         <div className="rounded-lg border border-line bg-sand/40 p-4">
-          <p className="text-xs font-bold uppercase text-ink-soft">
-            Corporation Tax draft (from bank)
+          <p className="inline-flex items-center gap-1 text-xs font-bold uppercase text-ink-soft">
+            Corporation Tax
+            <AbbrInfo code="CT" />
+            draft (from bank)
           </p>
           <dl className="mt-2 space-y-1 text-sm">
             <div className="flex justify-between">

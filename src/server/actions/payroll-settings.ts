@@ -5,6 +5,7 @@ import { z } from "zod";
 import { isDemoMode, isSupabaseConfigured } from "@/lib/env";
 import type {
   DeskProfile,
+  PayrollBenefitRow,
   PayrollDeskSettings,
   PayslipTemplateId,
 } from "@/lib/desk-profile";
@@ -39,6 +40,11 @@ const settingsSchema = z.object({
   documentPasswordEnabled: z.boolean().optional(),
   payRates: z.array(payRateSchema).max(50).optional(),
   activeTaxYear: z.string().max(12).optional(),
+  bacsServiceUserNumber: z.string().max(12).optional(),
+  bacsOriginatorSortCode: z.string().max(12).optional(),
+  bacsOriginatorAccountNumber: z.string().max(16).optional(),
+  bacsOriginatorName: z.string().max(40).optional(),
+  bacsFileSerial: z.string().max(6).optional(),
 });
 
 function readSettings(profile: DeskProfile | null | undefined): PayrollDeskSettings {
@@ -125,6 +131,26 @@ export async function savePayrollDeskSettings(
       data.documentPasswordEnabled ?? prev.documentPasswordEnabled,
     payRates: data.payRates ?? prev.payRates,
     activeTaxYear: data.activeTaxYear?.trim() || prev.activeTaxYear,
+    bacsServiceUserNumber:
+      data.bacsServiceUserNumber !== undefined
+        ? data.bacsServiceUserNumber.replace(/\D/g, "").slice(0, 6)
+        : prev.bacsServiceUserNumber,
+    bacsOriginatorSortCode:
+      data.bacsOriginatorSortCode !== undefined
+        ? data.bacsOriginatorSortCode.replace(/\D/g, "").slice(0, 6)
+        : prev.bacsOriginatorSortCode,
+    bacsOriginatorAccountNumber:
+      data.bacsOriginatorAccountNumber !== undefined
+        ? data.bacsOriginatorAccountNumber.replace(/\D/g, "").slice(0, 8)
+        : prev.bacsOriginatorAccountNumber,
+    bacsOriginatorName:
+      data.bacsOriginatorName !== undefined
+        ? data.bacsOriginatorName.trim().slice(0, 18)
+        : prev.bacsOriginatorName,
+    bacsFileSerial:
+      data.bacsFileSerial !== undefined
+        ? data.bacsFileSerial.replace(/[^A-Za-z0-9]/g, "").slice(0, 6)
+        : prev.bacsFileSerial,
   };
   await writeDeskProfile(data.clientId, {
     ...current,
@@ -158,4 +184,56 @@ export async function listHmrcPayrollBaseRates() {
     sourceUrl: r.source.url,
     sourceTitle: r.source.title,
   }));
+}
+
+const benefitRowSchema = z.object({
+  employeeId: z.string().min(1),
+  taxYear: z.string().min(4).max(12),
+  companyCarPounds: z.string().optional(),
+  privateMedicalPounds: z.string().optional(),
+  otherBenefitsPounds: z.string().optional(),
+  expensesPounds: z.string().optional(),
+  notes: z.string().max(500).optional(),
+});
+
+function poundsToPenceSafe(raw: string | undefined): number {
+  const n = Number(String(raw ?? "").replace(/,/g, "").trim());
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round(n * 100);
+}
+
+/** Upsert one employee’s P11D / benefits working figures for a tax year. */
+export async function savePayrollBenefitRow(
+  input: z.infer<typeof benefitRowSchema> & { clientId: string },
+) {
+  const session = await requireSession();
+  if (session.role === "readonly") throw new Error("Forbidden");
+  const data = benefitRowSchema.extend({ clientId: z.string() }).parse(input);
+  const client = await getClient(data.clientId);
+  const current =
+    "deskProfile" in client ? (client.deskProfile as DeskProfile) : {};
+  const prev = readSettings(current);
+  const row: PayrollBenefitRow = {
+    employeeId: data.employeeId,
+    taxYear: data.taxYear.trim(),
+    companyCarPence: poundsToPenceSafe(data.companyCarPounds),
+    privateMedicalPence: poundsToPenceSafe(data.privateMedicalPounds),
+    otherBenefitsPence: poundsToPenceSafe(data.otherBenefitsPounds),
+    expensesPence: poundsToPenceSafe(data.expensesPounds),
+    notes: data.notes?.trim() || undefined,
+  };
+  const others = (prev.benefits ?? []).filter(
+    (b) =>
+      !(b.employeeId === row.employeeId && b.taxYear === row.taxYear),
+  );
+  const next: PayrollDeskSettings = {
+    ...prev,
+    benefits: [...others, row],
+  };
+  await writeDeskProfile(data.clientId, {
+    ...current,
+    payrollSettings: next,
+  });
+  revalidatePath(`/clients/${data.clientId}/payroll`);
+  return row;
 }

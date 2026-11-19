@@ -6,6 +6,7 @@ import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enri
 import { loadClientPage } from "@/server/clients/resolve-client-page";
 import {
   companiesHouseAccountsPeriod,
+  comparativesHaveFigures,
   parseComparatives,
 } from "@/lib/accounting-periods";
 import { priorFiguresForStatements } from "@/server/accounts/year-end-from-bank";
@@ -43,10 +44,10 @@ export async function GET(
     periodStart,
     periodEnd,
   );
-  const showPriorYear = !poa.firstYear;
   const comps = parseComparatives(
     "accountsComparatives" in client ? client.accountsComparatives : null,
   );
+  const showPriorYear = !poa.firstYear && comparativesHaveFigures(comps);
   const priorFigs = showPriorYear
     ? priorFiguresForStatements(comps)
     : null;
@@ -77,7 +78,7 @@ export async function GET(
       principalActivity,
       accountantsName: letterhead.practiceName || "HydraTax",
       accountantsAddress: letterhead.addressLines ?? [],
-      bankers: "—",
+      bankers: undefined,
       approvalDate: new Date().toISOString().slice(0, 10),
     },
     draft,

@@ -39,7 +39,9 @@
   --font-sans: var(--font-dm-sans);
   --font-display: var(--font-fraunces);
   --font-price: var(--font-source-serif);
-  --font-mono: var(--font-ibm-plex);
+  /* System mono for code/refs — PAYE money uses Inter (--font-paye-digits), not mono */
+  --font-mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas,
+    monospace;
 }
 
 html {
@@ -376,7 +378,7 @@ body {
 }
 
 .mono {
-  font-family: var(--font-ibm-plex), ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 /** Financial figures — same sans as UI, aligned digits without monospace look */
@@ -622,6 +624,24 @@ body {
   -webkit-text-fill-color: var(--ink);
 }
 
+/**
+ * PAYE desk money / IDs / amount inputs.
+ * Inter (--font-paye-digits) — proportional sans, plain zero, tabular lining figures.
+ * !important beats .input’s DM Sans (same specificity; .input is defined above).
+ */
+.paye-digits,
+.input.paye-digits,
+.input.paye-digits:-webkit-autofill,
+.input.paye-digits:-webkit-autofill:hover,
+.input.paye-digits:-webkit-autofill:focus {
+  font-family: var(--font-paye-digits), var(--font-dm-sans), system-ui,
+    sans-serif !important;
+  font-variant-numeric: lining-nums tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  letter-spacing: -0.01em;
+  font-synthesis: none;
+}
+
 .input:focus {
   outline: none;
   border-color: var(--sea);
@@ -780,20 +800,8 @@ body {
 }
 
 .service-tile__sheen {
-  pointer-events: none;
-  position: absolute;
-  inset: -40% auto auto -30%;
-  width: 70%;
-  height: 90%;
-  background: linear-gradient(
-    125deg,
-    rgba(255, 255, 255, 0.55) 0%,
-    rgba(255, 255, 255, 0.08) 42%,
-    transparent 68%
-  );
-  transform: rotate(12deg);
-  opacity: 0.85;
-  transition: opacity 0.25s ease, transform 0.35s ease;
+  /* Sheen/sweep disabled site-wide — distracting on desk cards */
+  display: none;
 }
 
 .service-tile:hover:not(.service-tile--static),
@@ -920,6 +928,13 @@ html[data-nav-pending] {
   color: var(--ink-soft);
 }
 
+/* Payroll desk — generated (amber) vs RTI submitted (green via --ok) */
+.filing-btn--payroll-generated {
+  background: rgba(180, 83, 9, 0.12);
+  border-color: rgba(180, 83, 9, 0.4);
+  color: #b45309;
+}
+
 .filing-filter {
   display: inline-flex;
   align-items: center;
@@ -945,6 +960,49 @@ html[data-nav-pending] {
   background: rgba(15, 118, 110, 0.06);
 }
 
+/* Always-on desk filter colours (prefs); active deepens slightly */
+.filing-filter.desk-filter-color--colorless {
+  border-color: var(--line);
+  background: white;
+  color: var(--ink-soft);
+}
+.filing-filter.desk-filter-color--colorless.is-active {
+  border-color: var(--mist);
+  color: var(--ink);
+  background: var(--sand);
+}
+
+.filing-filter.desk-filter-color--red {
+  border-color: rgba(185, 28, 28, 0.45);
+  background: rgba(185, 28, 28, 0.08);
+  color: var(--danger);
+}
+.filing-filter.desk-filter-color--amber {
+  border-color: rgba(180, 83, 9, 0.45);
+  background: rgba(180, 83, 9, 0.08);
+  color: #b45309;
+}
+.filing-filter.desk-filter-color--blue {
+  border-color: rgba(29, 78, 216, 0.4);
+  background: rgba(29, 78, 216, 0.08);
+  color: #1d4ed8;
+}
+.filing-filter.desk-filter-color--green {
+  border-color: rgba(4, 120, 87, 0.4);
+  background: rgba(4, 120, 87, 0.08);
+  color: var(--ok, #047857);
+}
+.filing-filter.desk-filter-color--teal {
+  border-color: rgba(15, 118, 110, 0.4);
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--sea-deep, #0f766e);
+}
+.filing-filter.desk-filter-color--violet {
+  border-color: rgba(109, 40, 217, 0.4);
+  background: rgba(109, 40, 217, 0.08);
+  color: var(--violet);
+}
+
 .filing-filter.is-due-soon.is-active {
   border-color: var(--violet);
   color: var(--violet);
@@ -955,6 +1013,79 @@ html[data-nav-pending] {
   border-color: var(--danger);
   color: var(--danger);
   background: rgba(185, 28, 28, 0.08);
+}
+
+.filing-filter.is-payroll-generated.is-active {
+  border-color: #b45309;
+  color: #b45309;
+  background: rgba(180, 83, 9, 0.08);
+}
+
+.filing-filter.is-payroll-submitted.is-active {
+  border-color: var(--ok, #047857);
+  color: var(--ok, #047857);
+  background: rgba(4, 120, 87, 0.08);
+}
+
+.filing-filter.is-payroll-idle.is-active {
+  border-color: var(--mist);
+  color: var(--ink);
+  background: var(--sand);
+}
+
+.filing-btn--vat-emailed {
+  background: rgba(29, 78, 216, 0.1);
+  border-color: rgba(29, 78, 216, 0.35);
+  color: #1d4ed8;
+}
+
+.filing-btn--vat-completed {
+  background: rgba(15, 118, 110, 0.1);
+  border-color: rgba(15, 118, 110, 0.35);
+  color: var(--sea-deep, #0f766e);
+}
+
+.filing-btn--tint-red {
+  background: rgba(185, 28, 28, 0.12);
+  border-color: rgba(185, 28, 28, 0.4);
+  color: var(--danger);
+}
+.filing-btn--tint-amber {
+  background: rgba(180, 83, 9, 0.12);
+  border-color: rgba(180, 83, 9, 0.4);
+  color: #b45309;
+}
+.filing-btn--tint-blue {
+  background: rgba(29, 78, 216, 0.1);
+  border-color: rgba(29, 78, 216, 0.35);
+  color: #1d4ed8;
+}
+.filing-btn--tint-green {
+  background: rgba(21, 128, 61, 0.1);
+  border-color: rgba(21, 128, 61, 0.25);
+  color: var(--ok);
+}
+.filing-btn--tint-teal {
+  background: rgba(15, 118, 110, 0.1);
+  border-color: rgba(15, 118, 110, 0.35);
+  color: var(--sea-deep, #0f766e);
+}
+.filing-btn--tint-violet {
+  background: rgba(109, 40, 217, 0.12);
+  border-color: rgba(109, 40, 217, 0.35);
+  color: var(--violet);
+}
+
+.filing-filter.is-vat-emailed.is-active {
+  border-color: #1d4ed8;
+  color: #1d4ed8;
+  background: rgba(29, 78, 216, 0.08);
+}
+
+.filing-filter.is-vat-completed.is-active {
+  border-color: var(--sea-deep, #0f766e);
+  color: var(--sea-deep, #0f766e);
+  background: rgba(15, 118, 110, 0.08);
 }
 
 .filing-filter__count {
@@ -976,8 +1107,90 @@ html[data-nav-pending] {
   background: rgba(185, 28, 28, 0.15);
 }
 
+.desk-filter-manage {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 0.4rem;
+  border: 1px dashed var(--line);
+  background: transparent;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+.desk-filter-manage:hover,
+.desk-filter-manage.is-active {
+  border-color: var(--sea);
+  color: var(--sea-deep);
+  background: rgba(15, 118, 110, 0.05);
+}
+
+.desk-filter-edit-btn {
+  display: inline-flex;
+  width: 1.4rem;
+  height: 1.4rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.3rem;
+  border: 1px solid var(--line);
+  background: white;
+  font-size: 0.7rem;
+  color: var(--ink-soft);
+  line-height: 1;
+}
+.desk-filter-edit-btn:hover {
+  border-color: var(--sea);
+  color: var(--sea-deep);
+}
+
+.desk-filter-popover {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 40;
+  min-width: 10rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line);
+  background: white;
+  padding: 0.65rem;
+  box-shadow: 0 12px 28px -16px rgba(15, 23, 42, 0.35);
+}
+
+.desk-filter-swatch {
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12);
+}
+.desk-filter-swatch.is-selected {
+  border-color: var(--ink);
+}
+.desk-filter-swatch--colorless {
+  background: white;
+}
+.desk-filter-swatch--red {
+  background: #fca5a5;
+}
+.desk-filter-swatch--amber {
+  background: #fcd34d;
+}
+.desk-filter-swatch--blue {
+  background: #93c5fd;
+}
+.desk-filter-swatch--green {
+  background: #86efac;
+}
+.desk-filter-swatch--teal {
+  background: #5eead4;
+}
+.desk-filter-swatch--violet {
+  background: #c4b5fd;
+}
+
 .client-card--due-soon {
   border-color: rgba(109, 40, 217, 0.45);
+  background: rgba(109, 40, 217, 0.05);
   box-shadow: inset 3px 0 0 var(--violet);
 }
 
@@ -992,12 +1205,64 @@ html[data-nav-pending] {
 
 .client-card--overdue {
   border-color: rgba(185, 28, 28, 0.45);
+  background: rgba(185, 28, 28, 0.05);
   box-shadow: inset 3px 0 0 var(--danger);
 }
 
 .client-card--submitted {
   border-color: rgba(4, 120, 87, 0.4);
+  background: rgba(4, 120, 87, 0.05);
   box-shadow: inset 3px 0 0 var(--ok, #047857);
+}
+
+.client-card--payroll-generated {
+  border-color: rgba(180, 83, 9, 0.45);
+  background: rgba(180, 83, 9, 0.05);
+  box-shadow: inset 3px 0 0 #b45309;
+}
+
+.client-card--vat-emailed {
+  border-color: rgba(29, 78, 216, 0.4);
+  background: rgba(29, 78, 216, 0.05);
+  box-shadow: inset 3px 0 0 #1d4ed8;
+}
+
+.client-card--vat-completed {
+  border-color: rgba(15, 118, 110, 0.4);
+  background: rgba(15, 118, 110, 0.05);
+  box-shadow: inset 3px 0 0 var(--sea-deep, #0f766e);
+}
+
+/* Pref-driven soft card tints (border + background) */
+.client-card--tint-red {
+  border-color: rgba(185, 28, 28, 0.45);
+  background: rgba(185, 28, 28, 0.06);
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+.client-card--tint-amber {
+  border-color: rgba(180, 83, 9, 0.45);
+  background: rgba(180, 83, 9, 0.06);
+  box-shadow: inset 3px 0 0 #b45309;
+}
+.client-card--tint-blue {
+  border-color: rgba(29, 78, 216, 0.4);
+  background: rgba(29, 78, 216, 0.06);
+  box-shadow: inset 3px 0 0 #1d4ed8;
+}
+.client-card--tint-green {
+  border-color: rgba(4, 120, 87, 0.4);
+  background: rgba(4, 120, 87, 0.06);
+  box-shadow: inset 3px 0 0 var(--ok, #047857);
+}
+.client-card--tint-teal {
+  border-color: rgba(15, 118, 110, 0.4);
+  background: rgba(15, 118, 110, 0.06);
+  box-shadow: inset 3px 0 0 var(--sea-deep, #0f766e);
+}
+.client-card--tint-violet {
+  border-color: rgba(109, 40, 217, 0.45);
+  background: rgba(109, 40, 217, 0.06);
+  box-shadow: inset 3px 0 0 var(--violet);
 }
 
 /* Blocking form / action errors — high visibility */
@@ -1546,29 +1811,14 @@ html[data-nav-pending] {
   overflow: hidden;
 }
 
+/* Sweep/shine animations disabled — keep card surface, no moving gloss */
 .gloss-badge::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    120deg,
-    transparent 40%,
-    rgba(255, 255, 255, 0.55) 50%,
-    transparent 60%
-  );
-  opacity: 0;
-  transform: translateX(-120%) skewX(-18deg);
-  pointer-events: none;
-}
-
-.gloss-badge:hover::after {
-  opacity: 1;
-  animation: gloss-run 0.9s ease-out 1;
+  content: none;
 }
 
 .gloss-card {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   background: linear-gradient(
     165deg,
     rgba(255, 255, 255, 0.97) 0%,
@@ -1584,29 +1834,7 @@ html[data-nav-pending] {
 }
 
 .gloss-shine {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 45%;
-  height: 100%;
-  background: linear-gradient(
-    100deg,
-    transparent,
-    rgba(255, 255, 255, 0.45),
-    transparent
-  );
-  opacity: 0;
-  transform: translateX(-120%) skewX(-18deg);
-  pointer-events: none;
-}
-
-/* Shine only on the hovered card — never all tiles in sync. */
-.gloss-card:hover > .gloss-shine,
-.company-deadline-tile:hover > .gloss-shine,
-a.gloss-card:hover > .gloss-shine,
-button.gloss-card:hover > .gloss-shine {
-  opacity: 1;
-  animation: gloss-run 0.95s ease-out 1;
+  display: none;
 }
 
 .gloss-slider,
@@ -1712,15 +1940,6 @@ button.gloss-card:hover > .gloss-shine {
   .company-related-link,
   .company-profile-body {
     animation: none;
-  }
-
-  .gloss-badge:hover::after,
-  .gloss-card:hover > .gloss-shine,
-  .company-deadline-tile:hover > .gloss-shine,
-  a.gloss-card:hover > .gloss-shine,
-  button.gloss-card:hover > .gloss-shine {
-    animation: none;
-    opacity: 0;
   }
 
   .company-cta-primary:hover {

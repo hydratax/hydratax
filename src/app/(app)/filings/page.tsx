@@ -70,7 +70,7 @@ export default async function FilingsOverviewPage() {
             href="/filings/corporation-tax"
             className="btn btn-secondary text-sm"
           >
-            Corporation Tax
+            CT600
           </Link>
           <Link
             href="/filings/annual-accounts"

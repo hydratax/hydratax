@@ -108,6 +108,56 @@ export const WORK_STAGE_FILTERS: Array<{
   { id: "submitted", label: "Submitted" },
 ];
 
+/**
+ * Self Assessment people desk — progress filters in practitioner language.
+ * Maps onto stored workStage (+ SA100 filing status via mergeSaWorkStage).
+ */
+export type SaDeskFilter =
+  | "all"
+  | "info_requested"
+  | "info_received"
+  | "return_prepared"
+  | "reviewed"
+  | "submitted"
+  | "complete";
+
+export const SA_DESK_FILTERS: Array<{ id: SaDeskFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "info_requested", label: "Info requested" },
+  { id: "info_received", label: "Info received" },
+  { id: "return_prepared", label: "Return prepared" },
+  { id: "reviewed", label: "Reviewed" },
+  { id: "submitted", label: "Submitted" },
+  { id: "complete", label: "Complete" },
+];
+
+export function saDeskFilterFromStage(
+  stage: ClientWorkStage,
+  filingStatus?: string | null,
+): Exclude<SaDeskFilter, "all"> {
+  if (filingStatus === "accepted") return "complete";
+  if (stage === "submitted" || filingStatus === "submitted") return "submitted";
+  if (stage === "completed" || stage === "sent_for_approval") return "reviewed";
+  if (stage === "drafted" || stage === "in_progress") return "return_prepared";
+  if (stage === "bank_statements_received") return "info_received";
+  return "info_requested";
+}
+
+export function matchesSaDeskFilter(
+  stage: ClientWorkStage,
+  filter: SaDeskFilter,
+  filingStatus?: string | null,
+): boolean {
+  if (filter === "all") return true;
+  return saDeskFilterFromStage(stage, filingStatus) === filter;
+}
+
+export function saDeskFilterLabel(
+  filter: Exclude<SaDeskFilter, "all">,
+): string {
+  return SA_DESK_FILTERS.find((f) => f.id === filter)?.label ?? filter;
+}
+
 export function normalizeWorkStage(
   value: string | null | undefined,
 ): ClientWorkStage {

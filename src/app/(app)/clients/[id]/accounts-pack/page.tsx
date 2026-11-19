@@ -10,7 +10,10 @@ import {
   formatStatementAmount,
   priorFiguresForStatements,
 } from "@/server/accounts/year-end-from-bank";
-import { companiesHouseAccountsPeriod } from "@/lib/accounting-periods";
+import {
+  companiesHouseAccountsPeriod,
+  comparativesHaveFigures,
+} from "@/lib/accounting-periods";
 import { loadPriorYearComparatives } from "@/server/accounts/load-prior-year-comparatives";
 
 function gbp(pence: number) {
@@ -57,7 +60,8 @@ export default async function AccountsPackPage({
       "accountsComparatives" in client ? client.accountsComparatives : null,
   });
   const comparatives = priorLoaded.comparatives;
-  const showPriorYear = !poa.firstYear;
+  const showPriorYear =
+    !poa.firstYear && comparativesHaveFigures(comparatives);
   const prior = showPriorYear
     ? priorFiguresForStatements(comparatives)
     : null;

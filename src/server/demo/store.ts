@@ -74,6 +74,15 @@ export type MemoryEmployee = {
   payBasis: "salary" | "hourly";
   pensionOptOut: boolean;
   sspQualifyingDays: number;
+  taxBasis: "cumulative" | "week1Month1";
+  studentLoanPlan: string | null;
+  postgraduateLoan: boolean;
+  isDirector: boolean;
+  /** AN = annual (default); AL = alternative period method. */
+  directorsNicMethod: "AN" | "AL";
+  bankSortCode: string | null;
+  bankAccountNumber: string | null;
+  bankAccountName: string | null;
   /** Previous employer P45 totals for the named tax year (e.g. 25-26). */
   bfTaxYear: string | null;
   bfTaxablePence: number;

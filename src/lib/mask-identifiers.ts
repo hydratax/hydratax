@@ -33,6 +33,21 @@ export function maskUtr(utr: string | null | undefined): string {
   return `${dots(v.length - 4)}${v.slice(-4)}`;
 }
 
+/**
+ * Accounts Office reference (e.g. `123PA00012345`) → keep a short prefix
+ * and last few characters: `123••••••••345`.
+ */
+export function maskAccountsOfficeRef(
+  ref: string | null | undefined,
+): string {
+  const v = compact(ref ?? "").toUpperCase();
+  if (!v) return "";
+  if (v.length <= 6) return dots(v.length);
+  const head = Math.min(3, Math.floor(v.length / 3));
+  const tail = Math.min(3, v.length - head);
+  return `${v.slice(0, head)}${dots(v.length - head - tail)}${v.slice(-tail)}`;
+}
+
 /** Date of birth (any format) → year only, e.g. `••/••/1980`. */
 export function maskDob(dob: string | null | undefined): string {
   const v = (dob ?? "").trim();

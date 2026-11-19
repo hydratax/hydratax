@@ -5,6 +5,7 @@ import { getSa800Draft, listSa800Returns } from "@/server/actions/sa800";
 import { Sa800Wizard } from "@/components/forms/sa800-wizard";
 import { TAX_YEAR_LABEL } from "@/lib/sa100/rates-2025-26";
 import { SA800_TEMPLATES } from "@/lib/sa800/forms";
+import { AbbrInfo } from "@/components/desk/abbr-info";
 
 export default async function PartnershipReturnPage({
   params,
@@ -51,12 +52,28 @@ export default async function PartnershipReturnPage({
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="display text-3xl text-ink">Partnership return (SA800)</h1>
+        <h1 className="display inline-flex flex-wrap items-center gap-2 text-3xl text-ink">
+          Partnership return (
+          <span className="inline-flex items-center gap-1">
+            SA800
+            <AbbrInfo code="SA800" />
+          </span>
+          )
+        </h1>
         <p className="mt-2 max-w-2xl text-sm text-ink-soft">
           Entity return for {client.name}. Fill the draft and download the
           official SA800 stationery with your figures overlaid (tax years
-          2022–23 to 2025–26). Each partner still files their personal SA100
-          with SA104 for their share.
+          2022–23 to 2025–26). Each partner still files their personal{" "}
+          <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+            SA100
+            <AbbrInfo code="SA100" />
+          </span>{" "}
+          with{" "}
+          <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+            SA104
+            <AbbrInfo code="SA104" />
+          </span>{" "}
+          for their share.
         </p>
       </div>
       <div className="flex flex-wrap gap-2 text-sm">

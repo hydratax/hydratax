@@ -16,7 +16,7 @@ function gbp(pence: number) {
 
 function cell(amount: StatementAmount, negate = false) {
   if (amount === null) {
-    return <td className="figures py-2 text-right text-ink-soft">—</td>;
+    return <td className="figures py-2 text-right text-ink-soft">–</td>;
   }
   const value = negate ? -amount : amount;
   return (

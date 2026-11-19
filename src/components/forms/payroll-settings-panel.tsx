@@ -18,11 +18,13 @@ import {
 } from "@/components/forms/gateway-credentials-fields";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { messageFromUnknown } from "@/lib/action-error";
+import { AbbrInfo } from "@/components/desk/abbr-info";
 
 type SettingsTab =
   | "paye"
   | "contact"
   | "hmrc"
+  | "payments"
   | "templates"
   | "rates"
   | "security"
@@ -32,6 +34,7 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: "paye", label: "PAYE Details" },
   { id: "contact", label: "Contact Details" },
   { id: "hmrc", label: "HMRC Credentials" },
+  { id: "payments", label: "Staff payments" },
   { id: "templates", label: "Payslip Templates" },
   { id: "rates", label: "Pay Rate" },
   { id: "security", label: "Data Security" },
@@ -144,6 +147,16 @@ export function PayrollSettingsPanel({
             patch.documentPasswordEnabled ?? settings.documentPasswordEnabled,
           payRates: patch.payRates ?? settings.payRates,
           activeTaxYear: patch.activeTaxYear ?? settings.activeTaxYear,
+          bacsServiceUserNumber:
+            patch.bacsServiceUserNumber ?? settings.bacsServiceUserNumber,
+          bacsOriginatorSortCode:
+            patch.bacsOriginatorSortCode ?? settings.bacsOriginatorSortCode,
+          bacsOriginatorAccountNumber:
+            patch.bacsOriginatorAccountNumber ??
+            settings.bacsOriginatorAccountNumber,
+          bacsOriginatorName:
+            patch.bacsOriginatorName ?? settings.bacsOriginatorName,
+          bacsFileSerial: patch.bacsFileSerial ?? settings.bacsFileSerial,
         });
         setSettings(next);
         setOk("Payroll settings saved.");
@@ -157,13 +170,27 @@ export function PayrollSettingsPanel({
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-sea/25 bg-sea/5 px-4 py-3 text-sm text-ink">
-        <p className="font-semibold text-sea">HMRC RTI link</p>
+        <p className="inline-flex items-center gap-1 font-semibold text-sea">
+          HMRC
+          <span className="inline-flex items-center gap-0.5">
+            RTI
+            <AbbrInfo code="RTI" />
+          </span>
+          link
+        </p>
         <p className="mt-1 text-ink-soft">
-          FPS submits as <span className="font-mono text-xs">HMRC-PAYE-RTI-FPS</span>{" "}
-          and EPS as{" "}
-          <span className="font-mono text-xs">HMRC-PAYE-RTI-EPS</span> via the
-          HMRC Transaction Engine ({hmrcEnvLabel()}). Use Government Gateway
-          credentials on the HMRC Credentials tab — required for live FPS / EPS.
+          <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+            FPS
+            <AbbrInfo code="FPS" />
+          </span>{" "}
+          and{" "}
+          <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+            EPS
+            <AbbrInfo code="EPS" />
+          </span>{" "}
+          file to HMRC through Real Time Information ({hmrcEnvLabel()}). Use
+          Government Gateway credentials on the HMRC Credentials tab — required
+          for live filing.
         </p>
       </div>
 
@@ -213,14 +240,21 @@ export function PayrollSettingsPanel({
             });
           }}
         >
-          <h3 className="display text-xl text-ink">PAYE Details</h3>
+          <h3 className="display inline-flex items-center gap-1.5 text-xl text-ink">
+            PAYE
+            <AbbrInfo code="PAYE" />
+            Details
+          </h3>
           <p className="text-sm text-ink-soft">
             Employer PAYE and Accounts Office references from the HMRC letter.
             Required for every FPS and EPS.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-sm font-semibold">
-              PAYE reference
+              <span className="inline-flex items-center gap-1">
+                PAYE reference
+                <AbbrInfo code="PAYE" />
+              </span>
               <input
                 name="payeRef"
                 className="input mt-1.5"
@@ -296,13 +330,105 @@ export function PayrollSettingsPanel({
         </form>
       ) : null}
 
+      {tab === "payments" ? (
+        <form
+          className="panel space-y-4 p-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const fd = new FormData(e.currentTarget);
+            savePatch({
+              bacsServiceUserNumber: String(fd.get("bacsServiceUserNumber") || ""),
+              bacsOriginatorSortCode: String(
+                fd.get("bacsOriginatorSortCode") || "",
+              ),
+              bacsOriginatorAccountNumber: String(
+                fd.get("bacsOriginatorAccountNumber") || "",
+              ),
+              bacsOriginatorName: String(fd.get("bacsOriginatorName") || ""),
+              bacsFileSerial: String(fd.get("bacsFileSerial") || ""),
+            });
+          }}
+        >
+          <h3 className="display text-xl text-ink">Staff payments</h3>
+          <p className="text-sm text-ink-soft">
+            Paying account details from your bank or payment bureau. Needed to
+            download a bank payment file from a completed pay run. Staff sort
+            codes and account numbers stay on each employee card.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-sm font-semibold">
+              Service user number
+              <input
+                name="bacsServiceUserNumber"
+                className="input mt-1.5 paye-digits"
+                maxLength={6}
+                defaultValue={settings.bacsServiceUserNumber ?? ""}
+                placeholder="6 digits"
+              />
+            </label>
+            <label className="text-sm font-semibold">
+              File serial (optional)
+              <input
+                name="bacsFileSerial"
+                className="input mt-1.5 paye-digits"
+                maxLength={6}
+                defaultValue={settings.bacsFileSerial ?? ""}
+              />
+            </label>
+            <label className="text-sm font-semibold">
+              Paying sort code
+              <input
+                name="bacsOriginatorSortCode"
+                className="input mt-1.5 paye-digits"
+                maxLength={8}
+                defaultValue={settings.bacsOriginatorSortCode ?? ""}
+              />
+            </label>
+            <label className="text-sm font-semibold">
+              Paying account number
+              <input
+                name="bacsOriginatorAccountNumber"
+                className="input mt-1.5 paye-digits"
+                maxLength={8}
+                defaultValue={settings.bacsOriginatorAccountNumber ?? ""}
+              />
+            </label>
+            <label className="text-sm font-semibold sm:col-span-2">
+              Paying account name
+              <input
+                name="bacsOriginatorName"
+                className="input mt-1.5"
+                maxLength={18}
+                defaultValue={settings.bacsOriginatorName ?? ""}
+              />
+            </label>
+          </div>
+          <button type="submit" className="btn btn-primary" disabled={pending}>
+            Save payment details
+          </button>
+        </form>
+      ) : null}
+
       {tab === "hmrc" ? (
         <div className="panel space-y-4 p-5">
           <h3 className="display text-xl text-ink">HMRC Credentials</h3>
           <p className="text-sm text-ink-soft">
-            Government Gateway user ID and password for RTI. Stored encrypted
-            when you tick remember. Used for FPS (Full Payment Submission) and
-            EPS (Employer Payment Summary).
+            Government Gateway user ID and password for{" "}
+            <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+              RTI
+              <AbbrInfo code="RTI" />
+            </span>
+            . Stored encrypted when you tick remember. Used for{" "}
+            <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+              FPS
+              <AbbrInfo code="FPS" />
+            </span>{" "}
+            and{" "}
+            <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+              EPS
+              <AbbrInfo code="EPS" />
+            </span>
+            .
           </p>
           <GatewayCredentialsFields
             clientId={clientId}
@@ -373,7 +499,20 @@ export function PayrollSettingsPanel({
                     </span>
                   </div>
                   <p className="font-semibold text-ink">{t.title}</p>
-                  <p className="mt-1 text-xs text-ink-soft">{t.blurb}</p>
+                  <p className="mt-1 text-xs text-ink-soft">
+                    {t.id === "hydra_c" ? (
+                      <span className="inline-flex flex-wrap items-center gap-x-1">
+                        Wide
+                        <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+                          YTD
+                          <AbbrInfo code="YTD" />
+                        </span>
+                        columns for month-end packs
+                      </span>
+                    ) : (
+                      t.blurb
+                    )}
+                  </p>
                 </button>
               );
             })}
@@ -443,7 +582,7 @@ export function PayrollSettingsPanel({
                 <label className="text-xs font-semibold">
                   Rate £
                   <input
-                    className="input mt-1 figures w-28"
+                    className="input mt-1 paye-digits w-28"
                     value={rateValue}
                     onChange={(e) => setRateValue(e.target.value)}
                   />
@@ -489,7 +628,7 @@ export function PayrollSettingsPanel({
                     (settings.payRates ?? []).map((r) => (
                       <tr key={r.id} className="border-b border-line/60">
                         <td className="py-2 font-medium">{r.name}</td>
-                        <td className="py-2 figures">
+                        <td className="py-2 paye-digits">
                           £{(r.ratePence / 100).toFixed(2)} / {r.unit}
                         </td>
                         <td className="py-2">{r.isDefault ? "Yes" : "—"}</td>
@@ -520,7 +659,7 @@ export function PayrollSettingsPanel({
                 <li key={r.id} className="px-4 py-3 text-sm">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <p className="font-semibold text-ink">{r.label}</p>
-                    <p className="figures font-semibold text-sea">{r.value}</p>
+                    <p className="paye-digits font-semibold text-sea">{r.value}</p>
                   </div>
                   {r.detail ? (
                     <p className="mt-1 text-xs text-ink-soft">{r.detail}</p>
@@ -623,8 +762,12 @@ export function PayrollSettingsPanel({
         >
           <h3 className="display text-xl text-ink">Change Tax Year</h3>
           <p className="text-sm text-ink-soft">
-            Filters History &amp; packs and labels RTI filings. UK tax years
-            run 6 April → 5 April.
+            Filters History &amp; packs and labels{" "}
+            <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+              RTI
+              <AbbrInfo code="RTI" />
+            </span>{" "}
+            filings. UK tax years run 6 April → 5 April.
           </p>
           <label className="text-sm font-semibold">
             Active tax year

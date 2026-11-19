@@ -28,6 +28,7 @@ import {
   requestMissingSaBankStatements,
 } from "@/server/actions/sa-bank-missing-request";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { AbbrInfo } from "@/components/desk/abbr-info";
 import { messageFromUnknown } from "@/lib/action-error";
 import {
   formatMissingPeriodPhrase,
@@ -379,10 +380,24 @@ export function SaBankTaxYearHeads({
     <div id="sa-bank-tax-year-heads" className="space-y-4">
       <div>
         <h3 className="display text-xl text-ink">Bank → SA forms by tax year</h3>
-        <p className="mt-1 text-sm text-ink-soft">
-          Statements are split by UK tax year (6 Apr → 5 Apr). Pick SA103F,
-          SA105, SA102, or Keep unallocated per head — then Allocate all at the
-          bottom of the year.
+        <p className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-ink-soft">
+          Statements are split by UK tax year (6 Apr → 5 Apr). Pick
+          <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+            SA103
+            <AbbrInfo code="SA103" />
+          </span>
+          ,
+          <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+            SA105
+            <AbbrInfo code="SA105" />
+          </span>
+          ,
+          <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
+            SA102
+            <AbbrInfo code="SA102" />
+          </span>
+          , or Keep unallocated per head — then Allocate all at the bottom of
+          the year.
         </p>
       </div>
 

@@ -623,6 +623,34 @@ export const PAYE_RATES: RateFact[] = [
       url: "https://www.gov.uk/guidance/rates-and-thresholds-for-employers-2025-to-2026",
     },
   },
+  {
+    id: "paye-apprenticeship-levy",
+    domain: "paye",
+    label: "Apprenticeship Levy",
+    value: "0.5% · £15,000 allowance",
+    detail:
+      "Payable monthly via EPS when annual pay bill exceeds £3 million (connected employers share one allowance). Levy due on EPS is net of allowance.",
+    period: "2025–26 · 2026–27",
+    source: {
+      title: "Rates and thresholds for employers 2026 to 2027",
+      url: "https://www.gov.uk/guidance/rates-and-thresholds-for-employers-2026-to-2027",
+      updated: "2026-04-06",
+    },
+  },
+  {
+    id: "paye-ae-trigger",
+    domain: "paye",
+    label: "Automatic enrolment earnings trigger",
+    value: "£10,000 / year",
+    detail:
+      "£192 week · £833 month. Qualifying earnings band £6,240–£50,270. Unchanged for 2026–27.",
+    period: "2025–26 · 2026–27",
+    source: {
+      title: "Review of the Automatic Enrolment Earnings Trigger 2026/27",
+      url: "https://www.gov.uk/government/publications/review-of-the-automatic-enrolment-earnings-trigger-and-qualifying-earnings-band-for-202627/review-of-the-automatic-enrolment-earnings-trigger-and-qualifying-earnings-band-for-202627",
+      updated: "2025-12-18",
+    },
+  },
 ];
 
 export const ALL_RATES: RateFact[] = [

@@ -33,6 +33,14 @@ export async function ensurePayrollSchema() {
   await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS date_of_birth text`;
   await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS address text`;
   await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS gender text`;
+  await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS tax_basis text NOT NULL DEFAULT 'cumulative'`;
+  await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS student_loan_plan text`;
+  await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS postgraduate_loan boolean NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_director boolean NOT NULL DEFAULT false`;
+  await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS directors_nic_method text NOT NULL DEFAULT 'AN'`;
+  await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS bank_sort_code text`;
+  await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS bank_account_number text`;
+  await sql`ALTER TABLE employees ADD COLUMN IF NOT EXISTS bank_account_name text`;
 
   await sql`ALTER TABLE pay_runs ADD COLUMN IF NOT EXISTS pay_frequency text NOT NULL DEFAULT 'M1'`;
   await sql`ALTER TABLE pay_runs ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'FPS'`;
@@ -53,6 +61,24 @@ export async function ensurePayrollSchema() {
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS payroll_timesheets_period_uidx
       ON payroll_timesheets (client_id, period_start, period_end)
+  `;
+
+  /** AE assessment stub — worker status / postponement (no provider API yet). */
+  await sql`
+    CREATE TABLE IF NOT EXISTS payroll_ae_assessments (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      client_id uuid NOT NULL REFERENCES clients(id),
+      employee_id uuid NOT NULL REFERENCES employees(id),
+      assessment_date text NOT NULL,
+      worker_status text NOT NULL DEFAULT 'unknown',
+      postponement_end text,
+      notes text,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS payroll_ae_assessments_employee_idx
+      ON payroll_ae_assessments (employee_id)
   `;
 
   ensured = true;

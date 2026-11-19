@@ -36,6 +36,8 @@ const PUBLIC_PREFIXES = [
   "/api/pay",
   "/pay",
   "/api/cron",
+  // Ops / bureau pack enqueue — Bearer CRON_SECRET inside the route (no desk UI).
+  "/api/internal",
   "/api/unsubscribe",
   "/unsubscribe",
   "/api/companies-house",

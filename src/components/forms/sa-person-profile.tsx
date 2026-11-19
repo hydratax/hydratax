@@ -1,7 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import {
+  useEffect,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 import type { SaTaxpayer, SaTaxpayerRole } from "@/lib/sa-taxpayer";
 import {
   roleLabel,
@@ -13,6 +18,7 @@ import { upsertSaTaxpayer } from "@/server/actions/sa-taxpayers";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { AddressFields } from "@/components/forms/address-fields";
 import { UkDateField } from "@/components/forms/uk-date-field";
+import { AbbrInfo } from "@/components/desk/abbr-info";
 
 const FOCUS_FIELD_IDS: Record<string, string> = {
   NINO: "sa-id-nino",
@@ -25,9 +31,11 @@ const FOCUS_FIELD_IDS: Record<string, string> = {
 function Row({
   label,
   value,
+  mono = false,
 }: {
-  label: string;
+  label: ReactNode;
   value?: string | null;
+  mono?: boolean;
 }) {
   const empty = !value?.trim();
   return (
@@ -36,7 +44,7 @@ function Row({
       <dd
         className={`text-right font-medium ${
           empty ? "text-ink-soft" : "text-ink"
-        } ${label === "NINO" || label === "Personal UTR" ? "mono" : ""}`}
+        } ${mono ? "mono" : ""}`}
       >
         {empty ? "—" : value}
       </dd>
@@ -111,8 +119,26 @@ export function SaPersonProfile({
         </div>
         <dl className="mt-4 grid gap-x-8 divide-y divide-line text-sm sm:grid-cols-2 sm:divide-y-0">
           <div className="divide-y divide-line sm:pr-4">
-            <Row label="NINO" value={taxpayer.nino} />
-            <Row label="Personal UTR" value={taxpayer.utr} />
+            <Row
+              label={
+                <span className="inline-flex items-center gap-1">
+                  NINO
+                  <AbbrInfo code="NINO" />
+                </span>
+              }
+              value={taxpayer.nino}
+              mono
+            />
+            <Row
+              label={
+                <span className="inline-flex items-center gap-1">
+                  Personal UTR
+                  <AbbrInfo code="UTR" />
+                </span>
+              }
+              value={taxpayer.utr}
+              mono
+            />
             <Row label="Date of birth" value={taxpayer.dateOfBirth} />
             <Row label="Phone" value={taxpayer.phone} />
           </div>
@@ -208,7 +234,10 @@ export function SaPersonProfile({
           />
         </label>
         <label className="block text-xs font-semibold text-ink-soft">
-          NINO *
+          <span className="inline-flex items-center gap-1">
+            NINO *
+            <AbbrInfo code="NINO" />
+          </span>
           <input
             id="sa-id-nino"
             name="nino"
@@ -218,7 +247,10 @@ export function SaPersonProfile({
           />
         </label>
         <label className="block text-xs font-semibold text-ink-soft">
-          Personal UTR *
+          <span className="inline-flex items-center gap-1">
+            Personal UTR *
+            <AbbrInfo code="UTR" />
+          </span>
           <input
             id="sa-id-utr"
             name="utr"

@@ -110,6 +110,16 @@ export const STORAGE_INVENTORY: StorageItem[] = [
     exemption: "User-requested interface preference (functional, no tracking).",
   },
   {
+    name: "hydratax_desk_filters_*",
+    kind: "localStorage",
+    setBy: "us",
+    purpose:
+      "Remembers desk filter colours, labels, and custom chips per desk (invoices, payroll, VAT, CT, SA, clients).",
+    duration: "Until cleared",
+    strictlyNecessary: true,
+    exemption: "User-requested interface preference (functional, no tracking).",
+  },
+  {
     name: "Form drafts (accounts wizard, year-end form, CS01 checkout, CT600 workspace, HMRC ARN)",
     kind: "localStorage",
     setBy: "us",

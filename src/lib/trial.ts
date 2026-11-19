@@ -14,8 +14,7 @@ export const PRACTICE_TRIAL = {
   ctaHref: "/pricing#practice",
   pricingNote:
     "Small Firm & Enterprise: 7-day free trial. Prepare everything; submit live only after the card is charged (or wait until day 8).",
-  bannerText:
-    "Small Firm & Enterprise: 7 days free to explore — live HMRC/CH filing charges your card.",
+  bannerText: "Small Firm & Enterprise: 7 days free to explore.",
 } as const;
 
 export function practiceTrialEndsAt(from = new Date()): Date {

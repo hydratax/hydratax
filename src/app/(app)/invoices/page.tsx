@@ -13,14 +13,19 @@ import { formatPracticePaymentInstructions } from "@/lib/desk-profile";
 import { letterheadNeedsBranding } from "@/lib/invoices/totals";
 import { clientSlugFor } from "@/lib/client-slug";
 import { PracticeInvoiceDesk } from "@/components/forms/practice-invoice-desk";
+import {
+  InvoiceClientsList,
+  type InvoiceClientListItem,
+} from "@/components/invoice-clients-list";
+import { deriveInvoiceClientSummary } from "@/lib/invoice-client-status";
 
 export const metadata = {
   title: "Invoices — HydraTax",
 };
 
 /**
- * Practice-wide invoices desk — same InvoiceWorkspace as the client card,
- * with client search and every invoice across the practice.
+ * Practice-wide invoices desk — client cards with Due / Sent / Paid, then
+ * the full workspace when a client is opened.
  */
 export default async function PracticeInvoicesPage({
   searchParams,
@@ -61,12 +66,11 @@ export default async function PracticeInvoicesPage({
   }
 
   const selectedRef = query.client?.trim() || null;
-  const selected =
-    (selectedRef
-      ? clientOptions.find(
-          (c) => c.slug === selectedRef || c.id === selectedRef,
-        )
-      : null) ?? clientOptions[0]!;
+  const selected = selectedRef
+    ? clientOptions.find(
+        (c) => c.slug === selectedRef || c.id === selectedRef,
+      )
+    : null;
 
   const [invoices, templates, letterhead, gateways, numberSettings] =
     await Promise.all([
@@ -79,18 +83,70 @@ export default async function PracticeInvoicesPage({
 
   const previewInvoiceNumber = `${numberSettings.prefix}-${String(numberSettings.next).padStart(4, "0")}`;
 
+  const byClient = new Map<string, typeof invoices>();
+  for (const inv of invoices) {
+    const list = byClient.get(inv.clientId) ?? [];
+    list.push(inv);
+    byClient.set(inv.clientId, list);
+  }
+
+  const invoiceCards: InvoiceClientListItem[] = clientOptions.map((c) => ({
+    id: c.id,
+    slug: c.slug,
+    name: c.name,
+    type: c.type,
+    invoices: deriveInvoiceClientSummary(
+      (byClient.get(c.id) ?? []).map((inv) => ({
+        status: inv.status,
+        dueDate: inv.dueDate,
+        totalPence: inv.totalPence,
+      })),
+    ),
+  }));
+
+  if (!selected) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
+            Practice
+          </p>
+          <h1 className="display mt-1 text-4xl text-ink md:text-5xl">
+            Invoices
+          </h1>
+          <p className="mt-1 text-ink-soft">
+            Due, sent and paid across the practice. Branding from{" "}
+            <Link
+              href="/settings/letterhead"
+              className="font-semibold text-sea hover:underline"
+            >
+              Practice branding
+            </Link>
+            .
+          </p>
+        </div>
+        <InvoiceClientsList clients={invoiceCards} />
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <p className="mb-4 text-sm text-ink-soft">
-        Invoices · branding from{" "}
-        <a
+    <div className="space-y-4">
+      <p className="text-sm text-ink-soft">
+        <Link
+          href="/invoices"
+          className="font-semibold text-sea hover:underline"
+        >
+          ← All invoice clients
+        </Link>
+        {" · "}
+        branding from{" "}
+        <Link
           href="/settings/letterhead"
           className="font-semibold text-sea hover:underline"
         >
           Practice branding
-        </a>
-        {" · "}
-        all clients
+        </Link>
       </p>
       <PracticeInvoiceDesk
         clients={clientOptions}

@@ -5,6 +5,18 @@ import {
   refreshStaleClientsCompaniesHouse,
 } from "@/server/actions/clients";
 import { ClientsList, type ClientListItem } from "@/components/clients-list";
+import {
+  PayrollClientsList,
+  type PayrollClientListItem,
+} from "@/components/payroll-clients-list";
+import {
+  VatClientsList,
+  type VatClientListItem,
+} from "@/components/vat-clients-list";
+import {
+  CtClientsList,
+  type CtClientListItem,
+} from "@/components/ct-clients-list";
 import { RefreshCompaniesHouseButton } from "@/components/refresh-companies-house-button";
 import { SaDirectorsList } from "@/components/sa-directors-list";
 import { PartnershipDeskList } from "@/components/partnership-desk-list";
@@ -13,6 +25,10 @@ import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enri
 import { clientSlugFor } from "@/lib/client-slug";
 import { canRefreshCompaniesHouse } from "@/lib/access";
 import { requireSession } from "@/server/auth/session";
+import { derivePayrollClientSummary } from "@/lib/payroll-client-status";
+import { deriveVatClientSummary } from "@/lib/vat-client-status";
+import { deriveCtClientSummary } from "@/lib/ct-client-status";
+import { normalizeWorkStage } from "@/lib/client-work-stage";
 
 type Desk = "all" | "sa" | "partnership" | "ct600" | "vat" | "payroll";
 
@@ -322,38 +338,141 @@ export default async function ClientsPage({ searchParams }: Props) {
     );
   }
 
-  const items: ClientListItem[] = clients
-    .filter((c) =>
-      matchesDesk(
-        c.type,
-        c.isVatRegistered,
-        c.isEmployer,
-        desk,
-        c.vrn,
-        c.payeRef,
-      ),
-    )
-    .map((c) => ({
-      id: c.id,
-      slug: clientSlugFor({ id: c.id, name: c.name }, peers),
-      name: c.name,
-      type: c.type,
-      companyNumber: c.companyNumber,
-      utr: c.utr,
-      vrn: c.vrn,
-      isVatRegistered: c.isVatRegistered,
-      isEmployer: c.isEmployer,
-      companiesHouse:
-        ("companiesHouse" in c
-          ? (c.companiesHouse as ClientCompaniesHouseSnapshot | null)
-          : null) ?? null,
-    }));
+  const filtered = clients.filter((c) =>
+    matchesDesk(
+      c.type,
+      c.isVatRegistered,
+      c.isEmployer,
+      desk,
+      c.vrn,
+      c.payeRef,
+    ),
+  );
+
+  const items: ClientListItem[] = filtered.map((c) => ({
+    id: c.id,
+    slug: clientSlugFor({ id: c.id, name: c.name }, peers),
+    name: c.name,
+    type: c.type,
+    companyNumber: c.companyNumber,
+    utr: c.utr,
+    vrn: c.vrn,
+    isVatRegistered: c.isVatRegistered,
+    isEmployer: c.isEmployer,
+    companiesHouse:
+      ("companiesHouse" in c
+        ? (c.companiesHouse as ClientCompaniesHouseSnapshot | null)
+        : null) ?? null,
+  }));
+
+  let payrollItems: PayrollClientListItem[] | null = null;
+  if (desk === "payroll") {
+    const { listPayrollClientSummaries } = await import(
+      "@/server/actions/payroll"
+    );
+    const summaries = await listPayrollClientSummaries(
+      filtered.map((c) => c.id),
+    ).catch(
+      () =>
+        ({} as Record<
+          string,
+          ReturnType<typeof derivePayrollClientSummary> & {
+            employeeCount: number;
+          }
+        >),
+    );
+    payrollItems = filtered.map((c) => {
+      const summary = summaries[c.id];
+      return {
+        id: c.id,
+        slug: clientSlugFor({ id: c.id, name: c.name }, peers),
+        name: c.name,
+        type: c.type,
+        accountsOfficeRef: c.accountsOfficeRef,
+        payeRef: c.payeRef,
+        employeeCount: summary?.employeeCount ?? 0,
+        payroll: summary ?? derivePayrollClientSummary([], []),
+      };
+    });
+  }
+
+  let vatItems: VatClientListItem[] | null = null;
+  if (desk === "vat") {
+    const { listVatReturns } = await import("@/server/actions/vat");
+    vatItems = await Promise.all(
+      filtered.map(async (c) => {
+        const returns = await listVatReturns(c.id).catch(() => []);
+        const profile = c.deskProfile;
+        return {
+          id: c.id,
+          slug: clientSlugFor({ id: c.id, name: c.name }, peers),
+          name: c.name,
+          type: c.type,
+          vrn: c.vrn,
+          vat: deriveVatClientSummary({
+            returns: returns.map((r) => ({
+              status: String(r.status ?? ""),
+              periodKey: String(r.periodKey ?? ""),
+              periodEnd:
+                "periodEnd" in r && typeof r.periodEnd === "string"
+                  ? r.periodEnd
+                  : null,
+              submittedAt:
+                "submittedAt" in r
+                  ? (r.submittedAt as string | Date | null)
+                  : null,
+            })),
+            workStage: normalizeWorkStage(profile?.workStage),
+            workLog: profile?.workLog ?? null,
+            portal: profile?.portal ?? null,
+          }),
+        };
+      }),
+    );
+  }
+
+  let ctItems: CtClientListItem[] | null = null;
+  if (desk === "ct600") {
+    const { listCt600Returns } = await import("@/server/actions/ct600");
+    ctItems = await Promise.all(
+      filtered.map(async (c) => {
+        const returns = await listCt600Returns(c.id).catch(() => []);
+        const ch =
+          ("companiesHouse" in c
+            ? (c.companiesHouse as ClientCompaniesHouseSnapshot | null)
+            : null) ?? null;
+        return {
+          id: c.id,
+          slug: clientSlugFor({ id: c.id, name: c.name }, peers),
+          name: c.name,
+          utr: c.utr,
+          ct: deriveCtClientSummary({
+            returns: returns.map((r) => ({
+              status: String(r.status ?? ""),
+              periodStart: String(r.periodStart ?? ""),
+              periodEnd: String(r.periodEnd ?? ""),
+              submittedAt:
+                "submittedAt" in r
+                  ? (r.submittedAt as string | Date | null)
+                  : null,
+            })),
+            workStage: normalizeWorkStage(c.deskProfile?.workStage),
+            companiesHouse: ch,
+          }),
+        };
+      }),
+    );
+  }
 
   const saDesk =
     desk === "all" ? await loadSaDeskRows(clients).catch(() => null) : null;
 
   const bulkEmailHref =
-    desk === "vat" ? "/clients/bulk-email?desk=vat" : "/clients/bulk-email";
+    desk === "vat"
+      ? "/clients/bulk-email?desk=vat"
+      : desk === "payroll"
+        ? "/clients/bulk-email?desk=payroll"
+        : "/clients/bulk-email";
   const addClientHref =
     desk === "vat" || desk === "payroll"
       ? `/clients/new?desk=${desk}`
@@ -485,6 +604,51 @@ export default async function ClientsPage({ searchParams }: Props) {
             )}
           </section>
         </div>
+      ) : desk === "payroll" ? (
+        !payrollItems || payrollItems.length === 0 ? (
+          <div className="panel px-5 py-10 text-center text-sm text-ink-soft">
+            {meta.empty}{" "}
+            <Link
+              href={addClientHref}
+              className="font-semibold text-sea hover:underline"
+            >
+              Add a client
+            </Link>
+            .
+          </div>
+        ) : (
+          <PayrollClientsList clients={payrollItems} />
+        )
+      ) : desk === "vat" ? (
+        !vatItems || vatItems.length === 0 ? (
+          <div className="panel px-5 py-10 text-center text-sm text-ink-soft">
+            {meta.empty}{" "}
+            <Link
+              href={addClientHref}
+              className="font-semibold text-sea hover:underline"
+            >
+              Add a client
+            </Link>
+            .
+          </div>
+        ) : (
+          <VatClientsList clients={vatItems} />
+        )
+      ) : desk === "ct600" ? (
+        !ctItems || ctItems.length === 0 ? (
+          <div className="panel px-5 py-10 text-center text-sm text-ink-soft">
+            {meta.empty}{" "}
+            <Link
+              href={addClientHref}
+              className="font-semibold text-sea hover:underline"
+            >
+              Add a client
+            </Link>
+            .
+          </div>
+        ) : (
+          <CtClientsList clients={ctItems} />
+        )
       ) : items.length === 0 ? (
         <div className="panel px-5 py-10 text-center text-sm text-ink-soft">
           {meta.empty}{" "}
@@ -497,22 +661,7 @@ export default async function ClientsPage({ searchParams }: Props) {
           .
         </div>
       ) : (
-        <ClientsList
-          clients={items}
-          openPath={
-            desk === "vat"
-              ? "/vat"
-              : desk === "payroll"
-                ? "/payroll"
-                : desk === "ct600"
-                  ? "/corporation-tax"
-                  : desk === "sa"
-                    ? "/self-assessment"
-                    : desk === "partnership"
-                      ? "/sa800"
-                      : ""
-          }
-        />
+        <ClientsList clients={items} openPath="" />
       )}
     </div>
   );
