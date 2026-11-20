@@ -28,17 +28,16 @@ export function DynamicHero() {
 
       <div className="relative z-10 mx-auto grid min-h-[100svh] max-w-6xl items-center gap-14 px-4 pb-20 pt-36 md:px-6 md:pt-32 lg:grid-cols-[1fr_minmax(0,26rem)] lg:gap-16">
         <div className="max-w-xl">
-          <p className="animate-rise hero-lumen__brand display text-[clamp(2.85rem,7.5vw,4.85rem)] font-semibold leading-[1.05] tracking-tight text-ink">
+          <p className="animate-rise hero-lumen__brand display text-[clamp(2.85rem,7.5vw,4.85rem)] font-semibold tracking-tight text-ink">
             HydraTax
           </p>
           <h1 className="animate-rise-delay mt-5 text-[clamp(1.4rem,3.2vw,1.95rem)] font-semibold leading-snug tracking-tight text-ink">
-            File UK tax online —{" "}
-            <span className="text-sea">clear, calm, and easy</span>
+            Built by UK accountants —{" "}
+            <span className="text-sea">easier tax for everyone</span>
           </h1>
           <p className="animate-rise-late mt-4 max-w-md text-base leading-relaxed text-ink-soft md:text-[1.05rem]">
-            Built for limited companies, sole traders, and anyone who wants
-            HMRC filing without the complexity. VAT, Corporation Tax, PAYE and
-            Self Assessment in one workspace.
+            We live the desk, so we built the calm way to file — VAT, Corporation
+            Tax, PAYE and Self Assessment in one place, without the tangle.
           </p>
 
           <div className="animate-rise-late mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">

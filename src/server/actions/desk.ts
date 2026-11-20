@@ -263,6 +263,7 @@ export async function setClientWorkStage(input: {
   clientId: string;
   stage: ClientWorkStage;
   note?: string;
+  desk?: ClientWorkLogEntry["desk"];
 }) {
   const session = await requireSession();
   if (session.role === "readonly") throw new Error("Forbidden");
@@ -276,7 +277,7 @@ export async function setClientWorkStage(input: {
     label,
     detail: input.note?.trim() || undefined,
     actorId: session.userId,
-    desk: "overview",
+    desk: input.desk ?? "overview",
   });
 
   await writeProfile(
@@ -404,32 +405,68 @@ export async function updatePortalFromClient(input: {
     );
   }
   const now = new Date().toISOString();
+  const prev = client.deskProfile.portal;
+  let workLog = client.deskProfile.workLog ?? [];
   if (typeof input.approveAccounts === "boolean") {
     portal.approveAccounts = input.approveAccounts;
     portal.approveAccountsAt = input.approveAccounts ? now : undefined;
+    if (input.approveAccounts && !prev.approveAccounts) {
+      workLog = pushWorkLog(
+        { ...client.deskProfile, workLog },
+        {
+          kind: "stage",
+          label: "Approved by client — accounts",
+          at: now,
+          desk: "ct",
+        },
+      );
+    }
   }
   if (typeof input.approveCt600 === "boolean") {
     portal.approveCt600 = input.approveCt600;
     portal.approveCt600At = input.approveCt600 ? now : undefined;
+    if (input.approveCt600 && !prev.approveCt600) {
+      workLog = pushWorkLog(
+        { ...client.deskProfile, workLog },
+        {
+          kind: "stage",
+          label: "Approved by client — CT600",
+          at: now,
+          desk: "ct",
+        },
+      );
+    }
   }
   if (typeof input.approveVat === "boolean") {
     portal.approveVat = input.approveVat;
     portal.approveVatAt = input.approveVat ? now : undefined;
+    if (input.approveVat && !prev.approveVat) {
+      workLog = pushWorkLog(
+        { ...client.deskProfile, workLog },
+        {
+          kind: "stage",
+          label: "Approved by client — VAT",
+          at: now,
+          desk: "vat",
+        },
+      );
+    }
   }
+
+  const nextProfile = { ...(client.deskProfile ?? {}), portal, workLog };
 
   if (isDemoMode()) {
     const row = demoStore.clients.find((c) => c.id === client.id);
-    if (row) row.deskProfile = { ...(row.deskProfile ?? {}), portal };
+    if (row) row.deskProfile = nextProfile;
     return { ok: true as const };
   }
 
   if (isSupabaseConfigured()) {
     const { getSupabaseAdmin } = await import("@/lib/supabase");
     const supabase = getSupabaseAdmin();
-    const next = { ...(client.deskProfile ?? {}), portal };
     const { error } = await supabase
       .from("clients")
-      .update({ desk_profile: next, updated_at: new Date().toISOString() })
+      .update({ desk_profile: nextProfile, updated_at: new Date().toISOString() })
       .eq("id", client.id);
     if (error) return { ok: false as const, error: error.message };
     return { ok: true as const };
@@ -444,7 +481,7 @@ export async function updatePortalFromClient(input: {
   await getDb()
     .update(clients)
     .set({
-      deskProfile: { ...(client.deskProfile ?? {}), portal },
+      deskProfile: nextProfile,
       updatedAt: new Date(),
     })
     .where(eq(clients.id, client.id));

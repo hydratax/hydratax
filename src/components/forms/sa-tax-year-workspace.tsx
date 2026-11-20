@@ -590,17 +590,57 @@ export function SaTaxYearWorkspace({
                       )}
                     </div>
                   </div>
-                  <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft group-open:hidden">
-                    Open ▾
-                  </span>
-                  <span className="hidden text-xs font-semibold uppercase tracking-wide text-ink-soft group-open:inline">
-                    Close ▴
-                  </span>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <div
+                      className="inline-flex overflow-hidden rounded-lg border border-sea/40 bg-white shadow-sm"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="px-3 py-2 text-sm font-semibold text-sea hover:bg-sea/5"
+                        onClick={() => openFiling(year)}
+                      >
+                        Open return →
+                      </button>
+                      <SaTaxYearActionsMenu
+                        label="▾"
+                        ctx={{
+                          clientId,
+                          clientName,
+                          contactEmail,
+                          taxYearLabel: year.label,
+                          statusLabel: badge || "Not started",
+                          returnId: match?.id ?? null,
+                          sa100DocumentId: docs?.return?.id ?? null,
+                          sa302DocumentId: docs?.sa302?.id ?? null,
+                        }}
+                        onOpenReturn={() => openFiling(year)}
+                        onUploadSa100={() => pickUpload(year.label, "return")}
+                        onUploadSa302={() => pickUpload(year.label, "sa302")}
+                        onDelete={() => askDeleteYear(year, status)}
+                      />
+                    </div>
+                    <span
+                      className="text-xl leading-none text-ink group-open:hidden"
+                      aria-hidden
+                    >
+                      ▾
+                    </span>
+                    <span
+                      className="hidden text-xl leading-none text-ink group-open:inline"
+                      aria-hidden
+                    >
+                      ▴
+                    </span>
+                  </div>
                 </summary>
-                <div className="space-y-3 border-t border-line px-4 pb-4 pt-3">
-                  {(docs?.return || docs?.sa302) && (
+                {(docs?.return || docs?.sa302 || match?.id) && (
+                  <div className="space-y-3 border-t border-line px-4 pb-4 pt-3">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-soft">
-                      {docs.return ? (
+                      {docs?.return ? (
                         <span className="inline-flex items-center gap-1">
                           <a
                             href={docs.return.blobUrl}
@@ -609,12 +649,21 @@ export function SaTaxYearWorkspace({
                             className="font-medium text-sea hover:underline"
                             title={docs.return.filename}
                           >
-                            view SA100
+                            View SA100
                           </a>
                           <AbbrInfo code="SA100" />
                         </span>
+                      ) : match?.id ? (
+                        <a
+                          href={`/api/clients/${clientId}/sa100/${match.id}/sa100.pdf?view=1`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium text-sea hover:underline"
+                        >
+                          View SA100
+                        </a>
                       ) : null}
-                      {docs.sa302 ? (
+                      {docs?.sa302 ? (
                         <span className="inline-flex items-center gap-1">
                           <a
                             href={docs.sa302.blobUrl}
@@ -623,40 +672,23 @@ export function SaTaxYearWorkspace({
                             className="font-medium text-sea hover:underline"
                             title={docs.sa302.filename}
                           >
-                            view SA302
+                            View SA302
                           </a>
                           <AbbrInfo code="SA302" />
                         </span>
+                      ) : match?.id ? (
+                        <a
+                          href={`/api/clients/${clientId}/sa100/${match.id}/sa302.pdf?view=1`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium text-sea hover:underline"
+                        >
+                          View SA302
+                        </a>
                       ) : null}
                     </div>
-                  )}
-                  <div className="inline-flex overflow-hidden rounded-lg border border-sea/40 bg-white shadow-sm">
-                    <button
-                      type="button"
-                      className="px-3 py-2 text-sm font-semibold text-sea hover:bg-sea/5"
-                      onClick={() => openFiling(year)}
-                    >
-                      Open return →
-                    </button>
-                    <SaTaxYearActionsMenu
-                      label="▾"
-                      ctx={{
-                        clientId,
-                        clientName,
-                        contactEmail,
-                        taxYearLabel: year.label,
-                        statusLabel: badge || "Not started",
-                        returnId: match?.id ?? null,
-                        sa100DocumentId: docs?.return?.id ?? null,
-                        sa302DocumentId: docs?.sa302?.id ?? null,
-                      }}
-                      onOpenReturn={() => openFiling(year)}
-                      onUploadSa100={() => pickUpload(year.label, "return")}
-                      onUploadSa302={() => pickUpload(year.label, "sa302")}
-                      onDelete={() => askDeleteYear(year, status)}
-                    />
                   </div>
-                </div>
+                )}
               </details>
             </li>
           );

@@ -1567,6 +1567,10 @@ html[data-nav-pending] {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  /* Keep descenders (the “y” in Hydra) visible with tight display leading */
+  line-height: 1.12;
+  padding-bottom: 0.12em;
+  overflow: visible;
 }
 
 @media (max-width: 1023px) {

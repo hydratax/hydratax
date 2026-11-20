@@ -70,14 +70,6 @@ export default async function PayrollPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="gloss-badge inline-flex items-center gap-1.5 rounded-lg bg-sea/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-sea">
-          Payroll
-        </p>
-        <h1 className="display mt-3 text-[clamp(1.75rem,3.5vw,2.6rem)] leading-[1.1] tracking-tight text-ink">
-          Payroll
-        </h1>
-      </div>
       <PayrollWorkspace
         clientId={clientId}
         clientName={client.name}

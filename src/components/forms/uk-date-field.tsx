@@ -128,6 +128,7 @@ export function UkDateField({
   });
   const [panel, setPanel] = useState<"days" | "months" | "years">("days");
   const rootRef = useRef<HTMLDivElement>(null);
+  const [dropUp, setDropUp] = useState(false);
 
   useEffect(() => {
     if (controlled !== undefined) {
@@ -137,6 +138,14 @@ export function UkDateField({
 
   useEffect(() => {
     if (!open) return;
+    function place() {
+      const el = rootRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      setDropUp(spaceBelow < 320 && rect.top > spaceBelow);
+    }
+    place();
     function onDoc(e: MouseEvent) {
       if (!rootRef.current?.contains(e.target as Node)) {
         setOpen(false);
@@ -151,9 +160,11 @@ export function UkDateField({
     }
     document.addEventListener("mousedown", onDoc);
     document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", place);
     return () => {
       document.removeEventListener("mousedown", onDoc);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", place);
     };
   }, [open]);
 
@@ -266,7 +277,9 @@ export function UkDateField({
         <div
           role="dialog"
           aria-label="Choose date"
-          className="absolute z-50 mt-1.5 w-[17.5rem] rounded-xl border border-line bg-white p-3 shadow-lg shadow-ink/10"
+          className={`absolute z-[80] w-[17.5rem] rounded-xl border border-line bg-white p-3 shadow-lg shadow-ink/10 ${
+            dropUp ? "bottom-[calc(100%+0.35rem)]" : "top-full mt-1.5"
+          }`}
         >
           <div className="mb-2 flex items-center justify-between gap-1">
             <button

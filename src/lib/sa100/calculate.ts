@@ -5,6 +5,7 @@ import {
   propCapitalAllowancesTotal,
   propExpensesBreakdownTotal,
   seCapitalAllowancesBreakdownTotal,
+  seDisallowableBreakdownTotal,
   seExpensesBreakdownTotal,
   type Sa100Draft,
 } from "./schema";
@@ -76,10 +77,14 @@ export function calculateSa302(d: Sa100Draft): Sa302Result {
     d.seOtherBusinessIncome +
     d.seBalancingCharges +
     d.seGoodsOwnUse;
+  const seDisallowable = (() => {
+    const broken = seDisallowableBreakdownTotal(d);
+    return broken > 0 ? broken : d.seDisallowableTotal;
+  })();
   const seProfit = Math.max(
     0,
     seIncome -
-      Math.max(0, seExpenseTotal - d.seDisallowableTotal) -
+      Math.max(0, seExpenseTotal - seDisallowable) -
       seCaTotal -
       d.seTradingAllowance,
   );

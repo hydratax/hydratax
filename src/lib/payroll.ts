@@ -388,14 +388,25 @@ export function renderPayslipHtml(opts: {
   const freq = opts.frequency === "W1" ? "Weekly" : "Monthly";
   const theme = opts.template ?? "hydra_a";
   const taxPeriod = ukTaxMonthNumber(opts.payDate);
-  const hours =
+  const hoursNum =
     line.hoursPerWeekHundredths > 0
-      ? (line.hoursPerWeekHundredths / 100).toFixed(2)
-      : "";
-  const paymentRows: string[] = [];
+      ? line.hoursPerWeekHundredths / 100
+      : 0;
+  const hours = hoursNum > 0 ? hoursNum.toFixed(2) : "";
   const basic = line.ordinaryPence || line.grossPence;
+  const rateFromLine = Number(
+    (line as { hourlyRatePence?: number }).hourlyRatePence ?? 0,
+  );
+  const ratePence =
+    rateFromLine > 0
+      ? rateFromLine
+      : hoursNum > 0
+        ? Math.round(basic / hoursNum)
+        : 0;
+  const rate = ratePence > 0 ? amt(ratePence) : "";
+  const paymentRows: string[] = [];
   paymentRows.push(
-    `<tr><td>Basic Pay</td><td class="num">${hours || "—"}</td><td class="num">—</td><td class="num">${amt(basic)}</td></tr>`,
+    `<tr><td>Basic Pay</td><td class="num">${hours || ""}</td><td class="num">${rate}</td><td class="num">${amt(basic)}</td></tr>`,
   );
   if ((line.overtimePence ?? 0) > 0) {
     paymentRows.push(
@@ -447,66 +458,91 @@ export function renderPayslipHtml(opts: {
     .map((n) => `<p class="note">${escapeHtml(n)}</p>`)
     .join("");
 
+  const displayName = `${escapeHtml(line.forename)} ${escapeHtml(line.surname)}`;
+  const taxBasis = opts.frequency === "W1" ? "W1" : "M1";
+
   return `<!doctype html>
 <html lang="en-GB">
 <head>
   <meta charset="utf-8"/>
-  <title>Payslip — ${escapeHtml(line.forename)} ${escapeHtml(line.surname)}</title>
+  <title>Payslip — ${displayName}</title>
   <style>
-    :root { --ink:#0f172a; --muted:#475569; --line:#94a3b8; --band:#1e3a5f; --band2:#e8eef5; --net:#1e3a5f; }
+    :root {
+      --ink:#111827;
+      --muted:#4b5563;
+      --line:#9ca3af;
+      --band:#2F5496;
+      --soft:#E9F0F8;
+    }
     * { box-sizing: border-box; }
-    body { font-family: Arial, Helvetica, sans-serif; color: var(--ink); margin: 0; padding: 18px; font-size: 11px; }
-    .sheet { max-width: 780px; margin: 0 auto; }
-    .addr { margin-bottom: 14px; line-height: 1.35; font-size: 12px; }
-    .addr strong { font-size: 13px; }
-    .bar { display: grid; grid-template-columns: 1fr 1.4fr 1fr 1.2fr; gap: 0; background: var(--band); color: #fff; }
-    .bar div { padding: 8px 10px; border-right: 1px solid rgba(255,255,255,.25); }
-    .bar div:last-child { border-right: none; }
-    .bar .lab { display: block; font-size: 9px; opacity: .85; text-transform: uppercase; letter-spacing: .04em; }
-    .cols { display: grid; grid-template-columns: 1.15fr .85fr; gap: 10px; margin-top: 10px; }
-    table { width: 100%; border-collapse: collapse; }
-    th { background: var(--band); color: #fff; text-align: left; padding: 6px 8px; font-weight: 600; font-size: 10px; }
-    th.num, td.num, .net .val, .er-box .val {
+    /* A4 portrait proportions matching Sofex sample (~69% content height) */
+    @page { size: A4; margin: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; color: var(--ink); margin: 0; padding: 86px 40px 40px; font-size: 11px; background: #fff; min-height: 297mm; box-sizing: border-box; }
+    .sheet { max-width: 515px; margin: 0 auto; width: 100%; }
+    .addr { margin-bottom: 14px; line-height: 1.4; font-size: 12px; }
+    .id-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; table-layout: fixed; }
+    .id-table th { background: var(--band); color: #fff; text-align: left; padding: 7px 8px; font-size: 10px; font-weight: 700; border: 1px solid var(--band); }
+    .id-table td { padding: 7px 8px; border: 1px solid #7390b0; font-size: 11px; background: #fff; }
+    .split { display: grid; grid-template-columns: 1.38fr 1fr; gap: 0; border: 1px solid #7390b0; }
+    .split > div { min-height: 200px; }
+    .split table { width: 100%; border-collapse: collapse; }
+    .split th { background: var(--band); color: #fff; text-align: left; padding: 6px 8px; font-size: 10px; font-weight: 700; }
+    .split th.num, .split td.num, .sum td.num, .net .val, .er-box .val {
       text-align: right;
-      font-family: Arial, Helvetica, sans-serif;
       font-variant-numeric: lining-nums tabular-nums;
     }
-    td { padding: 5px 8px; border-bottom: 1px solid #dbe3ec; }
-    .box { border: 1px solid var(--line); margin-top: 10px; }
-    .box h3 { margin: 0; padding: 6px 8px; background: var(--band2); font-size: 11px; border-bottom: 1px solid var(--line); }
-    .box table td { border-bottom: 1px solid #e2e8f0; }
-    .box table tr:last-child td { border-bottom: none; }
-    .meta { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 0; border: 1px solid var(--line); margin-top: 10px; }
-    .meta div { padding: 6px 8px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-    .meta .lab { color: var(--muted); font-size: 9px; text-transform: uppercase; }
-    .foot { display: flex; justify-content: space-between; align-items: stretch; gap: 10px; margin-top: 12px; }
-    .er-box { border: 1px solid var(--line); padding: 10px 14px; min-width: 160px; }
-    .er-box .lab { color: var(--muted); font-size: 9px; text-transform: uppercase; }
-    .er-box .val { font-size: 14px; font-weight: 700; margin-top: 2px; }
-    .net { background: var(--band); color: #fff; padding: 12px 18px; min-width: 220px; text-align: right; }
-    .net .lab { font-size: 10px; text-transform: uppercase; opacity: .9; }
-    .net .val { font-size: 22px; font-weight: 700; letter-spacing: .02em; }
-    .actions { margin: 0 auto 12px; max-width: 780px; }
-    .actions button { font: inherit; padding: 8px 14px; cursor: pointer; }
+    .split td { padding: 6px 8px; background: var(--soft); border-bottom: none; vertical-align: top; }
+    .split .pay { border-right: 1px solid #7390b0; }
+    .split .pay th:nth-child(2), .split .pay td:nth-child(2) { width: 56px; }
+    .split .pay th:nth-child(3), .split .pay td:nth-child(3) { width: 56px; }
+    .split .pay th:nth-child(4), .split .pay td:nth-child(4) { width: 72px; }
+    .sums { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+    .sum { border: 1px solid #7390b0; }
+    .sum h3 { margin: 0; padding: 6px 8px; background: var(--band); color: #fff; font-size: 11px; font-weight: 700; }
+    .sum table { width: 100%; border-collapse: collapse; }
+    .sum td { padding: 6px 8px; border-bottom: 1px solid #e5e7eb; background: #fff; }
+    .sum tr:last-child td { border-bottom: none; }
+    .meta { border: 1px solid #7390b0; margin-top: 12px; padding: 10px 12px; background: #fff; min-height: 44px; }
+    .meta .co { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+    .meta .line { color: var(--ink); font-size: 11px; line-height: 1.4; }
+    .foot { display: flex; justify-content: space-between; align-items: stretch; gap: 12px; margin-top: 14px; }
+    .er-box { border: 1px solid #7390b0; padding: 10px 12px; min-width: 175px; background: #fff; }
+    .er-box .lab { font-size: 11px; }
+    .er-box .val { display: inline; font-size: 13px; font-weight: 700; margin-left: 6px; }
+    .net { background: var(--soft); border: 1px solid #7390b0; padding: 10px 16px; min-width: 230px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+    .net .lab { color: var(--band); font-size: 16px; font-weight: 700; }
+    .net .val { color: var(--ink); font-size: 16px; font-weight: 700; }
+    .actions { display: none; }
     .note { color: var(--muted); margin-top: 8px; }
-    @media print { body { padding: 0; } .actions { display: none; } }
+    @media print { body { padding: 0; } }
   </style>
 </head>
 <body data-template="${escapeHtml(theme)}">
   <div class="actions"><button type="button" onclick="window.print()">Print / save PDF</button></div>
   <div class="sheet">
     <div class="addr">
-      <strong>${escapeHtml(line.forename)} ${escapeHtml(line.surname)}</strong><br/>
       ${address || "—"}
     </div>
-    <div class="bar">
-      <div><span class="lab">Employee No</span>${escapeHtml(line.payrollId)}</div>
-      <div><span class="lab">Employee Name</span>${escapeHtml(line.forename)} ${escapeHtml(line.surname)}</div>
-      <div><span class="lab">Process Date</span>${ukDate(opts.payDate)}</div>
-      <div><span class="lab">National Insurance Number</span>${escapeHtml(line.nino)}</div>
-    </div>
-    <div class="cols">
-      <div>
+    <table class="id-table">
+      <thead>
+        <tr>
+          <th>Employee No</th>
+          <th>Employee Name</th>
+          <th>Process Date</th>
+          <th>National Insurance Number</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>${escapeHtml(line.payrollId || "")}</td>
+          <td>${displayName}</td>
+          <td>${ukDate(opts.payDate)}</td>
+          <td>${escapeHtml(line.nino)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="split">
+      <div class="pay">
         <table>
           <thead><tr><th>Payments</th><th class="num">Units</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead>
           <tbody>${paymentRows.join("")}</tbody>
@@ -519,9 +555,9 @@ export function renderPayslipHtml(opts: {
         </table>
       </div>
     </div>
-    <div class="cols">
-      <div class="box">
-        <h3>This period</h3>
+    <div class="sums">
+      <div class="sum">
+        <h3>This Period</h3>
         <table>
           <tr><td>Total Gross Pay</td><td class="num">${amt(line.grossPence)}</td></tr>
           <tr><td>Gross for Tax</td><td class="num">${amt(line.taxablePence ?? line.grossPence)}</td></tr>
@@ -530,8 +566,8 @@ export function renderPayslipHtml(opts: {
           <tr><td>NI ER</td><td class="num">${amt(line.employerNiPence)}</td></tr>
         </table>
       </div>
-      <div class="box">
-        <h3>Year to date</h3>
+      <div class="sum">
+        <h3>Year to Date</h3>
         <table>
           <tr><td>Total Gross Pay TD</td><td class="num">${amt(line.ytdGrossPence)}</td></tr>
           <tr><td>Gross for Tax TD</td><td class="num">${amt(line.ytdTaxablePence ?? line.ytdGrossPence)}</td></tr>
@@ -542,21 +578,16 @@ export function renderPayslipHtml(opts: {
       </div>
     </div>
     <div class="meta">
-      <div><div class="lab">Company Name</div>${escapeHtml(opts.employerName)}</div>
-      <div><div class="lab">Tax Code</div>${escapeHtml(line.taxCode)} ${opts.frequency === "W1" ? "W1" : "M1"}</div>
-      <div><div class="lab">Tax Period</div>${taxPeriod}</div>
-      <div><div class="lab">Frequency</div>${freq}</div>
-      <div><div class="lab">Payment Method</div>BACS</div>
-      <div><div class="lab">PAYE Reference</div>${escapeHtml(opts.payeRef)}</div>
+      <div class="co">${escapeHtml(opts.employerName)}</div>
+      <div class="line">Tax Code: ${escapeHtml(line.taxCode)} ${taxBasis} &nbsp; Tax Period: ${taxPeriod} &nbsp; Frequency: ${freq} &nbsp; Payment Method: BACS &nbsp; PAYE Reference: ${escapeHtml(opts.payeRef)}</div>
     </div>
     <div class="foot">
       <div class="er-box">
-        <div class="lab">Employer Pension</div>
-        <div class="val">${amt(pensionEr)}</div>
+        <span class="lab">Employer Pension:</span><span class="val">${amt(pensionEr)}</span>
       </div>
       <div class="net">
-        <div class="lab">Net Pay</div>
-        <div class="val">${amt(line.netPence)}</div>
+        <span class="lab">Net Pay</span>
+        <span class="val">${amt(line.netPence)}</span>
       </div>
     </div>
     ${notes}

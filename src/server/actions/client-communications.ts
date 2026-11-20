@@ -457,15 +457,43 @@ export async function sendClientCommunicationEmail(
   });
 
   try {
-    const { appendClientWorkLog } = await import("@/server/actions/desk");
-    const { deskFromEmailKind } = await import("@/lib/client-work-stage");
+    const { appendClientWorkLog, setClientWorkStage } = await import(
+      "@/server/actions/desk"
+    );
+    const { deskFromEmailKind, normalizeWorkStage } = await import(
+      "@/lib/client-work-stage"
+    );
+    const desk = deskFromEmailKind(data.kind);
     await appendClientWorkLog({
       clientId: data.clientId,
       kind: "email",
       label: `Email sent — ${data.subject}`,
-      detail: `To ${data.toEmail}`,
-      desk: deskFromEmailKind(data.kind),
+      detail: `To ${data.toEmail} · via ${outbound.delivery}`,
+      desk,
     });
+    // SA pack emails count as sent to client for approval.
+    if (desk === "sa") {
+      await appendClientWorkLog({
+        clientId: data.clientId,
+        kind: "stage",
+        label: "Sent to client for approval",
+        detail: data.subject,
+        desk: "sa",
+      });
+      const current = normalizeWorkStage(client.deskProfile?.workStage);
+      if (
+        current !== "submitted" &&
+        current !== "completed" &&
+        current !== "sent_for_approval"
+      ) {
+        await setClientWorkStage({
+          clientId: data.clientId,
+          stage: "sent_for_approval",
+          note: "Self Assessment emailed to client",
+          desk: "sa",
+        }).catch(() => undefined);
+      }
+    }
   } catch {
     /* work log is best-effort */
   }

@@ -102,6 +102,73 @@ function dosDateTime(d = new Date()) {
 
 export type ZipEntry = { name: string; data: Buffer | string };
 
+/** Unencrypted stored ZIP (opens in Explorer with no password). */
+export function createPlainZip(entries: ZipEntry[]): Buffer {
+  const { time, date } = dosDateTime();
+  const locals: Buffer[] = [];
+  const centrals: Buffer[] = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name.replace(/\\/g, "/"), "utf8");
+    const plain = Buffer.isBuffer(entry.data)
+      ? entry.data
+      : Buffer.from(entry.data, "utf8");
+    const crc = crc32Bytes(plain);
+    const local = Buffer.concat([
+      u32(0x04034b50),
+      u16(20),
+      u16(0), // not encrypted
+      u16(0), // stored
+      u16(time),
+      u16(date),
+      u32(crc),
+      u32(plain.length),
+      u32(plain.length),
+      u16(name.length),
+      u16(0),
+      name,
+      plain,
+    ]);
+    const central = Buffer.concat([
+      u32(0x02014b50),
+      u16(20),
+      u16(20),
+      u16(0),
+      u16(0),
+      u16(time),
+      u16(date),
+      u32(crc),
+      u32(plain.length),
+      u32(plain.length),
+      u16(name.length),
+      u16(0),
+      u16(0),
+      u16(0),
+      u16(0),
+      u32(0),
+      u32(offset),
+      name,
+    ]);
+    locals.push(local);
+    centrals.push(central);
+    offset += local.length;
+  }
+
+  const centralDir = Buffer.concat(centrals);
+  const eocd = Buffer.concat([
+    u32(0x06054b50),
+    u16(0),
+    u16(0),
+    u16(entries.length),
+    u16(entries.length),
+    u32(centralDir.length),
+    u32(offset),
+    u16(0),
+  ]);
+  return Buffer.concat([...locals, centralDir, eocd]);
+}
+
 export function createPasswordProtectedZip(
   entries: ZipEntry[],
   password: string,
@@ -173,4 +240,15 @@ export function createPasswordProtectedZip(
     u16(0),
   ]);
   return Buffer.concat([...locals, centralDir, eocd]);
+}
+
+/** Password zip when password set; otherwise plain zip so View/Download still work. */
+export function createPackZip(
+  entries: ZipEntry[],
+  password: string | null | undefined,
+): Buffer {
+  if (password && password.length >= 8) {
+    return createPasswordProtectedZip(entries, password);
+  }
+  return createPlainZip(entries);
 }

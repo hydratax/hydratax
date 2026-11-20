@@ -36,7 +36,12 @@ import {
 import {
   buildEmployeePayslipPackZip,
   buildPayrollPackZip,
+  buildPayrollRangePackZip,
+  buildPayrollRangePayslipsPdf,
+  type PackRangeItem,
 } from "@/server/payroll/pack";
+import { sendTransactionalEmail } from "@/server/email/transactional";
+import { resolveHydraOutboundFrom } from "@/lib/client-email";
 import { decryptSecret, encryptSecret } from "@/server/hmrc/crypto";
 import type { TimesheetAdjustments } from "@/server/payroll/statutory";
 import { hasDatabase, tryGetDb } from "@/server/db";
@@ -53,6 +58,7 @@ import {
   deskListPayRuns,
   deskInsertPayRun,
   deskUpdatePayRun,
+  deskDeletePayRun,
   deskListTimesheets,
   deskUpsertTimesheet,
 } from "@/server/db/desk-store";
@@ -159,10 +165,13 @@ function asEmployee(row: Record<string, unknown> | MemoryEmployee): PayrollEmplo
     bfTaxPence: Number(r.bfTaxPence ?? 0) || 0,
     bfEmployeeNiPence: Number(r.bfEmployeeNiPence ?? 0) || 0,
     // D1 stores active as 0/1; treat only explicit falsey flags as left.
+    // A leave date always means leaver — even if active was left true by a
+    // partial write (P45 / mark leaver race).
     active: !(
       r.active === false ||
       r.active === 0 ||
-      r.active === "0"
+      r.active === "0" ||
+      Boolean(r.leaveDate)
     ),
   };
 }
@@ -907,6 +916,19 @@ export async function updateEmployee(input: z.input<typeof updateEmployeeForm>) 
     entityType: "employee",
     entityId: data.employeeId,
   });
+  try {
+    const { appendClientWorkLog } = await import("@/server/actions/desk");
+    const name =
+      `${data.forename ?? ""} ${data.surname ?? ""}`.trim() || "Employee";
+    await appendClientWorkLog({
+      clientId: data.clientId,
+      kind: "document",
+      label: `Employee details amended — ${name}`,
+      desk: "paye",
+    });
+  } catch {
+    /* best-effort */
+  }
   revalidatePath(`/clients/${data.clientId}/payroll`);
   return { ok: true as const };
 }
@@ -918,9 +940,10 @@ const leaveSchema = z.object({
 });
 
 export async function markEmployeeLeaver(input: z.infer<typeof leaveSchema>) {
-  await requireSession();
+  const session = await requireSession();
   const data = leaveSchema.parse(input);
   await getClient(data.clientId);
+  let empName = "Employee";
   if (isDemoMode()) {
     const emp = demoStore.employees.find(
       (e) => e.id === data.employeeId && e.clientId === data.clientId,
@@ -928,7 +951,11 @@ export async function markEmployeeLeaver(input: z.infer<typeof leaveSchema>) {
     if (!emp) throw new Error("Employee not found");
     emp.leaveDate = data.leaveDate;
     emp.active = false;
+    empName = `${emp.forename} ${emp.surname}`.trim();
   } else if (isDeskStoreConfigured()) {
+    const all = await listEmployees(data.clientId, { includeLeavers: true });
+    const hit = all.find((e) => e.id === data.employeeId);
+    if (hit) empName = `${hit.forename} ${hit.surname}`.trim();
     await deskUpdateEmployee(data.employeeId, data.clientId, {
       leave_date: data.leaveDate,
       active: false,
@@ -944,6 +971,27 @@ export async function markEmployeeLeaver(input: z.infer<typeof leaveSchema>) {
         and(eq(employees.id, data.employeeId), eq(employees.clientId, data.clientId)),
       );
   }
+  try {
+    const { appendClientWorkLog } = await import("@/server/actions/desk");
+    await appendClientWorkLog({
+      clientId: data.clientId,
+      kind: "document",
+      label: `Leaver marked — ${empName}`,
+      detail: `Leave date ${data.leaveDate}`,
+      desk: "paye",
+    });
+  } catch {
+    /* best-effort */
+  }
+  await appendAuditEvent({
+    practiceId: session.practiceId,
+    clientId: data.clientId,
+    actorId: session.userId,
+    action: "employee.leaver",
+    entityType: "employee",
+    entityId: data.employeeId,
+    detail: { leaveDate: data.leaveDate },
+  }).catch(() => undefined);
   revalidatePath(`/clients/${data.clientId}/payroll`);
   return { ok: true };
 }
@@ -952,18 +1000,48 @@ const employerSchema = z.object({
   clientId: z.string(),
   payeRef: z.string().min(3),
   accountsOfficeRef: z.string().min(3),
+  /** Chosen once when payroll is first set up — locked thereafter. */
+  payFrequency: z.enum(["M1", "W1"]).optional(),
 });
 
 export async function enableEmployerPayroll(input: z.infer<typeof employerSchema>) {
   const session = await requireSession();
   const data = employerSchema.parse(input);
   const client = await getClient(data.clientId);
+  const currentProfile =
+    "deskProfile" in client && client.deskProfile && typeof client.deskProfile === "object"
+      ? (client.deskProfile as import("@/lib/desk-profile").DeskProfile)
+      : {};
+  const prevPay = currentProfile.payrollSettings ?? {};
+  const frequencyAlreadyLocked = Boolean(
+    prevPay.payFrequencyLocked || prevPay.payFrequency,
+  );
+  // Only set / lock cycle when the setup form sends it, or it was already locked.
+  const nextFrequency: "M1" | "W1" | undefined = frequencyAlreadyLocked
+    ? prevPay.payFrequency === "W1"
+      ? "W1"
+      : "M1"
+    : data.payFrequency === "W1" || data.payFrequency === "M1"
+      ? data.payFrequency
+      : undefined;
+  const nextProfile: import("@/lib/desk-profile").DeskProfile = {
+    ...currentProfile,
+    payrollSettings: {
+      ...prevPay,
+      ...(nextFrequency
+        ? { payFrequency: nextFrequency, payFrequencyLocked: true }
+        : {}),
+    },
+  };
+
   if (isDemoMode()) {
     const row = demoStore.clients.find((c) => c.id === data.clientId);
     if (!row) throw new Error("Client not found");
     row.isEmployer = true;
     row.payeRef = data.payeRef.trim();
     row.accountsOfficeRef = data.accountsOfficeRef.trim();
+    row.deskProfile = nextProfile;
+    row.updatedAt = new Date().toISOString();
   } else if (isSupabaseConfigured()) {
     const supabase = await getSupabaseDataClient();
     if (!supabase) throw new Error("Supabase is not configured");
@@ -973,6 +1051,7 @@ export async function enableEmployerPayroll(input: z.infer<typeof employerSchema
         is_employer: true,
         paye_ref: data.payeRef.trim(),
         accounts_office_ref: data.accountsOfficeRef.trim(),
+        desk_profile: nextProfile,
         updated_at: new Date().toISOString(),
       })
       .eq("id", data.clientId)
@@ -988,6 +1067,7 @@ export async function enableEmployerPayroll(input: z.infer<typeof employerSchema
         isEmployer: true,
         payeRef: data.payeRef.trim(),
         accountsOfficeRef: data.accountsOfficeRef.trim(),
+        deskProfile: nextProfile,
       })
       .where(eq(clients.id, data.clientId));
   }
@@ -998,6 +1078,9 @@ export async function enableEmployerPayroll(input: z.infer<typeof employerSchema
     action: "client.employer.enable",
     entityType: "client",
     entityId: client.id,
+    detail: {
+      payFrequency: nextFrequency ?? prevPay.payFrequency ?? null,
+    },
   });
   revalidatePath(`/clients/${data.clientId}/payroll`);
   revalidatePath(`/clients/${data.clientId}`);
@@ -1083,6 +1166,8 @@ const payRunSchema = z.object({
   senderPassword: z.string().optional(),
   useSavedPassword: z.boolean().optional(),
   rememberPassword: z.boolean().optional(),
+  /** When set, FPS includes only these employees. */
+  employeeIds: z.array(z.string().min(1)).optional(),
 });
 
 const optionalPounds = z.string().optional();
@@ -1274,7 +1359,22 @@ async function buildPayRunPackage(
 export async function previewPayRun(input: z.input<typeof payRunSchema>) {
   await requireSession();
   const data = payRunSchema.parse({ ...input, submit: false });
-  return buildPayRunPackage(data);
+  const pack = await buildPayRunPackage(data);
+  // Incomplete employee data — no figures until the desk is ready.
+  if (pack.checks.some((c) => c.level === "error")) {
+    return {
+      ...pack,
+      lines: [],
+      totals: {
+        grossPence: 0,
+        taxPence: 0,
+        employeeNiPence: 0,
+        employerNiPence: 0,
+        netPence: 0,
+      },
+    };
+  }
+  return pack;
 }
 
 /**
@@ -1296,6 +1396,7 @@ export async function savePayRun(input: z.input<typeof payRunSchema>) {
   const existing = await listPayRuns(data.clientId);
   const clash = existing.find((r) => {
     const row = r as {
+      id?: string;
       payDate?: string;
       kind?: string;
       status?: string;
@@ -1320,8 +1421,69 @@ export async function savePayRun(input: z.input<typeof payRunSchema>) {
       return false;
     }
     return true;
-  });
-  if (clash) {
+  }) as
+    | {
+        id?: string;
+        payDate?: string;
+        status?: string;
+        hmrcCorrelationId?: string | null;
+        lines?: PayLine[];
+      }
+    | undefined;
+
+  // Unfiled run for this payday — recalculate in place (Generate payslips again).
+  if (clash?.id && !isPayrollRtiSubmitted(clash)) {
+    const clashStatus = String(clash.status ?? "").toLowerCase();
+    if (
+      clashStatus === "ready" ||
+      clashStatus === "draft" ||
+      clashStatus === "finalised"
+    ) {
+      // Keep any manually reversed lines; refresh everyone else from the new calc.
+      const prior = Array.isArray(clash.lines) ? clash.lines : [];
+      const reversedIds = new Set(
+        prior.filter((l) => l.reversed).map((l) => l.employeeId),
+      );
+      const merged = pack.lines.map((l) => {
+        if (!reversedIds.has(l.employeeId)) return l;
+        const old = prior.find((p) => p.employeeId === l.employeeId);
+        return old ?? l;
+      });
+      for (const old of prior) {
+        if (
+          old.reversed &&
+          !merged.some((l) => l.employeeId === old.employeeId)
+        ) {
+          merged.push(old);
+        }
+      }
+      await persistPayRunLines(
+        clash.id,
+        data.clientId,
+        merged,
+        totalsFromLines(merged.filter((l) => !l.reversed)),
+      );
+      revalidatePath(`/clients/${data.clientId}/payroll`);
+      return {
+        id: clash.id,
+        clientId: data.clientId,
+        payDate: data.payDate,
+        periodStart: data.periodStart,
+        periodEnd: data.periodEnd,
+        payFrequency: data.frequency,
+        kind: "FPS" as const,
+        status: "ready",
+        totals: totalsFromLines(merged.filter((l) => !l.reversed)),
+        lines: merged,
+        fpsXmlHash: null as string | null,
+        hmrcCorrelationId: clash.hmrcCorrelationId ?? null,
+        submittedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        ok: true as const,
+        taxYear: pack.taxYear,
+        refreshed: true as const,
+      };
+    }
     throw new Error(
       `A pay run already exists for ${data.payDate}. Open History & packs for payslips.`,
     );
@@ -1415,6 +1577,18 @@ export async function savePayRun(input: z.input<typeof payRunSchema>) {
     entityType: "pay_run",
     entityId: payRun.id,
   });
+  try {
+    const { appendClientWorkLog } = await import("@/server/actions/desk");
+    await appendClientWorkLog({
+      clientId: data.clientId,
+      kind: "document",
+      label: `Payslips generated — ${payRun.payDate}`,
+      detail: `${pack.lines.length} employee payslip${pack.lines.length === 1 ? "" : "s"}`,
+      desk: "paye",
+    });
+  } catch {
+    /* best-effort */
+  }
 
   revalidatePath(`/clients/${data.clientId}/payroll`);
   return {
@@ -1455,13 +1629,27 @@ export async function createAndSubmitPayRun(
     rememberPassword: data.rememberPassword,
   });
 
+  // When employeeIds is passed, only those people go to HMRC / the filed run.
+  // Unticked staff stay off FPS XML and FPS/RTI submission reports.
+  const idFilter =
+    data.employeeIds !== undefined ? new Set(data.employeeIds) : null;
+  const submitLines = (
+    idFilter
+      ? pack.lines.filter((l) => idFilter.has(l.employeeId) && !l.reversed)
+      : pack.lines.filter((l) => !l.reversed)
+  );
+  if (!submitLines.length) {
+    throw new Error("Select at least one employee to submit.");
+  }
+  const submitTotals = totalsFromLines(submitLines);
+
   const fps = buildFpsXml({
     employerPayeRef: client.payeRef,
     accountsOfficeRef: client.accountsOfficeRef,
     payDate: data.payDate,
     taxYear: pack.taxYear,
     frequency: data.frequency,
-    lines: pack.lines,
+    lines: submitLines,
     senderId,
     senderPassword,
   });
@@ -1487,8 +1675,8 @@ export async function createAndSubmitPayRun(
     payFrequency: data.frequency,
     kind: "FPS",
     status: submit.ok ? "accepted" : "rejected",
-    totals: pack.totals,
-    lines: pack.lines,
+    totals: submitTotals,
+    lines: submitLines,
     fpsXmlHash: fps.hash,
     hmrcCorrelationId: submit.correlationId,
     submittedAt: new Date().toISOString(),
@@ -1497,7 +1685,7 @@ export async function createAndSubmitPayRun(
 
   if (isDemoMode()) {
     demoStore.payRuns.push(payRun);
-    for (const line of pack.lines) {
+    for (const line of submitLines) {
       const emp = demoStore.employees.find((e) => e.id === line.employeeId);
       if (emp) {
         emp.firstFpsSent = true;
@@ -1520,7 +1708,7 @@ export async function createAndSubmitPayRun(
       hmrc_correlation_id: payRun.hmrcCorrelationId ?? null,
       submitted_at: payRun.submittedAt,
     });
-    const ids = pack.lines.map((line) => line.employeeId);
+    const ids = submitLines.map((line) => line.employeeId);
     await deskMarkEmployeesFpsSent(data.clientId, ids);
   } else {
     const { getDb } = await import("@/server/db");
@@ -1535,19 +1723,29 @@ export async function createAndSubmitPayRun(
       payFrequency: data.frequency,
       kind: "FPS",
       status: submit.ok ? "accepted" : "rejected",
-      totals: pack.totals,
-      lines: pack.lines,
+      totals: submitTotals,
+      lines: submitLines,
       fpsXmlHash: fps.hash,
       hmrcCorrelationId: submit.correlationId ?? null,
       submittedAt: new Date(),
     });
-    const ids = pack.lines.map((l) => l.employeeId);
+    const ids = submitLines.map((l) => l.employeeId);
     if (ids.length) {
       await getDb()
         .update(employees)
         .set({ firstFpsSent: true, previousPayrollId: null })
         .where(inArray(employees.id, ids));
     }
+  }
+
+  if (submit.ok) {
+    await pruneUnfiledAfterFpsSubmit({
+      clientId: data.clientId,
+      payDate: data.payDate,
+      frequency: data.frequency,
+      filedEmployeeIds: submitLines.map((l) => l.employeeId),
+      keepRunId: payRun.id,
+    });
   }
 
   revalidatePath(`/clients/${data.clientId}/payroll`);
@@ -1939,6 +2137,87 @@ async function persistPayRunLines(
     .where(and(eq(payRuns.id, runId), eq(payRuns.clientId, clientId)));
 }
 
+async function deletePayRunRow(runId: string, clientId: string) {
+  if (isDemoMode()) {
+    demoStore.payRuns = demoStore.payRuns.filter(
+      (r) => String(r.id) !== runId,
+    );
+    return;
+  }
+  if (isDeskStoreConfigured()) {
+    await deskDeletePayRun(runId);
+    if (isSupabaseConfigured() && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      try {
+        const { getSupabaseAdmin } = await import("@/lib/supabase");
+        await getSupabaseAdmin().from("pay_runs").delete().eq("id", runId);
+      } catch {
+        /* dual-write best-effort */
+      }
+    }
+    return;
+  }
+  const db = tryGetDb();
+  if (!db) return;
+  const { payRuns } = await import("@/server/db/schema");
+  const { eq, and } = await import("drizzle-orm");
+  await db
+    .delete(payRuns)
+    .where(and(eq(payRuns.id, runId), eq(payRuns.clientId, clientId)));
+}
+
+/**
+ * After a partial FPS file: drop filed employees from any unfiled ready run
+ * for the same payday so they cannot reappear on FPS/RTI reports or double YTD.
+ */
+async function pruneUnfiledAfterFpsSubmit(opts: {
+  clientId: string;
+  payDate: string;
+  frequency: string;
+  filedEmployeeIds: string[];
+  keepRunId?: string | null;
+}) {
+  const filed = new Set(opts.filedEmployeeIds);
+  if (!filed.size) return;
+  const existing = await listPayRuns(opts.clientId);
+  for (const raw of existing) {
+    const row = raw as {
+      id?: string;
+      payDate?: string;
+      kind?: string;
+      status?: string;
+      payFrequency?: string;
+      lines?: PayLine[];
+      hmrcCorrelationId?: string | null;
+    };
+    if (!row.id || row.id === opts.keepRunId) continue;
+    if (String(row.payDate) !== opts.payDate) continue;
+    if (String(row.kind ?? "FPS") !== "FPS") continue;
+    if (String(row.payFrequency ?? "M1") !== opts.frequency) continue;
+    if (isPayrollRtiSubmitted(row)) continue;
+    const status = String(row.status ?? "").toLowerCase();
+    if (
+      status !== "ready" &&
+      status !== "draft" &&
+      status !== "finalised"
+    ) {
+      continue;
+    }
+    const prior = Array.isArray(row.lines) ? row.lines : [];
+    const remaining = prior.filter((l) => !filed.has(l.employeeId));
+    if (remaining.length === 0) {
+      await deletePayRunRow(row.id, opts.clientId);
+      continue;
+    }
+    if (remaining.length === prior.length) continue;
+    await persistPayRunLines(
+      row.id,
+      opts.clientId,
+      remaining,
+      totalsFromLines(remaining.filter((l) => !l.reversed)),
+    );
+  }
+}
+
 /**
  * After RTI is filed: reverse one employee payslip so YTD excludes it.
  * Desk then regenerates / files an amended FPS with corrected figures.
@@ -1963,7 +2242,14 @@ export async function reversePayslip(input: {
     lines?: PayLine[];
   };
   if (String(row.kind ?? "FPS") !== "FPS") return { ok: false as const };
-  if (!isPayrollRtiSubmitted(row)) return { ok: false as const };
+  // Allow reverse on prepared (ready) or filed runs — only that employee flips.
+  const status = String(row.status ?? "").toLowerCase();
+  const canReverse =
+    isPayrollRtiSubmitted(row) ||
+    status === "ready" ||
+    status === "draft" ||
+    status === "finalised";
+  if (!canReverse) return { ok: false as const };
 
   const lines = Array.isArray(row.lines) ? [...row.lines] : [];
   const idx = lines.findIndex((l) => l.employeeId === input.employeeId);
@@ -2023,13 +2309,55 @@ export async function prepareAmendedPayRun(input: {
     totals?: Record<string, number>;
   };
   if (String(row.kind ?? "FPS") !== "FPS") return { ok: false as const };
-  if (!isPayrollRtiSubmitted(row)) return { ok: false as const };
   if (!row.payDate || !row.periodStart || !row.periodEnd) {
     return { ok: false as const };
   }
 
   const frequency = (row.payFrequency === "W1" ? "W1" : "M1") as PayFrequency;
   const sourceLines = Array.isArray(row.lines) ? row.lines : [];
+  const runStatus = String(row.status ?? "").toLowerCase();
+  const unfiledReady =
+    !isPayrollRtiSubmitted(row) &&
+    (runStatus === "ready" ||
+      runStatus === "draft" ||
+      runStatus === "finalised");
+
+  // Unfiled run: restore a reversed employee on the same payslip (no new FPS draft).
+  if (unfiledReady && input.employeeId) {
+    const idx = sourceLines.findIndex(
+      (l) => l.employeeId === input.employeeId && l.reversed,
+    );
+    if (idx < 0) return { ok: false as const };
+    let restored: PayLine | null = null;
+    try {
+      const pack = await buildPayRunPackage({
+        clientId: input.clientId,
+        payDate: row.payDate,
+        periodStart: row.periodStart,
+        periodEnd: row.periodEnd,
+        frequency,
+        submit: false,
+      });
+      restored = pack.lines.find((l) => l.employeeId === input.employeeId) ?? null;
+    } catch {
+      const { reversed: _r, reversedAt: _a, ...rest } = sourceLines[idx]!;
+      restored = { ...rest, reversed: false };
+    }
+    if (!restored) return { ok: false as const };
+    const nextLines = sourceLines.map((l, i) =>
+      i === idx ? { ...restored!, reversed: false, reversedAt: undefined } : l,
+    );
+    await persistPayRunLines(
+      input.runId,
+      input.clientId,
+      nextLines,
+      totalsFromLines(nextLines.filter((l) => !l.reversed)),
+    );
+    revalidatePath(`/clients/${input.clientId}/payroll`);
+    return { ok: true as const, runId: input.runId, restored: true as const };
+  }
+
+  if (!isPayrollRtiSubmitted(row)) return { ok: false as const };
 
   // Prefer a fresh calc so YTD reflects reverses; fall back to cloning lines.
   let lines: PayLine[] = [];
@@ -2308,6 +2636,26 @@ export async function submitSavedPayRun(
           .set({ firstFpsSent: true, previousPayrollId: null })
           .where(inArray(employees.id, ids));
       }
+    }
+  }
+
+  if (submit.ok) {
+    try {
+      const { appendClientWorkLog } = await import("@/server/actions/desk");
+      const payDate = String(
+        (row as { payDate?: string }).payDate ?? "pay run",
+      );
+      await appendClientWorkLog({
+        clientId: input.clientId,
+        kind: "document",
+        label: `FPS submitted to HMRC — ${payDate}`,
+        detail: submit.correlationId
+          ? `Correlation ${submit.correlationId}`
+          : undefined,
+        desk: "paye",
+      });
+    } catch {
+      /* best-effort */
     }
   }
 
@@ -2708,15 +3056,15 @@ export async function savePayrollPackPassword(
   return { ok: true };
 }
 
-async function resolvePackPassword(clientId: string, override?: string) {
-  if (override && override.length >= 8) return override;
+async function readPackPasswordEncrypted(clientId: string) {
   const client = await getClient(clientId);
-  let encrypted: string | null | undefined;
   if (isDemoMode()) {
-    encrypted = demoStore.clients.find(
-      (c) => c.id === clientId,
-    )?.payrollPackPasswordEncrypted;
-  } else if (isSupabaseConfigured()) {
+    return (
+      demoStore.clients.find((c) => c.id === clientId)
+        ?.payrollPackPasswordEncrypted ?? null
+    );
+  }
+  if (isSupabaseConfigured()) {
     const supabase = await getSupabaseDataClient();
     if (!supabase) throw new Error("Supabase is not configured");
     const { data, error } = await supabase
@@ -2725,11 +3073,18 @@ async function resolvePackPassword(clientId: string, override?: string) {
       .eq("id", clientId)
       .maybeSingle();
     if (error) throw new Error(`Could not load payroll password: ${error.message}`);
-    encrypted = data?.payroll_pack_password_encrypted;
-  } else {
-    encrypted = (client as { payrollPackPasswordEncrypted?: string | null })
-      .payrollPackPasswordEncrypted;
+    return data?.payroll_pack_password_encrypted ?? null;
   }
+  return (
+    (client as { payrollPackPasswordEncrypted?: string | null })
+      .payrollPackPasswordEncrypted ?? null
+  );
+}
+
+/** Password required for email; download/view may proceed without one (plain zip). */
+async function resolvePackPassword(clientId: string, override?: string) {
+  if (override && override.length >= 8) return override;
+  const encrypted = await readPackPasswordEncrypted(clientId);
   if (!encrypted) {
     throw new Error(
       "Set a pack password first (at least 8 characters). You choose it — the client uses the same password to open the zip.",
@@ -2738,7 +3093,69 @@ async function resolvePackPassword(clientId: string, override?: string) {
   return decryptSecret(encrypted);
 }
 
-async function zipForRun(clientId: string, runId: string, password: string) {
+async function resolvePackPasswordOptional(
+  clientId: string,
+  override?: string,
+): Promise<string | null> {
+  if (override && override.length >= 8) return override;
+  const encrypted = await readPackPasswordEncrypted(clientId);
+  if (!encrypted) return null;
+  try {
+    return decryptSecret(encrypted);
+  } catch {
+    return null;
+  }
+}
+
+async function collectRangeItems(
+  clientId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<PackRangeItem[]> {
+  const runs = await listPayRuns(clientId);
+  const items: PackRangeItem[] = [];
+  for (const run of runs) {
+    const payDate = String((run as { payDate?: string }).payDate ?? "");
+    if (!payDate || payDate < fromDate || payDate > toDate) continue;
+    if (String((run as { kind?: string }).kind ?? "FPS") === "EPS") continue;
+    if (String((run as { status?: string }).status ?? "") === "rejected") continue;
+    const lines = (
+      Array.isArray((run as { lines?: PayLine[] }).lines)
+        ? (run as { lines: PayLine[] }).lines
+        : []
+    ).filter((l) => !l.reversed);
+    for (const line of lines) {
+      items.push({
+        payDate,
+        periodStart: String(
+          (run as { periodStart?: string }).periodStart ?? payDate,
+        ),
+        periodEnd: String(
+          (run as { periodEnd?: string }).periodEnd ?? payDate,
+        ),
+        frequency: String(
+          (run as { payFrequency?: string }).payFrequency ?? "M1",
+        ),
+        line,
+      });
+    }
+  }
+  items.sort((a, b) =>
+    a.payDate === b.payDate
+      ? `${a.line.surname} ${a.line.forename}`.localeCompare(
+          `${b.line.surname} ${b.line.forename}`,
+          "en-GB",
+        )
+      : a.payDate.localeCompare(b.payDate),
+  );
+  return items;
+}
+
+async function zipForRun(
+  clientId: string,
+  runId: string,
+  password: string | null,
+) {
   const client = await getClient(clientId);
   const run = await getPayRun(clientId, runId);
   if (!run) throw new Error("Pay run not found");
@@ -2769,24 +3186,158 @@ async function zipForRun(clientId: string, runId: string, password: string) {
   };
 }
 
+async function zipForRange(
+  clientId: string,
+  fromDate: string,
+  toDate: string,
+  password: string | null,
+) {
+  const client = await getClient(clientId);
+  const items = await collectRangeItems(clientId, fromDate, toDate);
+  if (!items.length) {
+    throw new Error("No payslips found for that date range.");
+  }
+  const zip = await buildPayrollRangePackZip({
+    employerName: client.name,
+    payeRef: client.payeRef ?? "—",
+    password,
+    fromDate,
+    toDate,
+    items,
+  });
+  return {
+    zip,
+    filename: `hydratax-payroll-${fromDate}_${toDate}.zip`,
+    payDate: `${fromDate}_${toDate}`,
+    lineCount: items.length,
+  };
+}
+
 const sendPackSchema = z.object({
   clientId: z.string(),
-  runId: z.string(),
+  runId: z.string().optional(),
+  fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   toEmail: z.string().email(),
   password: z.string().min(8).max(128).optional(),
 });
 
 export async function downloadPayrollPack(input: {
   clientId: string;
-  runId: string;
+  runId?: string;
+  fromDate?: string;
+  toDate?: string;
   password?: string;
 }) {
   await requireSession();
-  const password = await resolvePackPassword(input.clientId, input.password);
-  const pack = await zipForRun(input.clientId, input.runId, password);
+  const password = await resolvePackPasswordOptional(
+    input.clientId,
+    input.password,
+  );
+  const pack =
+    input.fromDate && input.toDate
+      ? await zipForRange(
+          input.clientId,
+          input.fromDate,
+          input.toDate,
+          password,
+        )
+      : await zipForRun(input.clientId, input.runId!, password);
   return {
     filename: pack.filename,
     base64: pack.zip.toString("base64"),
+    lineCount: pack.lineCount,
+  };
+}
+
+/** Multi-page PDF of every payslip in the date range (View — no zip). */
+export async function viewPayrollPackPdf(input: {
+  clientId: string;
+  fromDate: string;
+  toDate: string;
+}) {
+  await requireSession();
+  const client = await getClient(input.clientId);
+  const items = await collectRangeItems(
+    input.clientId,
+    input.fromDate,
+    input.toDate,
+  );
+  if (!items.length) throw new Error("No payslips found for that date range.");
+  const pdf = await buildPayrollRangePayslipsPdf({
+    employerName: client.name,
+    payeRef: client.payeRef ?? "—",
+    items,
+  });
+  return {
+    filename: `payslips-${input.fromDate}_${input.toDate}.pdf`,
+    base64: pdf.toString("base64"),
+    lineCount: items.length,
+  };
+}
+
+/** Landscape payroll summary PDF for a single run or inclusive date range. */
+export async function downloadPayrollSummary(input: {
+  clientId: string;
+  runId?: string;
+  fromDate?: string;
+  toDate?: string;
+}) {
+  await requireSession();
+  const client = await getClient(input.clientId);
+  const { renderPayrollSummaryPdfBuffer } = await import(
+    "@/server/payroll/summary-pdf"
+  );
+
+  if (input.fromDate && input.toDate) {
+    const items = await collectRangeItems(
+      input.clientId,
+      input.fromDate,
+      input.toDate,
+    );
+    if (!items.length) throw new Error("No payslips in that date range.");
+    const pdf = await renderPayrollSummaryPdfBuffer({
+      employerName: client.name,
+      payeRef: client.payeRef ?? "—",
+      payDate: input.toDate,
+      periodStart: input.fromDate,
+      periodEnd: input.toDate,
+      frequency: items[0]?.frequency ?? "M1",
+      lines: items.map((it) => ({ ...it.line, payslipDate: it.payDate })),
+      rangeLabel: `${input.fromDate} → ${input.toDate}`,
+    });
+    return {
+      filename: `payroll-summary-${input.fromDate}_${input.toDate}.pdf`,
+      base64: pdf.toString("base64"),
+      mimeType: "application/pdf" as const,
+      rowCount: items.length,
+    };
+  }
+
+  if (!input.runId) throw new Error("Pay run or date range required");
+  const run = await getPayRun(input.clientId, input.runId);
+  if (!run) throw new Error("Pay run not found");
+  const lines = (
+    Array.isArray((run as { lines?: PayLine[] }).lines)
+      ? (run as { lines: PayLine[] }).lines
+      : []
+  ).filter((l) => !l.reversed);
+  if (!lines.length) throw new Error("No payslips on this run");
+  const payDate = String((run as { payDate?: string }).payDate ?? "");
+  const pdf = await renderPayrollSummaryPdfBuffer({
+    employerName: client.name,
+    payeRef: client.payeRef ?? "—",
+    payDate,
+    periodStart: String((run as { periodStart?: string }).periodStart ?? ""),
+    periodEnd: String((run as { periodEnd?: string }).periodEnd ?? ""),
+    frequency: String((run as { payFrequency?: string }).payFrequency ?? "M1"),
+    lines,
+  });
+  return {
+    filename: `payroll-summary-${payDate}.pdf`,
+    base64: pdf.toString("base64"),
+    mimeType: "application/pdf" as const,
+    rowCount: lines.length,
   };
 }
 
@@ -2795,38 +3346,24 @@ export async function sendPayrollPack(input: z.infer<typeof sendPackSchema>) {
   const data = sendPackSchema.parse(input);
   await getClient(data.clientId);
   const password = await resolvePackPassword(data.clientId, data.password);
-  const pack = await zipForRun(data.clientId, data.runId, password);
+  const pack =
+    data.fromDate && data.toDate
+      ? await zipForRange(data.clientId, data.fromDate, data.toDate, password)
+      : await zipForRun(data.clientId, data.runId!, password);
 
-  const from = process.env.EMAIL_FROM ?? "HydraTax <onboarding@resend.dev>";
-  const resendKey = process.env.RESEND_API_KEY;
-  let delivery: "resend" | "logged" = "logged";
-
-  if (resendKey) {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendKey}`,
-        "Content-Type": "application/json",
+  const from = resolveHydraOutboundFrom();
+  const delivery = await sendTransactionalEmail({
+    from,
+    to: data.toEmail,
+    subject: `Payroll pack ${pack.payDate} — password-protected`,
+    text: `Please find attached the password-protected payroll pack for ${pack.payDate} (${pack.lineCount} payslip${pack.lineCount === 1 ? "" : "s"} plus a period summary).\n\nOpen the zip with the password your accountant has given you. Do not forward the password in the same email thread.`,
+    attachments: [
+      {
+        filename: pack.filename,
+        content: pack.zip.toString("base64"),
       },
-      body: JSON.stringify({
-        from,
-        to: [data.toEmail],
-        subject: `Payroll pack ${pack.payDate} — password-protected`,
-        text: `Please find attached the password-protected payroll pack for ${pack.payDate} (${pack.lineCount} payslip${pack.lineCount === 1 ? "" : "s"} plus a period summary).\n\nOpen the zip with the password your accountant has given you. Do not forward the password in the same email thread.`,
-        attachments: [
-          {
-            filename: pack.filename,
-            content: pack.zip.toString("base64"),
-          },
-        ],
-      }),
-    });
-    if (!res.ok) {
-      console.error("[payroll.sendPack] email provider error, status", res.status);
-      throw new Error(`Email provider error (${res.status}). Please try again.`);
-    }
-    delivery = "resend";
-  }
+    ],
+  });
 
   if (isDemoMode()) {
     const c = demoStore.clients.find((x) => x.id === data.clientId);
@@ -2856,7 +3393,7 @@ export async function sendPayrollPack(input: z.infer<typeof sendPackSchema>) {
     actorId: session.userId,
     action: "payroll.pack.send",
     entityType: "pay_run",
-    entityId: data.runId,
+    entityId: data.runId ?? `${data.fromDate}_${data.toDate}`,
     detail: {
       toDomain: data.toEmail.split("@")[1] ?? "unknown",
       documentCount: pack.lineCount + 1,
@@ -2939,7 +3476,7 @@ export async function downloadEmployeePayslipPack(
   await requireSession();
   const data = employeePackSchema.parse(input);
   const client = await getClient(data.clientId);
-  const password = await resolvePackPassword(data.clientId);
+  const password = await resolvePackPasswordOptional(data.clientId);
   const items = await employeePayslipItems(
     data.clientId,
     data.employeeId,
@@ -2982,27 +3519,13 @@ export async function sendEmployeePayslipPack(
   });
   const emp = await getEmployeeOrThrow(data.clientId, data.employeeId);
   const filename = `hydratax-${emp.forename}-payslips-${data.fromDate}_${data.toDate}.zip`;
-  const from = process.env.EMAIL_FROM ?? "HydraTax <onboarding@resend.dev>";
-  const resendKey = process.env.RESEND_API_KEY;
-  if (resendKey) {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: [data.toEmail],
-        subject: `Payslips — ${emp.forename} ${emp.surname}`,
-        text: `Password-protected payslip pack for ${emp.forename} ${emp.surname} (${items.length} payslip${items.length === 1 ? "" : "s"}, ${data.fromDate} to ${data.toDate}).\n\nUse the pack password your accountant shared with you.`,
-        attachments: [{ filename, content: zip.toString("base64") }],
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`Email provider error (${res.status}). Please try again.`);
-    }
-  }
+  await sendTransactionalEmail({
+    from: resolveHydraOutboundFrom(),
+    to: data.toEmail!,
+    subject: `Payslips — ${emp.forename} ${emp.surname}`,
+    text: `Password-protected payslip pack for ${emp.forename} ${emp.surname} (${items.length} payslip${items.length === 1 ? "" : "s"}, ${data.fromDate} to ${data.toDate}).\n\nUse the pack password your accountant shared with you.`,
+    attachments: [{ filename, content: zip.toString("base64") }],
+  });
   void session;
   return {
     ok: true,
@@ -3049,27 +3572,13 @@ export async function sendStatutoryDocument(
     password,
   );
   const filename = `hydratax-${label}.zip`;
-  const from = process.env.EMAIL_FROM ?? "HydraTax <onboarding@resend.dev>";
-  const resendKey = process.env.RESEND_API_KEY;
-  if (resendKey) {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: [data.toEmail],
-        subject: `${data.kind.toUpperCase()} — ${emp.forename} ${emp.surname}`,
-        text: `Attached is a password-protected ${data.kind.toUpperCase()} for ${emp.forename} ${emp.surname}.\n\nUse the pack password your accountant shared with you.`,
-        attachments: [{ filename, content: zip.toString("base64") }],
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`Email provider error (${res.status}). Please try again.`);
-    }
-  }
+  await sendTransactionalEmail({
+    from: resolveHydraOutboundFrom(),
+    to: data.toEmail,
+    subject: `${data.kind.toUpperCase()} — ${emp.forename} ${emp.surname}`,
+    text: `Attached is a password-protected ${data.kind.toUpperCase()} for ${emp.forename} ${emp.surname}.\n\nUse the pack password your accountant shared with you.`,
+    attachments: [{ filename, content: zip.toString("base64") }],
+  });
   return {
     ok: true,
     filename,
@@ -3229,3 +3738,162 @@ export async function getEmployeeP60Pdf(
   });
 }
 
+
+const rtiReportSchema = z.object({
+  clientId: z.string(),
+  runId: z.string().optional(),
+  /** Inclusive YYYY-MM-DD for multi-run RTI detail */
+  fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  kind: z.enum(["fps", "rti"]),
+});
+
+/** FPS employee listing or RTI submission detail PDF for a run / period.
+ * Only RTI-filed employees are included — unticked / unfiled staff stay off. */
+export async function downloadPayrollRtiReport(
+  input: z.infer<typeof rtiReportSchema>,
+) {
+  await requireSession();
+  const data = rtiReportSchema.parse(input);
+  const client = await getClient(data.clientId);
+  const runs = await listPayRuns(data.clientId);
+  const fpsRuns = runs.filter((r) => {
+    const row = r as {
+      kind?: string;
+      lines?: PayLine[];
+      status?: string;
+      hmrcCorrelationId?: string | null;
+    };
+    if (String(row.kind ?? "FPS") === "EPS") return false;
+    if (!isPayrollRtiSubmitted(row)) return false;
+    const lines = Array.isArray(row.lines) ? row.lines : [];
+    return lines.some((l) => !l.reversed);
+  });
+
+  let selected = fpsRuns;
+  if (data.fromDate && data.toDate) {
+    selected = fpsRuns.filter((r) => {
+      const d = String(r.payDate ?? "");
+      return d >= data.fromDate! && d <= data.toDate!;
+    });
+  } else if (data.runId) {
+    selected = fpsRuns.filter((r) => r.id === data.runId);
+  } else {
+    selected = fpsRuns.slice(0, 1);
+  }
+  if (!selected.length) throw new Error("No submitted FPS in this period");
+
+  const { taxYearLongLabel, ukTaxMonthNumber } = await import("@/lib/payroll");
+  const {
+    buildFpsSubmissionReportPdf,
+    buildRtiSubmissionDetailPdf,
+  } = await import("@/server/payroll/rti-reports-pdf");
+
+  if (data.kind === "fps") {
+    const employees = await listEmployees(data.clientId, {
+      includeLeavers: true,
+    });
+    const byId = new Map(employees.map((e) => [e.id, e]));
+    const safe = client.name.replace(/[^a-zA-Z0-9]+/g, " ").trim();
+
+    async function fpsPdfForRun(run: (typeof selected)[number]) {
+      const lines = (run.lines as PayLine[]).filter((l) => !l.reversed);
+      return buildFpsSubmissionReportPdf({
+        employerName: client.name,
+        payeRef: client.payeRef || "—",
+        taxYear: taxYearLongLabel(String(run.payDate)),
+        payDate: String(run.payDate),
+        monthNo: ukTaxMonthNumber(String(run.payDate)),
+        employees: lines.map((l) => {
+          const emp = byId.get(l.employeeId);
+          return {
+            forename: l.forename,
+            surname: l.surname,
+            nino: l.nino,
+            address: l.address,
+            dateOfBirth: l.dateOfBirth,
+            gender: l.gender,
+            payrollId: l.payrollId || emp?.payrollId || "—",
+            taxCode: l.taxCode,
+            payFrequency: String(run.payFrequency ?? emp?.payFrequency ?? "M1"),
+            line: l,
+          };
+        }),
+      });
+    }
+
+    if (selected.length === 1) {
+      const run = selected[0]!;
+      const pdf = await fpsPdfForRun(run);
+      const month = ukTaxMonthNumber(String(run.payDate));
+      return {
+        filename: `Period - ${month} - ${safe} - FPS Report.pdf`,
+        base64: pdf.toString("base64"),
+        mimeType: "application/pdf" as const,
+      };
+    }
+
+    const { PDFDocument } = await import("pdf-lib");
+    const merged = await PDFDocument.create();
+    for (const run of selected) {
+      const buf = await fpsPdfForRun(run);
+      const src = await PDFDocument.load(buf);
+      const pages = await merged.copyPages(src, src.getPageIndices());
+      for (const p of pages) merged.addPage(p);
+    }
+    const pdf = Buffer.from(await merged.save());
+    const from = data.fromDate || String(selected[0]?.payDate ?? "");
+    const to = data.toDate || String(selected[selected.length - 1]?.payDate ?? "");
+    return {
+      filename: `${safe} - FPS Report ${from}_${to}.pdf`,
+      base64: pdf.toString("base64"),
+      mimeType: "application/pdf" as const,
+    };
+  }
+
+  const blocks = selected.map((run, idx) => {
+    const lines = (run.lines as PayLine[]).filter((l) => !l.reversed);
+    const month = ukTaxMonthNumber(String(run.payDate));
+    const corrRaw = (run as { hmrcCorrelationId?: unknown }).hmrcCorrelationId;
+    const correlationId =
+      corrRaw != null && String(corrRaw).trim() !== ""
+        ? String(corrRaw)
+        : null;
+    return {
+      submissionNo: String(idx + 1),
+      periodFrom: month,
+      periodTo: month,
+      submittedAt: String(
+        (run as { submittedAt?: string | null }).submittedAt ??
+          run.payDate ??
+          new Date().toISOString(),
+      ),
+      correlationId,
+      rows: lines.map((l) => ({
+        name: `${l.surname}, ${l.forename}`,
+        staffNo: l.payrollId,
+        taxableGrossPence: l.taxablePence || l.grossPence,
+        taxPence: l.taxPence,
+        niGrossPence: l.grossPence,
+        employeeNiPence: l.employeeNiPence,
+        employerNiPence: l.employerNiPence,
+        taxableGrossYtdPence: l.ytdTaxablePence || l.ytdGrossPence,
+        niGrossYtdPence: l.ytdGrossPence,
+        taxYtdPence: l.ytdTaxPence,
+        employeeNiYtdPence: l.ytdEmployeeNiPence,
+        employerNiYtdPence: l.ytdEmployerNiPence,
+      })),
+    };
+  });
+
+  const pdf = await buildRtiSubmissionDetailPdf({
+    employerName: client.name,
+    blocks,
+  });
+  const safe = client.name.replace(/[^a-zA-Z0-9]+/g, " ").trim();
+  return {
+    filename: `${safe} RTI.pdf`,
+    base64: pdf.toString("base64"),
+    mimeType: "application/pdf" as const,
+  };
+}

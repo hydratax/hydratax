@@ -51,6 +51,8 @@ async function buildPasswordContext(
     nino: client.nino,
     companyNumber: client.companyNumber,
     dateOfBirth: directorDob,
+    payeRef: client.payeRef ?? null,
+    accountsOfficeRef: client.accountsOfficeRef ?? null,
   };
 }
 

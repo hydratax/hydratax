@@ -2,37 +2,32 @@
 
 import { UkDateField } from "@/components/forms/uk-date-field";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   createAndSubmitPayRun,
   enableEmployerPayroll,
   importTimesheet,
+  prepareAmendedPayRun,
   previewPayRun,
+  reversePayslip,
   savePayRun,
-  submitEps,
-  suggestApprenticeshipLevy,
-  suggestEpsRecoverables,
+  sendPayrollPack,
   timesheetTemplateBase64,
   type PayRunPreview,
   type PayrollEmployee,
 } from "@/server/actions/payroll";
+import { isPayrollRtiSubmitted } from "@/lib/payroll-client-status";
 import { PayrollDocumentsHub } from "@/components/forms/payroll-documents-hub";
-import { defaultPayPeriod, recentPayrollMonths } from "@/lib/payroll";
+import { defaultPayPeriod } from "@/lib/payroll";
 import { money } from "@/lib/format";
 import type { PayFrequency, PayLine } from "@/server/hmrc/payroll";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
-import { messageFromUnknown } from "@/lib/action-error";
 import { FilingConfirmation } from "@/components/filing-confirmation";
-import {
-  GatewayCredentialsFields,
-  gatewayCredentialsReady,
-} from "@/components/forms/gateway-credentials-fields";
 import { PayrollSettingsPanel } from "@/components/forms/payroll-settings-panel";
 import { PayrollEmployeeCards } from "@/components/forms/payroll-employee-cards";
-import { AbbrInfo, AbbrLabel } from "@/components/desk/abbr-info";
+import { AbbrInfo, AbbrInfoScope } from "@/components/desk/abbr-info";
 import type { PayrollDeskSettings } from "@/lib/desk-profile";
-import type { DeskAbbrCode } from "@/lib/desk-abbreviations";
 
 type RunRow = {
   id?: string;
@@ -50,7 +45,7 @@ type RunRow = {
 export function PayrollWorkspace({
   clientId,
   clientName,
-  hmrcLive = false,
+  hmrcLive: _hmrcLive = false,
   payeRef,
   accountsOfficeRef,
   isEmployer,
@@ -77,21 +72,34 @@ export function PayrollWorkspace({
   const [tab, setTab] = useState<"run" | "people" | "history" | "settings">(
     "run",
   );
-  const [frequency, setFrequency] = useState<PayFrequency>("M1");
-  const monthOptions = useMemo(() => recentPayrollMonths(14), []);
+  const frequencyFromHistory = payRuns.find(
+    (p) => String(p.kind ?? "FPS") === "FPS",
+  )?.payFrequency;
+  const frequency: PayFrequency =
+    payrollSettings?.payFrequency === "W1" ||
+    payrollSettings?.payFrequency === "M1"
+      ? payrollSettings.payFrequency
+      : frequencyFromHistory === "W1"
+        ? "W1"
+        : "M1";
   const defaults = useMemo(() => defaultPayPeriod(frequency), [frequency]);
-  const [monthKey, setMonthKey] = useState(monthOptions[0]?.key ?? "");
   const [payDate, setPayDate] = useState(defaults.payDate);
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
   const [preview, setPreview] = useState<PayRunPreview | null>(null);
+  /** Figures stay hidden until Generate payslips in this visit. */
+  const [figuresUnlocked, setFiguresUnlocked] = useState(false);
   const [pending, start] = useTransition();
+  /** Which control is busy — only that button shows Working. */
+  const [activeAction, setActiveAction] = useState<string | null>(null);
+  /** Employees selected for FPS submit. */
+  const [selectedForSubmit, setSelectedForSubmit] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const submitSelectionTouched = useRef(false);
+  const [focusEmployeeId, setFocusEmployeeId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
-  const [ggUserId, setGgUserId] = useState("");
-  const [ggPassword, setGgPassword] = useState("");
-  const [rememberPassword, setRememberPassword] = useState(false);
-  const [hasSavedPassword, setHasSavedPassword] = useState(false);
   const [confirmation, setConfirmation] = useState<{
     ok: boolean;
     kind: string;
@@ -100,76 +108,136 @@ export function PayrollWorkspace({
     correlationId?: string | null;
     details?: Array<{ label: string; value: string }>;
   } | null>(null);
-  const [epsNobodyPaid, setEpsNobodyPaid] = useState(true);
-  const [epsSmp, setEpsSmp] = useState("");
-  const [epsSpp, setEpsSpp] = useState("");
-  const [epsSap, setEpsSap] = useState("");
-  const [epsShpp, setEpsShpp] = useState("");
-  const [epsSpbp, setEpsSpbp] = useState("");
-  const [epsSncp, setEpsSncp] = useState("");
-  const [epsNicSmp, setEpsNicSmp] = useState("");
-  const [epsLevyDue, setEpsLevyDue] = useState("");
-  const [epsLevyAllowance, setEpsLevyAllowance] = useState("15000.00");
-  const hasEpsRecoveries = [
-    epsSmp,
-    epsSpp,
-    epsSap,
-    epsShpp,
-    epsSpbp,
-    epsSncp,
-    epsNicSmp,
-  ].some((v) => v.trim().length > 0);
-  const hasEpsLevy = epsLevyDue.trim().length > 0;
 
-  function applyPeriod(next: {
-    payDate: string;
-    periodStart: string;
-    periodEnd: string;
-  }) {
-    setPayDate(next.payDate);
-    setPeriodStart(next.periodStart);
-    setPeriodEnd(next.periodEnd);
-    setPreview(null);
-  }
+  /** All FPS rows for this payday (filed + any leftover unfiled after partial submit). */
+  const periodRuns = useMemo(
+    () =>
+      payRuns.filter(
+        (p) =>
+          String(p.payDate) === payDate &&
+          String(p.kind ?? "FPS") === "FPS" &&
+          String(p.status) !== "rejected",
+      ),
+    [payRuns, payDate],
+  );
+  const filedPeriodRun = periodRuns.find((p) => isPayrollRtiSubmitted(p));
+  const unfiledPeriodRun = periodRuns.find((p) => !isPayrollRtiSubmitted(p));
+  /** Prefer unfiled ready for generate/view when present; else the filed run. */
+  const periodRun = unfiledPeriodRun ?? filedPeriodRun;
+  const periodRunSubmitted = Boolean(filedPeriodRun) && !unfiledPeriodRun;
+  const existingForPeriod = (() => {
+    const run = periodRun ?? filedPeriodRun;
+    if (!run) return undefined;
+    const lines = Array.isArray(run.lines) ? run.lines : [];
+    if (lines.length > 0 && lines.every((l) => Boolean(l.reversed))) {
+      return undefined;
+    }
+    return run;
+  })();
 
-  function applyFrequency(next: PayFrequency) {
-    setFrequency(next);
-    if (next === "M1") {
-      const hit = monthOptions.find((m) => m.key === monthKey) ?? monthOptions[0];
-      if (hit) applyPeriod(hit.period);
-      else applyPeriod(defaultPayPeriod("M1"));
-    } else {
-      applyPeriod(defaultPayPeriod("W1"));
+  type SlipStatus =
+    | "none"
+    | "calculated"
+    | "prepared"
+    | "submitted"
+    | "reversed";
+  const roster = useMemo(() => {
+    const active = employees
+      .filter((e) => e.active)
+      .sort((a, b) =>
+        `${a.surname} ${a.forename}`.localeCompare(
+          `${b.surname} ${b.forename}`,
+          "en-GB",
+        ),
+      );
+    const filedByEmp = new Map<string, { line: PayLine; runId: string }>();
+    const readyByEmp = new Map<string, { line: PayLine; runId: string }>();
+    for (const run of periodRuns) {
+      const runId = String(run.id ?? "");
+      if (!runId) continue;
+      const lines = Array.isArray(run.lines) ? run.lines : [];
+      const filed = isPayrollRtiSubmitted(run);
+      for (const line of lines) {
+        const slot = { line, runId };
+        if (filed) filedByEmp.set(line.employeeId, slot);
+        else readyByEmp.set(line.employeeId, slot);
+      }
     }
-  }
+    const previewById = new Map(
+      (preview?.lines ?? []).map((l) => [l.employeeId, l]),
+    );
+    return active.map((emp) => {
+      const filed = filedByEmp.get(emp.id);
+      const ready = readyByEmp.get(emp.id);
+      const saved = filed ?? ready;
+      const calc = previewById.get(emp.id);
+      let fileStatus: SlipStatus = "none";
+      if (filed?.line.reversed || ready?.line.reversed) fileStatus = "reversed";
+      else if (filed && !filed.line.reversed) fileStatus = "submitted";
+      else if (ready && !ready.line.reversed) fileStatus = "prepared";
+      else if (calc) fileStatus = "calculated";
 
-  function applyMonthKey(key: string) {
-    setMonthKey(key);
-    const hit = monthOptions.find((m) => m.key === key);
-    if (hit) {
-      setFrequency("M1");
-      applyPeriod(hit.period);
-    }
-  }
+      // Status + money only after Calculate / Generate this visit.
+      let status: SlipStatus = "none";
+      let line: PayLine | null = null;
+      if (figuresUnlocked) {
+        status =
+          fileStatus === "none" && calc ? "calculated" : fileStatus;
+        line =
+          calc ??
+          (saved && !saved.line.reversed ? saved.line : null);
+      }
+      return {
+        emp,
+        line,
+        status,
+        hasSavedSlip: Boolean(saved && !saved.line.reversed),
+        slipRunId: saved?.runId ?? null,
+      };
+    });
+  }, [employees, periodRuns, preview, figuresUnlocked]);
 
-  const latest = payRuns[0];
-  const existingForPeriod = payRuns.find((p) => {
-    if (
-      String(p.payDate) !== payDate ||
-      String(p.kind ?? "FPS") !== "FPS" ||
-      String(p.status) === "rejected"
-    ) {
-      return false;
+  // Ticks stay clear until the accountant chooses who to file — never auto-select.
+  useEffect(() => {
+    if (!figuresUnlocked) {
+      submitSelectionTouched.current = false;
+      setSelectedForSubmit(new Set());
+      return;
     }
-    const lines = Array.isArray(p.lines) ? p.lines : [];
-    if (
-      lines.length > 0 &&
-      lines.every((l) => Boolean(l.reversed))
-    ) {
-      return false;
-    }
-    return true;
-  });
+    const eligible = new Set(
+      roster
+        .filter(
+          (r) => r.status === "prepared" || r.status === "calculated",
+        )
+        .map((r) => r.emp.id),
+    );
+    setSelectedForSubmit((prev) => {
+      if (prev.size === 0) return prev;
+      return new Set([...prev].filter((id) => eligible.has(id)));
+    });
+  }, [figuresUnlocked, roster]);
+
+  const eligibleForSubmitIds = useMemo(
+    () =>
+      figuresUnlocked
+        ? roster
+            .filter(
+              (r) =>
+                r.status === "prepared" || r.status === "calculated",
+            )
+            .map((r) => r.emp.id)
+        : [],
+    [figuresUnlocked, roster],
+  );
+  const allEligibleSelected =
+    eligibleForSubmitIds.length > 0 &&
+    eligibleForSubmitIds.every((id) => selectedForSubmit.has(id));
+  const canEmailPack = Boolean(
+    periodRun?.id &&
+      contactEmail?.trim() &&
+      hasPackPassword &&
+      roster.some((r) => r.hasSavedSlip),
+  );
 
   if (confirmation) {
     return (
@@ -183,7 +251,6 @@ export function PayrollWorkspace({
           details={confirmation.details}
           onDone={() => {
             setConfirmation(null);
-            setGgPassword("");
             setTab("history");
             router.refresh();
           }}
@@ -197,80 +264,107 @@ export function PayrollWorkspace({
   }
 
   const liveEmployees = employees.filter((e) => e.active).length;
+  const staffGaps = useMemo(() => {
+    return employees
+      .filter((e) => e.active)
+      .map((e) => {
+        const missing: string[] = [];
+        if (e.gender !== "M" && e.gender !== "F") missing.push("gender");
+        if (!e.nino?.replace(/\s/g, "").trim()) missing.push("NINO");
+        if (!e.forename?.trim() || !e.surname?.trim()) missing.push("name");
+        const who =
+          [e.forename, e.surname].filter(Boolean).join(" ") || e.payrollId;
+        return missing.length ? { who, missing } : null;
+      })
+      .filter((g): g is { who: string; missing: string[] } => Boolean(g));
+  }, [employees]);
+  const staffReadyForPay = staffGaps.length === 0 && liveEmployees > 0;
+  const employerRefsReady = Boolean(payeRef?.trim() && accountsOfficeRef?.trim());
+  const canGenerate = staffReadyForPay && employerRefsReady;
+  const canSubmit =
+    canGenerate &&
+    figuresUnlocked &&
+    Boolean(existingForPeriod) &&
+    !periodRunSubmitted &&
+    selectedForSubmit.size > 0;
+
+  const actions = [
+    { id: "run" as const, label: "Run payroll" },
+    { id: "people" as const, label: "Employees" },
+    { id: "history" as const, label: "History & packs" },
+    { id: "settings" as const, label: "Settings" },
+  ];
 
   return (
+    <AbbrInfoScope>
     <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="gloss-card relative overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-4">
-          <div className="gloss-shine" aria-hidden />
-          <p className="relative text-[11px] font-bold uppercase tracking-[0.14em] text-ink-soft">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-line/70 bg-sand/40 px-3 py-2 text-xs text-ink-soft">
+        <span>
+          <span className="font-semibold uppercase tracking-wide text-ink-soft/80">
             PAYE
-          </p>
-          <p className="paye-digits relative mt-2 text-base font-semibold tracking-wide text-ink">
+          </span>{" "}
+          <span className="paye-digits font-semibold text-ink">
             {payeRef || "Not set"}
-          </p>
-        </div>
-        <div className="gloss-card relative overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-4">
-          <div className="gloss-shine" aria-hidden />
-          <p className="relative text-[11px] font-bold uppercase tracking-[0.14em] text-ink-soft">
+          </span>
+        </span>
+        <span className="hidden text-line sm:inline" aria-hidden>
+          ·
+        </span>
+        <span>
+          <span className="font-semibold uppercase tracking-wide text-ink-soft/80">
             Accounts office
-          </p>
-          <p className="paye-digits relative mt-2 text-base font-semibold tracking-wide text-ink">
+          </span>{" "}
+          <span className="paye-digits font-semibold text-ink">
             {accountsOfficeRef || "Not set"}
-          </p>
-        </div>
-        <div className="gloss-card relative overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-4">
-          <div className="gloss-shine" aria-hidden />
-          <p className="relative text-[11px] font-bold uppercase tracking-[0.14em] text-ink-soft">
-            Live employees
-          </p>
-          <p className="paye-digits relative mt-1 text-3xl font-semibold text-ink">
+          </span>
+        </span>
+        <span className="hidden text-line sm:inline" aria-hidden>
+          ·
+        </span>
+        <span>
+          <span className="font-semibold uppercase tracking-wide text-ink-soft/80">
+            Live
+          </span>{" "}
+          <span className="paye-digits font-semibold text-ink">
             {liveEmployees}
-          </p>
-        </div>
+          </span>
+        </span>
       </div>
-
-      {!hmrcLive ? (
-        <div className="rounded-xl border border-warn/35 bg-warn/10 px-4 py-3 text-sm text-ink">
-          <p className="font-semibold text-warn">HMRC sandbox endpoint</p>
-          <p className="mt-1 text-ink-soft">
-            FPS/EPS go to HMRC’s{" "}
-            <span className="font-semibold text-ink">test</span>{" "}
-            Transaction Engine (`HMRC_ENV` is not production). That setting only
-            chooses the HMRC server — Government Gateway User ID and password
-            are always entered by the signed-in accountant (saved to their
-            account for this client if they choose). Live GG logins will get
-            1046 here until the server uses the live endpoint.
-          </p>
-        </div>
-      ) : null}
 
       {!isEmployer || !payeRef || !accountsOfficeRef ? (
         <EmployerSetup clientId={clientId} />
       ) : null}
 
-      <div className="flex flex-wrap gap-2 border-b border-line/70 pb-3">
-        {(
-          [
-            ["run", "Run payroll"],
-            ["people", "Employees"],
-            ["history", "History & packs"],
-            ["settings", "Settings"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            className={`rounded-xl px-3.5 py-2 text-sm font-semibold transition ${
-              tab === id
-                ? "bg-sea text-white shadow-sm"
-                : "bg-white text-ink-soft ring-1 ring-line hover:text-ink"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {actions.map((action) => {
+          const selected = tab === action.id;
+          const primary = action.id === "run";
+          return (
+            <button
+              key={action.id}
+              type="button"
+              onClick={() => setTab(action.id)}
+              aria-pressed={selected}
+              className={`rounded-xl border px-3 py-3 text-left transition sm:px-4 sm:py-3.5 ${
+                selected
+                  ? primary
+                    ? "border-sea bg-sea text-white shadow-sm"
+                    : "border-sea bg-sea/10 shadow-sm"
+                  : primary
+                    ? "border-sea/50 bg-white hover:border-sea hover:shadow-sm"
+                    : "border-line bg-white hover:border-sea/40 hover:shadow-sm"
+              }`}
+            >
+              <p
+                className={`display text-base leading-tight sm:text-lg ${
+                  selected && primary ? "text-white" : "text-ink"
+                }`}
+              >
+                {action.label}
+              </p>
+            </button>
+          );
+        })}
       </div>
 
       {tab === "people" && (
@@ -287,6 +381,7 @@ export function PayrollWorkspace({
             )?.id ?? null
           }
           contactEmail={contactEmail}
+          focusEmployeeId={focusEmployeeId}
           onRunPayroll={() => setTab("run")}
           onOpenHistory={() => setTab("history")}
         />
@@ -295,38 +390,9 @@ export function PayrollWorkspace({
       {tab === "run" && (
         <div className="gloss-card relative space-y-5 overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-5 md:p-6">
           <div className="gloss-shine" aria-hidden />
-          <div className="relative flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="display text-2xl text-ink md:text-3xl">
-                Run payroll
-              </h3>
-              <p className="mt-1 text-sm text-ink-soft">
-                Choose the month, preview pay, then save payslips. File{" "}
-                <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
-                  FPS
-                  <AbbrInfo code="FPS" />
-                </span>{" "}
-                to HMRC when you are ready.
-                {latest?.payDate ? ` Last run ${latest.payDate}.` : ""}
-              </p>
-            </div>
-            <div className="flex rounded-xl border border-line/80 bg-sand/40 p-1">
-              <button
-                type="button"
-                className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${frequency === "M1" ? "bg-sea text-white shadow-sm" : "text-ink-soft hover:text-ink"}`}
-                onClick={() => applyFrequency("M1")}
-              >
-                Monthly salary
-              </button>
-              <button
-                type="button"
-                className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${frequency === "W1" ? "bg-sea text-white shadow-sm" : "text-ink-soft hover:text-ink"}`}
-                onClick={() => applyFrequency("W1")}
-              >
-                Weekly + timesheet
-              </button>
-            </div>
-          </div>
+          <h3 className="relative display text-2xl text-ink md:text-3xl">
+            Run payroll
+          </h3>
 
           {liveEmployees === 0 ? (
             <div className="relative rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
@@ -342,23 +408,7 @@ export function PayrollWorkspace({
             </div>
           ) : null}
 
-          {frequency === "M1" ? (
-            <label className="relative block text-sm font-semibold">
-              Pay month
-              <select
-                className="input mt-1.5"
-                value={monthKey}
-                onChange={(e) => applyMonthKey(e.target.value)}
-              >
-                {monthOptions.map((m) => (
-                  <option key={m.key} value={m.key}>
-                    {m.label}
-                    {m.key === monthOptions[0]?.key ? " (current)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
+          {frequency === "W1" ? (
             <TimesheetUpload
               clientId={clientId}
               periodStart={periodStart}
@@ -368,7 +418,7 @@ export function PayrollWorkspace({
               setError={setError}
               setOk={setOk}
             />
-          )}
+          ) : null}
 
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="text-sm font-semibold">
@@ -379,6 +429,7 @@ export function PayrollWorkspace({
                 onChange={(iso) => {
                   setPeriodStart(iso);
                   setPreview(null);
+                  setFiguresUnlocked(false);
                 }}
               />
             </label>
@@ -390,6 +441,7 @@ export function PayrollWorkspace({
                 onChange={(iso) => {
                   setPeriodEnd(iso);
                   setPreview(null);
+                  setFiguresUnlocked(false);
                 }}
               />
             </label>
@@ -401,526 +453,478 @@ export function PayrollWorkspace({
                 onChange={(iso) => {
                   setPayDate(iso);
                   setPreview(null);
+                  setFiguresUnlocked(false);
                 }}
               />
             </label>
           </div>
 
-          {existingForPeriod ? (
-            <div className="rounded-xl border border-sea/30 bg-sea/5 px-4 py-3 text-sm text-ink">
-              Payslips already exist for this payday.{" "}
+          {!employerRefsReady ? (
+            <div className="relative rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-ink">
+              <p className="font-semibold">Add employer PAYE details to continue</p>
+              <p className="mt-1 text-ink-soft">
+                Open Settings and enter the PAYE reference and Accounts Office
+                reference.
+              </p>
               <button
                 type="button"
-                className="font-semibold text-sea underline"
-                onClick={() => setTab("history")}
+                className="mt-2 text-sm font-semibold text-sea underline"
+                onClick={() => setTab("settings")}
               >
-                Open History & packs
+                Open Settings
               </button>
             </div>
           ) : null}
 
-          <details className="rounded-xl border border-line/80 bg-sand/20 p-3">
-            <summary className="cursor-pointer text-sm font-semibold text-ink">
-              Government Gateway (
-              <span className="inline-flex items-center gap-0.5">
-                FPS
-                <AbbrInfo code="FPS" />
-              </span>{" "}
-              /{" "}
-              <span className="inline-flex items-center gap-0.5">
-                EPS
-                <AbbrInfo code="EPS" />
-              </span>{" "}
-              filing)
-            </summary>
-            <div className="mt-3">
-              <GatewayCredentialsFields
-                clientId={clientId}
-                ggUserId={ggUserId}
-                ggPassword={ggPassword}
-                onUserIdChange={setGgUserId}
-                onPasswordChange={setGgPassword}
-                rememberPassword={rememberPassword}
-                onRememberPasswordChange={setRememberPassword}
-                hasSavedPassword={hasSavedPassword}
-                onHasSavedPasswordChange={setHasSavedPassword}
-                hint="Only needed when filing to HMRC — not for saving payslips."
-              />
+          {employerRefsReady && staffGaps.length > 0 ? (
+            <div className="relative rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-ink">
+              <p className="font-semibold">
+                Finish employee details before calculating pay
+              </p>
+              <p className="mt-1 text-ink-soft">
+                Add the missing items on Employees, then come back here.
+              </p>
+              <ul className="mt-2 space-y-1 text-ink-soft">
+                {staffGaps.map((g) => (
+                  <li key={g.who}>
+                    <span className="font-medium text-ink">{g.who}</span>
+                    {" — "}
+                    {g.missing.join(", ")}
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                className="mt-2 text-sm font-semibold text-sea underline"
+                onClick={() => setTab("people")}
+              >
+                Open Employees
+              </button>
             </div>
-          </details>
+          ) : null}
 
-          <div className="relative flex flex-wrap gap-2">
+          {canGenerate && !figuresUnlocked ? (
+            <p className="text-sm text-ink-soft">
+              Next: press{" "}
+              <span className="font-semibold text-ink">Generate payslips</span> to
+              calculate and save this payday.
+            </p>
+          ) : null}
+          {canSubmit ? (
+            <p className="text-sm text-ink-soft">
+              Tick who to include, then press{" "}
+              <span className="font-semibold text-ink">Submit FPS</span>.
+            </p>
+          ) : null}
+          {figuresUnlocked &&
+          existingForPeriod &&
+          !periodRunSubmitted &&
+          selectedForSubmit.size === 0 ? (
+            <p className="text-sm text-ink-soft">
+              Tick at least one employee to enable Submit FPS.
+            </p>
+          ) : null}
+
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-white text-slate-500">
+                  <th className="px-3 py-2.5 font-medium" colSpan={2}>
+                    <span className="inline-flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-slate-300"
+                        checked={allEligibleSelected}
+                        disabled={
+                          !figuresUnlocked || eligibleForSubmitIds.length === 0
+                        }
+                        onChange={() => {
+                          submitSelectionTouched.current = true;
+                          setSelectedForSubmit(
+                            allEligibleSelected
+                              ? new Set()
+                              : new Set(eligibleForSubmitIds),
+                          );
+                        }}
+                        aria-label="Tick all employees for FPS"
+                        title="Tick all"
+                      />
+                      Employee
+                    </span>
+                  </th>
+                  <th className="px-3 py-2.5 font-medium">Status</th>
+                  <th className="px-3 py-2.5 font-medium text-right">Gross</th>
+                  <th className="px-3 py-2.5 font-medium text-right">Tax</th>
+                  <th className="px-3 py-2.5 font-medium text-right">NI</th>
+                  <th className="px-3 py-2.5 font-medium text-right">Net</th>
+                  <th className="px-3 py-2.5 font-medium text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {roster.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className="px-3 py-6 text-center text-slate-400"
+                    >
+                      No live employees for this payday.
+                    </td>
+                  </tr>
+                ) : (
+                  roster.map(({ emp, line, status, hasSavedSlip, slipRunId }) => {
+                    const badge =
+                      status === "submitted"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : status === "prepared"
+                          ? "border-amber-200 bg-amber-50 text-amber-700"
+                          : status === "calculated"
+                            ? "border-sky-200 bg-sky-50 text-sky-700"
+                            : status === "reversed"
+                              ? "border-rose-200 bg-rose-50 text-rose-700"
+                              : "border-slate-200 bg-slate-50 text-slate-500";
+                    const label =
+                      status === "submitted"
+                        ? "Submitted"
+                        : status === "prepared"
+                          ? "Prepared"
+                          : status === "calculated"
+                            ? "Calculated"
+                            : status === "reversed"
+                              ? "Reversed"
+                              : "Not run";
+                    const canTick =
+                      status === "prepared" || status === "calculated";
+                    return (
+                      <tr
+                        key={emp.id}
+                        className="border-b border-slate-100 bg-white last:border-0"
+                      >
+                        <td className="px-3 py-2.5">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-slate-300"
+                            checked={selectedForSubmit.has(emp.id)}
+                            disabled={!canTick || !figuresUnlocked}
+                            onChange={() => {
+                              submitSelectionTouched.current = true;
+                              setSelectedForSubmit((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(emp.id)) next.delete(emp.id);
+                                else next.add(emp.id);
+                                return next;
+                              });
+                            }}
+                            aria-label={`Include ${emp.forename} ${emp.surname} in FPS`}
+                          />
+                        </td>
+                        <td className="px-3 py-2.5 font-medium text-ink">
+                          <span className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              className="inline-flex h-6 w-6 items-center justify-center rounded border border-slate-200 text-slate-500 hover:border-sea hover:text-sea"
+                              title="Open employee"
+                              aria-label={`Edit ${emp.forename} ${emp.surname}`}
+                              onClick={() => {
+                                setFocusEmployeeId(emp.id);
+                                setTab("people");
+                              }}
+                            >
+                              <svg
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                                className="h-3.5 w-3.5"
+                                aria-hidden
+                              >
+                                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                              </svg>
+                            </button>
+                            {emp.forename} {emp.surname}
+                          </span>
+                          {line?.isStarterThisRun ? (
+                            <span className="ml-2 text-xs font-normal text-slate-400">
+                              starter
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span
+                            className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-medium ${badge}`}
+                          >
+                            {label}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 paye-digits">
+                          {line ? money(line.grossPence) : "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 paye-digits">
+                          {line ? money(line.taxPence) : "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700 paye-digits">
+                          {line ? money(line.employeeNiPence) : "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-right tabular-nums font-medium text-ink paye-digits">
+                          {line ? money(line.netPence) : "—"}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex flex-wrap justify-end gap-1.5">
+                            {slipRunId &&
+                            hasSavedSlip &&
+                            figuresUnlocked &&
+                            status !== "reversed" ? (
+                              <a
+                                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                                href={`/clients/${clientId}/payroll/payslip/${slipRunId}?employee=${emp.id}`}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                View
+                              </a>
+                            ) : null}
+                            {slipRunId &&
+                            figuresUnlocked &&
+                            (status === "submitted" || status === "prepared") ? (
+                              <button
+                                type="button"
+                                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-500 hover:border-rose-200 hover:text-rose-600"
+                                disabled={activeAction === `reverse:${emp.id}`}
+                                onClick={() => {
+                                  if (activeAction) return;
+                                  setActiveAction(`reverse:${emp.id}`);
+                                  start(async () => {
+                                    try {
+                                      await reversePayslip({
+                                        clientId,
+                                        runId: slipRunId,
+                                        employeeId: emp.id,
+                                      });
+                                      setOk(
+                                        `Reversed ${emp.forename} ${emp.surname}. Prepare a new payslip when ready.`,
+                                      );
+                                      router.refresh();
+                                    } catch {
+                                      /* freeze */
+                                    } finally {
+                                      setActiveAction(null);
+                                    }
+                                  });
+                                }}
+                              >
+                                {activeAction === `reverse:${emp.id}`
+                                  ? "Working…"
+                                  : "Reverse"}
+                              </button>
+                            ) : null}
+                            {slipRunId && status === "reversed" ? (
+                              <button
+                                type="button"
+                                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                                disabled={activeAction === `amend:${emp.id}`}
+                                onClick={() => {
+                                  if (activeAction) return;
+                                  setActiveAction(`amend:${emp.id}`);
+                                  start(async () => {
+                                    try {
+                                      const res = await prepareAmendedPayRun({
+                                        clientId,
+                                        runId: slipRunId,
+                                        employeeId: emp.id,
+                                      });
+                                      if (!res.ok) return;
+                                      setFiguresUnlocked(true);
+                                      setOk(
+                                        `Payslip ready again for ${emp.forename} ${emp.surname}.`,
+                                      );
+                                      router.refresh();
+                                    } catch {
+                                      /* freeze */
+                                    } finally {
+                                      setActiveAction(null);
+                                    }
+                                  });
+                                }}
+                              >
+                                {activeAction === `amend:${emp.id}`
+                                  ? "Working…"
+                                  : "Prepare again"}
+                              </button>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="relative flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-4">
+            <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              className="btn btn-primary"
-              disabled={pending || liveEmployees === 0}
+              className={canGenerate ? "btn btn-primary" : "btn btn-secondary"}
+              disabled={!canGenerate || activeAction === "gen"}
               onClick={() => {
+                if (activeAction || !canGenerate) return;
                 setError(null);
                 setOk(null);
+                setActiveAction("gen");
                 start(async () => {
                   try {
-                    const next = await previewPayRun({
+                    if (periodRunSubmitted && periodRun?.id) {
+                      const res = await prepareAmendedPayRun({
+                        clientId,
+                        runId: periodRun.id,
+                      });
+                      if (!res.ok) return;
+                      setFiguresUnlocked(true);
+                      setOk("Amended payslips prepared for this payday.");
+                    } else {
+                      const next = await previewPayRun({
+                        clientId,
+                        payDate,
+                        periodStart,
+                        periodEnd,
+                        frequency,
+                      });
+                      if (next.checks.some((c) => c.level === "error")) {
+                        setPreview(null);
+                        setFiguresUnlocked(false);
+                        return;
+                      }
+                      setPreview(next);
+                      const run = await savePayRun({
+                        clientId,
+                        payDate,
+                        periodStart,
+                        periodEnd,
+                        frequency,
+                      });
+                      setPreview(null);
+                      setFiguresUnlocked(true);
+                      setOk(
+                        "refreshed" in run && run.refreshed
+                          ? `Payslips updated for ${run.payDate}.`
+                          : `Payslips prepared for ${run.payDate}.`,
+                      );
+                    }
+                    router.refresh();
+                  } catch {
+                    /* freeze */
+                  } finally {
+                    setActiveAction(null);
+                  }
+                });
+              }}
+            >
+              {activeAction === "gen"
+                ? "Working…"
+                : periodRunSubmitted
+                  ? "Prepare amended payslips"
+                  : "Generate payslips"}
+            </button>
+            <button
+              type="button"
+              className={canSubmit ? "btn btn-primary" : "btn btn-secondary"}
+              disabled={!canSubmit || activeAction === "submit"}
+              onClick={() => {
+                if (activeAction || !canSubmit) return;
+                setError(null);
+                setActiveAction("submit");
+                start(async () => {
+                  try {
+                    const run = await createAndSubmitPayRun({
                       clientId,
                       payDate,
                       periodStart,
                       periodEnd,
                       frequency,
+                      submit: true,
+                      useSavedPassword: true,
+                      employeeIds: Array.from(selectedForSubmit),
                     });
-                    setPreview(next);
-                  } catch (err) {
-                    setError(
-                      messageFromUnknown(err, "Could not preview this pay run."),
-                    );
+                    if (!run.ok) return;
+                    setConfirmation({
+                      ok: true,
+                      kind: "PAYE",
+                      title: "RTI submitted",
+                      subtitle:
+                        "Submission accepted. Payslip rows turn green when filed.",
+                      correlationId:
+                        run.correlationId ?? run.hmrcCorrelationId,
+                      details: [
+                        { label: "Pay date", value: payDate },
+                        {
+                          label: "Period",
+                          value: `${periodStart} → ${periodEnd}`,
+                        },
+                        {
+                          label: "Employees",
+                          value: String(run.lines?.length ?? 0),
+                        },
+                        {
+                          label: "Net pay",
+                          value: money(run.totals?.netPence ?? 0),
+                        },
+                      ],
+                    });
+                    setPreview(null);
+                    router.refresh();
+                  } catch {
+                    /* freeze — set credentials in Settings if missing */
+                  } finally {
+                    setActiveAction(null);
                   }
                 });
               }}
             >
-              {pending ? "Working…" : "Calculate pay"}
-            </button>
-            <span className="inline-flex items-center gap-1.5">
-              <button
-                type="button"
-                className="btn btn-secondary text-sm"
-                disabled={
-                  pending ||
-                  !gatewayCredentialsReady(ggUserId, ggPassword, hasSavedPassword) ||
-                  (!epsNobodyPaid && !hasEpsRecoveries && !hasEpsLevy)
-                }
-                onClick={() => {
-                  setError(null);
-                  setOk(null);
-                  start(async () => {
-                    try {
-                      const res = await submitEps({
-                        clientId,
-                        periodStart,
-                        periodEnd,
-                        noPaymentForPeriod: epsNobodyPaid,
-                        smpRecoveredPounds: epsSmp || undefined,
-                        sppRecoveredPounds: epsSpp || undefined,
-                        sapRecoveredPounds: epsSap || undefined,
-                        shppRecoveredPounds: epsShpp || undefined,
-                        spbpRecoveredPounds: epsSpbp || undefined,
-                        sncpRecoveredPounds: epsSncp || undefined,
-                        nicCompSmpPounds: epsNicSmp || undefined,
-                        levyDueYtdPounds: epsLevyDue || undefined,
-                        levyAnnualAllowancePounds: hasEpsLevy
-                          ? epsLevyAllowance || "15000.00"
-                          : undefined,
-                        senderId: ggUserId.trim() || undefined,
-                        senderPassword: ggPassword.trim() || undefined,
-                        useSavedPassword: hasSavedPassword && !ggPassword.trim(),
-                        rememberPassword,
-                      });
-                      if (rememberPassword && ggPassword.trim()) {
-                        setHasSavedPassword(true);
-                        setRememberPassword(false);
-                      }
-                      setConfirmation({
-                        ok: true,
-                        kind: "PAYE · EPS",
-                        title: "EPS accepted",
-                        subtitle: hasEpsLevy
-                          ? "Apprenticeship levy filed for this period."
-                          : epsNobodyPaid
-                            ? "Employer Payment Summary filed for this period."
-                            : "Statutory recoveries filed for this period.",
-                        correlationId: res.correlationId,
-                        details: [
-                          {
-                            label: "Period",
-                            value: `${res.periodStart} → ${res.periodEnd}`,
-                          },
-                          { label: "Tax year", value: res.taxYear },
-                          {
-                            label: "Environment",
-                            value: res.env === "production" ? "Live" : "Test",
-                          },
-                        ],
-                      });
-                      setGgPassword("");
-                      router.refresh();
-                    } catch {
-                      /* freeze — desk shows no failure banner */
-                    }
-                  });
-                }}
-              >
-                File EPS
-              </button>
-              <AbbrInfo code="EPS" />
-            </span>
-          </div>
-
-          <details className="rounded-xl border border-line/70 bg-sand/20 p-4">
-            <summary className="cursor-pointer text-sm font-semibold text-ink">
-              Statutory recoveries (optional)
-            </summary>
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <label className="flex items-center gap-2 text-xs font-semibold sm:col-span-3">
-                <input
-                  type="checkbox"
-                  checked={epsNobodyPaid}
-                  onChange={(e) => setEpsNobodyPaid(e.target.checked)}
-                />
-                Nobody paid this tax month
-              </label>
-              {(
-                [
-                  ["SMP", epsSmp, setEpsSmp],
-                  ["SPP", epsSpp, setEpsSpp],
-                  ["SAP", epsSap, setEpsSap],
-                  ["ShPP", epsShpp, setEpsShpp],
-                  ["SPBP", epsSpbp, setEpsSpbp],
-                  ["SNCP", epsSncp, setEpsSncp],
-                ] as const satisfies ReadonlyArray<
-                  readonly [DeskAbbrCode, string, (v: string) => void]
-                >
-              ).map(([abbr, value, setValue]) => (
-                <label key={abbr} className="text-xs font-semibold">
-                  <AbbrLabel code={abbr} after=" recovered (£)" />
-                  <input
-                    className="input mt-1 paye-digits"
-                    value={value}
-                    onChange={(e) => setValue(e.target.value)}
-                    inputMode="decimal"
-                  />
-                </label>
-              ))}
-              <label className="text-xs font-semibold">
-                <span className="inline-flex flex-wrap items-center gap-x-1">
-                  NIC compensation on SMP (£)
-                  <AbbrInfo code="NIC_SMP" />
+              {activeAction === "submit" ? (
+                "Working…"
+              ) : (
+                <span className="inline-flex items-center gap-1">
+                  Submit FPS
+                  <AbbrInfo code="FPS" />
                 </span>
-                <input
-                  className="input mt-1 paye-digits"
-                  value={epsNicSmp}
-                  onChange={(e) => setEpsNicSmp(e.target.value)}
-                  inputMode="decimal"
-                />
-              </label>
-              <div className="sm:col-span-3">
-                <button
-                  type="button"
-                  className="text-xs font-semibold text-sea hover:underline"
-                  disabled={pending}
-                  onClick={() => {
-                    start(async () => {
-                      try {
-                        const s = await suggestEpsRecoverables({
-                          clientId,
-                          periodEnd,
-                        });
-                        if (s.smpRecoveredPounds) setEpsSmp(s.smpRecoveredPounds);
-                        if (s.sppRecoveredPounds) setEpsSpp(s.sppRecoveredPounds);
-                        if (s.sapRecoveredPounds) setEpsSap(s.sapRecoveredPounds);
-                        if (s.shppRecoveredPounds)
-                          setEpsShpp(s.shppRecoveredPounds);
-                        if (s.spbpRecoveredPounds)
-                          setEpsSpbp(s.spbpRecoveredPounds);
-                        if (s.sncpRecoveredPounds)
-                          setEpsSncp(s.sncpRecoveredPounds);
-                      } catch {
-                        /* freeze */
-                      }
-                    });
-                  }}
-                >
-                  Suggest from payslips (92% recovery)
-                </button>
-              </div>
+              )}
+            </button>
             </div>
-          </details>
-
-          <details className="rounded-xl border border-line/70 bg-sand/20 p-4">
-            <summary className="cursor-pointer text-sm font-semibold text-ink">
-              Apprenticeship levy (optional)
-            </summary>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="text-xs font-semibold">
-                Levy due year to date (£)
-                <input
-                  className="input mt-1 paye-digits"
-                  value={epsLevyDue}
-                  onChange={(e) => setEpsLevyDue(e.target.value)}
-                  inputMode="decimal"
-                />
-              </label>
-              <label className="text-xs font-semibold">
-                Annual allowance for this PAYE scheme (£)
-                <input
-                  className="input mt-1 paye-digits"
-                  value={epsLevyAllowance}
-                  onChange={(e) => setEpsLevyAllowance(e.target.value)}
-                  inputMode="decimal"
-                />
-              </label>
-              <div className="sm:col-span-2">
-                <button
-                  type="button"
-                  className="text-xs font-semibold text-sea hover:underline"
-                  disabled={pending}
-                  onClick={() => {
-                    start(async () => {
-                      try {
-                        const s = await suggestApprenticeshipLevy({
-                          clientId,
-                          periodEnd,
-                          annualAllowancePounds: epsLevyAllowance || undefined,
-                        });
-                        setEpsLevyDue(s.levyDueYtdPounds);
-                        setEpsLevyAllowance(s.levyAnnualAllowancePounds);
-                      } catch {
-                        /* freeze */
-                      }
+            <button
+              type="button"
+              className={canEmailPack ? "btn btn-primary" : "btn btn-secondary"}
+              disabled={!canEmailPack || activeAction === "email-pack"}
+              title={
+                !contactEmail?.trim()
+                  ? "Set contact email in Settings"
+                  : !hasPackPassword
+                    ? "Set pack password in Settings"
+                    : !periodRun?.id
+                      ? "Generate payslips first"
+                      : "Email payslip pack and payroll summary"
+              }
+              onClick={() => {
+                if (activeAction || !canEmailPack || !periodRun?.id) return;
+                const to = contactEmail?.trim();
+                if (!to) return;
+                setActiveAction("email-pack");
+                start(async () => {
+                  try {
+                    const res = await sendPayrollPack({
+                      clientId,
+                      runId: periodRun.id!,
+                      toEmail: to,
                     });
-                  }}
-                >
-                  Suggest from pay bill year to date
-                </button>
-              </div>
-            </div>
-          </details>
-
-          {preview && (
-            <div className="space-y-4">
-              <ul className="space-y-2">
-                {preview.checks.map((c) => (
-                  <li
-                    key={c.code}
-                    className={`rounded-lg px-3 py-2 text-sm ${
-                      c.level === "error"
-                        ? "bg-danger/10 text-danger"
-                        : c.level === "warn"
-                          ? "bg-sand text-ink"
-                          : "bg-sea/10 text-sea-deep"
-                    }`}
-                  >
-                    {c.message}
-                  </li>
-                ))}
-              </ul>
-              <div>
-                <table className="w-full table-fixed text-left text-sm">
-                  <colgroup>
-                    <col className="w-[22%]" />
-                    <col className="w-[11%]" />
-                    <col className="w-[12%]" />
-                    <col className="w-[11%]" />
-                    <col className="w-[11%]" />
-                    <col className="w-[11%]" />
-                    <col className="w-[11%]" />
-                    <col className="w-[11%]" />
-                  </colgroup>
-                  <thead>
-                    <tr className="border-b border-line text-ink-soft">
-                      <th className="py-2 pr-2 font-semibold">Employee</th>
-                      <th className="py-2 font-semibold text-right">Gross</th>
-                      <th className="py-2 font-semibold text-right">SSP / SMP</th>
-                      <th className="py-2 font-semibold text-right">Tax</th>
-                      <th className="py-2 font-semibold text-right">NI</th>
-                      <th className="py-2 font-semibold text-right">Pension</th>
-                      <th className="py-2 font-semibold text-right">Net</th>
-                      <th className="py-2 font-semibold text-right">YTD gross</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {preview.lines.map((l) => (
-                      <tr key={l.employeeId} className="border-b border-line/70">
-                        <td className="py-2 pr-2">
-                          {l.forename} {l.surname}
-                          {l.isStarterThisRun ? (
-                            <span className="ml-2 text-xs text-sea">starter</span>
-                          ) : null}
-                          {l.leaveDate ? (
-                            <span className="ml-2 text-xs text-ink-soft">leaver</span>
-                          ) : null}
-                        </td>
-                        <td className="py-2 text-right paye-digits">{money(l.grossPence)}</td>
-                        <td className="py-2 text-right paye-digits">
-                          {money((l.sspPence ?? 0) + (l.smpPence ?? 0))}
-                        </td>
-                        <td className="py-2 text-right paye-digits">{money(l.taxPence)}</td>
-                        <td className="py-2 text-right paye-digits">{money(l.employeeNiPence)}</td>
-                        <td className="py-2 text-right paye-digits">
-                          {money(l.pensionEmployeePence ?? 0)}
-                        </td>
-                        <td className="py-2 text-right paye-digits font-semibold">{money(l.netPence)}</td>
-                        <td className="py-2 text-right paye-digits">{money(l.ytdGrossPence)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="font-semibold">
-                      <td className="pt-3 pr-2">Totals</td>
-                      <td className="pt-3 text-right paye-digits">
-                        {money(preview.totals.grossPence)}
-                      </td>
-                      <td className="pt-3 text-right paye-digits">
-                        {money(
-                          preview.lines.reduce(
-                            (s, l) => s + (l.sspPence ?? 0) + (l.smpPence ?? 0),
-                            0,
-                          ),
-                        )}
-                      </td>
-                      <td className="pt-3 text-right paye-digits">
-                        {money(preview.totals.taxPence)}
-                      </td>
-                      <td className="pt-3 text-right paye-digits">
-                        {money(preview.totals.employeeNiPence)}
-                      </td>
-                      <td className="pt-3 text-right paye-digits">
-                        {money(
-                          preview.lines.reduce(
-                            (s, l) => s + (l.pensionEmployeePence ?? 0),
-                            0,
-                          ),
-                        )}
-                      </td>
-                      <td className="pt-3 text-right paye-digits">
-                        {money(preview.totals.netPence)}
-                      </td>
-                      <td />
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-              <p className="text-sm text-ink-soft">
-                Step 1 — generate payslips (client can review). Step 2 — submit
-                RTI when ready.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  disabled={
-                    pending ||
-                    preview.checks.some((c) => c.level === "error") ||
-                    Boolean(existingForPeriod)
+                    setOk(res.message);
+                  } catch {
+                    /* freeze */
+                  } finally {
+                    setActiveAction(null);
                   }
-                  onClick={() => {
-                    setError(null);
-                    setOk(null);
-                    start(async () => {
-                      try {
-                        const run = await savePayRun({
-                          clientId,
-                          payDate,
-                          periodStart,
-                          periodEnd,
-                          frequency,
-                        });
-                        setPreview(null);
-                        setOk(
-                          `Payroll generated for ${run.payDate}. Email the pack from History if the client should review — RTI not submitted yet.`,
-                        );
-                        setTab("history");
-                        router.refresh();
-                      } catch {
-                        /* freeze — no banner */
-                      }
-                    });
-                  }}
-                >
-                  1 · Generate payslips
-                </button>
-              </div>
-
-              <details className="rounded-xl border border-line/80 bg-sand/30 p-4">
-                <summary className="cursor-pointer text-sm font-semibold text-ink">
-                  2 · Submit RTI{" "}
-                  <span className="inline-flex items-center gap-0.5">
-                    (FPS
-                    <AbbrInfo code="FPS" />)
-                  </span>
-                </summary>
-                <div className="mt-3 space-y-3">
-                  <GatewayCredentialsFields
-                    clientId={clientId}
-                    ggUserId={ggUserId}
-                    ggPassword={ggPassword}
-                    onUserIdChange={setGgUserId}
-                    onPasswordChange={setGgPassword}
-                    rememberPassword={rememberPassword}
-                    onRememberPasswordChange={setRememberPassword}
-                    hasSavedPassword={hasSavedPassword}
-                    onHasSavedPasswordChange={setHasSavedPassword}
-                    hint="Needed only when filing."
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    disabled={
-                      pending ||
-                      preview.checks.some((c) => c.level === "error") ||
-                      !gatewayCredentialsReady(
-                        ggUserId,
-                        ggPassword,
-                        hasSavedPassword,
-                      )
-                    }
-                    onClick={() => {
-                      setError(null);
-                      start(async () => {
-                        try {
-                          const run = await createAndSubmitPayRun({
-                            clientId,
-                            payDate,
-                            periodStart,
-                            periodEnd,
-                            frequency,
-                            submit: true,
-                            senderId: ggUserId.trim() || undefined,
-                            senderPassword: ggPassword.trim() || undefined,
-                            useSavedPassword:
-                              hasSavedPassword && !ggPassword.trim(),
-                            rememberPassword,
-                          });
-                          if (rememberPassword && ggPassword.trim()) {
-                            setHasSavedPassword(true);
-                            setRememberPassword(false);
-                          }
-                          if (!run.ok) return;
-                          setConfirmation({
-                            ok: true,
-                            kind: "PAYE",
-                            title: "RTI submitted",
-                            subtitle:
-                              "Submission accepted. Payslips are in History.",
-                            correlationId:
-                              run.correlationId ?? run.hmrcCorrelationId,
-                            details: [
-                              { label: "Pay date", value: payDate },
-                              {
-                                label: "Period",
-                                value: `${periodStart} → ${periodEnd}`,
-                              },
-                              {
-                                label: "Employees",
-                                value: String(run.lines?.length ?? 0),
-                              },
-                              {
-                                label: "Net pay",
-                                value: money(run.totals?.netPence ?? 0),
-                              },
-                            ],
-                          });
-                          setPreview(null);
-                          setGgPassword("");
-                          router.refresh();
-                        } catch {
-                          /* freeze — no banner */
-                        }
-                      });
-                    }}
-                  >
-                    Confirm and submit RTI
-                  </button>
-                </div>
-              </details>
-            </div>
-          )}
+                });
+              }}
+            >
+              {activeAction === "email-pack" ? "Working…" : "Email"}
+            </button>
+          </div>
         </div>
       )}
 
@@ -953,6 +957,7 @@ export function PayrollWorkspace({
       )}
       <p className="sr-only">{clientName}</p>
     </div>
+    </AbbrInfoScope>
   );
 }
 
@@ -960,6 +965,7 @@ function EmployerSetup({ clientId }: { clientId: string }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [payFrequency, setPayFrequency] = useState<"M1" | "W1">("M1");
   return (
     <form
       className="panel space-y-3 p-5"
@@ -973,10 +979,11 @@ function EmployerSetup({ clientId }: { clientId: string }) {
               clientId,
               payeRef: String(fd.get("payeRef") || ""),
               accountsOfficeRef: String(fd.get("accountsOfficeRef") || ""),
+              payFrequency,
             });
             router.refresh();
-          } catch (err) {
-            setError(err instanceof Error ? err.message : "Could not save");
+          } catch {
+            /* freeze */
           }
         });
       }}
@@ -989,17 +996,7 @@ function EmployerSetup({ clientId }: { clientId: string }) {
           <AbbrInfo code="PAYE" />
         </span>{" "}
         reference and Accounts Office reference from the employer’s HMRC letter.
-        HydraTax uses the same references to file{" "}
-        <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
-          FPS
-          <AbbrInfo code="FPS" />
-        </span>{" "}
-        and{" "}
-        <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
-          EPS
-          <AbbrInfo code="EPS" />
-        </span>{" "}
-        — without a separate payroll login.
+        Choose monthly or weekly once — it stays fixed after setup.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm font-semibold">
@@ -1019,6 +1016,38 @@ function EmployerSetup({ clientId }: { clientId: string }) {
           />
         </label>
       </div>
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-semibold text-ink">
+          What sort of payroll are you setting up?
+        </legend>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+              payFrequency === "M1"
+                ? "border-sea bg-sea text-white"
+                : "border-slate-200 bg-white text-ink hover:border-slate-300"
+            }`}
+            onClick={() => setPayFrequency("M1")}
+          >
+            Monthly salary
+          </button>
+          <button
+            type="button"
+            className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+              payFrequency === "W1"
+                ? "border-sea bg-sea text-white"
+                : "border-slate-200 bg-white text-ink hover:border-slate-300"
+            }`}
+            onClick={() => setPayFrequency("W1")}
+          >
+            Weekly + timesheet
+          </button>
+        </div>
+        <p className="text-xs text-ink-soft">
+          This cannot be changed after payroll is enabled.
+        </p>
+      </fieldset>
       <FormErrorBanner error={error} />
       <button type="submit" className="btn btn-primary" disabled={pending}>
         Save and enable payroll
@@ -1048,9 +1077,7 @@ function TimesheetUpload({
     <div className="rounded-xl border border-line bg-sand/40 p-4">
       <h4 className="font-semibold text-ink">Weekly timesheet</h4>
       <p className="mt-1 text-sm text-ink-soft">
-        For weekly / hourly staff only. Upload hours, sick days, holiday and
-        maternity. Monthly salaried people use Run payroll → Monthly salary —
-        no timesheet needed.
+        Upload hours, sick days, holiday and maternity for this week.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <label className="btn btn-secondary cursor-pointer text-sm">

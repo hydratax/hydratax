@@ -89,6 +89,13 @@ export async function sendTransactionalEmail(opts: {
       attachments: opts.attachments?.length ?? 0,
     },
   );
+  // In production, never report success when nothing was delivered — desk UI
+  // freezes on throw instead of telling the accountant the email went out.
+  if (isProduction()) {
+    throw new Error(
+      "Email not configured: set RESEND_API_KEY and EMAIL_FROM, or connect a practice mailbox.",
+    );
+  }
   return "logged";
 }
 

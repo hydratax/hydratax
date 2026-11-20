@@ -64,7 +64,7 @@ export function HmrcRulebookPanel() {
               type="button"
               className={`rounded-md px-3 py-1.5 text-sm font-semibold ${
                 domain === d
-                  ? "bg-ink text-white"
+                  ? "bg-sea text-white"
                   : "bg-sand text-ink-soft hover:text-ink"
               }`}
               onClick={() => setDomain(d)}

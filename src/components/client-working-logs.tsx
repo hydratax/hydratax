@@ -104,7 +104,7 @@ export function ClientWorkingLogs({
             </p>
           </div>
           <span
-            className="text-xs font-semibold uppercase tracking-wide text-ink-soft transition group-open:rotate-180"
+            className="text-xl leading-none text-ink transition group-open:rotate-180"
             aria-hidden
           >
             ▾

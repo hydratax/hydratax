@@ -95,7 +95,7 @@ export function ClientCorrespondencePanel({
               }
             >
               <option value="email">Email</option>
-              <option value="whatsapp">WhatsApp (logged)</option>
+              <option value="whatsapp">WhatsApp</option>
             </select>
           </label>
         </div>

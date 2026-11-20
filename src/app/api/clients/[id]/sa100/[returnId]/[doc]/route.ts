@@ -41,14 +41,30 @@ async function lockedResponse(
   });
 }
 
+function inlineResponse(
+  pdfBytes: Uint8Array,
+  pdfFilename: string,
+  extraHeaders?: Record<string, string>,
+) {
+  return new Response(new Uint8Array(pdfBytes), {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `inline; filename="${pdfFilename}"`,
+      "Cache-Control": "private, no-store",
+      ...extraHeaders,
+    },
+  });
+}
+
 export async function GET(
-  _request: Request,
+  request: Request,
   context: {
     params: Promise<{ id: string; returnId: string; doc: string }>;
   },
 ) {
   await requireModule("self_assessment");
   const { id, returnId, doc } = await context.params;
+  const viewOnly = new URL(request.url).searchParams.get("view") === "1";
   const client = await getClient(id);
   const row = await getSa100Return(id, returnId);
 
@@ -70,6 +86,9 @@ export async function GET(
       row.draft.utr || client.utr || "",
       meta,
     );
+    if (viewOnly) {
+      return inlineResponse(bytes, `SA302-${row.taxYear}.pdf`);
+    }
     return lockedResponse(
       id,
       bytes,
@@ -92,10 +111,16 @@ export async function GET(
         .replace(/[^a-zA-Z0-9]+/g, "-")
         .replace(/^-|-$/g, "")
         .slice(0, 40) || "taxpayer";
+    const filename = `SA100-${row.taxYear}-${userSlug}.pdf`;
+    if (viewOnly) {
+      return inlineResponse(bytes, filename, {
+        "X-HydraTax-SA-Supplements": supplements.join(","),
+      });
+    }
     return lockedResponse(
       id,
       bytes,
-      `SA100-${row.taxYear}-${userSlug}.pdf`,
+      filename,
       row.draft.dateOfBirth,
       row.draft.utr || client.utr || null,
       { "X-HydraTax-SA-Supplements": supplements.join(",") },

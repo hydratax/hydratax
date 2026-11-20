@@ -1,6 +1,14 @@
 "use client";
 
 import {
+  createContext,
+  useContext,
+  useId,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from "react";
+import {
   DESK_ABBREVIATIONS,
   type DeskAbbrCode,
   deskAbbr,
@@ -10,7 +18,46 @@ type AbbrInfoProps = {
   /** Key in DESK_ABBREVIATIONS (e.g. "SMP", "FPS"). */
   code: DeskAbbrCode | string;
   className?: string;
+  /**
+   * When true, always show the mark even if this code already appeared
+   * in the nearest AbbrInfoScope (rare — prefer the default once-per-screen rule).
+   */
+  force?: boolean;
 };
+
+type ScopeApi = {
+  /** True only for the first AbbrInfo instance registered for this code. */
+  shouldShow: (code: string, instanceId: string) => boolean;
+};
+
+const AbbrInfoScopeContext = createContext<ScopeApi | null>(null);
+
+/**
+ * Dedupes “i” marks so each abbreviation shows the helper at most once
+ * inside this tree (typically one desk screen / panel).
+ */
+export function AbbrInfoScope({ children }: { children: ReactNode }) {
+  const winners = useRef(new Map<string, string>());
+  const api = useMemo<ScopeApi>(
+    () => ({
+      shouldShow(code: string, instanceId: string) {
+        const key = code.toUpperCase();
+        const existing = winners.current.get(key);
+        if (!existing) {
+          winners.current.set(key, instanceId);
+          return true;
+        }
+        return existing === instanceId;
+      },
+    }),
+    [],
+  );
+  return (
+    <AbbrInfoScopeContext.Provider value={api}>
+      {children}
+    </AbbrInfoScopeContext.Provider>
+  );
+}
 
 /**
  * Small “i” control next to a desk abbreviation.
@@ -18,10 +65,21 @@ type AbbrInfoProps = {
  *
  * Renders a focusable <span> (not <button>) so it is safe inside labels and
  * action buttons — nested <button> would cause a hydration error.
+ *
+ * Inside an AbbrInfoScope, each code renders at most one mark.
  */
-export function AbbrInfo({ code, className = "" }: AbbrInfoProps) {
+export function AbbrInfo({
+  code,
+  className = "",
+  force = false,
+}: AbbrInfoProps) {
   const entry = deskAbbr(code);
+  const scope = useContext(AbbrInfoScopeContext);
+  const instanceId = useId();
   if (!entry) return null;
+  if (!force && scope && !scope.shouldShow(String(code), instanceId)) {
+    return null;
+  }
 
   const label = `About ${code}: ${entry.title}`;
 
@@ -56,7 +114,14 @@ export function AbbrInfo({ code, className = "" }: AbbrInfoProps) {
           className="block"
         >
           <circle cx="6" cy="3.1" r="1.05" fill="currentColor" />
-          <rect x="5.15" y="5" width="1.7" height="4.6" rx="0.85" fill="currentColor" />
+          <rect
+            x="5.15"
+            y="5"
+            width="1.7"
+            height="4.6"
+            rx="0.85"
+            fill="currentColor"
+          />
         </svg>
       </span>
       <span

@@ -742,7 +742,7 @@ export function VatReturnsWorkspace({
                   setMessage(null);
                   setError(null);
                 }}
-                className={`w-full rounded-xl border px-3 py-2.5 pr-9 text-left text-sm transition ${
+                className={`w-full min-w-0 rounded-xl border px-3.5 py-3 pr-9 text-left text-sm transition ${
                   active
                     ? "border-sea bg-sea/5"
                     : "border-line hover:border-sea/40"
@@ -843,11 +843,9 @@ export function VatReturnsWorkspace({
         ) : null}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)] lg:items-stretch lg:gap-6">
-        {/* Left column height tracks the filing card; inner panels scroll. */}
-        <div className="relative min-h-[22rem] lg:min-h-0">
-        <aside className="flex flex-col gap-4 lg:absolute lg:inset-0 lg:overflow-hidden">
-          <div className="panel shrink-0 overflow-y-auto p-4 lg:max-h-[46%]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] lg:items-start lg:gap-6">
+        <aside className="flex min-w-0 flex-col gap-4">
+          <div className="panel w-full p-4">
             <h2 className="inline-flex items-center gap-1 text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
               VAT periods
               <AbbrInfo code="VAT" />
@@ -978,7 +976,7 @@ export function VatReturnsWorkspace({
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div className="w-full">
             <VatBooksBankPanel
               clientId={clientId}
               clientSlug={clientSlug}
@@ -988,7 +986,7 @@ export function VatReturnsWorkspace({
           </div>
 
           {filedReturns.length > 0 ? (
-            <div className="panel max-h-28 shrink-0 overflow-y-auto p-3">
+            <div className="panel w-full p-3">
               <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
                 Submitted
               </h2>
@@ -1029,7 +1027,6 @@ export function VatReturnsWorkspace({
             </div>
           ) : null}
         </aside>
-        </div>
 
         {/* Main filing card */}
         <section className="min-w-0">

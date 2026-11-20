@@ -7,12 +7,15 @@ import {
   downloadEmployeePayslipPack,
   downloadNestContributionsCsv,
   downloadPayrollPack,
+  downloadPayrollSummary,
+  viewPayrollPackPdf,
   prepareAmendedPayRun,
   reversePayslip,
   savePayrollPackPassword,
   sendEmployeePayslipPack,
   sendPayrollPack,
   sendStatutoryDocument,
+  downloadPayrollRtiReport,
   type PayrollEmployee,
 } from "@/server/actions/payroll";
 import { money } from "@/lib/format";
@@ -31,6 +34,26 @@ import {
   isPayrollGenerated,
   isPayrollRtiSubmitted,
 } from "@/lib/payroll-client-status";
+
+type DocSheetKind =
+  | "payslips"
+  | "employee"
+  | "rti"
+  | "nest"
+  | "summary"
+  | "bacs";
+
+const DOC_BTN =
+  "rounded-lg bg-sea px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-sea/90 disabled:opacity-40";
+
+type DocSheet = {
+  kind: DocSheetKind;
+  runId: string;
+  periodStart: string;
+  periodEnd: string;
+  employeeId?: string;
+  employeeLabel?: string;
+};
 
 type RunRow = {
   id?: string;
@@ -159,6 +182,10 @@ export function PayrollDocumentsHub({
     employeeId?: string;
     taxYear?: string;
   } | null>(null);
+  const [emailSent, setEmailSent] = useState(false);
+  const [docSheet, setDocSheet] = useState<DocSheet | null>(null);
+  const [sheetFrom, setSheetFrom] = useState("");
+  const [sheetTo, setSheetTo] = useState("");
   const [emailTo, setEmailTo] = useState(contactEmail ?? "");
 
   const [empId, setEmpId] = useState(employees[0]?.id ?? "");
@@ -239,7 +266,55 @@ export function PayrollDocumentsHub({
 
   function openEmail(opts: NonNullable<typeof emailOpen>) {
     setEmailTo(contactEmail ?? "");
+    setEmailSent(false);
     setEmailOpen(opts);
+  }
+
+  function openDocSheet(sheet: DocSheet) {
+    // Range-aware docs default From ~5 months earlier so multi-month packs work out of the box.
+    const rangeAware =
+      sheet.kind === "payslips" ||
+      sheet.kind === "summary" ||
+      sheet.kind === "rti" ||
+      sheet.kind === "employee";
+    if (rangeAware && sheet.periodEnd) {
+      const end = new Date(`${sheet.periodEnd}T12:00:00`);
+      const start = new Date(end);
+      start.setMonth(start.getMonth() - 5);
+      const yyyy = start.getFullYear();
+      const mm = String(start.getMonth() + 1).padStart(2, "0");
+      const dd = String(start.getDate()).padStart(2, "0");
+      setSheetFrom(`${yyyy}-${mm}-${dd}`);
+      setSheetTo(sheet.periodEnd);
+    } else {
+      setSheetFrom(sheet.periodStart);
+      setSheetTo(sheet.periodEnd);
+    }
+    setDocSheet(sheet);
+  }
+
+  function triggerPdfDownload(filename: string, base64: string) {
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(
+      new Blob([bytes], { type: "application/pdf" }),
+    );
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function openPdfView(base64: string) {
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(
+      new Blob([bytes], { type: "application/pdf" }),
+    );
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -290,38 +365,20 @@ export function PayrollDocumentsHub({
               ["archive", "P60 & P45"],
               ["password", "Pack password"],
             ] as const
-          ).map(([id, label]) =>
-            id === "archive" ? (
-              <span key={id} className="inline-flex items-center gap-1">
-                <button
-                  type="button"
-                  className={`rounded-t-lg px-3 py-2 text-sm font-semibold ${
-                    hubTab === id
-                      ? "bg-sea/10 text-sea"
-                      : "text-ink-soft hover:text-ink"
-                  }`}
-                  onClick={() => setHubTab(id)}
-                >
-                  P60 &amp; P45
-                </button>
-                <AbbrInfo code="P60" />
-                <AbbrInfo code="P45" />
-              </span>
-            ) : (
-              <button
-                key={id}
-                type="button"
-                className={`rounded-t-lg px-3 py-2 text-sm font-semibold ${
-                  hubTab === id
-                    ? "bg-sea/10 text-sea"
-                    : "text-ink-soft hover:text-ink"
-                }`}
-                onClick={() => setHubTab(id)}
-              >
-                {label}
-              </button>
-            ),
-          )}
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={`rounded-t-lg px-3 py-2 text-sm font-semibold ${
+                hubTab === id
+                  ? "bg-sea/10 text-sea"
+                  : "text-ink-soft hover:text-ink"
+              }`}
+              onClick={() => setHubTab(id)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         <FormErrorBanner error={error} />
@@ -388,162 +445,76 @@ export function PayrollDocumentsHub({
                         payslip{lineCount === 1 ? "" : "s"}
                       </p>
                     </button>
-                    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                      {hasLines ? (
-                        <button
-                          type="button"
-                          className="rounded-lg bg-sea/10 px-2.5 py-1.5 text-xs font-semibold text-sea disabled:opacity-40"
-                          disabled={pending}
-                          onClick={() => {
-                            start(async () => {
-                              try {
-                                const pack = await downloadPayrollPack({
-                                  clientId,
-                                  runId,
-                                });
-                                triggerZipDownload(pack.filename, pack.base64);
-                                setOk(
-                                  `Downloaded zip · ${lineCount} payslip PDFs + summary.`,
-                                );
-                              } catch {
-                                /* freeze — no banner */
-                              }
-                            });
-                          }}
-                        >
-                          Download PDFs
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="rounded-lg border border-line px-2.5 py-1.5 text-xs font-semibold text-ink-soft hover:bg-sand/50"
-                        aria-expanded={expanded}
-                        onClick={() =>
-                          setExpandedRunId((id) =>
-                            id === runId ? null : runId,
-                          )
-                        }
-                      >
-                        {expanded ? "Less" : "More"}
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-lg bg-sea/10 px-3 py-1.5 text-xs font-semibold text-sea"
+                      aria-expanded={expanded}
+                      onClick={() => {
+                        setExpandedRunId((id) =>
+                          id === runId ? null : runId,
+                        );
+                      }}
+                    >
+                      {expanded ? "Close" : "Open"}
+                    </button>
                   </div>
 
                   {expanded ? (
-                    <div className="mt-3 space-y-3 rounded-xl border border-line/70 bg-sand/20 px-3 py-3">
+                    <div className="mt-3 space-y-4 rounded-xl border border-line/70 bg-sand/20 px-3 py-3">
                       <p className="text-xs text-ink-soft">
                         {p.periodStart} → {p.periodEnd}
                       </p>
                       {hasLines ? (
                         <>
                           <div className="flex flex-wrap gap-2">
-                            <a
-                              className="rounded-lg border border-line bg-white px-2.5 py-1.5 text-xs font-semibold text-ink hover:bg-sand/50"
-                              href={`/clients/${clientId}/payroll/summary/${runId}`}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              Payroll summary
-                            </a>
-                            <button
-                              type="button"
-                              className="rounded-lg border border-line bg-white px-2.5 py-1.5 text-xs font-semibold text-ink hover:bg-sand/50"
-                              disabled={pending}
-                              onClick={() =>
-                                openEmail({ kind: "run", runId })
-                              }
-                            >
-                              Email pack
-                            </button>
-                            <button
-                              type="button"
-                              className="rounded-lg border border-line bg-white px-2.5 py-1.5 text-xs font-semibold text-ink hover:bg-sand/50 disabled:opacity-40"
-                              disabled={pending || !runHasPension(p)}
-                              title={
-                                runHasPension(p)
-                                  ? "Download pension contributions for NEST"
-                                  : undefined
-                              }
-                              onClick={() => {
-                                if (!runHasPension(p)) return;
-                                start(async () => {
-                                  try {
-                                    const file =
-                                      await downloadNestContributionsCsv({
-                                        clientId,
-                                        runId,
-                                      });
-                                    if (!file) return;
-                                    triggerTextDownload(
-                                      file.filename,
-                                      file.csv,
-                                    );
-                                    setOk(
-                                      "NEST contribution file downloaded.",
-                                    );
-                                  } catch {
-                                    /* freeze — no banner */
-                                  }
-                                });
-                              }}
-                            >
-                              NEST contributions
-                            </button>
-                            <button
-                              type="button"
-                              className="rounded-lg border border-line bg-white px-2.5 py-1.5 text-xs font-semibold text-ink hover:bg-sand/50 disabled:opacity-40"
-                              disabled={
-                                pending ||
-                                !bacsReady ||
-                                !staffBankReady ||
-                                !runHasNetPay(p)
-                              }
-                              title={
-                                bacsReady && staffBankReady
-                                  ? "Download bank payment file for this run"
-                                  : "Add paying account under Settings → Staff payments, and bank details on employee cards"
-                              }
-                              onClick={() => {
-                                if (
-                                  !bacsReady ||
-                                  !staffBankReady ||
-                                  !runHasNetPay(p)
-                                )
-                                  return;
-                                start(async () => {
-                                  try {
-                                    const file = await downloadBacsStandard18({
-                                      clientId,
-                                      runId,
-                                    });
-                                    if (!file) return;
-                                    triggerTextDownload(
-                                      file.filename,
-                                      file.text,
-                                      "text/plain;charset=utf-8",
-                                    );
-                                    setOk("Bank payment file downloaded.");
-                                  } catch {
-                                    /* freeze — no banner */
-                                  }
-                                });
-                              }}
-                            >
-                              Bank payment file
-                            </button>
+                            {(
+                              [
+                                ["payslips", "Payslips pack", true],
+                                ["summary", "Payroll summary", true],
+                                ["rti", "RTI submission", filed],
+                                ["nest", "NEST contributions", runHasPension(p)],
+                                [
+                                  "bacs",
+                                  "Bank payment file",
+                                  bacsReady && staffBankReady && runHasNetPay(p),
+                                ],
+                              ] as const
+                            ).map(([kind, label, enabled]) => (
+                              <button
+                                key={kind}
+                                type="button"
+                                className={DOC_BTN}
+                                disabled={pending || !enabled}
+                                onClick={() =>
+                                  openDocSheet({
+                                    kind,
+                                    runId,
+                                    periodStart: String(
+                                      p.periodStart ?? p.payDate ?? "",
+                                    ),
+                                    periodEnd: String(
+                                      p.periodEnd ?? p.payDate ?? "",
+                                    ),
+                                  })
+                                }
+                              >
+                                {label}
+                              </button>
+                            ))}
                           </div>
+
                           <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-soft">
+                            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-soft">
                               Payslips
                             </p>
-                            <ul className="mt-1.5 space-y-1.5">
+                            <ul className="overflow-hidden rounded-lg border border-line/70 bg-white">
                               {p.lines!.map((l) => (
                                 <li
                                   key={l.employeeId}
-                                  className="flex flex-wrap items-center gap-x-3 gap-y-1"
+                                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-line/60 px-3 py-2 last:border-0"
                                 >
                                   <a
-                                    className={`text-xs font-semibold hover:underline ${
+                                    className={`truncate text-sm font-semibold hover:underline ${
                                       l.reversed
                                         ? "text-ink-soft line-through"
                                         : "text-sea"
@@ -553,42 +524,13 @@ export function PayrollDocumentsHub({
                                     rel="noreferrer"
                                   >
                                     {l.forename} {l.surname}
+                                    {l.reversed ? " · Reversed" : ""}
                                   </a>
-                                  {l.reversed ? (
-                                    <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-soft">
-                                      Reversed
-                                    </span>
-                                  ) : null}
-                                  {filed && !l.reversed ? (
-                                    <span className="inline-flex flex-wrap gap-1.5">
+                                  <div className="flex shrink-0 justify-end">
+                                    {filed && !l.reversed ? (
                                       <button
                                         type="button"
-                                        className="rounded-md border border-line bg-white px-2 py-0.5 text-[11px] font-semibold text-ink-soft hover:bg-sand/50 disabled:opacity-40"
-                                        disabled={pending}
-                                        onClick={() => {
-                                          start(async () => {
-                                            try {
-                                              const res = await reversePayslip({
-                                                clientId,
-                                                runId,
-                                                employeeId: l.employeeId,
-                                              });
-                                              if (!res.ok) return;
-                                              setOk(
-                                                `Reversed ${l.forename} ${l.surname}. Prepare an amend to re-file.`,
-                                              );
-                                              router.refresh();
-                                            } catch {
-                                              /* freeze */
-                                            }
-                                          });
-                                        }}
-                                      >
-                                        Reverse
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="rounded-md border border-line bg-white px-2 py-0.5 text-[11px] font-semibold text-ink-soft hover:bg-sand/50 disabled:opacity-40"
+                                        className="rounded-md border border-line bg-white px-2.5 py-1 text-[11px] font-semibold text-ink hover:bg-sand/50 disabled:opacity-40"
                                         disabled={pending}
                                         onClick={() => {
                                           start(async () => {
@@ -615,48 +557,42 @@ export function PayrollDocumentsHub({
                                           });
                                         }}
                                       >
-                                        Reverse & amend
+                                        Revise
                                       </button>
-                                    </span>
-                                  ) : null}
-                                  {filed && l.reversed ? (
-                                    <button
-                                      type="button"
-                                      className="rounded-md border border-line bg-white px-2 py-0.5 text-[11px] font-semibold text-ink-soft hover:bg-sand/50 disabled:opacity-40"
-                                      disabled={pending}
-                                      onClick={() => {
-                                        start(async () => {
-                                          try {
-                                            const res =
-                                              await prepareAmendedPayRun({
-                                                clientId,
-                                                runId,
-                                                employeeId: l.employeeId,
-                                              });
-                                            if (!res.ok) return;
-                                            setOk(
-                                              `Amend draft ready for ${l.forename} ${l.surname}.`,
-                                            );
-                                            router.refresh();
-                                          } catch {
-                                            /* freeze */
-                                          }
-                                        });
-                                      }}
-                                    >
-                                      Prepare amend
-                                    </button>
-                                  ) : null}
+                                    ) : null}
+                                    {filed && l.reversed ? (
+                                      <button
+                                        type="button"
+                                        className="rounded-md border border-line bg-white px-2.5 py-1 text-[11px] font-semibold text-ink hover:bg-sand/50 disabled:opacity-40"
+                                        disabled={pending}
+                                        onClick={() => {
+                                          start(async () => {
+                                            try {
+                                              const res =
+                                                await prepareAmendedPayRun({
+                                                  clientId,
+                                                  runId,
+                                                  employeeId: l.employeeId,
+                                                });
+                                              if (!res.ok) return;
+                                              setOk(
+                                                `Amend draft ready for ${l.forename} ${l.surname}.`,
+                                              );
+                                              router.refresh();
+                                            } catch {
+                                              /* freeze */
+                                            }
+                                          });
+                                        }}
+                                      >
+                                        Revise
+                                      </button>
+                                    ) : null}
+                                  </div>
                                 </li>
                               ))}
                             </ul>
                           </div>
-                          {filed ? (
-                            <p className="text-[11px] text-ink-soft">
-                              After reverse, prepare an amend draft then file the
-                              corrected submission from Run payroll.
-                            </p>
-                          ) : null}
                         </>
                       ) : (
                         <p className="text-xs text-ink-soft">
@@ -873,7 +809,6 @@ export function PayrollDocumentsHub({
                           >
                             P60 {year}
                           </a>
-                          <AbbrInfo code="P60" />
                           <button
                             type="button"
                             className="text-xs font-semibold text-sea hover:underline"
@@ -898,7 +833,6 @@ export function PayrollDocumentsHub({
                               >
                                 P45
                               </a>
-                              <AbbrInfo code="P45" />
                               <button
                                 type="button"
                                 className="text-xs font-semibold text-sea hover:underline"
@@ -922,7 +856,6 @@ export function PayrollDocumentsHub({
                           >
                             P11D
                           </a>
-                          <AbbrInfo code="P11D" />
                         </div>
                       </td>
                     </tr>
@@ -965,6 +898,317 @@ export function PayrollDocumentsHub({
         ) : null}
       </div>
 
+      {docSheet ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-ink/40 p-4 sm:items-center"
+          role="presentation"
+          onClick={() => setDocSheet(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md overflow-visible rounded-2xl border border-line bg-white p-5 shadow-xl"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <h2 className="display text-2xl text-ink">
+              {docSheet.kind === "payslips"
+                ? "Payslips pack"
+                : docSheet.kind === "employee"
+                  ? docSheet.employeeLabel || "Employee documents"
+                  : docSheet.kind === "nest"
+                    ? "NEST contributions"
+                    : docSheet.kind === "summary"
+                      ? "Payroll summary"
+                      : docSheet.kind === "bacs"
+                        ? "Bank payment file"
+                        : "RTI submission"}
+            </h2>
+            <p className="mt-1 text-sm text-ink-soft">
+              Choose a date range, then view, download or email.
+            </p>
+            <div className="relative z-[70] mt-4 grid gap-3 sm:grid-cols-2">
+              <label className="text-xs font-semibold">
+                From
+                <UkDateField
+                  className="input mt-1"
+                  value={sheetFrom}
+                  onChange={setSheetFrom}
+                />
+              </label>
+              <label className="text-xs font-semibold">
+                To
+                <UkDateField
+                  className="input mt-1"
+                  value={sheetTo}
+                  onChange={setSheetTo}
+                />
+              </label>
+            </div>
+
+            {docSheet.kind === "rti" ? (
+              <div className="mt-5 space-y-4">
+                {(
+                  [
+                    ["fps", "Full Payment Submission (FPS) report"],
+                    ["rti", "RTI FPS Submission Detail"],
+                  ] as const
+                ).map(([kind, title]) => (
+                  <div
+                    key={kind}
+                    className="rounded-xl border border-line/80 px-3 py-3"
+                  >
+                    <p className="text-sm font-semibold text-ink">{title}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="rounded-lg border border-line bg-white px-2.5 py-1.5 text-xs font-semibold text-ink hover:bg-sand/50"
+                        disabled={pending}
+                        onClick={() => {
+                          start(async () => {
+                            try {
+                              const file = await downloadPayrollRtiReport({
+                                clientId,
+                                kind,
+                                fromDate: sheetFrom || undefined,
+                                toDate: sheetTo || undefined,
+                              });
+                              openPdfView(file.base64);
+                            } catch {
+                              /* freeze */
+                            }
+                          });
+                        }}
+                      >
+                        View
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-lg border border-line bg-white px-2.5 py-1.5 text-xs font-semibold text-ink hover:bg-sand/50"
+                        disabled={pending}
+                        onClick={() => {
+                          start(async () => {
+                            try {
+                              const file = await downloadPayrollRtiReport({
+                                clientId,
+                                kind,
+                                fromDate: sheetFrom || undefined,
+                                toDate: sheetTo || undefined,
+                              });
+                              triggerPdfDownload(file.filename, file.base64);
+                            } catch {
+                              /* freeze */
+                            }
+                          });
+                        }}
+                      >
+                        Download
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-lg border border-line bg-white px-2.5 py-1.5 text-xs font-semibold text-ink hover:bg-sand/50"
+                        disabled={pending}
+                        onClick={() =>
+                          openEmail({ kind: "run", runId: docSheet.runId })
+                        }
+                      >
+                        Email
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-5 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border border-line bg-white px-2.5 py-1.5 text-xs font-semibold text-ink hover:bg-sand/50"
+                  disabled={pending}
+                  onClick={() => {
+                    start(async () => {
+                      try {
+                        if (docSheet.kind === "payslips") {
+                          const pack = await viewPayrollPackPdf({
+                            clientId,
+                            fromDate: sheetFrom,
+                            toDate: sheetTo,
+                          });
+                          openPdfView(pack.base64);
+                          setOk(
+                            `Opened ${pack.lineCount} payslip${pack.lineCount === 1 ? "" : "s"}.`,
+                          );
+                          return;
+                        }
+                        if (docSheet.kind === "summary") {
+                          const file = await downloadPayrollSummary({
+                            clientId,
+                            fromDate: sheetFrom,
+                            toDate: sheetTo,
+                          });
+                          openPdfView(file.base64);
+                          return;
+                        }
+                        if (
+                          docSheet.kind === "employee" &&
+                          docSheet.employeeId
+                        ) {
+                          window.open(
+                            `/clients/${clientId}/payroll/payslip/${docSheet.runId}?employee=${docSheet.employeeId}`,
+                            "_blank",
+                            "noopener,noreferrer",
+                          );
+                          return;
+                        }
+                        if (docSheet.kind === "nest") {
+                          const file = await downloadNestContributionsCsv({
+                            clientId,
+                            runId: docSheet.runId,
+                          });
+                          if (!file) return;
+                          const url = URL.createObjectURL(
+                            new Blob([file.csv], {
+                              type: "text/csv;charset=utf-8",
+                            }),
+                          );
+                          window.open(url, "_blank", "noopener,noreferrer");
+                          return;
+                        }
+                        if (docSheet.kind === "bacs") {
+                          const file = await downloadBacsStandard18({
+                            clientId,
+                            runId: docSheet.runId,
+                          });
+                          if (!file) return;
+                          const url = URL.createObjectURL(
+                            new Blob([file.text], {
+                              type: "text/plain;charset=utf-8",
+                            }),
+                          );
+                          window.open(url, "_blank", "noopener,noreferrer");
+                        }
+                      } catch {
+                        /* freeze */
+                      }
+                    });
+                  }}
+                >
+                  View
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg border border-line bg-white px-2.5 py-1.5 text-xs font-semibold text-ink hover:bg-sand/50"
+                  disabled={pending}
+                  onClick={() => {
+                    start(async () => {
+                      try {
+                        if (docSheet.kind === "payslips") {
+                          const pack = await downloadPayrollPack({
+                            clientId,
+                            fromDate: sheetFrom,
+                            toDate: sheetTo,
+                          });
+                          triggerZipDownload(pack.filename, pack.base64);
+                          setOk(
+                            `Downloaded ${pack.lineCount} payslip${pack.lineCount === 1 ? "" : "s"} + summary.`,
+                          );
+                          return;
+                        }
+                        if (docSheet.kind === "summary") {
+                          const file = await downloadPayrollSummary({
+                            clientId,
+                            fromDate: sheetFrom,
+                            toDate: sheetTo,
+                          });
+                          triggerPdfDownload(file.filename, file.base64);
+                          setOk(
+                            `Payroll summary downloaded (${file.rowCount} row${file.rowCount === 1 ? "" : "s"}).`,
+                          );
+                          return;
+                        }
+                        if (
+                          docSheet.kind === "employee" &&
+                          docSheet.employeeId
+                        ) {
+                          const pack = await downloadEmployeePayslipPack({
+                            clientId,
+                            employeeId: docSheet.employeeId,
+                            fromDate: sheetFrom,
+                            toDate: sheetTo,
+                          });
+                          triggerZipDownload(pack.filename, pack.base64);
+                          setOk(
+                            `Downloaded ${pack.count} payslip PDF(s).`,
+                          );
+                          return;
+                        }
+                        if (docSheet.kind === "nest") {
+                          const file = await downloadNestContributionsCsv({
+                            clientId,
+                            runId: docSheet.runId,
+                          });
+                          if (!file) return;
+                          triggerTextDownload(file.filename, file.csv);
+                          setOk("NEST contribution file downloaded.");
+                          return;
+                        }
+                        if (docSheet.kind === "bacs") {
+                          const file = await downloadBacsStandard18({
+                            clientId,
+                            runId: docSheet.runId,
+                          });
+                          if (!file) return;
+                          triggerTextDownload(
+                            file.filename,
+                            file.text,
+                            "text/plain;charset=utf-8",
+                          );
+                          setOk("Bank payment file downloaded.");
+                        }
+                      } catch {
+                        /* freeze */
+                      }
+                    });
+                  }}
+                >
+                  Download
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg border border-line bg-white px-2.5 py-1.5 text-xs font-semibold text-ink hover:bg-sand/50"
+                  disabled={pending}
+                  onClick={() => {
+                    if (docSheet.kind === "employee" && docSheet.employeeId) {
+                      setFromDate(sheetFrom);
+                      setToDate(sheetTo);
+                      openEmail({
+                        kind: "employee",
+                        employeeId: docSheet.employeeId,
+                      });
+                      return;
+                    }
+                    openEmail({
+                      kind: "run",
+                      runId: docSheet.runId,
+                    });
+                  }}
+                >
+                  Email
+                </button>
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                className="btn btn-secondary text-sm"
+                onClick={() => setDocSheet(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {emailOpen ? (
         <div
           className="fixed inset-0 z-[60] flex items-end justify-center bg-ink/40 p-4 sm:items-center"
@@ -984,7 +1228,10 @@ export function PayrollDocumentsHub({
                 className="input mt-1"
                 type="email"
                 value={emailTo}
-                onChange={(e) => setEmailTo(e.target.value)}
+                onChange={(e) => {
+                  setEmailSent(false);
+                  setEmailTo(e.target.value);
+                }}
                 autoFocus
               />
             </label>
@@ -994,37 +1241,37 @@ export function PayrollDocumentsHub({
                 className="btn btn-secondary text-sm"
                 onClick={() => setEmailOpen(null)}
               >
-                Cancel
+                {emailSent ? "Close" : "Cancel"}
               </button>
               <button
                 type="button"
                 className="btn btn-primary text-sm"
-                disabled={pending || !emailTo.trim()}
+                disabled={pending || !emailTo.trim() || emailSent}
                 onClick={() => {
                   const to = emailTo.trim();
                   const ctx = emailOpen;
-                  if (!to || !ctx) return;
+                  if (!to || !ctx || emailSent) return;
                   setError(null);
                   setOk(null);
                   start(async () => {
                     try {
-                      if (ctx.kind === "run" && ctx.runId) {
+                      if (ctx.kind === "run") {
                         const res = await sendPayrollPack({
                           clientId,
                           runId: ctx.runId,
+                          fromDate: sheetFrom || undefined,
+                          toDate: sheetTo || undefined,
                           toEmail: to,
                         });
-                        triggerZipDownload(res.filename, res.base64);
                         setOk(res.message);
                       } else if (ctx.kind === "employee" && ctx.employeeId) {
                         const res = await sendEmployeePayslipPack({
                           clientId,
                           employeeId: ctx.employeeId,
-                          fromDate,
-                          toDate,
+                          fromDate: sheetFrom || fromDate,
+                          toDate: sheetTo || toDate,
                           toEmail: to,
                         });
-                        triggerZipDownload(res.filename, res.base64);
                         setOk(
                           `${res.message} (${res.count} payslip${res.count === 1 ? "" : "s"}).`,
                         );
@@ -1039,17 +1286,16 @@ export function PayrollDocumentsHub({
                           taxYear: ctx.taxYear,
                           toEmail: to,
                         });
-                        triggerZipDownload(res.filename, res.base64);
                         setOk(res.message);
                       }
-                      setEmailOpen(null);
-                    } catch (err) {
-                      setError(messageFromUnknown(err, "Send failed"));
+                      setEmailSent(true);
+                    } catch {
+                      /* freeze — desk stays silent */
                     }
                   });
                 }}
               >
-                {pending ? "Sending…" : "Send"}
+                {pending ? "Sending…" : emailSent ? "Sent" : "Send"}
               </button>
             </div>
           </div>

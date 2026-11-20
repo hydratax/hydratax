@@ -71,6 +71,19 @@ export default async function AdminHomePage() {
             Manage codes →
           </span>
         </Link>
+        <Link
+          href="/admin/whatsapp"
+          className="panel panel-interactive block p-6 transition hover:border-sea"
+        >
+          <h2 className="display text-2xl text-ink">WhatsApp volume</h2>
+          <p className="mt-2 text-sm text-ink-soft">
+            Enable practices on the shared HydraTax WhatsApp number and set
+            monthly message / document limits.
+          </p>
+          <span className="mt-4 inline-block text-sm font-semibold text-sea">
+            Manage WhatsApp →
+          </span>
+        </Link>
       </div>
     </div>
   );

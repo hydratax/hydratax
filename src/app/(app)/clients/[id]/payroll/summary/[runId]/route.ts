@@ -1,6 +1,9 @@
 import { requireModule } from "@/server/auth/session";
 import { getClient } from "@/server/actions/clients";
-import { getPayRun } from "@/server/actions/payroll";
+import {
+  downloadPayrollSummary,
+  getPayRun,
+} from "@/server/actions/payroll";
 import { renderPayrollSummaryHtml } from "@/lib/payroll";
 import { renderPayrollSummaryPdfBuffer } from "@/server/payroll/summary-pdf";
 import type { PayLine } from "@/server/hmrc/payroll";
@@ -11,7 +14,28 @@ export async function GET(
 ) {
   await requireModule("payroll");
   const { id, runId } = await context.params;
-  const format = new URL(request.url).searchParams.get("format");
+  const url = new URL(request.url);
+  const format = url.searchParams.get("format");
+  const fromDate = url.searchParams.get("from");
+  const toDate = url.searchParams.get("to");
+
+  if (fromDate && toDate && /^\d{4}-\d{2}-\d{2}$/.test(fromDate) && /^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+    const file = await downloadPayrollSummary({
+      clientId: id,
+      fromDate,
+      toDate,
+    });
+    if (format === "html") {
+      return new Response("Use PDF for multi-month summary", { status: 400 });
+    }
+    return new Response(Buffer.from(file.base64, "base64"), {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${file.filename}"`,
+      },
+    });
+  }
+
   const client = await getClient(id);
   const run = await getPayRun(id, runId);
   if (!run) {

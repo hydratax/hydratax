@@ -15,23 +15,44 @@ export function SaReturnDocuments({
   personName: string;
   defaultEmail?: string | null;
 }) {
+  const sa100View = `/api/clients/${clientId}/sa100/${returnId}/sa100.pdf?view=1`;
+  const sa302View = `/api/clients/${clientId}/sa100/${returnId}/sa302.pdf?view=1`;
+  const sa100Dl = `/api/clients/${clientId}/sa100/${returnId}/sa100.pdf`;
+  const sa302Dl = `/api/clients/${clientId}/sa100/${returnId}/sa302.pdf`;
+
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs font-semibold">
       <a
         className="text-sea underline-offset-2 hover:underline"
-        href={`/api/clients/${clientId}/sa100/${returnId}/sa100.pdf`}
+        href={sa100View}
         target="_blank"
         rel="noreferrer"
       >
-        SA100 pack
+        View SA100
       </a>
       <a
         className="text-sea underline-offset-2 hover:underline"
-        href={`/api/clients/${clientId}/sa100/${returnId}/sa302.pdf`}
+        href={sa302View}
         target="_blank"
         rel="noreferrer"
       >
-        SA302 PDF
+        View SA302
+      </a>
+      <a
+        className="text-ink-soft underline-offset-2 hover:underline"
+        href={sa100Dl}
+        target="_blank"
+        rel="noreferrer"
+      >
+        Download SA100
+      </a>
+      <a
+        className="text-ink-soft underline-offset-2 hover:underline"
+        href={sa302Dl}
+        target="_blank"
+        rel="noreferrer"
+      >
+        Download SA302
       </a>
       <EmailToClientButton
         clientId={clientId}

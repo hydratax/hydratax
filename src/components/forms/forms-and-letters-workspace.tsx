@@ -226,7 +226,7 @@ export function FormsAndLettersWorkspace({
         <button
           type="button"
           className={`rounded-md px-3 py-1.5 text-sm font-semibold ${
-            tab === "forms" ? "bg-ink text-white" : "bg-sand text-ink-soft"
+            tab === "forms" ? "bg-sea text-white" : "bg-sand text-ink-soft"
           }`}
           onClick={() => setTab("forms")}
         >
@@ -235,7 +235,7 @@ export function FormsAndLettersWorkspace({
         <button
           type="button"
           className={`rounded-md px-3 py-1.5 text-sm font-semibold ${
-            tab === "letters" ? "bg-ink text-white" : "bg-sand text-ink-soft"
+            tab === "letters" ? "bg-sea text-white" : "bg-sand text-ink-soft"
           }`}
           onClick={() => setTab("letters")}
         >

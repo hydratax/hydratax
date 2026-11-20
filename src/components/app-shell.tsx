@@ -9,10 +9,13 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
   const admin = isPlatformAdmin(session.email);
   const presentationDemo = admin ? await isPresentationDemoMode() : false;
 
-  /** Filing rails — nested groups stay collapsed until opened. */
+  /** Filing rails — keep VAT / SA / PAYE as top-level items (do not strip). */
   const serviceItems = [
     { href: "/filings", label: "Overview" },
     { href: "/filings/corporation-tax", label: "Corporation Tax" },
+    { href: "/clients?desk=vat", label: "VAT" },
+    { href: "/clients?desk=sa", label: "Self Assessment" },
+    { href: "/clients?desk=payroll", label: "PAYE" },
     ...(full
       ? [
           {

@@ -490,6 +490,7 @@ export async function saveSa100Draft(input: {
     input.taxpayerId,
   );
 
+  const isNew = !existing;
   let row = existing;
   if (row) {
     row.draft = draft;
@@ -530,7 +531,9 @@ export async function saveSa100Draft(input: {
     const { normalizeWorkStage, mergeSaWorkStage } = await import(
       "@/lib/client-work-stage"
     );
-    const { setClientWorkStage } = await import("@/server/actions/desk");
+    const { setClientWorkStage, appendClientWorkLog } = await import(
+      "@/server/actions/desk"
+    );
     const current = normalizeWorkStage(client.deskProfile?.workStage);
     const next = mergeSaWorkStage(current, "draft");
     if (next !== current) {
@@ -538,6 +541,25 @@ export async function saveSa100Draft(input: {
         clientId: input.clientId,
         stage: next,
         note: `Self Assessment ${draft.taxYear} draft saved`,
+        desk: "sa",
+      });
+    }
+    // Always record create / amend on the SA desk worklog.
+    if (isNew) {
+      await appendClientWorkLog({
+        clientId: input.clientId,
+        kind: "document",
+        label: `SA100 draft created — ${draft.taxYear}`,
+        detail: person?.fullName || undefined,
+        desk: "sa",
+      });
+    } else if (!input.skipPdfs) {
+      await appendClientWorkLog({
+        clientId: input.clientId,
+        kind: "document",
+        label: `SA100 draft amended — ${draft.taxYear}`,
+        detail: person?.fullName || undefined,
+        desk: "sa",
       });
     }
   } catch {

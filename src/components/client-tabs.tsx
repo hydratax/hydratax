@@ -62,7 +62,7 @@ function activeTabFromPath(pathname: string, clientSlug: string) {
 function tabClass(isActive: boolean, isPending: boolean) {
   return `relative rounded-t-md px-3.5 py-2.5 text-sm font-semibold transition ${
     isActive
-      ? "bg-ink text-white"
+      ? "bg-sea text-white"
       : "text-ink-soft hover:bg-white hover:text-ink"
   } ${isPending ? "ring-2 ring-sea/40 ring-offset-1" : ""}`;
 }

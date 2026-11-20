@@ -3,10 +3,14 @@ import { Suspense } from "react";
 import { requireSession } from "@/server/auth/session";
 import { listChannelConnections } from "@/server/actions/correspondence";
 import { ChannelConnectionsForm } from "@/components/forms/channel-connections-form";
+import { getMyWhatsAppAllocation } from "@/server/actions/whatsapp-desk";
 
 export default async function ChannelsSettingsPage() {
   await requireSession();
-  const connections = await listChannelConnections();
+  const [connections, wa] = await Promise.all([
+    listChannelConnections(),
+    getMyWhatsAppAllocation(),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -27,7 +31,11 @@ export default async function ChannelsSettingsPage() {
           <div className="panel p-5 text-sm text-ink-soft">Loading…</div>
         }
       >
-        <ChannelConnectionsForm connections={connections} />
+        <ChannelConnectionsForm
+          connections={connections}
+          whatsappAllocation={wa.allocation}
+          whatsappPlatformReady={wa.platformReady}
+        />
       </Suspense>
     </div>
   );

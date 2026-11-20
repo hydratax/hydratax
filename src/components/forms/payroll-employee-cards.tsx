@@ -5,10 +5,8 @@ import { useRouter } from "next/navigation";
 import {
   addEmployee,
   downloadEmployeeCsvTemplate,
-  downloadPayrollPack,
   importEmployeesCsv,
   markEmployeeLeaver,
-  sendPayrollPack,
   updateEmployee,
   type PayrollEmployee,
 } from "@/server/actions/payroll";
@@ -20,20 +18,6 @@ import { UkDateField } from "@/components/forms/uk-date-field";
 import { AddressFields } from "@/components/forms/address-fields";
 import { messageFromUnknown } from "@/lib/action-error";
 import { AbbrInfo } from "@/components/desk/abbr-info";
-
-function triggerZipDownload(filename: string, base64: string) {
-  const bin = atob(base64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  const url = URL.createObjectURL(
-    new Blob([bytes], { type: "application/zip" }),
-  );
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 function ukDob(iso: string | null) {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "DOB not set";
@@ -95,35 +79,35 @@ export function PayrollEmployeeCards({
   clientId,
   employees,
   taxYear,
-  latestRunId,
-  contactEmail,
   onRunPayroll,
-  onOpenHistory,
+  focusEmployeeId,
 }: {
   clientId: string;
   employees: PayrollEmployee[];
   taxYear?: string;
+  /** @deprecated kept for call-site compat */
   latestRunId?: string | null;
   contactEmail?: string | null;
   onRunPayroll: () => void;
   onOpenHistory?: () => void;
+  /** Open this employee card when set (e.g. from Run payroll edit). */
+  focusEmployeeId?: string | null;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [openAdd, setOpenAdd] = useState(employees.length === 0);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(
+    focusEmployeeId ?? null,
+  );
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [actionsId, setActionsId] = useState<string | null>(null);
-  const [teamDocsOpen, setTeamDocsOpen] = useState(false);
   const [leaveTarget, setLeaveTarget] = useState<PayrollEmployee | null>(null);
   const [leaveDate, setLeaveDate] = useState(
     () => new Date().toISOString().slice(0, 10),
   );
-  const [emailOpen, setEmailOpen] = useState(false);
-  const [emailTo, setEmailTo] = useState(contactEmail ?? "");
   const csvInputRef = useRef<HTMLInputElement>(null);
-  const teamDocsRef = useRef<HTMLDivElement>(null);
   const yearLabel =
     taxYear?.trim() ||
     (() => {
@@ -136,26 +120,20 @@ export function PayrollEmployeeCards({
 
   const sorted = useMemo(
     () =>
-      [...employees].sort((a, b) =>
-        `${a.surname} ${a.forename}`.localeCompare(
+      [...employees].sort((a, b) => {
+        if (a.active !== b.active) return a.active ? -1 : 1;
+        return `${a.surname} ${a.forename}`.localeCompare(
           `${b.surname} ${b.forename}`,
           "en-GB",
           { sensitivity: "base" },
-        ),
-      ),
+        );
+      }),
     [employees],
   );
 
   useEffect(() => {
-    if (!teamDocsOpen) return;
-    function onDoc(ev: MouseEvent) {
-      if (!teamDocsRef.current?.contains(ev.target as Node)) {
-        setTeamDocsOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [teamDocsOpen]);
+    if (focusEmployeeId) setExpandedId(focusEmployeeId);
+  }, [focusEmployeeId]);
 
   return (
     <div className="space-y-4">
@@ -165,106 +143,11 @@ export function PayrollEmployeeCards({
             People on this payroll
           </h3>
           <p className="mt-1 text-sm text-ink-soft">
-            Open a person, switch between Personal, Pay, Bank, and Loans, then
-            save — Run payroll when ready.
+            Open a person to view details. Use Actions → Edit to change anything,
+            then save.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <div className="relative" ref={teamDocsRef}>
-            <button
-              type="button"
-              className="btn btn-secondary text-sm"
-              aria-expanded={teamDocsOpen}
-              onClick={() => setTeamDocsOpen((v) => !v)}
-            >
-              Team documents ▾
-            </button>
-            {teamDocsOpen ? (
-              <div className="absolute right-0 z-50 mt-1.5 w-64 rounded-xl border border-line/80 bg-white py-1 shadow-lg">
-                {latestRunId ? (
-                  <>
-                    <a
-                      className="block px-3 py-2 text-sm text-ink hover:bg-sand/60"
-                      href={`/clients/${clientId}/payroll/summary/${latestRunId}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={() => setTeamDocsOpen(false)}
-                    >
-                      Payroll summary
-                    </a>
-                    <button
-                      type="button"
-                      className="block w-full px-3 py-2 text-left text-sm text-ink hover:bg-sand/60"
-                      disabled={pending}
-                      onClick={() => {
-                        setError(null);
-                        setOk(null);
-                        start(async () => {
-                          try {
-                            const pack = await downloadPayrollPack({
-                              clientId,
-                              runId: latestRunId,
-                            });
-                            triggerZipDownload(pack.filename, pack.base64);
-                            setOk("Payslip pack downloaded.");
-                            setTeamDocsOpen(false);
-                          } catch (err) {
-                            setError(
-                              messageFromUnknown(err, "Download failed"),
-                            );
-                          }
-                        });
-                      }}
-                    >
-                      Download payslip pack
-                    </button>
-                    <button
-                      type="button"
-                      className="block w-full px-3 py-2 text-left text-sm text-ink hover:bg-sand/60"
-                      disabled={pending}
-                      onClick={() => {
-                        setEmailTo(contactEmail ?? "");
-                        setEmailOpen(true);
-                        setTeamDocsOpen(false);
-                      }}
-                    >
-                      Email pack to client
-                    </button>
-                  </>
-                ) : (
-                  <p className="px-3 py-2 text-sm text-ink-soft">
-                    Save a pay run first to unlock the payroll summary and pack.
-                  </p>
-                )}
-                <div className="my-1 border-t border-line/70" />
-                <div className="flex items-center gap-1 px-3 py-2 text-sm text-ink hover:bg-sand/60">
-                  <a
-                    className="flex-1"
-                    href={`/clients/${clientId}/payroll/documents?taxYear=${encodeURIComponent(yearLabel)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={() => setTeamDocsOpen(false)}
-                  >
-                    All P60 &amp; P11D links
-                  </a>
-                  <AbbrInfo code="P60" />
-                  <AbbrInfo code="P11D" />
-                </div>
-                {onOpenHistory ? (
-                  <button
-                    type="button"
-                    className="block w-full px-3 py-2 text-left text-sm font-semibold text-sea hover:bg-sand/60"
-                    onClick={() => {
-                      setTeamDocsOpen(false);
-                      onOpenHistory();
-                    }}
-                  >
-                    Open History &amp; packs
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
           <button
             type="button"
             className="btn btn-primary text-sm"
@@ -365,10 +248,17 @@ export function PayrollEmployeeCards({
               clientId={clientId}
               yearLabel={yearLabel}
               expanded={expandedId === e.id}
+              editing={editingId === e.id}
               actionsOpen={actionsId === e.id}
               pending={pending}
               onToggleExpand={() => {
                 setExpandedId((id) => (id === e.id ? null : e.id));
+                setEditingId(null);
+                setActionsId(null);
+              }}
+              onStartEdit={() => {
+                setExpandedId(e.id);
+                setEditingId(e.id);
                 setActionsId(null);
               }}
               onToggleActions={() => {
@@ -381,7 +271,10 @@ export function PayrollEmployeeCards({
               }}
               start={start}
               setError={setError}
-              onSaved={() => router.refresh()}
+              onSaved={() => {
+                setEditingId(null);
+                router.refresh();
+              }}
             />
           ))}
         </div>
@@ -467,71 +360,6 @@ export function PayrollEmployeeCards({
         </div>
       ) : null}
 
-      {emailOpen && latestRunId ? (
-        <div
-          className="fixed inset-0 z-[60] flex items-end justify-center bg-ink/40 p-4 sm:items-center"
-          role="presentation"
-          onClick={() => setEmailOpen(false)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="email-pack-title"
-            className="w-full max-w-md rounded-2xl border border-line bg-white p-5 shadow-xl sm:p-6"
-            onClick={(ev) => ev.stopPropagation()}
-          >
-            <h2 id="email-pack-title" className="display text-2xl text-ink">
-              Email pack
-            </h2>
-            <label className="mt-4 block text-xs font-semibold">
-              Send to
-              <input
-                className="input mt-1"
-                type="email"
-                value={emailTo}
-                onChange={(ev) => setEmailTo(ev.target.value)}
-                autoFocus
-              />
-            </label>
-            <div className="mt-6 flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                className="btn btn-secondary text-sm"
-                onClick={() => setEmailOpen(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary text-sm"
-                disabled={pending || !emailTo.trim()}
-                onClick={() => {
-                  const toEmail = emailTo.trim();
-                  if (!toEmail) return;
-                  setError(null);
-                  setOk(null);
-                  start(async () => {
-                    try {
-                      const res = await sendPayrollPack({
-                        clientId,
-                        runId: latestRunId,
-                        toEmail,
-                      });
-                      triggerZipDownload(res.filename, res.base64);
-                      setOk(res.message);
-                      setEmailOpen(false);
-                    } catch (err) {
-                      setError(messageFromUnknown(err, "Send failed"));
-                    }
-                  });
-                }}
-              >
-                {pending ? "Sending…" : "Send"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -541,9 +369,11 @@ function EmployeeCard({
   clientId,
   yearLabel,
   expanded,
+  editing,
   actionsOpen,
   pending,
   onToggleExpand,
+  onStartEdit,
   onToggleActions,
   onMarkLeaver,
   start,
@@ -554,22 +384,25 @@ function EmployeeCard({
   clientId: string;
   yearLabel: string;
   expanded: boolean;
+  editing: boolean;
   actionsOpen: boolean;
   pending: boolean;
   onToggleExpand: () => void;
+  onStartEdit: () => void;
   onToggleActions: () => void;
   onMarkLeaver: () => void;
   start: (cb: () => Promise<void>) => void;
   setError: (s: string | null) => void;
   onSaved: () => void;
 }) {
+  const cardRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const [panel, setPanel] = useState<EmployeePanel>("pay");
+  const [panel, setPanel] = useState<EmployeePanel>("personal");
   const [forename, setForename] = useState(e.forename);
   const [surname, setSurname] = useState(e.surname);
   const [nino, setNino] = useState(e.nino);
-  const [gender, setGender] = useState<"M" | "F">(
-    e.gender === "F" ? "F" : "M",
+  const [gender, setGender] = useState<"" | "M" | "F">(
+    e.gender === "M" || e.gender === "F" ? e.gender : "",
   );
   const [address, setAddress] = useState(e.address ?? "");
   const [annual, setAnnual] = useState(poundsInput(e.annualSalaryPence));
@@ -625,10 +458,14 @@ function EmployeeCard({
   );
 
   useEffect(() => {
+    if (expanded) setPanel("personal");
+  }, [expanded]);
+
+  useEffect(() => {
     setForename(e.forename);
     setSurname(e.surname);
     setNino(e.nino);
-    setGender(e.gender === "F" ? "F" : "M");
+    setGender(e.gender === "M" || e.gender === "F" ? e.gender : "");
     setAddress(e.address ?? "");
     setAnnual(poundsInput(e.annualSalaryPence));
     setHours(e.hoursPerWeek ? (e.hoursPerWeek / 100).toFixed(1) : "37.5");
@@ -663,6 +500,15 @@ function EmployeeCard({
 
   useEffect(() => {
     if (!expanded) setPanel("pay");
+  }, [expanded]);
+
+  useEffect(() => {
+    if (!expanded || !cardRef.current) return;
+    const node = cardRef.current;
+    const id = window.setTimeout(() => {
+      node.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 50);
+    return () => window.clearTimeout(id);
   }, [expanded]);
 
   useEffect(() => {
@@ -713,6 +559,7 @@ function EmployeeCard({
       : null;
 
   function saveDetails() {
+    if (gender !== "M" && gender !== "F") return;
     setError(null);
     start(async () => {
       try {
@@ -762,10 +609,11 @@ function EmployeeCard({
 
   return (
     <article
+      ref={cardRef}
       className={`relative rounded-2xl border bg-white/95 shadow-sm transition duration-150 ${
         e.active ? "border-line/80" : "border-line/50 opacity-80"
       } hover:border-sea/45 hover:bg-sea/[0.07] hover:shadow-md ${
-        actionsOpen ? "z-30 border-sea/40 bg-sea/[0.07]" : "z-0"
+        actionsOpen || expanded ? "z-30 border-sea/40 bg-sea/[0.07]" : "z-0"
       }`}
     >
       <div className="relative flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -810,18 +658,25 @@ function EmployeeCard({
         <div className="relative shrink-0 self-end sm:self-center" ref={menuRef}>
           <button
             type="button"
-            className="btn btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-sea bg-sea px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-sea/90"
             aria-expanded={actionsOpen}
             onClick={onToggleActions}
           >
             Actions
-            <span aria-hidden className="text-[10px] text-ink-soft">
+            <span aria-hidden className="text-[10px] text-white/80">
               ▾
             </span>
           </button>
           {actionsOpen ? (
             <div className="absolute right-0 z-50 mt-1.5 w-48 rounded-xl border border-line/80 bg-white py-1 shadow-lg">
-              <div className="flex items-center gap-1 px-3 py-2 text-sm text-ink hover:bg-sand/60">
+              <button
+                type="button"
+                className="block w-full px-3 py-2 text-left text-sm font-semibold text-sea hover:bg-sand/60"
+                onClick={onStartEdit}
+              >
+                Edit
+              </button>
+              <div className="flex items-center gap-1 border-t border-line/70 px-3 py-2 text-sm text-ink hover:bg-sand/60">
                 <a
                   className="flex-1"
                   href={`/clients/${clientId}/payroll/p60/${e.id}`}
@@ -866,13 +721,15 @@ function EmployeeCard({
                   Mark leaver
                 </button>
               ) : null}
-              <button
-                type="button"
-                className="block w-full border-t border-line/70 px-3 py-2 text-left text-sm font-semibold text-ink hover:bg-sand/60"
-                onClick={onToggleExpand}
-              >
-                {expanded ? "Hide details" : "Edit details"}
-              </button>
+              {expanded ? (
+                <button
+                  type="button"
+                  className="block w-full border-t border-line/70 px-3 py-2 text-left text-sm text-ink hover:bg-sand/60"
+                  onClick={onToggleExpand}
+                >
+                  Hide details
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -880,6 +737,11 @@ function EmployeeCard({
 
       {expanded ? (
         <div className="relative space-y-3 border-t border-line/70 bg-sand/20 p-4">
+          {!editing ? (
+            <p className="text-xs text-ink-soft">
+              Viewing only — choose Actions → Edit to change details.
+            </p>
+          ) : null}
           <div className="rounded-xl border border-sea/25 bg-sea/5 px-3 py-3">
             <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-sea">
               This month · live estimate
@@ -933,10 +795,16 @@ function EmployeeCard({
             ))}
           </div>
 
-          <div
-            role="tabpanel"
-            className="rounded-xl border border-line/70 bg-white/90 p-3 sm:p-4"
+          <fieldset
+            disabled={!editing}
+            className={`rounded-xl border border-line/70 bg-white/90 p-3 sm:p-4 ${
+              editing ? "" : "opacity-90 [&_input]:cursor-default [&_select]:cursor-default"
+            }`}
           >
+            <legend className="sr-only">
+              {editing ? "Edit employee details" : "View employee details"}
+            </legend>
+            <div role="tabpanel">
             {panel === "personal" ? (
               <div className="grid gap-2 sm:grid-cols-2">
                 <p className="sm:col-span-2 text-[11px] font-bold uppercase tracking-[0.12em] text-ink-soft">
@@ -974,10 +842,12 @@ function EmployeeCard({
                   <select
                     className="input mt-1"
                     value={gender}
-                    onChange={(ev) =>
-                      setGender(ev.target.value === "F" ? "F" : "M")
-                    }
+                    onChange={(ev) => {
+                      const v = ev.target.value;
+                      setGender(v === "M" || v === "F" ? v : "");
+                    }}
                   >
+                    <option value="">Select…</option>
                     <option value="M">Male</option>
                     <option value="F">Female</option>
                   </select>
@@ -1352,23 +1222,34 @@ function EmployeeCard({
                 </label>
               </div>
             ) : null}
-          </div>
+            </div>
+          </fieldset>
 
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="btn btn-primary text-sm"
-              disabled={
-                pending ||
-                !forename.trim() ||
-                !surname.trim() ||
-                !nino.trim() ||
-                !startDate
-              }
-              onClick={saveDetails}
-            >
-              Save details
-            </button>
+            {editing ? (
+              <button
+                type="button"
+                className="btn btn-primary text-sm"
+                disabled={
+                  pending ||
+                  !forename.trim() ||
+                  !surname.trim() ||
+                  !nino.trim() ||
+                  !startDate
+                }
+                onClick={saveDetails}
+              >
+                Save details
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary text-sm"
+                onClick={onStartEdit}
+              >
+                Edit
+              </button>
+            )}
             <button
               type="button"
               className="btn btn-secondary text-sm"

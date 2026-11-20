@@ -321,6 +321,9 @@ export async function emailClientArtifact(
       }
       documentCount = attachments.length;
       kind = docs.join("+");
+      if (!attachments.length) {
+        throw new Error("SA PDF attachments could not be built");
+      }
       body += `\n\nPlease find the attached ${docs.map((d) => d.toUpperCase()).join(" and ")} PDF${docs.length > 1 ? "s" : ""}.`;
       if (lockHint) {
         body += `\n\nAttachments are password-protected. ${lockHint}`;
@@ -371,6 +374,9 @@ export async function emailClientArtifact(
     }
     documentCount = attachments.length;
     kind = documentIds.map((d) => d.kind).join("+");
+    if (!attachments.length) {
+      throw new Error("SA PDF attachments could not be built");
+    }
     body += `\n\nPlease find the attached ${documentIds.map((d) => d.kind.toUpperCase()).join(" and ")} PDF${documentIds.length > 1 ? "s" : ""} for ${taxYear}.`;
     if (lockHint) {
       body += `\n\nAttachments are password-protected. ${lockHint}`;

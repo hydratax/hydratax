@@ -2,10 +2,15 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 import type { PayLine } from "@/server/hmrc/payroll";
 import { ukTaxMonthNumber } from "@/lib/payroll";
 
-const ink = rgb(0.06, 0.09, 0.14);
-const muted = rgb(0.35, 0.4, 0.48);
-const band = rgb(0.12, 0.31, 0.55);
-const bandSoft = rgb(0.91, 0.94, 0.98);
+/**
+ * Dimensions calibrated against Sofex Furniture March payslip (A4):
+ * page 595×842, content ~69% of page height, ~86pt top inset, ~172pt bottom free.
+ */
+const ink = rgb(0.07, 0.09, 0.15);
+const muted = rgb(0.35, 0.38, 0.42);
+const band = rgb(0.184, 0.329, 0.588); // #2F5496
+const soft = rgb(0.914, 0.941, 0.973); // #E9F0F8
+const lineCol = rgb(0.45, 0.55, 0.7); // Sofex uses cooler blue-grey borders
 
 function gbp(pence: number) {
   return ((pence || 0) / 100).toFixed(2);
@@ -34,7 +39,7 @@ function drawText(
   size: number,
   color = ink,
 ) {
-  page.drawText(safe(text).slice(0, 120), { x, y, size, font, color });
+  page.drawText(safe(text).slice(0, 140), { x, y, size, font, color });
 }
 
 function drawRight(
@@ -51,7 +56,6 @@ function drawRight(
   page.drawText(t, { x: rightX - w, y, size, font, color });
 }
 
-/** Sofex-style UK payslip (navy bars, payments/deductions, YTD, net pay). */
 export async function renderPayslipPdfBuffer(opts: {
   employerName: string;
   payeRef: string;
@@ -62,168 +66,217 @@ export async function renderPayslipPdfBuffer(opts: {
   line: PayLine;
 }): Promise<Buffer> {
   const doc = await PDFDocument.create();
-  const page = doc.addPage([595.28, 842]);
+  const page = doc.addPage([595.28, 841.89]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  /** Helvetica for money — proportional sans; columns stay aligned via drawRight. */
-  const digits = font;
-  const digitsBold = bold;
   const { width: W, height: H } = page.getSize();
   const line = opts.line;
-  const margin = 36;
-  let y = H - 40;
 
+  // Sofex: ~86pt from top, ~40pt side margins
+  const margin = 40;
+  let y = H - 86;
+
+  const displayName = `${line.forename} ${line.surname}`.trim();
   const addrLines = (line.address || "")
     .split(/\n|,/)
     .map((s) => s.trim())
     .filter(Boolean)
     .slice(0, 4);
-  drawText(page, bold, `${line.forename} ${line.surname}`, margin, y, 12);
-  y -= 14;
-  for (const a of addrLines) {
-    drawText(page, font, a, margin, y, 10, muted);
-    y -= 12;
-  }
-  if (addrLines.length === 0) {
+
+  // Address only (Sofex) — name is in the ID row
+  if (addrLines.length) {
+    for (const a of addrLines) {
+      drawText(page, font, a, margin, y, 10);
+      y -= 13;
+    }
+  } else {
     drawText(page, font, "—", margin, y, 10, muted);
-    y -= 12;
+    y -= 13;
   }
-  y -= 8;
+  y -= 14;
 
-  // Identity bar
-  const barH = 36;
-  page.drawRectangle({
-    x: margin,
-    y: y - barH,
-    width: W - margin * 2,
-    height: barH,
-    color: band,
-  });
+  // Identity header — Sofex column widths roughly EmpNo narrow, Name wide, Date, NI
+  const idH = 18;
   const cols = [
-    { lab: "Employee No", val: line.payrollId || "—" },
-    { lab: "Employee Name", val: `${line.forename} ${line.surname}` },
-    { lab: "Process Date", val: ukDate(opts.payDate) },
-    { lab: "National Insurance Number", val: line.nino },
+    { lab: "Employee No", val: line.payrollId || "", w: 95 },
+    { lab: "Employee Name", val: displayName, w: 185 },
+    { lab: "Process Date", val: ukDate(opts.payDate), w: 100 },
+    {
+      lab: "National Insurance Number",
+      val: line.nino || "",
+      w: W - margin * 2 - 95 - 185 - 100,
+    },
   ];
-  const colW = (W - margin * 2) / 4;
-  cols.forEach((c, i) => {
-    const x = margin + i * colW + 8;
-    drawText(page, font, c.lab, x, y - 12, 7, rgb(1, 1, 1));
-    drawText(page, bold, c.val, x, y - 26, 9, rgb(1, 1, 1));
-  });
-  y -= barH + 14;
+  let x = margin;
+  for (const c of cols) {
+    page.drawRectangle({
+      x,
+      y: y - idH,
+      width: c.w,
+      height: idH,
+      color: band,
+      borderColor: band,
+      borderWidth: 0.5,
+    });
+    drawText(page, bold, c.lab, x + 4, y - 12, 7.5, rgb(1, 1, 1));
+    x += c.w;
+  }
+  y -= idH;
+  x = margin;
+  for (const c of cols) {
+    page.drawRectangle({
+      x,
+      y: y - idH,
+      width: c.w,
+      height: idH,
+      borderColor: lineCol,
+      borderWidth: 0.6,
+    });
+    drawText(page, font, c.val, x + 4, y - 12, 9.5);
+    x += c.w;
+  }
+  y -= idH + 10;
 
-  // Payments / Deductions headers
-  const mid = margin + (W - margin * 2) * 0.58;
+  // Payments | Deductions — Sofex uses a TALL soft panel (~200pt body)
+  const mid = margin + Math.round((W - margin * 2) * 0.58);
   const right = W - margin;
+  const headH = 16;
+  const unitsX = mid - 118;
+  const rateX = mid - 68;
+  const amtX = mid - 8;
+
   page.drawRectangle({
     x: margin,
-    y: y - 18,
-    width: mid - margin - 6,
-    height: 18,
+    y: y - headH,
+    width: mid - margin,
+    height: headH,
     color: band,
   });
   page.drawRectangle({
     x: mid,
-    y: y - 18,
+    y: y - headH,
     width: right - mid,
-    height: 18,
+    height: headH,
     color: band,
   });
-  drawText(page, bold, "Payments", margin + 6, y - 13, 9, rgb(1, 1, 1));
-  drawText(page, bold, "Units", mid - 90, y - 13, 8, rgb(1, 1, 1));
-  drawText(page, bold, "Rate", mid - 50, y - 13, 8, rgb(1, 1, 1));
-  drawRight(page, bold, "Amount", mid - 10, y - 13, 8, rgb(1, 1, 1));
-  drawText(page, bold, "Deductions", mid + 6, y - 13, 9, rgb(1, 1, 1));
-  drawRight(page, bold, "Amount", right - 6, y - 13, 8, rgb(1, 1, 1));
-  y -= 18;
+  drawText(page, bold, "Payments", margin + 5, y - 11, 8.5, rgb(1, 1, 1));
+  drawRight(page, bold, "Units", unitsX, y - 11, 8.5, rgb(1, 1, 1));
+  drawRight(page, bold, "Rate", rateX, y - 11, 8.5, rgb(1, 1, 1));
+  drawRight(page, bold, "Amount", amtX, y - 11, 8.5, rgb(1, 1, 1));
+  drawText(page, bold, "Deductions", mid + 5, y - 11, 8.5, rgb(1, 1, 1));
+  drawRight(page, bold, "Amount", right - 5, y - 11, 8.5, rgb(1, 1, 1));
+  y -= headH;
 
-  const payRowsH = 72;
+  // Tall soft body matching Sofex empty blue well under few rows
+  const bodyH = 240;
   page.drawRectangle({
     x: margin,
-    y: y - payRowsH,
-    width: mid - margin - 6,
-    height: payRowsH,
-    color: bandSoft,
+    y: y - bodyH,
+    width: mid - margin,
+    height: bodyH,
+    color: soft,
+    borderColor: lineCol,
+    borderWidth: 0.6,
   });
   page.drawRectangle({
     x: mid,
-    y: y - payRowsH,
+    y: y - bodyH,
     width: right - mid,
-    height: payRowsH,
-    color: bandSoft,
+    height: bodyH,
+    color: soft,
+    borderColor: lineCol,
+    borderWidth: 0.6,
+  });
+  // Divider between pay / deduct
+  page.drawLine({
+    start: { x: mid, y: y },
+    end: { x: mid, y: y - bodyH },
+    thickness: 0.6,
+    color: lineCol,
   });
 
-  const hours =
-    line.hoursPerWeekHundredths > 0
-      ? (line.hoursPerWeekHundredths / 100).toFixed(2)
-      : "";
+  const hoursNum =
+    line.hoursPerWeekHundredths > 0 ? line.hoursPerWeekHundredths / 100 : 0;
   const basic = line.ordinaryPence || line.grossPence;
-  let py = y - 14;
-  drawText(page, font, "Basic Pay", margin + 6, py, 9);
-  if (hours) drawRight(page, digits, hours, mid - 70, py, 9);
-  drawRight(page, digits, gbp(basic), mid - 10, py, 9);
-  py -= 14;
+  const rateFromLine = Number(
+    (line as { hourlyRatePence?: number }).hourlyRatePence ?? 0,
+  );
+  const ratePence =
+    rateFromLine > 0
+      ? rateFromLine
+      : hoursNum > 0
+        ? Math.round(basic / hoursNum)
+        : 0;
+
+  let py = y - 16;
+  drawText(page, font, "Basic Pay", margin + 6, py, 10);
+  if (hoursNum > 0) drawRight(page, font, hoursNum.toFixed(2), unitsX, py, 10);
+  if (ratePence > 0) drawRight(page, font, gbp(ratePence), rateX, py, 10);
+  drawRight(page, font, gbp(basic), amtX, py, 10);
+  py -= 15;
   if ((line.overtimePence ?? 0) > 0) {
-    drawText(page, font, "Overtime", margin + 6, py, 9);
-    drawRight(page, digits, gbp(line.overtimePence!), mid - 10, py, 9);
-    py -= 14;
+    drawText(page, font, "Overtime", margin + 6, py, 10);
+    drawRight(page, font, gbp(line.overtimePence!), amtX, py, 10);
+    py -= 15;
+  }
+  if ((line.holidayPence ?? 0) > 0) {
+    drawText(page, font, "Holiday Pay", margin + 6, py, 10);
+    drawRight(page, font, gbp(line.holidayPence!), amtX, py, 10);
+    py -= 15;
   }
   if ((line.sspPence ?? 0) > 0) {
-    drawText(page, font, "SSP", margin + 6, py, 9);
-    drawRight(page, digits, gbp(line.sspPence!), mid - 10, py, 9);
-    py -= 14;
+    drawText(page, font, "SSP", margin + 6, py, 10);
+    drawRight(page, font, gbp(line.sspPence!), amtX, py, 10);
+    py -= 15;
   }
   if ((line.smpPence ?? 0) > 0) {
-    drawText(page, font, "SMP", margin + 6, py, 9);
-    drawRight(page, digits, gbp(line.smpPence!), mid - 10, py, 9);
+    drawText(page, font, "SMP", margin + 6, py, 10);
+    drawRight(page, font, gbp(line.smpPence!), amtX, py, 10);
   }
 
-  let dy = y - 14;
-  drawText(page, font, "PAYE Tax", mid + 6, dy, 9);
-  drawRight(page, digits, gbp(line.taxPence), right - 6, dy, 9);
-  dy -= 14;
-  drawText(page, font, "National Insurance", mid + 6, dy, 9);
-  drawRight(page, digits, gbp(line.employeeNiPence), right - 6, dy, 9);
-  dy -= 14;
+  let dy = y - 16;
+  const deductions: Array<[string, number]> = [
+    ["PAYE Tax", line.taxPence],
+    ["National Insurance", line.employeeNiPence],
+  ];
   if ((line.studentLoanPence ?? 0) > 0) {
-    drawText(page, font, "Student loan", mid + 6, dy, 9);
-    drawRight(page, digits, gbp(line.studentLoanPence!), right - 6, dy, 9);
-    dy -= 14;
+    deductions.push(["Student loan", line.studentLoanPence!]);
   }
   if ((line.postgraduateLoanPence ?? 0) > 0) {
-    drawText(page, font, "Postgraduate loan", mid + 6, dy, 9);
-    drawRight(page, digits, gbp(line.postgraduateLoanPence!), right - 6, dy, 9);
-    dy -= 14;
+    deductions.push(["Postgraduate loan", line.postgraduateLoanPence!]);
   }
   if ((line.pensionEmployeePence ?? 0) > 0) {
-    drawText(page, font, "Pension", mid + 6, dy, 9);
-    drawRight(page, digits, gbp(line.pensionEmployeePence!), right - 6, dy, 9);
+    deductions.push(["Pension", line.pensionEmployeePence!]);
   }
-  y -= payRowsH + 12;
+  for (const [lab, val] of deductions) {
+    drawText(page, font, lab, mid + 6, dy, 10);
+    drawRight(page, font, gbp(val), right - 6, dy, 10);
+    dy -= 15;
+  }
+  y -= bodyH + 12;
 
-  // This period / YTD boxes
-  const boxW = (W - margin * 2 - 10) / 2;
-  const boxH = 100;
-  for (const [i, title] of ["This period", "Year to date"].entries()) {
-    const x = margin + i * (boxW + 10);
+  // This Period / Year to Date — Sofex sized boxes
+  const gap = 10;
+  const boxW = (W - margin * 2 - gap) / 2;
+  const boxH = 112;
+  const rowH = 15;
+  for (const [i, title] of ["This Period", "Year to Date"].entries()) {
+    const bx = margin + i * (boxW + gap);
     page.drawRectangle({
-      x,
-      y: y - 18,
+      x: bx,
+      y: y - 16,
       width: boxW,
-      height: 18,
-      color: bandSoft,
-      borderColor: rgb(0.7, 0.75, 0.8),
-      borderWidth: 0.8,
+      height: 16,
+      color: band,
     });
-    drawText(page, bold, title, x + 6, y - 13, 9);
+    drawText(page, bold, title, bx + 5, y - 12, 9.5, rgb(1, 1, 1));
     page.drawRectangle({
-      x,
+      x: bx,
       y: y - boxH,
       width: boxW,
-      height: boxH - 18,
-      borderColor: rgb(0.7, 0.75, 0.8),
-      borderWidth: 0.8,
+      height: boxH - 16,
+      borderColor: lineCol,
+      borderWidth: 0.7,
     });
   }
   const periodRows: [string, number][] = [
@@ -241,80 +294,64 @@ export async function renderPayslipPdfBuffer(opts: {
     ["National Insurance TD", line.ytdEmployeeNiPence],
   ];
   periodRows.forEach(([lab, val], i) => {
-    const yy = y - 34 - i * 12;
-    drawText(page, font, lab, margin + 6, yy, 9);
-    drawRight(page, digits, gbp(val), margin + boxW - 6, yy, 9);
+    const yy = y - 30 - i * rowH;
+    drawText(page, font, lab, margin + 6, yy, 9.5);
+    drawRight(page, font, gbp(val), margin + boxW - 6, yy, 9.5);
   });
   ytdRows.forEach(([lab, val], i) => {
-    const yy = y - 34 - i * 12;
-    drawText(page, font, lab, margin + boxW + 16, yy, 9);
-    drawRight(page, digits, gbp(val), margin + boxW * 2 + 10 - 6, yy, 9);
+    const yy = y - 30 - i * rowH;
+    const bx = margin + boxW + gap;
+    drawText(page, font, lab, bx + 6, yy, 9.5);
+    drawRight(page, font, gbp(val), bx + boxW - 6, yy, 9.5);
   });
   y -= boxH + 12;
 
-  // Meta strip
-  const meta: [string, string][] = [
-    ["Company Name", opts.employerName],
-    ["Tax Code", `${line.taxCode} ${opts.frequency === "W1" ? "W1" : "M1"}`],
-    ["Tax Period", String(ukTaxMonthNumber(opts.payDate))],
-    ["Frequency", opts.frequency === "W1" ? "Weekly" : "Monthly"],
-    ["Payment Method", "BACS"],
-    ["PAYE Reference", opts.payeRef || "—"],
-  ];
+  // Company meta — Sofex full-width bordered box
+  const taxBasis = opts.frequency === "W1" ? "W1" : "M1";
+  const freq = opts.frequency === "W1" ? "Weekly" : "Monthly";
+  const detail = `Tax Code: ${line.taxCode} ${taxBasis}   Tax Period: ${ukTaxMonthNumber(opts.payDate)}   Frequency: ${freq}   Payment Method: BACS   PAYE Reference: ${opts.payeRef || "—"}`;
   page.drawRectangle({
     x: margin,
-    y: y - 48,
+    y: y - 44,
     width: W - margin * 2,
-    height: 48,
-    borderColor: rgb(0.7, 0.75, 0.8),
-    borderWidth: 0.8,
+    height: 44,
+    borderColor: lineCol,
+    borderWidth: 0.7,
   });
-  meta.forEach(([lab, val], i) => {
-    const col = i % 3;
-    const row = Math.floor(i / 3);
-    const x = margin + 6 + col * ((W - margin * 2) / 3);
-    const yy = y - 14 - row * 22;
-    drawText(page, font, lab, x, yy, 7, muted);
-    drawText(page, bold, val, x, yy - 11, 9);
-  });
-  y -= 60;
+  drawText(page, bold, opts.employerName, margin + 8, y - 16, 11);
+  drawText(page, font, detail.slice(0, 125), margin + 8, y - 32, 8.5);
+  y -= 58;
 
-  // Employer pension + Net pay
+  // Employer pension + Net pay — Sofex: larger Net Pay label in band blue
   page.drawRectangle({
     x: margin,
-    y: y - 40,
-    width: 140,
-    height: 40,
-    borderColor: rgb(0.7, 0.75, 0.8),
-    borderWidth: 0.8,
+    y: y - 34,
+    width: 175,
+    height: 34,
+    borderColor: lineCol,
+    borderWidth: 0.7,
   });
-  drawText(page, font, "Employer Pension", margin + 8, y - 14, 7, muted);
+  drawText(page, font, "Employer Pension:", margin + 8, y - 21, 10);
   drawText(
     page,
-    digitsBold,
+    bold,
     gbp(line.pensionEmployerPence ?? 0),
-    margin + 8,
-    y - 30,
-    12,
+    margin + 118,
+    y - 21,
+    11,
   );
 
   page.drawRectangle({
-    x: W - margin - 200,
-    y: y - 40,
-    width: 200,
-    height: 40,
-    color: band,
+    x: W - margin - 230,
+    y: y - 34,
+    width: 230,
+    height: 34,
+    color: soft,
+    borderColor: lineCol,
+    borderWidth: 0.7,
   });
-  drawText(page, font, "Net Pay", W - margin - 190, y - 14, 8, rgb(1, 1, 1));
-  drawRight(
-    page,
-    digitsBold,
-    gbp(line.netPence),
-    W - margin - 10,
-    y - 32,
-    18,
-    rgb(1, 1, 1),
-  );
+  drawText(page, bold, "Net Pay", W - margin - 216, y - 22, 14, band);
+  drawRight(page, bold, gbp(line.netPence), W - margin - 10, y - 22, 14);
 
   return Buffer.from(await doc.save());
 }

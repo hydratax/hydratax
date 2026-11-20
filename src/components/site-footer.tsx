@@ -105,9 +105,8 @@ export function SiteFooter() {
               </span>
             </Link>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-ink-soft">
-              The UK’s most user-friendly practice software — CT600, MTD VAT,
-              Self Assessment, PAYE and Companies House, built for accountants’
-              ease.
+              Built by UK accountants — easier tax for everyone. CT600, MTD VAT,
+              Self Assessment, PAYE and Companies House in one calm desk.
             </p>
             <p className="mt-3 max-w-xs text-xs leading-relaxed text-ink-soft/80">
               {LEGAL_COMPANY.tradingName} is a trading name of{" "}

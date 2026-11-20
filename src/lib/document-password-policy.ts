@@ -19,7 +19,9 @@ export type DocumentPasswordIdentifier =
   | "personal_utr"
   | "company_utr"
   | "nino"
-  | "company_number";
+  | "company_number"
+  | "paye_ref"
+  | "accounts_office_ref";
 
 export type DocumentPasswordPolicy = Record<
   DocumentPasswordSection,
@@ -103,6 +105,16 @@ export const DOCUMENT_PASSWORD_IDENTIFIERS: Array<{
     label: "Company number",
     hint: "Companies House company number as stored on the client.",
   },
+  {
+    id: "paye_ref",
+    label: "PAYE reference",
+    hint: "Employer PAYE reference as stored (e.g. 123/AB456).",
+  },
+  {
+    id: "accounts_office_ref",
+    label: "Accounts Office reference",
+    hint: "HMRC Accounts Office reference as stored on the employer.",
+  },
 ];
 
 export function defaultDocumentPasswordPolicy(): DocumentPasswordPolicy {
@@ -175,6 +187,8 @@ export type PasswordResolveContext = {
   companyNumber?: string | null;
   /** Prefer explicit DOB (SA draft / director). */
   dateOfBirth?: string | null;
+  payeRef?: string | null;
+  accountsOfficeRef?: string | null;
 };
 
 export type ResolvedDocumentPassword =
@@ -241,6 +255,30 @@ export function resolveDocumentPassword(
   if (identifier === "company_number") {
     const password = (ctx.companyNumber ?? "").trim().toUpperCase();
     if (password.length < 6) return { locked: false };
+    return {
+      locked: true,
+      password,
+      identifier,
+      hint: identifierHint(identifier),
+    };
+  }
+
+  if (identifier === "paye_ref") {
+    const password = (ctx.payeRef ?? "").replace(/\s+/g, "").toUpperCase();
+    if (password.length < 5) return { locked: false };
+    return {
+      locked: true,
+      password,
+      identifier,
+      hint: identifierHint(identifier),
+    };
+  }
+
+  if (identifier === "accounts_office_ref") {
+    const password = (ctx.accountsOfficeRef ?? "")
+      .replace(/\s+/g, "")
+      .toUpperCase();
+    if (password.length < 8) return { locked: false };
     return {
       locked: true,
       password,

@@ -28,6 +28,10 @@ export type PayrollJobsTickSummary = {
   rtiCompleted: number;
   rtiFailed: number;
   rtiQueueLive: boolean;
+  automationDue: number;
+  automationPayroll: number;
+  automationRti: number;
+  automationEmail: number;
   errors: string[];
 };
 
@@ -155,6 +159,10 @@ export async function runPayrollJobsTick(opts?: {
     rtiCompleted: 0,
     rtiFailed: 0,
     rtiQueueLive: RTI_QUEUE_LIVE_ENABLED,
+    automationDue: 0,
+    automationPayroll: 0,
+    automationRti: 0,
+    automationEmail: 0,
     errors: [],
   };
 
@@ -196,6 +204,22 @@ export async function runPayrollJobsTick(opts?: {
         err instanceof Error ? err.message : "rti submit tick failed",
       );
     }
+  }
+
+  try {
+    const { runPayrollAutomationTick } = await import(
+      "@/server/payroll/automation/tick"
+    );
+    const auto = await runPayrollAutomationTick();
+    summary.automationDue = auto.due;
+    summary.automationPayroll = auto.payrollRan;
+    summary.automationRti = auto.rtiFiled;
+    summary.automationEmail = auto.emailed;
+    for (const e of auto.errors) summary.errors.push(e);
+  } catch (err) {
+    summary.errors.push(
+      err instanceof Error ? err.message : "payroll automation tick failed",
+    );
   }
 
   return summary;

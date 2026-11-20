@@ -13,7 +13,7 @@ import {
 import { canAccessModule } from "@/lib/access";
 import { displayPracticeName } from "@/lib/practice-name";
 import { clientSlugFor } from "@/lib/client-slug";
-import { personKeySlug } from "@/lib/sa-taxpayer";
+import { loadSaDeskRows } from "@/server/sa/load-sa-desk-rows";
 
 function buildRailLinks(): {
   module: ServiceModule | "invoices";
@@ -66,50 +66,22 @@ function buildRailLinks(): {
 
 export default async function DashboardPage() {
   const session = await requireSession();
-  const { listPracticeDirectors } = await import(
-    "@/server/actions/sa-directors"
-  );
   const { isPresentationDemoMode } = await import(
     "@/server/demo/presentation-mode"
   );
-  const [clients, hmrc, entitlements, directors, presentationDemo] =
-    await Promise.all([
-      listClients(),
-      getHmrcEnvInfo(),
-      getPracticeEntitlements(),
-      listPracticeDirectors().catch(() => []),
-      isPresentationDemoMode(),
-    ]);
+  const [clients, hmrc, entitlements, presentationDemo] = await Promise.all([
+    listClients(),
+    getHmrcEnvInfo(),
+    getPracticeEntitlements(),
+    isPresentationDemoMode(),
+  ]);
   const peers = clients.map((c) => ({ id: c.id, name: c.name }));
   const unlocked = new Set(entitlements.modules);
   const railLinks = buildRailLinks();
-  const saSoleAndPartners = clients.filter(
-    (c) => c.type === "sole_trader" || c.type === "partnership",
-  );
+  const saDesk = await loadSaDeskRows(clients);
   /** People for SA — never count limited company entities as SA clients. */
-  const saPeopleCount = directors.length + saSoleAndPartners.length;
-  const saPeople = [
-    ...directors.map((d) => ({
-      key: `dir:${d.key}`,
-      fullName: d.fullName,
-      href: `/self-assessment/${personKeySlug(d.key)}`,
-      kind: "director" as const,
-      detail:
-        d.companies.length === 1
-          ? d.companies[0]!.companyName
-          : `${d.companies.length} companies`,
-    })),
-    ...saSoleAndPartners.map((c) => ({
-      key: `client:${c.id}`,
-      fullName: c.name,
-      href: `/clients/${clientSlugFor({ id: c.id, name: c.name }, peers)}/self-assessment`,
-      kind:
-        c.type === "partnership"
-          ? ("partnership" as const)
-          : ("sole_trader" as const),
-      detail: c.type === "partnership" ? "Partnership" : "Sole trader",
-    })),
-  ];
+  const saPeopleCount =
+    saDesk.directors.length + saDesk.soleTraders.length;
   const payeClients = clients.filter(
     (c) => c.isEmployer || Boolean(c.payeRef?.trim()),
   );
@@ -242,7 +214,8 @@ export default async function DashboardPage() {
               ? (c.companiesHouse as import("@/server/companies-house/enrich-client").ClientCompaniesHouseSnapshot | null)
               : null,
         }))}
-        saPeople={saPeople}
+        saDirectors={saDesk.directors}
+        saSoleTraders={saDesk.soleTraders}
         unlockedModules={entitlements.modules}
         stats={stats}
         canAddClients={unlocked.has("clients")}

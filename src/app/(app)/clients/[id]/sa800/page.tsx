@@ -83,7 +83,7 @@ export default async function PartnershipReturnPage({
             href={`/clients/${slug}/sa800?year=${t.taxYear}`}
             className={
               t.taxYear === taxYear
-                ? "rounded-md bg-ink px-3 py-1.5 font-semibold text-white"
+                ? "rounded-md bg-sea px-3 py-1.5 font-semibold text-white"
                 : "rounded-md border border-line px-3 py-1.5 font-semibold text-ink-soft hover:text-ink"
             }
           >

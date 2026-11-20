@@ -279,6 +279,17 @@ export async function deskUpdatePayRun(
   if (error) throw new Error(`Could not update pay run: ${error.message}`);
 }
 
+export async function deskDeletePayRun(runId: string) {
+  if (isD1Configured()) {
+    await d1Execute(`DELETE FROM pay_runs WHERE id = ?`, [runId]);
+    return;
+  }
+  const supabase = await getSupabaseDataClient();
+  if (!supabase) throw new Error("Desk storage is not configured");
+  const { error } = await supabase.from("pay_runs").delete().eq("id", runId);
+  if (error) throw new Error(`Could not delete pay run: ${error.message}`);
+}
+
 // ── Timesheets ─────────────────────────────────────────────────────────────
 
 export async function deskListTimesheets(clientId: string) {

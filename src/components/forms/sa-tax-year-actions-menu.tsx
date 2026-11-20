@@ -3,6 +3,7 @@
 import { useEffect, useId, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { emailClientArtifact } from "@/server/actions/email-artifacts";
+import { sendSaPdfsViaWhatsApp } from "@/server/actions/whatsapp-desk";
 
 export type SaTaxYearActionsContext = {
   clientId: string;
@@ -203,6 +204,36 @@ export function SaTaxYearActionsMenu({
                   title="Open return"
                   blurb="Continue or review the SA100 for this tax year."
                 />
+                {ctx.returnId && !String(ctx.returnId).startsWith("doc-") ? (
+                  <>
+                    <ActionButton
+                      disabled={pending}
+                      onClick={() => {
+                        setOpen(false);
+                        window.open(
+                          `/api/clients/${ctx.clientId}/sa100/${ctx.returnId}/sa100.pdf?view=1`,
+                          "_blank",
+                          "noopener,noreferrer",
+                        );
+                      }}
+                      title="View SA100"
+                      blurb="Open the drafted return in the browser (no password)."
+                    />
+                    <ActionButton
+                      disabled={pending}
+                      onClick={() => {
+                        setOpen(false);
+                        window.open(
+                          `/api/clients/${ctx.clientId}/sa100/${ctx.returnId}/sa302.pdf?view=1`,
+                          "_blank",
+                          "noopener,noreferrer",
+                        );
+                      }}
+                      title="View SA302"
+                      blurb="Open the tax calculation in the browser (no password)."
+                    />
+                  </>
+                ) : null}
                 <ActionButton
                   disabled={pending}
                   onClick={() => {
@@ -221,6 +252,29 @@ export function SaTaxYearActionsMenu({
                   title="Upload SA302"
                   blurb="Attach the tax calculation PDF."
                 />
+                {canEmail ? (
+                  <ActionButton
+                    disabled={pending}
+                    onClick={() => {
+                      const returnId = ctx.returnId;
+                      if (!returnId) return;
+                      start(async () => {
+                        try {
+                          await sendSaPdfsViaWhatsApp({
+                            clientId: ctx.clientId,
+                            returnId,
+                            docs: ["sa100", "sa302"],
+                          });
+                          setOpen(false);
+                        } catch {
+                          /* freeze */
+                        }
+                      });
+                    }}
+                    title="WhatsApp SA100 & SA302"
+                    blurb="Send the PDFs on HydraTax WhatsApp (uses practice volume)."
+                  />
+                ) : null}
                 {canEmail ? (
                   !emailOpen ? (
                     <ActionButton
@@ -333,8 +387,8 @@ export function SaTaxYearActionsMenu({
       >
         {label === "▾" ? (
           <svg
-            width="12"
-            height="12"
+            width="16"
+            height="16"
             viewBox="0 0 12 12"
             aria-hidden
             className="mx-auto"
@@ -343,7 +397,7 @@ export function SaTaxYearActionsMenu({
               d="M2.5 4.5 6 8l3.5-3.5"
               fill="none"
               stroke="currentColor"
-              strokeWidth="1.6"
+              strokeWidth="1.8"
               strokeLinecap="round"
               strokeLinejoin="round"
             />

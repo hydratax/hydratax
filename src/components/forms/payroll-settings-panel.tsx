@@ -2,7 +2,11 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { PayrollDeskSettings, PayrollPayRate } from "@/lib/desk-profile";
+import type {
+  PayrollAutomationSettings,
+  PayrollDeskSettings,
+  PayrollPayRate,
+} from "@/lib/desk-profile";
 import {
   getPayrollDeskSettings,
   listHmrcPayrollBaseRates,
@@ -19,6 +23,15 @@ import {
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { messageFromUnknown } from "@/lib/action-error";
 import { AbbrInfo } from "@/components/desk/abbr-info";
+import {
+  DOCUMENT_PASSWORD_IDENTIFIERS,
+  type DocumentPasswordIdentifier,
+  type DocumentPasswordPolicy,
+} from "@/lib/document-password-policy";
+import {
+  getDocumentPasswordPolicy,
+  saveDocumentPasswordPolicy,
+} from "@/server/actions/document-password-policy";
 
 type SettingsTab =
   | "paye"
@@ -28,7 +41,7 @@ type SettingsTab =
   | "templates"
   | "rates"
   | "security"
-  | "taxyear";
+  | "automation";
 
 const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: "paye", label: "PAYE Details" },
@@ -38,7 +51,45 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: "templates", label: "Payslip Templates" },
   { id: "rates", label: "Pay Rate" },
   { id: "security", label: "Data Security" },
-  { id: "taxyear", label: "Change Tax Year" },
+  { id: "automation", label: "Automation" },
+];
+
+const DAY_OPTIONS = Array.from({ length: 28 }, (_, i) => i + 1);
+
+function defaultAutomation(
+  a?: PayrollAutomationSettings | null,
+): Required<
+  Pick<
+    PayrollAutomationSettings,
+    | "automatePayroll"
+    | "payrollDayOfMonth"
+    | "automateRti"
+    | "rtiDayOfMonth"
+    | "automateEmail"
+    | "emailDayOfMonth"
+  >
+> {
+  return {
+    automatePayroll: Boolean(a?.automatePayroll),
+    payrollDayOfMonth: a?.payrollDayOfMonth ?? 28,
+    automateRti: Boolean(a?.automateRti),
+    rtiDayOfMonth: a?.rtiDayOfMonth ?? 28,
+    automateEmail: Boolean(a?.automateEmail),
+    emailDayOfMonth: a?.emailDayOfMonth ?? 28,
+  };
+}
+
+const PAYROLL_PASSWORD_OPTIONS: Array<{
+  id: DocumentPasswordIdentifier | "master";
+  label: string;
+}> = [
+  { id: "none", label: "No password" },
+  { id: "date_of_birth", label: "Date of birth (DDMMYYYY)" },
+  { id: "paye_ref", label: "PAYE reference" },
+  { id: "accounts_office_ref", label: "Accounts Office reference" },
+  { id: "company_number", label: "Company number" },
+  { id: "company_utr", label: "Company UTR" },
+  { id: "master", label: "Custom master password" },
 ];
 
 const TEMPLATES: Array<{
@@ -114,21 +165,48 @@ export function PayrollSettingsPanel({
   const [rateName, setRateName] = useState("");
   const [rateValue, setRateValue] = useState("0.00");
   const [rateUnit, setRateUnit] = useState<"hour" | "day" | "fixed">("hour");
+  const [practicePolicy, setPracticePolicy] =
+    useState<DocumentPasswordPolicy | null>(null);
+  const [pwMode, setPwMode] = useState<DocumentPasswordIdentifier | "master">(
+    "none",
+  );
 
   useEffect(() => {
     start(async () => {
       try {
-        const [s, rates] = await Promise.all([
+        const [s, rates, policy] = await Promise.all([
           getPayrollDeskSettings(clientId),
           listHmrcPayrollBaseRates(),
+          getDocumentPasswordPolicy(),
         ]);
         setSettings(s);
         setHmrcRates(rates);
+        setPracticePolicy(policy);
+        const payrollId = policy.payroll;
+        if (
+          hasPackPassword &&
+          (payrollId === "none" || !payrollId)
+        ) {
+          setPwMode("master");
+        } else {
+          setPwMode(payrollId);
+        }
       } catch {
         // keep initial
       }
     });
-  }, [clientId]);
+  }, [clientId, hasPackPassword]);
+
+  async function syncPracticePayrollPassword(
+    identifier: DocumentPasswordIdentifier,
+  ) {
+    const base = practicePolicy ?? (await getDocumentPasswordPolicy());
+    const next = await saveDocumentPasswordPolicy({
+      ...base,
+      payroll: identifier,
+    });
+    setPracticePolicy(next);
+  }
 
   function savePatch(patch: Partial<PayrollDeskSettings>) {
     setError(null);
@@ -157,43 +235,34 @@ export function PayrollSettingsPanel({
           bacsOriginatorName:
             patch.bacsOriginatorName ?? settings.bacsOriginatorName,
           bacsFileSerial: patch.bacsFileSerial ?? settings.bacsFileSerial,
+          payFrequency: patch.payFrequency ?? settings.payFrequency,
+          automation: patch.automation ?? settings.automation,
         });
         setSettings(next);
         setOk("Payroll settings saved.");
         router.refresh();
-      } catch (err) {
-        setError(messageFromUnknown(err, "Could not save settings"));
+      } catch {
+        /* freeze */
       }
+    });
+  }
+
+  const automation = defaultAutomation(settings.automation);
+
+  function saveAutomation(
+    patch: Partial<ReturnType<typeof defaultAutomation>>,
+  ) {
+    savePatch({
+      automation: {
+        ...automation,
+        ...patch,
+        lastRunYmd: settings.automation?.lastRunYmd,
+      },
     });
   }
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-sea/25 bg-sea/5 px-4 py-3 text-sm text-ink">
-        <p className="inline-flex items-center gap-1 font-semibold text-sea">
-          HMRC
-          <span className="inline-flex items-center gap-0.5">
-            RTI
-            <AbbrInfo code="RTI" />
-          </span>
-          link
-        </p>
-        <p className="mt-1 text-ink-soft">
-          <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
-            FPS
-            <AbbrInfo code="FPS" />
-          </span>{" "}
-          and{" "}
-          <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
-            EPS
-            <AbbrInfo code="EPS" />
-          </span>{" "}
-          file to HMRC through Real Time Information ({hmrcEnvLabel()}). Use
-          Government Gateway credentials on the HMRC Credentials tab — required
-          for live filing.
-        </p>
-      </div>
-
       <div className="flex flex-wrap gap-1 border-b border-line pb-2">
         {TABS.map((t) => (
           <button
@@ -278,6 +347,58 @@ export function PayrollSettingsPanel({
             Save PAYE details
           </button>
         </form>
+      ) : null}
+
+      {tab === "paye" ? (
+        <div className="panel space-y-3 p-5">
+          <h3 className="display text-xl text-ink">Pay cycle</h3>
+          {settings.payFrequencyLocked || settings.payFrequency ? (
+            <>
+              <p className="text-sm text-ink">
+                {settings.payFrequency === "W1"
+                  ? "Weekly + timesheet"
+                  : "Monthly salary"}
+              </p>
+              <p className="text-xs text-ink-soft">
+                Set when payroll was first enabled. It cannot be changed.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-ink-soft">
+                Choose once — monthly or weekly. After you save, it stays fixed.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-ink hover:border-sea"
+                  disabled={pending}
+                  onClick={() =>
+                    savePatch({
+                      payFrequency: "M1",
+                      payFrequencyLocked: true,
+                    })
+                  }
+                >
+                  Monthly salary
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-ink hover:border-sea"
+                  disabled={pending}
+                  onClick={() =>
+                    savePatch({
+                      payFrequency: "W1",
+                      payFrequencyLocked: true,
+                    })
+                  }
+                >
+                  Weekly + timesheet
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       ) : null}
 
       {tab === "contact" ? (
@@ -687,110 +808,220 @@ export function PayrollSettingsPanel({
               type="checkbox"
               className="mt-1"
               checked={settings.documentPasswordEnabled !== false}
-              onChange={(e) =>
-                savePatch({ documentPasswordEnabled: e.target.checked })
-              }
+              onChange={(e) => {
+                const on = e.target.checked;
+                savePatch({ documentPasswordEnabled: on });
+                if (!on) {
+                  start(async () => {
+                    try {
+                      await syncPracticePayrollPassword("none");
+                      setPwMode("none");
+                    } catch {
+                      /* freeze */
+                    }
+                  });
+                }
+              }}
             />
             <span>
               <span className="font-semibold text-ink">
                 Enable document password protection
               </span>
               <span className="mt-1 block text-ink-soft">
-                As per GDPR, HydraTax can password-protect sensitive payroll
-                documents (payslips, P45s and P60s). Once set, the pack only
-                opens with the password (case-sensitive).
+                Protects payslips, P45s and P60s. Choosing DOB, PAYE reference or
+                Accounts Office reference also updates Account → Password
+                protection for Payroll.
               </span>
             </span>
           </label>
-          <form
-            className="space-y-3 rounded-xl border border-line bg-sand/30 p-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const fd = new FormData(e.currentTarget);
-              setError(null);
-              start(async () => {
-                try {
-                  await savePayrollPackPassword({
-                    clientId,
-                    password: String(fd.get("password") || ""),
-                  });
-                  setOk(
-                    "Master pack password saved. Share it with the client on a separate channel.",
-                  );
-                  router.refresh();
-                } catch (err) {
-                  setError(
-                    messageFromUnknown(err, "Could not save pack password"),
-                  );
-                }
-              });
-            }}
-          >
-            <label className="block text-sm font-semibold text-ink">
-              Master password
-              <input
-                name="password"
-                type="password"
-                minLength={8}
-                className="input mt-1.5 max-w-sm"
-                placeholder="At least 8 characters"
-                required
-              />
-            </label>
-            <p className="text-xs text-ink-soft">
-              Practice staff use this password to open protected packs across
-              clients.{" "}
-              {hasPackPassword
-                ? "A password is already stored for this employer."
-                : "No password stored yet."}
-            </p>
-            <button type="submit" className="btn btn-primary" disabled={pending}>
-              Save
-            </button>
-          </form>
+
+          {settings.documentPasswordEnabled !== false ? (
+            <div className="space-y-3 rounded-xl border border-line bg-sand/30 p-4">
+              <label className="block text-sm font-semibold text-ink">
+                Password source
+                <select
+                  className="input mt-1.5 max-w-md"
+                  value={pwMode}
+                  onChange={(e) => {
+                    const v = e.target.value as
+                      | DocumentPasswordIdentifier
+                      | "master";
+                    setPwMode(v);
+                    if (v === "master") return;
+                    start(async () => {
+                      try {
+                        await syncPracticePayrollPassword(v);
+                        setOk(
+                          "Payroll password protection updated for this practice.",
+                        );
+                        router.refresh();
+                      } catch (err) {
+                        setError(
+                          messageFromUnknown(
+                            err,
+                            "Could not update password settings",
+                          ),
+                        );
+                      }
+                    });
+                  }}
+                >
+                  {PAYROLL_PASSWORD_OPTIONS.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="text-xs text-ink-soft">
+                {pwMode === "master"
+                  ? hasPackPassword
+                    ? "A custom master password is stored for this employer."
+                    : "Enter a custom master password for this employer’s packs."
+                  : DOCUMENT_PASSWORD_IDENTIFIERS.find((i) => i.id === pwMode)
+                      ?.hint}
+                {payeRef ? ` · PAYE ${payeRef}` : null}
+                {accountsOfficeRef ? ` · AO ${accountsOfficeRef}` : null}
+              </p>
+
+              {pwMode === "master" ? (
+                <form
+                  className="space-y-3"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const fd = new FormData(e.currentTarget);
+                    setError(null);
+                    start(async () => {
+                      try {
+                        await savePayrollPackPassword({
+                          clientId,
+                          password: String(fd.get("password") || ""),
+                        });
+                        await syncPracticePayrollPassword("none");
+                        setOk("Master pack password saved.");
+                        router.refresh();
+                      } catch (err) {
+                        setError(
+                          messageFromUnknown(
+                            err,
+                            "Could not save pack password",
+                          ),
+                        );
+                      }
+                    });
+                  }}
+                >
+                  <label className="block text-sm font-semibold text-ink">
+                    Master password
+                    <input
+                      name="password"
+                      type="password"
+                      minLength={8}
+                      className="input mt-1.5 max-w-sm"
+                      placeholder="At least 8 characters"
+                      required
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={pending}
+                  >
+                    Save
+                  </button>
+                </form>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
-      {tab === "taxyear" ? (
-        <form
-          className="panel space-y-4 p-5"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const fd = new FormData(e.currentTarget);
-            savePatch({ activeTaxYear: String(fd.get("taxYear") || "") });
-          }}
-        >
-          <h3 className="display text-xl text-ink">Change Tax Year</h3>
+      {tab === "automation" ? (
+        <div className="panel space-y-4 p-5">
+          <h3 className="display text-xl text-ink">Automation</h3>
           <p className="text-sm text-ink-soft">
-            Filters History &amp; packs and labels{" "}
-            <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
-              RTI
-              <AbbrInfo code="RTI" />
-            </span>{" "}
-            filings. UK tax years run 6 April → 5 April.
+            Choose the day of each month. On that day HydraTax can run payroll,
+            file FPS, and email the payslip pack plus payroll summary.
           </p>
-          <label className="text-sm font-semibold">
-            Active tax year
-            <select
-              name="taxYear"
-              className="input mt-1.5 max-w-xs"
-              defaultValue={settings.activeTaxYear ?? "2025-26"}
-            >
-              <option value="2026-27">2026–27</option>
-              <option value="2025-26">2025–26</option>
-              <option value="2024-25">2024–25</option>
-              <option value="2023-24">2023–24</option>
-            </select>
-          </label>
-          <button type="submit" className="btn btn-primary" disabled={pending}>
-            Apply tax year
-          </button>
-        </form>
+          <ul className="space-y-3">
+            {(
+              [
+                {
+                  key: "payroll" as const,
+                  label: "Automate payroll",
+                  on: automation.automatePayroll,
+                  day: automation.payrollDayOfMonth,
+                  setOn: (v: boolean) =>
+                    saveAutomation({ automatePayroll: v }),
+                  setDay: (d: number) =>
+                    saveAutomation({ payrollDayOfMonth: d }),
+                },
+                {
+                  key: "rti" as const,
+                  label: "Automate FPS / RTI submissions",
+                  on: automation.automateRti,
+                  day: automation.rtiDayOfMonth,
+                  setOn: (v: boolean) => saveAutomation({ automateRti: v }),
+                  setDay: (d: number) => saveAutomation({ rtiDayOfMonth: d }),
+                },
+                {
+                  key: "email" as const,
+                  label: "Automate client email",
+                  on: automation.automateEmail,
+                  day: automation.emailDayOfMonth,
+                  setOn: (v: boolean) => saveAutomation({ automateEmail: v }),
+                  setDay: (d: number) =>
+                    saveAutomation({ emailDayOfMonth: d }),
+                },
+              ] as const
+            ).map((row) => (
+              <li
+                key={row.key}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3"
+              >
+                <label className="flex min-w-0 flex-1 items-center gap-3 text-sm font-semibold text-ink">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={row.on}
+                    disabled={pending}
+                    onClick={() => row.setOn(!row.on)}
+                    className={`relative h-6 w-11 shrink-0 rounded-full transition ${
+                      row.on ? "bg-sea" : "bg-slate-200"
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${
+                        row.on ? "left-5" : "left-0.5"
+                      }`}
+                    />
+                  </button>
+                  <span>{row.label}</span>
+                </label>
+                <label className="flex items-center gap-2 text-xs font-semibold text-ink-soft">
+                  Day of month
+                  <select
+                    className="input w-20 py-1.5 text-sm"
+                    value={row.day}
+                    disabled={pending || !row.on}
+                    onChange={(e) => row.setDay(Number(e.target.value))}
+                  >
+                    {DAY_OPTIONS.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-ink-soft">
+            FPS needs Gateway login under HMRC Credentials. Email uses Contact
+            Details. Days are 1–28 so every month has that date.
+          </p>
+        </div>
       ) : null}
     </div>
   );
-}
-
-function hmrcEnvLabel(): string {
-  return process.env.NEXT_PUBLIC_HMRC_ENV === "production" ? "live" : "test";
 }

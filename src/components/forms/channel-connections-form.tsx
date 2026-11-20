@@ -3,21 +3,24 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  connectPracticeChannel,
   disconnectPracticeChannel,
   type ChannelConnectionRecord,
 } from "@/server/actions/correspondence";
 import type { MailboxOAuthProvider } from "@/lib/email/mailbox-oauth";
+import type { WhatsAppAllocation } from "@/server/actions/whatsapp-desk";
 
 export function ChannelConnectionsForm({
   connections,
+  whatsappAllocation = null,
+  whatsappPlatformReady = false,
 }: {
   connections: ChannelConnectionRecord[];
+  whatsappAllocation?: WhatsAppAllocation | null;
+  whatsappPlatformReady?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
 
-  const whatsapp = connections.find((c) => c.channel === "whatsapp");
   const gmail = connections.find(
     (c) => c.channel === "gmail" && c.status === "connected",
   );
@@ -106,48 +109,49 @@ export function ChannelConnectionsForm({
         </div>
       </div>
 
-      <ChannelCard
-        title="WhatsApp Business"
-        description={
-          whatsapp?.status === "connected"
-            ? "Connected"
-            : "Optional — link WhatsApp for client chats."
-        }
-        connected={whatsapp?.status === "connected"}
-        displayName={whatsapp?.displayName}
-        externalId={whatsapp?.externalAccountId}
-        pending={pending}
-        onConnect={(displayName, externalAccountId, apiToken) => {
-          start(async () => {
-            try {
-              await connectPracticeChannel({
-                channel: "whatsapp",
-                displayName,
-                externalAccountId,
-                apiToken,
-              });
-              refreshQuietly();
-            } catch {
-              /* freeze */
-            }
-          });
-        }}
-        onDisconnect={() => {
-          start(async () => {
-            try {
-              await disconnectPracticeChannel("whatsapp");
-              refreshQuietly();
-            } catch {
-              /* freeze */
-            }
-          });
-        }}
-        fields={{
-          displayNameLabel: "Display name",
-          externalLabel: "Phone number ID",
-          tokenLabel: "Access token",
-        }}
-      />
+      <div className="panel space-y-3 p-5">
+        <div>
+          <h2 className="display text-2xl text-ink">WhatsApp (HydraTax)</h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            Send reminders and documents from the desk on HydraTax’s shared
+            business number. You do not need to link your own WhatsApp.
+          </p>
+        </div>
+        {!whatsappPlatformReady ? (
+          <p className="text-sm text-ink-soft">Not available yet.</p>
+        ) : !whatsappAllocation?.enabled ? (
+          <p className="text-sm text-ink-soft">
+            WhatsApp volume has not been assigned to this practice yet.
+          </p>
+        ) : (
+          <div className="grid gap-2 text-sm sm:grid-cols-2">
+            <p>
+              <span className="font-semibold text-ink">Messages this month</span>
+              <span className="mt-0.5 block paye-digits text-ink-soft">
+                {whatsappAllocation.usedMessages} /{" "}
+                {whatsappAllocation.monthlyMessageLimit} ·{" "}
+                {whatsappAllocation.remainingMessages} left
+              </span>
+            </p>
+            <p>
+              <span className="font-semibold text-ink">Documents this month</span>
+              <span className="mt-0.5 block paye-digits text-ink-soft">
+                {whatsappAllocation.usedDocuments} /{" "}
+                {whatsappAllocation.monthlyDocumentLimit} ·{" "}
+                {whatsappAllocation.remainingDocuments} left
+              </span>
+            </p>
+            {whatsappAllocation.apiKeyPrefix ? (
+              <p className="sm:col-span-2">
+                <span className="font-semibold text-ink">Credential</span>
+                <span className="mt-0.5 block font-mono text-xs text-ink-soft">
+                  {whatsappAllocation.apiKeyPrefix}…
+                </span>
+              </p>
+            ) : null}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -171,114 +175,3 @@ function MailboxConnectButton({
   );
 }
 
-function ChannelCard({
-  title,
-  description,
-  connected,
-  displayName,
-  externalId,
-  pending,
-  onConnect,
-  onDisconnect,
-  fields,
-}: {
-  title: string;
-  description: string;
-  connected: boolean;
-  displayName?: string | null;
-  externalId?: string | null;
-  pending: boolean;
-  onConnect: (
-    displayName: string,
-    externalAccountId: string,
-    apiToken?: string,
-  ) => void;
-  onDisconnect: () => void;
-  fields: {
-    displayNameLabel: string;
-    externalLabel: string;
-    tokenLabel: string;
-  };
-}) {
-  const [name, setName] = useState(displayName ?? "");
-  const [ext, setExt] = useState(externalId ?? "");
-  const [token, setToken] = useState("");
-
-  return (
-    <div className="panel p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="display text-2xl text-ink">{title}</h2>
-          <p className="mt-1 text-sm text-ink-soft">{description}</p>
-        </div>
-        <span
-          className={`rounded-md px-2.5 py-1 text-xs font-semibold ${
-            connected
-              ? "border border-sea/30 bg-sea/10 text-sea"
-              : "border border-line bg-sand text-ink-soft"
-          }`}
-        >
-          {connected ? "Connected" : "Not connected"}
-        </span>
-      </div>
-
-      {connected ? (
-        <div className="mt-4 space-y-2 text-sm">
-          <p>
-            <span className="font-semibold">Name:</span> {displayName}
-          </p>
-          <p>
-            <span className="font-semibold">Account:</span> {externalId}
-          </p>
-          <button
-            type="button"
-            className="btn btn-secondary mt-2"
-            disabled={pending}
-            onClick={onDisconnect}
-          >
-            Disconnect
-          </button>
-        </div>
-      ) : (
-        <form
-          className="mt-4 space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            onConnect(name.trim(), ext.trim(), token.trim() || undefined);
-          }}
-        >
-          <label className="block text-sm font-semibold">
-            {fields.displayNameLabel}
-            <input
-              className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 font-normal"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-          </label>
-          <label className="block text-sm font-semibold">
-            {fields.externalLabel}
-            <input
-              className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 font-normal"
-              value={ext}
-              onChange={(e) => setExt(e.target.value)}
-              required
-            />
-          </label>
-          <label className="block text-sm font-semibold">
-            {fields.tokenLabel}
-            <input
-              type="password"
-              className="mt-1.5 w-full rounded-lg border border-line px-3 py-2 font-normal"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-            />
-          </label>
-          <button type="submit" className="btn btn-primary" disabled={pending}>
-            {pending ? "Saving…" : "Connect"}
-          </button>
-        </form>
-      )}
-    </div>
-  );
-}

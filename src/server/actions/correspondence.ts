@@ -250,17 +250,13 @@ export async function sendTemplatedCorrespondence(input: {
       documentCount: 0,
     });
   } else {
-    const phone =
-      (client as SoftClient).contactPhone ?? client.contactEmail ?? "unknown";
-    await recordChannelMessage({
+    const { sendClientWhatsAppText } = await import(
+      "@/server/actions/whatsapp-desk"
+    );
+    const body = `${preview.subject}\n\n${preview.body}`;
+    await sendClientWhatsAppText({
       clientId: input.clientId,
-      channel: "whatsapp",
-      direction: "outbound",
-      fromAddress: session.email ?? "practice",
-      toAddress: phone,
-      subject: preview.subject,
-      bodyText: preview.body,
-      matchedBy: "manual_send",
+      message: body.slice(0, 4000),
     });
   }
 

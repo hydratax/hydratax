@@ -14,6 +14,8 @@ import { useRouter } from "next/navigation";
 import {
   emptySa100Draft,
   employmentRowSchema,
+  seDisallowableBreakdownTotal,
+  seExpensesBreakdownTotal,
   type Sa100Draft,
 } from "@/lib/sa100/schema";
 import { calculateSa302 } from "@/lib/sa100/calculate";
@@ -116,9 +118,11 @@ function TextInput({
 function Money({
   value,
   onChange,
+  readOnly,
 }: {
   value: number;
-  onChange: (n: number) => void;
+  onChange?: (n: number) => void;
+  readOnly?: boolean;
 }) {
   return (
     <input
@@ -126,8 +130,10 @@ function Money({
       type="text"
       inputMode="decimal"
       placeholder="0"
+      readOnly={readOnly}
       value={value === 0 ? "" : String(value)}
       onChange={(e) => {
+        if (readOnly || !onChange) return;
         const raw = e.target.value.trim().replace(/,/g, "");
         if (raw === "") {
           onChange(0);
@@ -137,6 +143,173 @@ function Money({
         onChange(Number(raw) || 0);
       }}
     />
+  );
+}
+
+type SeExpenseKey =
+  | "seCostOfGoods"
+  | "seCisSubcontractors"
+  | "seWages"
+  | "seCarVanTravel"
+  | "seRentPowerInsurance"
+  | "seRepairs"
+  | "sePhoneOffice"
+  | "seAdvertising"
+  | "seInterest"
+  | "seBankCharges"
+  | "seBadDebts"
+  | "seProfessionalFees"
+  | "seDepreciation"
+  | "seOtherExpensesDetail";
+
+const SE_EXPENSE_LINES: Array<{
+  box: string;
+  label: string;
+  key: SeExpenseKey;
+  disKey: `${SeExpenseKey}Disallowable`;
+}> = [
+  {
+    box: "17",
+    label: "Cost of goods bought for resale or goods used",
+    key: "seCostOfGoods",
+    disKey: "seCostOfGoodsDisallowable",
+  },
+  {
+    box: "18",
+    label: "Construction industry – payments to subcontractors",
+    key: "seCisSubcontractors",
+    disKey: "seCisSubcontractorsDisallowable",
+  },
+  {
+    box: "19",
+    label: "Wages, salaries and other staff costs",
+    key: "seWages",
+    disKey: "seWagesDisallowable",
+  },
+  {
+    box: "20",
+    label: "Car, van and travel expenses",
+    key: "seCarVanTravel",
+    disKey: "seCarVanTravelDisallowable",
+  },
+  {
+    box: "21",
+    label: "Rent, rates, power and insurance costs",
+    key: "seRentPowerInsurance",
+    disKey: "seRentPowerInsuranceDisallowable",
+  },
+  {
+    box: "22",
+    label: "Repairs and maintenance of property and equipment",
+    key: "seRepairs",
+    disKey: "seRepairsDisallowable",
+  },
+  {
+    box: "23",
+    label: "Phone, fax, stationery and other office costs",
+    key: "sePhoneOffice",
+    disKey: "sePhoneOfficeDisallowable",
+  },
+  {
+    box: "24",
+    label: "Advertising and business entertainment costs",
+    key: "seAdvertising",
+    disKey: "seAdvertisingDisallowable",
+  },
+  {
+    box: "25",
+    label: "Interest on bank and other loans",
+    key: "seInterest",
+    disKey: "seInterestDisallowable",
+  },
+  {
+    box: "26",
+    label: "Bank, credit card and other financial charges",
+    key: "seBankCharges",
+    disKey: "seBankChargesDisallowable",
+  },
+  {
+    box: "27",
+    label: "Irrecoverable debts written off",
+    key: "seBadDebts",
+    disKey: "seBadDebtsDisallowable",
+  },
+  {
+    box: "28",
+    label: "Accountancy, legal and other professional fees",
+    key: "seProfessionalFees",
+    disKey: "seProfessionalFeesDisallowable",
+  },
+  {
+    box: "29",
+    label: "Depreciation and loss or profit on sale of assets",
+    key: "seDepreciation",
+    disKey: "seDepreciationDisallowable",
+  },
+  {
+    box: "30",
+    label: "Other business expenses",
+    key: "seOtherExpensesDetail",
+    disKey: "seOtherExpensesDetailDisallowable",
+  },
+];
+
+function ExpenseLine({
+  box,
+  label,
+  value,
+  disallowable,
+  onChange,
+  onDisallowableChange,
+}: {
+  box: string;
+  label: string;
+  value: number;
+  disallowable: number;
+  onChange: (n: number) => void;
+  onDisallowableChange: (n: number) => void;
+}) {
+  const [showDis, setShowDis] = useState(disallowable > 0);
+  useEffect(() => {
+    if (disallowable > 0) setShowDis(true);
+  }, [disallowable]);
+
+  return (
+    <details className="rounded-lg border border-line bg-white px-3 py-2">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 marker:content-none [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0 text-xs leading-snug text-sea">
+          <span className="font-semibold">{box} · </span>
+          {label}
+        </span>
+        <span className="flex shrink-0 items-center gap-2 text-xs text-ink-soft">
+          {value > 0 ? gbp(value) : "—"}
+          <span className="text-base leading-none text-ink" aria-hidden>
+            ▾
+          </span>
+        </span>
+      </summary>
+      <div className="mt-2 space-y-2 border-t border-line pt-2">
+        <Money value={value} onChange={onChange} />
+        <label className="flex items-center gap-2 text-xs text-ink">
+          <input
+            type="checkbox"
+            className="size-4 rounded border-line"
+            checked={showDis}
+            onChange={(e) => {
+              const on = e.target.checked;
+              setShowDis(on);
+              if (!on) onDisallowableChange(0);
+            }}
+          />
+          Disallowable expense
+        </label>
+        {showDis ? (
+          <L label="Disallowable amount" box={`${box}d`}>
+            <Money value={disallowable} onChange={onDisallowableChange} />
+          </L>
+        ) : null}
+      </div>
+    </details>
   );
 }
 
@@ -992,130 +1165,70 @@ export function Sa100Wizard({
                     Allowable expenses (boxes 17–30) — or total only in box 31 if
                     turnover under £90,000
                   </SubHead>
-                  <L label="Cost of goods bought for resale or goods used" box="17">
-                    <Money
-                      value={draft.seCostOfGoods}
-                      onChange={(seCostOfGoods) => patch({ seCostOfGoods })}
-                    />
-                  </L>
-                  <L
-                    label="Construction industry – payments to subcontractors"
-                    box="18"
-                  >
-                    <Money
-                      value={draft.seCisSubcontractors}
-                      onChange={(seCisSubcontractors) =>
-                        patch({ seCisSubcontractors })
-                      }
-                    />
-                  </L>
-                  <L label="Wages, salaries and other staff costs" box="19">
-                    <Money
-                      value={draft.seWages}
-                      onChange={(seWages) => patch({ seWages })}
-                    />
-                  </L>
-                  <L label="Car, van and travel expenses" box="20">
-                    <Money
-                      value={draft.seCarVanTravel}
-                      onChange={(seCarVanTravel) => patch({ seCarVanTravel })}
-                    />
-                  </L>
-                  <L label="Rent, rates, power and insurance costs" box="21">
-                    <Money
-                      value={draft.seRentPowerInsurance}
-                      onChange={(seRentPowerInsurance) =>
-                        patch({ seRentPowerInsurance })
-                      }
-                    />
-                  </L>
-                  <L
-                    label="Repairs and maintenance of property and equipment"
-                    box="22"
-                  >
-                    <Money
-                      value={draft.seRepairs}
-                      onChange={(seRepairs) => patch({ seRepairs })}
-                    />
-                  </L>
-                  <L
-                    label="Phone, fax, stationery and other office costs"
-                    box="23"
-                  >
-                    <Money
-                      value={draft.sePhoneOffice}
-                      onChange={(sePhoneOffice) => patch({ sePhoneOffice })}
-                    />
-                  </L>
-                  <L label="Advertising and business entertainment costs" box="24">
-                    <Money
-                      value={draft.seAdvertising}
-                      onChange={(seAdvertising) => patch({ seAdvertising })}
-                    />
-                  </L>
-                  <L label="Interest on bank and other loans" box="25">
-                    <Money
-                      value={draft.seInterest}
-                      onChange={(seInterest) => patch({ seInterest })}
-                    />
-                  </L>
-                  <L
-                    label="Bank, credit card and other financial charges"
-                    box="26"
-                  >
-                    <Money
-                      value={draft.seBankCharges}
-                      onChange={(seBankCharges) => patch({ seBankCharges })}
-                    />
-                  </L>
-                  <L label="Irrecoverable debts written off" box="27">
-                    <Money
-                      value={draft.seBadDebts}
-                      onChange={(seBadDebts) => patch({ seBadDebts })}
-                    />
-                  </L>
-                  <L
-                    label="Accountancy, legal and other professional fees"
-                    box="28"
-                  >
-                    <Money
-                      value={draft.seProfessionalFees}
-                      onChange={(seProfessionalFees) =>
-                        patch({ seProfessionalFees })
-                      }
-                    />
-                  </L>
-                  <L
-                    label="Depreciation and loss or profit on sale of assets"
-                    box="29"
-                  >
-                    <Money
-                      value={draft.seDepreciation}
-                      onChange={(seDepreciation) => patch({ seDepreciation })}
-                    />
-                  </L>
-                  <L label="Other business expenses" box="30">
-                    <Money
-                      value={draft.seOtherExpensesDetail}
-                      onChange={(seOtherExpensesDetail) =>
-                        patch({ seOtherExpensesDetail })
-                      }
-                    />
-                  </L>
-                  <L label="Total expenses (or enter total only here)" box="31">
-                    <Money
-                      value={draft.seExpenses}
-                      onChange={(seExpenses) => patch({ seExpenses })}
-                    />
-                  </L>
-                  <L label="Total disallowable expenses" box="46">
-                    <Money
-                      value={draft.seDisallowableTotal}
-                      onChange={(seDisallowableTotal) =>
-                        patch({ seDisallowableTotal })
-                      }
-                    />
-                  </L>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {SE_EXPENSE_LINES.map((line) => (
+                      <ExpenseLine
+                        key={line.key}
+                        box={line.box}
+                        label={line.label}
+                        value={draft[line.key]}
+                        disallowable={draft[line.disKey]}
+                        onChange={(n) => {
+                          setDraft((d) => {
+                            const next = emptySa100Draft({
+                              ...d,
+                              [line.key]: n,
+                            });
+                            const broken = seExpensesBreakdownTotal(next);
+                            return emptySa100Draft({
+                              ...next,
+                              seExpenses: broken > 0 ? broken : next.seExpenses,
+                              seDisallowableTotal:
+                                seDisallowableBreakdownTotal(next),
+                            });
+                          });
+                        }}
+                        onDisallowableChange={(n) => {
+                          setDraft((d) => {
+                            const next = emptySa100Draft({
+                              ...d,
+                              [line.disKey]: n,
+                            });
+                            return emptySa100Draft({
+                              ...next,
+                              seDisallowableTotal:
+                                seDisallowableBreakdownTotal(next),
+                            });
+                          });
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <L
+                      label="Total expenses (sum of boxes 17–30, or enter total only)"
+                      box="31"
+                    >
+                      <Money
+                        value={
+                          seExpensesBreakdownTotal(draft) > 0
+                            ? seExpensesBreakdownTotal(draft)
+                            : draft.seExpenses
+                        }
+                        onChange={(seExpenses) => {
+                          if (seExpensesBreakdownTotal(draft) > 0) return;
+                          patch({ seExpenses });
+                        }}
+                        readOnly={seExpensesBreakdownTotal(draft) > 0}
+                      />
+                    </L>
+                    <L label="Total disallowable expenses" box="46">
+                      <Money
+                        value={seDisallowableBreakdownTotal(draft)}
+                        readOnly
+                      />
+                    </L>
+                  </div>
 
                   <SubHead>Capital allowances (boxes 49–57)</SubHead>
                   <L label="Annual Investment Allowance" box="49">

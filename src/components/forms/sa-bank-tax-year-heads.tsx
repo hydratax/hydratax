@@ -405,7 +405,7 @@ export function SaBankTaxYearHeads({
       {ok ? <p className="text-sm text-ok">{ok}</p> : null}
 
       {byYear.years.map(({ year, txs }) => {
-        const yearOpen = openYears[year.label] ?? true;
+        const yearOpen = openYears[year.label] ?? false;
         const { heads, review } = headsForYear(txs);
         const coverage = missingMonthsForTaxYearLabel(year.label, allDates);
         const missing = coverage?.missingMonths ?? [];
@@ -430,7 +430,7 @@ export function SaBankTaxYearHeads({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="font-semibold text-ink">
-                    Tax year {year.label}
+                    Tax year {year.label} (Form Allocations)
                   </p>
                   <p className="text-xs text-ink-soft">
                     {formatSaTaxYearRange(year)} · {txs.length} transaction
@@ -440,8 +440,8 @@ export function SaBankTaxYearHeads({
                       : " · statements complete to date"}
                   </p>
                 </div>
-                <span className="text-ink-soft" aria-hidden>
-                  {yearOpen ? "▾" : "›"}
+                <span className="text-xl leading-none text-ink" aria-hidden>
+                  ▾
                 </span>
               </div>
             </summary>

@@ -265,6 +265,10 @@ export type PayrollDeskSettings = {
   payRates?: PayrollPayRate[];
   /** Tax year label for history filter, e.g. 2025-26 */
   activeTaxYear?: string;
+  /** Employer pay cycle — chosen once at payroll setup (M1 monthly / W1 weekly). */
+  payFrequency?: "M1" | "W1";
+  /** Once true, payFrequency cannot be changed on the desk. */
+  payFrequencyLocked?: boolean;
   /** P11D / benefits working figures by employee */
   benefits?: PayrollBenefitRow[];
   /** Bacs Standard 18 — Service User Number (6 digits from bank/bureau). */
@@ -277,6 +281,25 @@ export type PayrollDeskSettings = {
   bacsOriginatorName?: string;
   /** Optional 6-char file serial override. */
   bacsFileSerial?: string;
+  /**
+   * Monthly automation schedule (day of month 1–28).
+   * Cron runs payroll → FPS → client email when each toggle’s day matches.
+   */
+  automation?: PayrollAutomationSettings;
+};
+
+export type PayrollAutomationSettings = {
+  automatePayroll?: boolean;
+  /** 1–28 */
+  payrollDayOfMonth?: number;
+  automateRti?: boolean;
+  /** 1–28 */
+  rtiDayOfMonth?: number;
+  automateEmail?: boolean;
+  /** 1–28 */
+  emailDayOfMonth?: number;
+  /** ISO date YYYY-MM-DD of last successful automation pass (idempotency). */
+  lastRunYmd?: string;
 };
 
 export type PracticeLetterhead = {

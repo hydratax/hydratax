@@ -275,9 +275,11 @@ async function seedPayrollEmployees(
   const { generatePayrollId } = await import("@/lib/payroll");
   const { poundsToPence } = await import("@/server/money/pence");
   const { isDemoMode, isSupabaseConfigured } = await import("@/lib/env");
-  const { isDeskStoreConfigured, deskInsertEmployee } = await import(
-    "@/server/db/desk-store"
-  );
+  const {
+    isDeskStoreConfigured,
+    deskInsertEmployee,
+    deskUpdateEmployee,
+  } = await import("@/server/db/desk-store");
   const { ensureD1PayrollSchema } = await import(
     "@/server/db/ensure-d1-payroll-schema"
   );
@@ -298,6 +300,28 @@ async function seedPayrollEmployees(
     existing.map((e) => `${e.forename}|${e.surname}|${e.nino}`.toLowerCase()),
   );
   const usedPayrollIds = existing.map((e) => e.payrollId);
+
+  // Backfill gender when older seeds stored people before the column existed.
+  for (const row of existing) {
+    if (row.gender === "M" || row.gender === "F") continue;
+    const match = employees.find(
+      (emp) =>
+        `${emp.forename}|${emp.surname}|${emp.nino}`.toLowerCase() ===
+        `${row.forename}|${row.surname}|${row.nino}`.toLowerCase(),
+    );
+    if (!match?.gender) continue;
+    try {
+      if (isDemoMode()) {
+        const { demoStore } = await import("@/server/demo/store");
+        const hit = demoStore.employees.find((e) => e.id === row.id);
+        if (hit) hit.gender = match.gender;
+      } else if (isDeskStoreConfigured()) {
+        await deskUpdateEmployee(row.id, client.id, { gender: match.gender });
+      }
+    } catch (e) {
+      logRich(`genderBackfill:${row.forename}`, e);
+    }
+  }
 
   for (const emp of employees) {
     const key = `${emp.forename}|${emp.surname}|${emp.nino}`.toLowerCase();
@@ -473,8 +497,12 @@ async function seedPayroll(
     isDeskStoreConfigured,
     deskUpsertTimesheet,
     deskInsertPayRun,
+    deskDeletePayRun,
     deskListPayRuns,
   } = await import("@/server/db/desk-store");
+  const { isPayrollRtiSubmitted } = await import(
+    "@/lib/payroll-client-status"
+  );
 
   await seedPayrollEmployees(client, employees);
 
@@ -595,7 +623,46 @@ async function seedPayroll(
 
   const known = await existingPayDates();
 
-  // One real calc for the newest month; older months clone lines (idempotent archive).
+  // Drop any unfiled current-payday run left by older seeds — History must
+  // stay empty for this month until Generate payslips on Run payroll.
+  const newestPayDate = months[0]?.period.payDate;
+  if (newestPayDate) {
+    try {
+      if (isDemoMode()) {
+        const { demoStore } = await import("@/server/demo/store");
+        demoStore.payRuns = demoStore.payRuns.filter((r) => {
+          if (r.clientId !== client.id) return true;
+          if (String(r.kind ?? "FPS") !== "FPS") return true;
+          if (String(r.payDate) !== newestPayDate) return true;
+          return isPayrollRtiSubmitted({
+            status: String(r.status ?? ""),
+            hmrcCorrelationId: (r.hmrcCorrelationId as string | null) ?? null,
+          });
+        });
+      } else if (isDeskStoreConfigured()) {
+        const rows = (await deskListPayRuns(client.id)) ?? [];
+        for (const row of rows) {
+          if (String(row.kind ?? "FPS") !== "FPS") continue;
+          if (String(row.pay_date) !== newestPayDate) continue;
+          if (
+            isPayrollRtiSubmitted({
+              status: String(row.status ?? ""),
+              hmrcCorrelationId:
+                (row.hmrc_correlation_id as string | null) ?? null,
+            })
+          ) {
+            continue;
+          }
+          await deskDeletePayRun(String(row.id));
+        }
+      }
+      known.delete(newestPayDate);
+    } catch (e) {
+      logRich("payRun:clearCurrent", e);
+    }
+  }
+
+  // Template from the newest payday maths; archive months clone / refresh lines.
   let template: Awaited<ReturnType<typeof previewPayRun>> | null = null;
   const newest = months[0];
   if (newest) {
@@ -616,12 +683,15 @@ async function seedPayroll(
 
   for (let i = 0; i < months.length; i++) {
     const month = months[i]!;
+    // Leave the current payday empty — History card appears only after
+    // Generate payslips on Run payroll.
+    if (i === 0) continue;
     if (known.has(month.period.payDate)) continue;
 
     try {
       let pack = template;
       // Recalc a few recent months so statutory/scenario variance stays realistic.
-      if (i > 0 && i < 3) {
+      if (i < 3) {
         try {
           const fresh = await previewPayRun({
             clientId: client.id,
@@ -637,12 +707,9 @@ async function seedPayroll(
         }
       }
 
-      // Newest = generated (not filed). Older = filed archive for P60 / YTD.
-      const isNewest = i === 0 && historyYears > 0;
-      const status = isNewest ? "ready" : historyYears > 0 ? "accepted" : "ready";
-      const corr = isNewest
-        ? null
-        : (`DEMO-SEED-${month.period.payDate}` as string | null);
+      // Prior months = filed archive for P60 / YTD / packs.
+      const status = "accepted";
+      const corr = `DEMO-SEED-${month.period.payDate}` as string;
 
       const payRun = {
         id: crypto.randomUUID(),

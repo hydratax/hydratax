@@ -161,14 +161,14 @@ export function VatBooksBankPanel({
   }
 
   return (
-    <div className="panel flex h-full min-h-0 flex-col gap-3 overflow-hidden p-4">
+    <div className="panel flex w-full flex-col gap-3 p-4">
       <h3 className="shrink-0 text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
         Books bank data
       </h3>
 
-      <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-line bg-paper">
+      <div className="rounded-lg border border-line bg-paper">
         {preview.length > 0 ? (
-          <div className="h-full overflow-y-auto">
+          <div>
             {groupBankStatementsByDesk(preview).map((group) => (
               <div key={group.desk}>
                 <p className="sticky top-0 border-b border-line bg-paper px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-ink-soft">

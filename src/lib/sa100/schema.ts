@@ -118,6 +118,21 @@ export const sa100DraftSchema = z.object({
   seProfessionalFees: money,
   seDepreciation: money,
   seOtherExpensesDetail: money,
+  /** Per-box disallowable amounts (sum → box 46) */
+  seCostOfGoodsDisallowable: money,
+  seCisSubcontractorsDisallowable: money,
+  seWagesDisallowable: money,
+  seCarVanTravelDisallowable: money,
+  seRentPowerInsuranceDisallowable: money,
+  seRepairsDisallowable: money,
+  sePhoneOfficeDisallowable: money,
+  seAdvertisingDisallowable: money,
+  seInterestDisallowable: money,
+  seBankChargesDisallowable: money,
+  seBadDebtsDisallowable: money,
+  seProfessionalFeesDisallowable: money,
+  seDepreciationDisallowable: money,
+  seOtherExpensesDetailDisallowable: money,
   /** Box 31 — or legacy single total when breakdown empty */
   seExpenses: money,
   /** Box 46 — total disallowable included in expenses */
@@ -307,6 +322,25 @@ export function seExpensesBreakdownTotal(d: Sa100Draft): number {
     d.seProfessionalFees +
     d.seDepreciation +
     d.seOtherExpensesDetail
+  );
+}
+
+export function seDisallowableBreakdownTotal(d: Sa100Draft): number {
+  return (
+    d.seCostOfGoodsDisallowable +
+    d.seCisSubcontractorsDisallowable +
+    d.seWagesDisallowable +
+    d.seCarVanTravelDisallowable +
+    d.seRentPowerInsuranceDisallowable +
+    d.seRepairsDisallowable +
+    d.sePhoneOfficeDisallowable +
+    d.seAdvertisingDisallowable +
+    d.seInterestDisallowable +
+    d.seBankChargesDisallowable +
+    d.seBadDebtsDisallowable +
+    d.seProfessionalFeesDisallowable +
+    d.seDepreciationDisallowable +
+    d.seOtherExpensesDetailDisallowable
   );
 }
 

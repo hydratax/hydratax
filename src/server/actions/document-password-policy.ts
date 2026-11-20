@@ -22,6 +22,8 @@ const identifierSchema = z.enum([
   "company_utr",
   "nino",
   "company_number",
+  "paye_ref",
+  "accounts_office_ref",
 ]);
 
 const policySchema = z.object({

@@ -40,12 +40,29 @@ const settingsSchema = z.object({
   documentPasswordEnabled: z.boolean().optional(),
   payRates: z.array(payRateSchema).max(50).optional(),
   activeTaxYear: z.string().max(12).optional(),
+  payFrequency: z.enum(["M1", "W1"]).optional(),
   bacsServiceUserNumber: z.string().max(12).optional(),
   bacsOriginatorSortCode: z.string().max(12).optional(),
   bacsOriginatorAccountNumber: z.string().max(16).optional(),
   bacsOriginatorName: z.string().max(40).optional(),
   bacsFileSerial: z.string().max(6).optional(),
+  automation: z
+    .object({
+      automatePayroll: z.boolean().optional(),
+      payrollDayOfMonth: z.number().int().min(1).max(28).optional(),
+      automateRti: z.boolean().optional(),
+      rtiDayOfMonth: z.number().int().min(1).max(28).optional(),
+      automateEmail: z.boolean().optional(),
+      emailDayOfMonth: z.number().int().min(1).max(28).optional(),
+      lastRunYmd: z.string().max(10).optional(),
+    })
+    .optional(),
 });
+
+function clampDay(n: number | undefined, fallback = 28): number {
+  if (typeof n !== "number" || !Number.isFinite(n)) return fallback;
+  return Math.min(28, Math.max(1, Math.round(n)));
+}
 
 function readSettings(profile: DeskProfile | null | undefined): PayrollDeskSettings {
   return {
@@ -131,6 +148,15 @@ export async function savePayrollDeskSettings(
       data.documentPasswordEnabled ?? prev.documentPasswordEnabled,
     payRates: data.payRates ?? prev.payRates,
     activeTaxYear: data.activeTaxYear?.trim() || prev.activeTaxYear,
+    // Pay cycle is set once at setup — never overwrite a locked choice.
+    payFrequency:
+      prev.payFrequencyLocked || prev.payFrequency
+        ? prev.payFrequency
+        : data.payFrequency ?? prev.payFrequency,
+    payFrequencyLocked:
+      prev.payFrequencyLocked ||
+      Boolean(prev.payFrequency) ||
+      Boolean(data.payFrequency),
     bacsServiceUserNumber:
       data.bacsServiceUserNumber !== undefined
         ? data.bacsServiceUserNumber.replace(/\D/g, "").slice(0, 6)
@@ -151,6 +177,39 @@ export async function savePayrollDeskSettings(
       data.bacsFileSerial !== undefined
         ? data.bacsFileSerial.replace(/[^A-Za-z0-9]/g, "").slice(0, 6)
         : prev.bacsFileSerial,
+    automation:
+      data.automation !== undefined
+        ? {
+            automatePayroll:
+              data.automation.automatePayroll ??
+              prev.automation?.automatePayroll ??
+              false,
+            payrollDayOfMonth: clampDay(
+              data.automation.payrollDayOfMonth ??
+                prev.automation?.payrollDayOfMonth,
+              28,
+            ),
+            automateRti:
+              data.automation.automateRti ??
+              prev.automation?.automateRti ??
+              false,
+            rtiDayOfMonth: clampDay(
+              data.automation.rtiDayOfMonth ?? prev.automation?.rtiDayOfMonth,
+              28,
+            ),
+            automateEmail:
+              data.automation.automateEmail ??
+              prev.automation?.automateEmail ??
+              false,
+            emailDayOfMonth: clampDay(
+              data.automation.emailDayOfMonth ??
+                prev.automation?.emailDayOfMonth,
+              28,
+            ),
+            lastRunYmd:
+              data.automation.lastRunYmd ?? prev.automation?.lastRunYmd,
+          }
+        : prev.automation,
   };
   await writeDeskProfile(data.clientId, {
     ...current,
