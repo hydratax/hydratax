@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { PendingLink } from "@/components/pending-link";
 import { DeskFilterBar } from "@/components/desk-filter-bar";
+import { DeskStatusButton } from "@/components/desk-status-button";
 import { useDeskFilterPrefs } from "@/hooks/use-desk-filter-prefs";
 import {
   cardTintClass,
@@ -43,6 +44,10 @@ const MAP_OPTIONS = FILTER_DEFAULTS.filter((f) => f.id !== "all").map((f) => ({
   id: f.id,
   label: f.label,
 }));
+
+const STATUS_OPTIONS = MAP_OPTIONS.filter(
+  (f) => f.id === "not_started" || f.id === "generated" || f.id === "submitted",
+);
 
 function matchesSearch(client: PayrollClientListItem, query: string): boolean {
   const q = query.trim().toLowerCase();
@@ -142,71 +147,72 @@ export function PayrollClientsList({
             colorForMapsTo(filterPrefs.prefs, payroll.status),
           );
           return (
-            <PendingLink
+            <div
               key={c.id}
-              href={`/clients/${c.slug}/payroll`}
               className={`panel panel-interactive client-card relative z-0 flex h-full flex-col p-5 hover:z-10 ${tint}`}
-              pendingLabel="Opening payroll…"
             >
-              {(pending) => (
-                <>
-                  <div className="flex items-start justify-between gap-3">
-                    <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
-                      {c.name}
-                    </h2>
-                    <span
-                      className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}
-                    >
-                      {pending ? "Opening…" : "Open"}
+              <div className="flex items-start justify-between gap-3">
+                <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
+                  <PendingLink
+                    href={`/clients/${c.slug}/payroll`}
+                    className="text-ink after:absolute after:inset-0 after:z-[1]"
+                    pendingLabel="Opening payroll…"
+                  >
+                    {c.name}
+                  </PendingLink>
+                </h2>
+                <DeskStatusButton
+                  clientId={c.id}
+                  desk="paye"
+                  options={STATUS_OPTIONS}
+                  value={payroll.status}
+                />
+              </div>
+
+              <p className="mt-1 text-sm text-ink-soft">
+                {payrollFrequencyLabel(payroll.payFrequency)} payroll
+                {c.type === "limited_company" ? " · Limited company" : ""}
+              </p>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span
+                  className={chipColorClass(
+                    colorForMapsTo(filterPrefs.prefs, payroll.status),
+                  )}
+                >
+                  {payrollStatusLabel(payroll.status)}
+                </span>
+                <span className="filing-btn filing-btn--muted">
+                  {payrollFrequencyLabel(payroll.payFrequency)}
+                </span>
+              </div>
+
+              <p className="mt-3 text-sm text-ink">
+                {payroll.periodLabel ? (
+                  <>
+                    Latest period{" "}
+                    <span className="paye-digits font-semibold">
+                      {payroll.periodLabel}
                     </span>
-                  </div>
+                  </>
+                ) : (
+                  <span className="text-ink-soft">No pay run yet</span>
+                )}
+              </p>
 
-                  <p className="mt-1 text-sm text-ink-soft">
-                    {payrollFrequencyLabel(payroll.payFrequency)} payroll
-                    {c.type === "limited_company" ? " · Limited company" : ""}
-                  </p>
-
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span
-                      className={chipColorClass(
-                        colorForMapsTo(filterPrefs.prefs, payroll.status),
-                      )}
-                    >
-                      {payrollStatusLabel(payroll.status)}
-                    </span>
-                    <span className="filing-btn filing-btn--muted">
-                      {payrollFrequencyLabel(payroll.payFrequency)}
-                    </span>
-                  </div>
-
-                  <p className="mt-3 text-sm text-ink">
-                    {payroll.periodLabel ? (
-                      <>
-                        Latest period{" "}
-                        <span className="paye-digits font-semibold">
-                          {payroll.periodLabel}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-ink-soft">No pay run yet</span>
-                    )}
-                  </p>
-
-                  <p className="mono mt-auto pt-4 text-xs text-ink-soft">
-                    {[
-                      c.payeRef && `PAYE ${c.payeRef}`,
-                      c.accountsOfficeRef &&
-                        `AO ${maskAccountsOfficeRef(c.accountsOfficeRef)}`,
-                      typeof c.employeeCount === "number"
-                        ? `${c.employeeCount} employee${c.employeeCount === 1 ? "" : "s"}`
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ") || "No payroll refs yet"}
-                  </p>
-                </>
-              )}
-            </PendingLink>
+              <p className="mono mt-auto pt-4 text-xs text-ink-soft">
+                {[
+                  c.payeRef && `PAYE ${c.payeRef}`,
+                  c.accountsOfficeRef &&
+                    `AO ${maskAccountsOfficeRef(c.accountsOfficeRef)}`,
+                  typeof c.employeeCount === "number"
+                    ? `${c.employeeCount} employee${c.employeeCount === 1 ? "" : "s"}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "No payroll refs yet"}
+              </p>
+            </div>
           );
         })}
       </div>

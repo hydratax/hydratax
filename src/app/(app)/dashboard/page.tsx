@@ -14,6 +14,14 @@ import { canAccessModule } from "@/lib/access";
 import { displayPracticeName } from "@/lib/practice-name";
 import { clientSlugFor } from "@/lib/client-slug";
 import { loadSaDeskRows } from "@/server/sa/load-sa-desk-rows";
+import { derivePayrollClientSummary } from "@/lib/payroll-client-status";
+import { deriveVatClientSummary } from "@/lib/vat-client-status";
+import { deriveCtClientSummary } from "@/lib/ct-client-status";
+import { normalizeWorkStage } from "@/lib/client-work-stage";
+import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
+import type { VatClientListItem } from "@/components/vat-clients-list";
+import type { PayrollClientListItem } from "@/components/payroll-clients-list";
+import type { CtClientListItem } from "@/components/ct-clients-list";
 
 function buildRailLinks(): {
   module: ServiceModule | "invoices";
@@ -84,6 +92,94 @@ export default async function DashboardPage() {
     saDesk.directors.length + saDesk.soleTraders.length;
   const payeClients = clients.filter(
     (c) => c.isEmployer || Boolean(c.payeRef?.trim()),
+  );
+  const vatClients = clients.filter((c) => c.isVatRegistered);
+  const ltdClients = clients.filter((c) => c.type === "limited_company");
+
+  const { listPayrollClientSummaries } = await import(
+    "@/server/actions/payroll"
+  );
+  const payrollSummaries = await listPayrollClientSummaries(
+    payeClients.map((c) => c.id),
+  ).catch(() => ({} as Record<string, never>));
+  const payrollItems: PayrollClientListItem[] = payeClients.map((c) => {
+    const summary = (
+      payrollSummaries as Record<
+        string,
+        ReturnType<typeof derivePayrollClientSummary> & { employeeCount: number }
+      >
+    )[c.id];
+    return {
+      id: c.id,
+      slug: clientSlugFor({ id: c.id, name: c.name }, peers),
+      name: c.name,
+      type: c.type as PayrollClientListItem["type"],
+      accountsOfficeRef: c.accountsOfficeRef,
+      payeRef: c.payeRef,
+      employeeCount: summary?.employeeCount ?? 0,
+      payroll: summary ?? derivePayrollClientSummary([], []),
+    };
+  });
+
+  const { listVatReturns } = await import("@/server/actions/vat");
+  const vatItems: VatClientListItem[] = await Promise.all(
+    vatClients.map(async (c) => {
+      const returns = await listVatReturns(c.id).catch(() => []);
+      return {
+        id: c.id,
+        slug: clientSlugFor({ id: c.id, name: c.name }, peers),
+        name: c.name,
+        type: c.type as VatClientListItem["type"],
+        vrn: c.vrn,
+        vat: deriveVatClientSummary({
+          returns: returns.map((r) => ({
+            status: String(r.status ?? ""),
+            periodKey: String(r.periodKey ?? ""),
+            periodEnd:
+              "periodEnd" in r && typeof r.periodEnd === "string"
+                ? r.periodEnd
+                : null,
+            submittedAt:
+              "submittedAt" in r
+                ? (r.submittedAt as string | Date | null)
+                : null,
+          })),
+          workStage: normalizeWorkStage(c.deskProfile?.workStage),
+          workLog: c.deskProfile?.workLog ?? null,
+          portal: c.deskProfile?.portal ?? null,
+        }),
+      };
+    }),
+  );
+
+  const { listCt600Returns } = await import("@/server/actions/ct600");
+  const ctItems: CtClientListItem[] = await Promise.all(
+    ltdClients.map(async (c) => {
+      const returns = await listCt600Returns(c.id).catch(() => []);
+      const ch =
+        ("companiesHouse" in c
+          ? (c.companiesHouse as ClientCompaniesHouseSnapshot | null)
+          : null) ?? null;
+      return {
+        id: c.id,
+        slug: clientSlugFor({ id: c.id, name: c.name }, peers),
+        name: c.name,
+        utr: c.utr,
+        ct: deriveCtClientSummary({
+          returns: returns.map((r) => ({
+            status: String(r.status ?? ""),
+            periodStart: String(r.periodStart ?? ""),
+            periodEnd: String(r.periodEnd ?? ""),
+            submittedAt:
+              "submittedAt" in r
+                ? (r.submittedAt as string | Date | null)
+                : null,
+          })),
+          workStage: normalizeWorkStage(c.deskProfile?.workStage),
+          companiesHouse: ch,
+        }),
+      };
+    }),
   );
 
   const stats = [
@@ -211,9 +307,12 @@ export default async function DashboardPage() {
           payeRef: c.payeRef,
           companiesHouse:
             "companiesHouse" in c
-              ? (c.companiesHouse as import("@/server/companies-house/enrich-client").ClientCompaniesHouseSnapshot | null)
+              ? (c.companiesHouse as ClientCompaniesHouseSnapshot | null)
               : null,
         }))}
+        vatItems={vatItems}
+        payrollItems={payrollItems}
+        ctItems={ctItems}
         saDirectors={saDesk.directors}
         saSoleTraders={saDesk.soleTraders}
         unlockedModules={entitlements.modules}

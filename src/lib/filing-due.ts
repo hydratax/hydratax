@@ -167,3 +167,46 @@ export function monthWindowLabel(
   const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
   return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
+
+/** YYYY-MM from an ISO date (or null if unusable). */
+export function monthKeyFromIso(iso: string | null | undefined): string | null {
+  if (!iso || iso.length < 7) return null;
+  const key = iso.slice(0, 7);
+  return /^\d{4}-\d{2}$/.test(key) ? key : null;
+}
+
+export type CalendarReminderMonth = {
+  /** YYYY-MM */
+  key: string;
+  label: string;
+  /** Last calendar day of the month (ISO) — useful as a period-end placeholder */
+  periodEnd: string;
+};
+
+/** All twelve months of the calendar year containing `now`. */
+export function calendarYearReminderMonths(
+  now = new Date(),
+): CalendarReminderMonth[] {
+  const y = now.getFullYear();
+  const months: CalendarReminderMonth[] = [];
+  for (let m = 0; m < 12; m += 1) {
+    const d = new Date(y, m, 1);
+    const key = `${y}-${String(m + 1).padStart(2, "0")}`;
+    const lastDay = new Date(y, m + 1, 0).getDate();
+    months.push({
+      key,
+      label: d.toLocaleDateString("en-GB", {
+        month: "long",
+        year: "numeric",
+      }),
+      periodEnd: `${key}-${String(lastDay).padStart(2, "0")}`,
+    });
+  }
+  return months;
+}
+
+export function currentMonthKey(now = new Date()): string {
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  return `${y}-${String(m).padStart(2, "0")}`;
+}

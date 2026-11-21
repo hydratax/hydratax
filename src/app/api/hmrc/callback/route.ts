@@ -9,6 +9,7 @@ import {
   hmrcReturnPath,
   verifyHmrcState,
 } from "@/server/hmrc/oauth-state";
+import { hmrcOauthErrorToResult } from "@/lib/hmrc-user-messages";
 import { resolveAuthOrigin } from "@/lib/auth-origin";
 import { isProductionRuntime } from "@/lib/env";
 import { clientIpFromHeaders } from "@/lib/rate-limit";
@@ -69,8 +70,19 @@ export async function GET(req: NextRequest) {
 
   if (error) {
     // Fixed vocabulary only — never reflect arbitrary provider text.
-    const safe = /^[a-z_]{1,40}$/.test(error) ? error : "hmrc_error";
-    return redirectTo(`/settings/hmrc?error=${encodeURIComponent(safe)}`);
+    const safe = /^[a-z_]{1,40}$/.test(error) ? error : "connect_failed";
+    const result = hmrcOauthErrorToResult(safe);
+    const payload = verifyHmrcState(
+      state,
+      req.cookies.get(HMRC_STATE_COOKIE)?.value,
+      session.userId,
+    );
+    if (payload) {
+      return redirectTo(
+        hmrcReturnPath(payload.clientId, payload.returnTo, result),
+      );
+    }
+    return redirectTo(`/settings/hmrc?hmrc=${encodeURIComponent(result)}`);
   }
 
   if (!code || !state) {
@@ -112,12 +124,14 @@ export async function GET(req: NextRequest) {
     tokens = await exchangeAuthorizationCode(code);
     await saveHmrcConnection(payload.clientId, tokens, session.practiceId);
   } catch (err) {
-    console.error(
-      "[hmrc/callback] connect failed",
-      err instanceof Error ? err.message : "unknown",
-    );
+    const detail = err instanceof Error ? err.message : "unknown";
+    console.error("[hmrc/callback] connect failed", detail);
+    const code =
+      /client_id is invalid|invalid_client|unauthorized_client/i.test(detail)
+        ? "app_credentials_invalid"
+        : "connect_failed";
     return redirectTo(
-      hmrcReturnPath(payload.clientId, payload.returnTo, "connect_failed"),
+      hmrcReturnPath(payload.clientId, payload.returnTo, code),
     );
   }
 

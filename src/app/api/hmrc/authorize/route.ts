@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildAuthorizeUrl } from "@/server/hmrc/oauth";
+import {
+  buildAuthorizeUrl,
+  probeHmrcClientCredentials,
+} from "@/server/hmrc/oauth";
 import { getHmrcConfig } from "@/server/hmrc/config";
 import { getApiSession } from "@/server/auth/api-session";
 import { clientBelongsToPractice } from "@/server/hmrc/client-ownership";
@@ -48,9 +51,16 @@ export async function GET(req: NextRequest) {
   if (!cfg.clientId) {
     return NextResponse.redirect(
       new URL(
-        hmrcReturnPath(clientId, returnTo, "demo_connect_available"),
+        hmrcReturnPath(clientId, returnTo, "app_not_configured"),
         origin,
       ),
+    );
+  }
+
+  const probe = await probeHmrcClientCredentials();
+  if (!probe.ok) {
+    return NextResponse.redirect(
+      new URL(hmrcReturnPath(clientId, returnTo, probe.code), origin),
     );
   }
 
@@ -64,9 +74,8 @@ export async function GET(req: NextRequest) {
     }));
   } catch (err) {
     console.error("[hmrc/authorize] state creation failed", err);
-    return NextResponse.json(
-      { error: "HMRC connection is not available right now." },
-      { status: 503 },
+    return NextResponse.redirect(
+      new URL(hmrcReturnPath(clientId, returnTo, "connect_failed"), origin),
     );
   }
 

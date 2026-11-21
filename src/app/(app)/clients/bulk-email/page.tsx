@@ -102,6 +102,9 @@ export default async function BulkClientEmailPage({ searchParams }: Props) {
           <BulkVatEmailForm
             candidates={data.candidates}
             months={data.months}
+            years={data.years}
+            defaultMonthKey={data.defaultMonthKey}
+            defaultYear={data.defaultYear}
             defaultSubject={draft.subject}
             defaultMessage={draft.messageTemplate}
             senderEmail={draft.senderEmail}
@@ -126,7 +129,8 @@ export default async function BulkClientEmailPage({ searchParams }: Props) {
               Bulk email
             </h1>
             <p className="mt-1 text-ink-soft">
-              Accounts due in {data.nextMonthLabel} or {data.monthAfterLabel}.
+              CT600 deadlines across {data.defaultYear} and{" "}
+              {data.defaultYear + 1}.
             </p>
           </div>
           <Link href={backHref} className="btn btn-secondary">
@@ -137,8 +141,10 @@ export default async function BulkClientEmailPage({ searchParams }: Props) {
         <BulkClientEmailForm
           mode="accounts"
           candidates={data.candidates}
-          nextMonthLabel={data.nextMonthLabel}
-          monthAfterLabel={data.monthAfterLabel}
+          months={data.months}
+          years={data.years}
+          defaultMonthKey={data.defaultMonthKey}
+          defaultYear={data.defaultYear}
           defaultSubject={draft.subject}
           defaultMessage={draft.messageTemplate}
           senderEmail={draft.senderEmail}

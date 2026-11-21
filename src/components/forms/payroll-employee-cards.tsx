@@ -858,6 +858,8 @@ function EmployeeCard({
                     className="input mt-1"
                     value={dob}
                     onChange={(iso) => setDob(iso)}
+                    minYear={1920}
+                    maxYear={new Date().getFullYear()}
                   />
                 </label>
                 <label className="text-xs font-semibold">
@@ -1359,7 +1361,12 @@ function AddEmployeeForm({
       </label>
       <label className="text-sm font-semibold">
         Date of birth
-        <UkDateField name="dateOfBirth" className="input mt-1.5" />
+        <UkDateField
+          name="dateOfBirth"
+          className="input mt-1.5"
+          minYear={1920}
+          maxYear={new Date().getFullYear()}
+        />
       </label>
       <label className="text-sm font-semibold">
         Tax code

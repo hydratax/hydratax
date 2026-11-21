@@ -231,9 +231,76 @@ export function corporationTaxAccountingPeriods(
 }
 
 /**
+ * Proposed CT600 cards for the CT desk.
+ * - New / first-year companies: first CH period split into ≤12-month CT APs
+ *   (e.g. incorp 15 Jan 2025 → 15 Jan 2025–14 Jan 2026 + 15 Jan 2026–31 Jan 2026,
+ *   CT600 due 31 Jan 2027).
+ * - Established companies: only the latest completed year
+ *   (e.g. incorp 2020 → 1 Feb 2025–31 Jan 2026, due 31 Jan 2027) — not every
+ *   historical year. CT600 deadline is 12 months after the accounts period ends
+ *   (not the Companies House 9-month accounts filing deadline).
+ */
+export function listRelevantCorporationTaxPeriods(opts: {
+  incorporatedOn?: string | null;
+  accountsPeriodEnd?: string | null;
+  lastAccountsMadeUpTo?: string | null;
+  now?: Date;
+}): CtAccountingPeriod[] {
+  const incorporated = opts.incorporatedOn?.slice(0, 10) || null;
+  const lastMadeUp = opts.lastAccountsMadeUpTo?.slice(0, 10) || null;
+  const now = opts.now ?? new Date();
+  const today = toIsoDate(now);
+
+  const all = listCorporationTaxPeriodsSinceIncorporation({
+    ...opts,
+    yearsAhead: 1,
+  });
+  if (!all.length) return all;
+
+  const firstYearAps = all.filter((p) => p.firstYear);
+  const firstArd =
+    (incorporated ? defaultAccountingReferenceDate(incorporated) : null) ??
+    firstYearAps[0]?.periodOfAccountEnd ??
+    null;
+  const firstYearFiled =
+    Boolean(firstArd) && Boolean(lastMadeUp) && lastMadeUp! >= firstArd!;
+  const firstYearCtDue = firstArd
+    ? addCalendarYear(firstArd, 1)
+    : null;
+  const stillInFirstYearWindow =
+    Boolean(firstYearAps.length) &&
+    !firstYearFiled &&
+    Boolean(firstYearCtDue) &&
+    today <= firstYearCtDue!;
+
+  if (stillInFirstYearWindow) {
+    return firstYearAps;
+  }
+
+  // Latest period-of-account group that has ended; else the open year.
+  const poaEnds = [
+    ...new Set(
+      all
+        .map((p) => p.periodOfAccountEnd)
+        .filter((x): x is string => Boolean(x)),
+    ),
+  ].sort();
+  let chosenPoa = poaEnds[poaEnds.length - 1] ?? null;
+  for (let i = poaEnds.length - 1; i >= 0; i -= 1) {
+    const end = poaEnds[i]!;
+    if (end <= today) {
+      chosenPoa = end;
+      break;
+    }
+  }
+  if (!chosenPoa) return all.slice(-1);
+  return all.filter((p) => p.periodOfAccountEnd === chosenPoa);
+}
+
+/**
  * All CT600 accounting periods from incorporation through the current /
  * next open Companies House year (so every year since the company started
- * has a card).
+ * has a card). Prefer {@link listRelevantCorporationTaxPeriods} on the desk.
  */
 export function listCorporationTaxPeriodsSinceIncorporation(opts: {
   incorporatedOn?: string | null;

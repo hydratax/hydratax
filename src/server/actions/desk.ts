@@ -298,6 +298,7 @@ export async function setClientWorkStage(input: {
 
   revalidateClient(input.clientId);
   revalidatePath("/clients");
+  revalidatePath("/dashboard");
   return { ok: true as const, stage, label };
 }
 

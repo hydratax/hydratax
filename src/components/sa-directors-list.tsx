@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { PendingLink } from "@/components/pending-link";
 import { DeskFilterBar } from "@/components/desk-filter-bar";
+import { DeskStatusButton } from "@/components/desk-status-button";
 import { useDeskFilterPrefs } from "@/hooks/use-desk-filter-prefs";
 import {
   cardTintClass,
@@ -190,69 +191,70 @@ export function SaDirectorsList({
                 colorForMapsTo(filterPrefs.prefs, deskStage),
               );
               return (
-                <PendingLink
+                <div
                   key={d.key}
-                  href={href}
-                  pendingLabel={`Opening ${d.fullName}…`}
                   className={`panel panel-interactive client-card relative z-0 flex h-full flex-col p-5 hover:z-10 ${tint}`}
                 >
-                  {(pending) => (
-                    <>
-                      <div className="flex items-start justify-between gap-3">
-                        <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
-                          {d.fullName}
-                        </h2>
-                        <span
-                          className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}
-                        >
-                          {pending ? "Opening…" : "Open"}
-                        </span>
-                      </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
+                      <PendingLink
+                        href={href}
+                        pendingLabel={`Opening ${d.fullName}…`}
+                        className="text-ink after:absolute after:inset-0 after:z-[1]"
+                      >
+                        {d.fullName}
+                      </PendingLink>
+                    </h2>
+                    <DeskStatusButton
+                      clientId={d.homeClientId}
+                      desk="sa"
+                      options={MAP_OPTIONS}
+                      value={deskStage}
+                    />
+                  </div>
 
-                      <p className="mt-1 text-sm text-ink-soft">
-                        SA {d.filing.taxYear} · file by{" "}
-                        {formatSaFilingDue({
-                          label: d.filing.taxYear,
-                          start: "",
-                          end: "",
-                          filingDue: d.filing.filingDue,
-                        })}
-                      </p>
+                  <p className="mt-1 text-sm text-ink-soft">
+                    SA {d.filing.taxYear} · file by{" "}
+                    {formatSaFilingDue({
+                      label: d.filing.taxYear,
+                      start: "",
+                      end: "",
+                      filingDue: d.filing.filingDue,
+                    })}
+                  </p>
 
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <span
-                          className={chipColorClass(
-                            colorForMapsTo(filterPrefs.prefs, deskStage),
-                          )}
-                        >
-                          {saDeskFilterLabel(deskStage)}
-                        </span>
-                        {emails > 0 ? (
-                          <span className="filing-btn filing-btn--muted">
-                            {emails} email{emails === 1 ? "" : "s"}
-                          </span>
-                        ) : null}
-                        {badge ? (
-                          <span
-                            className={
-                              submitted
-                                ? "filing-btn filing-btn--tint-green"
-                                : d.filing.urgency === "overdue"
-                                  ? "filing-btn filing-btn--tint-red"
-                                  : "filing-btn filing-btn--tint-teal"
-                            }
-                          >
-                            {badge}
-                          </span>
-                        ) : null}
-                      </div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span
+                      className={chipColorClass(
+                        colorForMapsTo(filterPrefs.prefs, deskStage),
+                      )}
+                    >
+                      {saDeskFilterLabel(deskStage)}
+                    </span>
+                    {emails > 0 ? (
+                      <span className="filing-btn filing-btn--muted">
+                        {emails} email{emails === 1 ? "" : "s"}
+                      </span>
+                    ) : null}
+                    {badge ? (
+                      <span
+                        className={
+                          submitted
+                            ? "filing-btn filing-btn--tint-green"
+                            : d.filing.urgency === "overdue"
+                              ? "filing-btn filing-btn--tint-red"
+                              : "filing-btn filing-btn--tint-teal"
+                        }
+                      >
+                        {badge}
+                      </span>
+                    ) : null}
+                  </div>
 
-                      <p className="mono mt-auto pt-4 text-xs text-ink-soft">
-                        {identifiersLine(d.taxpayer?.nino, d.taxpayer?.utr)}
-                      </p>
-                    </>
-                  )}
-                </PendingLink>
+                  <p className="mono mt-auto pt-4 text-xs text-ink-soft">
+                    {identifiersLine(d.taxpayer?.nino, d.taxpayer?.utr)}
+                  </p>
+                </div>
               );
             })}
           </div>
@@ -282,75 +284,74 @@ export function SaDirectorsList({
                 colorForMapsTo(filterPrefs.prefs, deskStage),
               );
               return (
-                <PendingLink
+                <div
                   key={c.id}
-                  href={`/clients/${c.slug}/self-assessment`}
-                  pendingLabel={`Opening ${c.name}…`}
                   className={`panel panel-interactive client-card relative z-0 flex h-full flex-col p-5 hover:z-10 ${tint}`}
                 >
-                  {(pending) => (
-                    <>
-                      <div className="flex items-start justify-between gap-3">
-                        <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
-                          {c.name}
-                        </h2>
-                        <span
-                          className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}
-                        >
-                          {pending ? "Opening…" : "Open"}
-                        </span>
-                      </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
+                      <PendingLink
+                        href={`/clients/${c.slug}/self-assessment`}
+                        pendingLabel={`Opening ${c.name}…`}
+                        className="text-ink after:absolute after:inset-0 after:z-[1]"
+                      >
+                        {c.name}
+                      </PendingLink>
+                    </h2>
+                    <DeskStatusButton
+                      clientId={c.id}
+                      desk="sa"
+                      options={MAP_OPTIONS}
+                      value={deskStage}
+                    />
+                  </div>
 
-                      {filing ? (
-                        <p className="mt-1 text-sm text-ink-soft">
-                          SA {filing.taxYear} · file by{" "}
-                          {formatSaFilingDue({
-                            label: filing.taxYear,
-                            start: "",
-                            end: "",
-                            filingDue: filing.filingDue,
-                          })}
-                        </p>
-                      ) : (
-                        <p className="mt-1 text-sm text-ink-soft">
-                          Self Assessment
-                        </p>
-                      )}
-
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <span
-                          className={chipColorClass(
-                            colorForMapsTo(filterPrefs.prefs, deskStage),
-                          )}
-                        >
-                          {saDeskFilterLabel(deskStage)}
-                        </span>
-                        {emails > 0 ? (
-                          <span className="filing-btn filing-btn--muted">
-                            {emails} email{emails === 1 ? "" : "s"}
-                          </span>
-                        ) : null}
-                        {badge ? (
-                          <span
-                            className={
-                              submitted
-                                ? "filing-btn filing-btn--tint-green"
-                                : urgency === "overdue"
-                                  ? "filing-btn filing-btn--tint-red"
-                                  : "filing-btn filing-btn--tint-teal"
-                            }
-                          >
-                            {badge}
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <p className="mono mt-auto pt-4 text-xs text-ink-soft">
-                        {identifiersLine(c.nino, c.utr)}
-                      </p>
-                    </>
+                  {filing ? (
+                    <p className="mt-1 text-sm text-ink-soft">
+                      SA {filing.taxYear} · file by{" "}
+                      {formatSaFilingDue({
+                        label: filing.taxYear,
+                        start: "",
+                        end: "",
+                        filingDue: filing.filingDue,
+                      })}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-sm text-ink-soft">Self Assessment</p>
                   )}
-                </PendingLink>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span
+                      className={chipColorClass(
+                        colorForMapsTo(filterPrefs.prefs, deskStage),
+                      )}
+                    >
+                      {saDeskFilterLabel(deskStage)}
+                    </span>
+                    {emails > 0 ? (
+                      <span className="filing-btn filing-btn--muted">
+                        {emails} email{emails === 1 ? "" : "s"}
+                      </span>
+                    ) : null}
+                    {badge ? (
+                      <span
+                        className={
+                          submitted
+                            ? "filing-btn filing-btn--tint-green"
+                            : urgency === "overdue"
+                              ? "filing-btn filing-btn--tint-red"
+                              : "filing-btn filing-btn--tint-teal"
+                        }
+                      >
+                        {badge}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <p className="mono mt-auto pt-4 text-xs text-ink-soft">
+                    {identifiersLine(c.nino, c.utr)}
+                  </p>
+                </div>
               );
             })}
           </div>

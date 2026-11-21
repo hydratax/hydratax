@@ -789,6 +789,122 @@ export async function listBankTransactions(clientId: string) {
     .orderBy(desc(bankTransactions.dated));
 }
 
+const manualTxSchema = z.object({
+  clientId: z.string().min(1),
+  dated: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  description: z.string().trim().min(1).max(200),
+  /** Optional free-text note shown on the row “i” hover. */
+  notes: z.string().trim().max(2000).optional(),
+  /** Absolute pounds; sign comes from `direction`. */
+  amountPounds: z.number().finite().positive().max(50_000_000),
+  /** Money in → positive (income); money out → negative (expense). */
+  direction: z.enum(["in", "out"]).default("out"),
+  category: z.string().min(1).max(80).optional(),
+});
+
+/**
+ * Add a cash / manual line to the client books. Appears in VAT, SA and CT
+ * categorisers so it can be allocated to the practice’s main boxes.
+ */
+export async function addManualBankTransaction(
+  input: z.infer<typeof manualTxSchema>,
+) {
+  const session = await requireSession();
+  if (session.role === "readonly") {
+    return { ok: false as const, error: "Read-only access." };
+  }
+  const data = manualTxSchema.parse(input);
+  await getClient(data.clientId);
+
+  const { encodeManualBankDescription } = await import(
+    "@/lib/bank/manual-tx-meta"
+  );
+  const storedDescription = encodeManualBankDescription(
+    data.description,
+    data.notes,
+  );
+
+  const amountPence = Math.round(data.amountPounds * 100);
+  const signed =
+    data.direction === "in" ? amountPence : -Math.abs(amountPence);
+  const category =
+    data.category?.trim() ||
+    (data.direction === "in" ? "turnover" : "uncategorised");
+  const id = crypto.randomUUID();
+
+  if (isMemoryStore()) {
+    memoryStore.bankTransactions.push({
+      id,
+      clientId: data.clientId,
+      practiceId: session.practiceId,
+      dated: data.dated,
+      description: storedDescription,
+      amountPence: signed,
+      category,
+      confidence: "high",
+      source: "manual",
+      createdAt: new Date().toISOString(),
+    });
+  } else if (isDeskStoreConfigured()) {
+    await deskInsertBankTransactions([
+      {
+        id,
+        client_id: data.clientId,
+        dated: data.dated,
+        description: storedDescription,
+        amount_pence: signed,
+        category,
+      },
+    ]);
+  } else {
+    const { getDb, hasDatabase } = await import("@/server/db");
+    if (!hasDatabase()) {
+      return { ok: false as const, error: "Bank storage is not configured." };
+    }
+    const { bankTransactions } = await import("@/server/db/schema");
+    await getDb().insert(bankTransactions).values({
+      id,
+      practiceId: session.practiceId,
+      clientId: data.clientId,
+      dated: data.dated,
+      description: storedDescription,
+      amountPence: signed,
+      category,
+      confidence: "high",
+      source: "manual",
+    });
+  }
+
+  await appendAuditEvent({
+    practiceId: session.practiceId,
+    clientId: data.clientId,
+    actorId: session.userId,
+    action: "bank.manual_transaction",
+    entityType: "bank_transaction",
+    entityId: id,
+    detail: {
+      dated: data.dated,
+      amountPence: signed,
+      category,
+      hasNotes: Boolean(data.notes?.trim()),
+    },
+  }).catch(() => undefined);
+
+  revalidatePath("/clients");
+  revalidatePath(`/clients/${data.clientId}`);
+  revalidatePath(`/clients/${data.clientId}/vat`);
+  revalidatePath(`/clients/${data.clientId}/bank`);
+  revalidatePath(`/clients/${data.clientId}/self-assessment`);
+  revalidatePath(`/clients/${data.clientId}/corporation-tax`);
+
+  return {
+    ok: true as const,
+    id,
+    amountPence: signed,
+    category,
+  };
+}
+
 export async function updateBankCategory(
   transactionId: string,
   category: string,

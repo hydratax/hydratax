@@ -392,6 +392,20 @@ export const SA_RATES: RateFact[] = [
     },
   },
   {
+    id: "sa-mtd-itsa-mandation",
+    domain: "sa",
+    label: "MTD for Income Tax mandation",
+    value: "£50k (2026) → £30k (2027) → £20k (2028)",
+    detail:
+      "Sole traders and landlords with qualifying income over £50,000 must use Making Tax Digital for Income Tax from 6 April 2026; over £30,000 from 6 April 2027; over £20,000 from 6 April 2028. Keep digital records and send quarterly updates (due 7 Aug / 7 Nov / 7 Feb / 7 May). Quarterly updates do not replace the annual SA return.",
+    period: "From 6 Apr 2026",
+    source: {
+      title: "Using Making Tax Digital for Income Tax for the first time",
+      url: "https://www.gov.uk/guidance/use-making-tax-digital-for-income-tax/using-making-tax-digital-for-income-tax-for-the-first-time",
+      updated: "2026-11-21",
+    },
+  },
+  {
     id: "sa-itsa-timely-payment",
     domain: "sa",
     label: "ITSA Timely Payment",

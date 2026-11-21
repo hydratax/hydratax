@@ -24,6 +24,15 @@ import {
   missingBankMonthsByTaxYear,
   missingBankMonthsInPeriod,
 } from "@/lib/bank/missing-statement-months";
+import {
+  VAT_ALLOCATE_CHOICES,
+  type VatAllocateChoice,
+} from "@/lib/vat-box-allocate";
+import { ManualCashTransactionCard } from "@/components/forms/manual-cash-transaction-card";
+import {
+  isManualBankSource,
+  parseBankDescriptionMeta,
+} from "@/lib/bank/manual-tx-meta";
 
 type Tx = {
   id: string;
@@ -32,6 +41,7 @@ type Tx = {
   amountPence: number;
   category: string;
   confidence: string;
+  source?: string | null;
 };
 
 const PREVIEW_LIMIT = 25;
@@ -83,6 +93,8 @@ export function BankCategorisedView({
   missingDesk = "CT",
   periodStart,
   periodEnd,
+  vatAllocateByCategory,
+  onVatAllocateChange,
 }: {
   clientId: string;
   transactions: Tx[];
@@ -92,6 +104,9 @@ export function BankCategorisedView({
   /** When set (e.g. VAT quarter), missing months are scoped to this range only. */
   periodStart?: string | null;
   periodEnd?: string | null;
+  /** When set, each head shows an SA-style VAT box allocation dropdown. */
+  vatAllocateByCategory?: Record<string, VatAllocateChoice>;
+  onVatAllocateChange?: (category: string, choice: VatAllocateChoice) => void;
 }) {
   const router = useRouter();
   const [customCategories, setCustomCategories] =
@@ -123,7 +138,13 @@ export function BankCategorisedView({
   const searchMatches = useMemo(() => {
     if (!isSearching) return [];
     return transactions
-      .filter((t) => t.description.toLowerCase().includes(searchTrimmed))
+      .filter((t) => {
+        const meta = parseBankDescriptionMeta(t.description);
+        return (
+          meta.description.toLowerCase().includes(searchTrimmed) ||
+          (meta.notes ?? "").toLowerCase().includes(searchTrimmed)
+        );
+      })
       .sort((a, b) => b.dated.localeCompare(a.dated));
   }, [transactions, searchTrimmed, isSearching]);
 
@@ -293,28 +314,81 @@ export function BankCategorisedView({
 
   function renderRow(t: Tx, showCurrentCategory = false) {
     const isSelected = selectedIds.has(t.id);
+    const meta = parseBankDescriptionMeta(t.description);
+    const manual =
+      meta.manual || isManualBankSource(t.source);
+    const displayDesc = meta.description;
+    const noteText =
+      meta.notes ||
+      (manual ? "Cash / manual entry — allocate to a head for the practice boxes." : null);
     return (
       <tr
         key={t.id}
-        className={`group ${isSelected ? "bg-sea/5" : "hover:bg-sand/30"}`}
+        className={`group ${
+          isSelected
+            ? "bg-sea/5"
+            : manual
+              ? "bg-amber-50/80 hover:bg-amber-50"
+              : "hover:bg-sand/30"
+        }`}
       >
         <td className="px-3 py-2 align-middle">
           <input
             type="checkbox"
             className="size-4 rounded border-line"
             checked={isSelected}
-            aria-label={`Select ${t.description}`}
+            aria-label={`Select ${displayDesc}`}
             onChange={(e) => toggleSelected(t.id, e.target.checked)}
           />
         </td>
         <td className="figures px-3 py-2 align-middle whitespace-nowrap text-ink-soft">
           {t.dated}
         </td>
-        <td
-          className="max-w-0 truncate px-3 py-2 align-middle"
-          title={t.description}
-        >
-          {t.description}
+        <td className="max-w-0 px-3 py-2 align-middle">
+          <span className="inline-flex max-w-full items-center gap-1.5">
+            <span className="truncate" title={displayDesc}>
+              {displayDesc}
+            </span>
+            {manual ? (
+              <span className="abbr-info group/manual relative inline-flex shrink-0 align-middle">
+                <span
+                  tabIndex={0}
+                  role="note"
+                  className="inline-flex h-3.5 w-3.5 shrink-0 cursor-help items-center justify-center rounded-full border border-ink-soft/40 bg-white text-ink-soft transition hover:border-sea hover:text-sea focus-visible:border-sea focus-visible:text-sea focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sea/30"
+                  aria-label={`Cash / manual: ${displayDesc}`}
+                >
+                  <svg
+                    viewBox="0 0 12 12"
+                    width="8"
+                    height="8"
+                    aria-hidden="true"
+                    className="block"
+                  >
+                    <circle cx="6" cy="3.1" r="1.05" fill="currentColor" />
+                    <rect
+                      x="5.15"
+                      y="5"
+                      width="1.7"
+                      height="4.6"
+                      rx="0.85"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </span>
+                <span
+                  role="tooltip"
+                  className="pointer-events-none absolute bottom-[calc(100%+0.35rem)] left-1/2 z-50 w-56 -translate-x-1/2 rounded-lg border border-line/80 bg-white px-2.5 py-2 text-left text-[11px] font-normal leading-snug text-ink opacity-0 shadow-[0_12px_28px_-16px_rgba(15,40,45,0.45)] transition-opacity duration-150 group-hover/manual:opacity-100 group-focus-within/manual:opacity-100"
+                >
+                  <span className="block font-semibold text-ink">
+                    Cash / manual
+                  </span>
+                  <span className="mt-0.5 block text-ink-soft">
+                    {noteText}
+                  </span>
+                </span>
+              </span>
+            ) : null}
+          </span>
         </td>
         <td
           className={`figures px-3 py-2 text-right align-middle tabular-nums ${
@@ -346,7 +420,7 @@ export function BankCategorisedView({
               }
               onChange={(cat) => onCategoryChange(t.id, cat)}
             />
-            {t.confidence !== "high" ? (
+            {t.confidence !== "high" && !manual ? (
               <span
                 className="hidden shrink-0 text-[10px] text-ink-soft lg:inline"
                 title="Auto-categorisation confidence"
@@ -372,10 +446,14 @@ export function BankCategorisedView({
           </div>
         ) : null}
         <p className="text-sm text-ink-soft">
-          No bank lines yet. Upload a CSV, Excel, PDF, or photo of a UK statement
-          — transactions appear here grouped by category (fuel, insurance,
-          salaries…).
+          No bank lines yet. Upload a statement, or add a cash / manual
+          transaction below — then allocate heads to the practice boxes.
         </p>
+        <ManualCashTransactionCard
+          clientId={clientId}
+          periodStart={periodStart}
+          periodEnd={periodEnd}
+        />
       </div>
     );
   }
@@ -390,7 +468,7 @@ export function BankCategorisedView({
           <p className="mt-0.5 text-amber-900/90">{missingStatementsNote}</p>
         </div>
       ) : null}
-      <div className="grid gap-3 border-b border-line bg-sand/40 px-4 py-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 border-b border-line bg-white px-4 py-4 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <p className="text-xs font-bold uppercase text-ink-soft">Lines</p>
           <p className="figures text-lg font-semibold text-ink">
@@ -420,7 +498,7 @@ export function BankCategorisedView({
       </div>
 
       {summary.reviewHeads > 0 ? (
-        <div className="mx-4 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-ink">
+        <div className="mx-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-ink">
           <strong className="font-semibold">
             {summary.reviewHeads} provisional review head
             {summary.reviewHeads === 1 ? "" : "s"}
@@ -551,7 +629,7 @@ export function BankCategorisedView({
 
       {isSearching ? (
         <div className="overflow-hidden rounded-xl border border-line bg-white">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-sand/50 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-white px-4 py-3">
             <div>
               <h4 className="font-semibold text-ink">
                 Search results for “{searchQuery.trim()}”
@@ -649,67 +727,95 @@ export function BankCategorisedView({
             return (
               <section
                 key={category}
+                data-vat-head={category}
                 ref={(el) => {
                   sectionRefs.current[category] = el;
                 }}
                 className="overflow-hidden rounded-xl border border-line bg-white"
               >
-                <button
-                  type="button"
-                  className={`flex w-full items-center justify-between gap-3 bg-sand/50 px-4 py-3 text-left transition hover:bg-sand/80 ${isOpen ? "border-b border-line" : ""}`}
-                  aria-expanded={isOpen}
-                  onClick={() =>
-                    setOpenSections((prev) => ({
-                      ...prev,
-                      [category]: !isOpen,
-                    }))
-                  }
+                <div
+                  className={`flex flex-wrap items-center gap-2 bg-white px-4 py-3 ${isOpen ? "border-b border-line" : ""}`}
                 >
-                  <div className="min-w-0 flex-1">
-                    <h4 className="font-semibold text-ink">
-                      {sectionLabel(category, customCategories)}
-                      {isCustomCategoryId(category) ? (
-                        <span className="ml-2 text-xs font-normal uppercase tracking-wide text-violet-600">
-                          {isProvisionalReviewLabel(
-                            sectionLabel(category, customCategories),
-                          )
-                            ? "review"
-                            : "custom"}
-                        </span>
-                      ) : null}
-                    </h4>
-                    <p className="text-xs text-ink-soft">
-                      {rows.length} transaction
-                      {rows.length === 1 ? "" : "s"}
-                      {rows.length > 0 ? (
-                        <>
-                          {" "}
-                          ·{" "}
-                          <span className="figures font-medium text-ink">
-                            {gbp(total)}
-                          </span>
-                        </>
-                      ) : (
-                        " · empty"
-                      )}
-                      {category === "expense_queries" ? (
-                        <span className="ml-1">
-                          — unclear lines; roll to trade debtors until
-                          reallocated
-                        </span>
-                      ) : null}
-                    </p>
-                  </div>
-                  <span
-                    className="shrink-0 text-ink-soft transition-transform"
-                    aria-hidden
-                    style={{
-                      transform: isOpen ? "rotate(180deg)" : undefined,
-                    }}
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left transition hover:opacity-90"
+                    aria-expanded={isOpen}
+                    onClick={() =>
+                      setOpenSections((prev) => ({
+                        ...prev,
+                        [category]: !isOpen,
+                      }))
+                    }
                   >
-                    ▼
-                  </span>
-                </button>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="font-semibold text-ink">
+                        {sectionLabel(category, customCategories)}
+                        {isCustomCategoryId(category) ? (
+                          <span className="ml-2 text-xs font-normal uppercase tracking-wide text-violet-600">
+                            {isProvisionalReviewLabel(
+                              sectionLabel(category, customCategories),
+                            )
+                              ? "review"
+                              : "custom"}
+                          </span>
+                        ) : null}
+                      </h4>
+                      <p className="text-xs text-ink-soft">
+                        {rows.length} transaction
+                        {rows.length === 1 ? "" : "s"}
+                        {rows.length > 0 ? (
+                          <>
+                            {" "}
+                            ·{" "}
+                            <span className="figures font-medium text-ink">
+                              {gbp(total)}
+                            </span>
+                          </>
+                        ) : (
+                          " · empty"
+                        )}
+                        {category === "expense_queries" ? (
+                          <span className="ml-1">
+                            — unclear lines; roll to trade debtors until
+                            reallocated
+                          </span>
+                        ) : null}
+                      </p>
+                    </div>
+                    <span
+                      className="shrink-0 text-ink-soft transition-transform"
+                      aria-hidden
+                      style={{
+                        transform: isOpen ? "rotate(180deg)" : undefined,
+                      }}
+                    >
+                      ▼
+                    </span>
+                  </button>
+                  {onVatAllocateChange ? (
+                    <label className="flex shrink-0 items-center gap-1 text-xs text-ink-soft">
+                      <span className="sr-only">Allocate to VAT box</span>
+                      <select
+                        className="input max-w-[14rem] py-1.5 text-xs"
+                        value={vatAllocateByCategory?.[category] ?? "default"}
+                        disabled={pending || rows.length === 0}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) =>
+                          onVatAllocateChange(
+                            category,
+                            e.target.value as VatAllocateChoice,
+                          )
+                        }
+                      >
+                        {VAT_ALLOCATE_CHOICES.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                </div>
 
                 {isOpen ? (
                   rows.length === 0 ? (
@@ -721,7 +827,7 @@ export function BankCategorisedView({
                       {isProvisionalReviewLabel(
                         sectionLabel(category, customCategories),
                       ) ? (
-                        <div className="flex flex-wrap items-center gap-3 border-b border-amber-200/80 bg-amber-50/80 px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3">
                           <span className="text-sm text-ink">
                             Map entire head to
                           </span>
@@ -857,6 +963,15 @@ export function BankCategorisedView({
           })}
         </div>
       )}
+
+      <div className="border-t border-line pt-2">
+        <ManualCashTransactionCard
+          clientId={clientId}
+          periodStart={periodStart}
+          periodEnd={periodEnd}
+          compact
+        />
+      </div>
     </div>
   );
 }

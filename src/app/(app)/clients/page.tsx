@@ -160,14 +160,6 @@ export default async function ClientsPage({ searchParams }: Props) {
               {meta.title}
             </h1>
             <p className="mt-1 text-ink-soft">{meta.subtitle}</p>
-            <p className="mt-2 text-sm">
-              <Link
-                href="/clients"
-                className="font-semibold text-sea hover:underline"
-              >
-                ← All clients
-              </Link>
-            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link
@@ -225,14 +217,6 @@ export default async function ClientsPage({ searchParams }: Props) {
               {meta.title}
             </h1>
             <p className="mt-1 text-ink-soft">{meta.subtitle}</p>
-            <p className="mt-2 text-sm">
-              <Link
-                href="/clients"
-                className="font-semibold text-sea hover:underline"
-              >
-                ← All clients
-              </Link>
-            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link
@@ -418,16 +402,6 @@ export default async function ClientsPage({ searchParams }: Props) {
             {meta.title}
           </h1>
           <p className="mt-1 text-ink-soft">{meta.subtitle}</p>
-          {desk !== "all" ? (
-            <p className="mt-2 text-sm">
-              <Link
-                href="/clients"
-                className="font-semibold text-sea hover:underline"
-              >
-                ← All clients
-              </Link>
-            </p>
-          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           {showCompaniesHouseRefresh ? <RefreshCompaniesHouseButton /> : null}

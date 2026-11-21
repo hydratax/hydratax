@@ -5,31 +5,81 @@ import { usePathname, useSearchParams } from "next/navigation";
 
 type Phase = "idle" | "loading" | "finishing";
 
+function routeKeyFrom(pathname: string, search: string) {
+  const q = search.startsWith("?") ? search.slice(1) : search;
+  return q ? `${pathname}?${q}` : pathname;
+}
+
 /**
- * Smooth top progress bar. Advances while a navigation is pending and
- * completes only after the destination route has committed (pathname/search
- * change + paint). Driven by `html[data-nav-pending]` from PendingLink / tabs.
+ * Smooth top progress bar + “Opening…” chip. Advances while a navigation is
+ * pending and completes only after the destination route has committed
+ * (pathname/search change + paint). Driven by `html[data-nav-pending]`.
  */
 export function NavProgress() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const routeKey = `${pathname}?${searchParams?.toString() ?? ""}`;
+  const routeKey = routeKeyFrom(pathname, searchParams?.toString() ?? "");
   const [phase, setPhase] = useState<Phase>("idle");
   const [width, setWidth] = useState(0);
   const [visible, setVisible] = useState(false);
+  const [label, setLabel] = useState<string | undefined>(undefined);
   const routeAtStart = useRef(routeKey);
   const tickRef = useRef<number | null>(null);
   const hideRef = useRef<number | null>(null);
+  const safetyRef = useRef<number | null>(null);
+  const phaseRef = useRef<Phase>("idle");
 
   useEffect(() => {
-    function readPending() {
-      return Boolean(document.documentElement.dataset.navPending);
+    phaseRef.current = phase;
+  }, [phase]);
+
+  useEffect(() => {
+    function clearTimers() {
+      if (tickRef.current) {
+        window.clearInterval(tickRef.current);
+        tickRef.current = null;
+      }
+      if (hideRef.current) {
+        window.clearTimeout(hideRef.current);
+        hideRef.current = null;
+      }
+      if (safetyRef.current) {
+        window.clearTimeout(safetyRef.current);
+        safetyRef.current = null;
+      }
+    }
+
+    function finish() {
+      if (phaseRef.current === "finishing" || phaseRef.current === "idle") return;
+      if (tickRef.current) {
+        window.clearInterval(tickRef.current);
+        tickRef.current = null;
+      }
+      if (safetyRef.current) {
+        window.clearTimeout(safetyRef.current);
+        safetyRef.current = null;
+      }
+      setPhase("finishing");
+      setWidth(100);
+      hideRef.current = window.setTimeout(() => {
+        setVisible(false);
+        setPhase("idle");
+        setWidth(0);
+        setLabel(undefined);
+        delete document.documentElement.dataset.navPending;
+        hideRef.current = null;
+      }, 280);
     }
 
     function start() {
-      if (tickRef.current) window.clearInterval(tickRef.current);
-      if (hideRef.current) window.clearTimeout(hideRef.current);
-      routeAtStart.current = `${window.location.pathname}${window.location.search}`;
+      const pending = document.documentElement.dataset.navPending;
+      if (!pending) return;
+      clearTimers();
+      routeAtStart.current = routeKeyFrom(
+        window.location.pathname,
+        window.location.search,
+      );
+      setLabel(pending);
       setVisible(true);
       setPhase("loading");
       setWidth(12);
@@ -40,75 +90,61 @@ export function NavProgress() {
           return Math.min(88, w + step);
         });
       }, 180);
-    }
-
-    function finish() {
-      if (tickRef.current) {
-        window.clearInterval(tickRef.current);
-        tickRef.current = null;
-      }
-      setPhase("finishing");
-      setWidth(100);
-      hideRef.current = window.setTimeout(() => {
-        setVisible(false);
-        setPhase("idle");
-        setWidth(0);
-        delete document.documentElement.dataset.navPending;
-      }, 280);
+      // If navigation never commits (cancelled / same URL), clear eventually.
+      safetyRef.current = window.setTimeout(() => {
+        if (document.documentElement.dataset.navPending) finish();
+      }, 12_000);
     }
 
     const mo = new MutationObserver(() => {
-      if (readPending()) start();
+      if (document.documentElement.dataset.navPending) start();
     });
     mo.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["data-nav-pending"],
     });
 
-    if (readPending()) start();
+    if (document.documentElement.dataset.navPending) start();
 
     return () => {
       mo.disconnect();
-      if (tickRef.current) window.clearInterval(tickRef.current);
-      if (hideRef.current) window.clearTimeout(hideRef.current);
+      clearTimers();
     };
   }, []);
 
-  // Destination ready — complete the bar after this route commits.
+  // Destination ready — only finish after the route key actually changes.
   useEffect(() => {
     if (phase !== "loading") return;
-    const pending = document.documentElement.dataset.navPending;
-    if (!pending) return;
-    // Wait a frame so RSC content can paint, then finish.
+    if (routeKey === routeAtStart.current) return;
+
     const id = window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
-        if (document.documentElement.dataset.navPending) finishSafe();
+        if (phaseRef.current !== "loading") return;
+        if (!document.documentElement.dataset.navPending) return;
+        if (tickRef.current) {
+          window.clearInterval(tickRef.current);
+          tickRef.current = null;
+        }
+        if (safetyRef.current) {
+          window.clearTimeout(safetyRef.current);
+          safetyRef.current = null;
+        }
+        setPhase("finishing");
+        setWidth(100);
+        hideRef.current = window.setTimeout(() => {
+          setVisible(false);
+          setPhase("idle");
+          setWidth(0);
+          setLabel(undefined);
+          delete document.documentElement.dataset.navPending;
+          hideRef.current = null;
+        }, 280);
       });
     });
     return () => window.cancelAnimationFrame(id);
-
-    function finishSafe() {
-      if (tickRef.current) {
-        window.clearInterval(tickRef.current);
-        tickRef.current = null;
-      }
-      setPhase("finishing");
-      setWidth(100);
-      hideRef.current = window.setTimeout(() => {
-        setVisible(false);
-        setPhase("idle");
-        setWidth(0);
-        delete document.documentElement.dataset.navPending;
-      }, 280);
-    }
   }, [routeKey, phase]);
 
   if (!visible && phase === "idle") return null;
-
-  const label =
-    typeof document !== "undefined"
-      ? document.documentElement.dataset.navPending
-      : undefined;
 
   return (
     <div
@@ -125,7 +161,7 @@ export function NavProgress() {
           }}
         />
       </div>
-      {phase === "loading" && label ? (
+      {(phase === "loading" || phase === "finishing") && label ? (
         <p className="mx-auto mt-2 w-fit rounded-full border border-sea/20 bg-white/95 px-3 py-1 text-xs font-semibold text-sea shadow-sm backdrop-blur">
           {label}
         </p>

@@ -18,11 +18,14 @@ import {
 
 export default async function VatPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ hmrc?: string }>;
 }) {
   const session = await requireModule("vat");
   const { id: ref } = await params;
+  const { hmrc: hmrcResult } = await searchParams;
   const { client, slug, clientId } = await loadClientPage(ref, "vat");
   const [
     obligations,
@@ -83,6 +86,7 @@ export default async function VatPage({
         vatRegistrationDate={client.vatRegistrationDate ?? null}
         connected={connection.connected}
         signedIn
+        initialHmrcResult={hmrcResult ?? null}
         obligations={obligations}
         returns={returns.map((r) => {
           const boxesRaw =
@@ -131,6 +135,8 @@ export default async function VatPage({
               ? t.confidence
               : "medium",
           ),
+          source:
+            "source" in t && t.source != null ? String(t.source) : null,
         }))}
         customCategories={customCategories}
         clientSlug={slug}

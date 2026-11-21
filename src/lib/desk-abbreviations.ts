@@ -161,6 +161,51 @@ export const DESK_ABBREVIATIONS = {
     blurb:
       "Tax on taxable supplies. MTD VAT returns report boxes 1–9 for each VAT period.",
   },
+  VAT1: {
+    title: "Box 1 — VAT due on sales",
+    blurb:
+      "Output VAT charged on your taxable sales and other outputs in this period (standard and reduced rate).",
+  },
+  VAT2: {
+    title: "Box 2 — VAT due on EC acquisitions",
+    blurb:
+      "VAT due on acquisitions of goods from EU member states (Northern Ireland / acquisition VAT). Usually nil for GB-only traders.",
+  },
+  VAT3: {
+    title: "Box 3 — Total VAT due",
+    blurb:
+      "Total of Box 1 and Box 2. Calculated automatically — you do not enter this figure.",
+  },
+  VAT4: {
+    title: "Box 4 — VAT reclaimed on purchases",
+    blurb:
+      "Input VAT you can reclaim on business purchases and expenses in this period (subject to partial exemption rules).",
+  },
+  VAT5: {
+    title: "Box 5 — Net VAT",
+    blurb:
+      "Difference between Box 3 and Box 4 (always shown as a positive amount). Pay HMRC if Box 3 is higher; reclaim if Box 4 is higher.",
+  },
+  VAT6: {
+    title: "Box 6 — Total sales ex VAT",
+    blurb:
+      "Total value of sales and outputs excluding VAT (include zero-rated and exempt supplies that must be reported).",
+  },
+  VAT7: {
+    title: "Box 7 — Total purchases ex VAT",
+    blurb:
+      "Total value of purchases and inputs excluding VAT for the period.",
+  },
+  VAT8: {
+    title: "Box 8 — Goods supplied to EC",
+    blurb:
+      "Total value of goods supplied to EU member states excluding VAT (Northern Ireland / dispatch reporting). Usually nil for GB-only traders.",
+  },
+  VAT9: {
+    title: "Box 9 — Acquisitions from EC",
+    blurb:
+      "Total value of goods acquired from EU member states excluding VAT. Usually nil for GB-only traders.",
+  },
   VRN: {
     title: "VAT registration number",
     blurb:

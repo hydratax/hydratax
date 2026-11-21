@@ -9,13 +9,31 @@ import {
   type BulkSaEmailCandidate,
 } from "@/server/actions/client-communications";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
-import { formatDueShort } from "@/lib/filing-due";
+import {
+  calendarYearReminderMonths,
+  formatDueShort,
+  type CalendarReminderMonth,
+} from "@/lib/filing-due";
+import {
+  SA_DESK_FILTERS,
+  matchesSaDeskFilter,
+  mergeSaWorkStage,
+  normalizeWorkStage,
+  type SaDeskFilter,
+} from "@/lib/client-work-stage";
+import {
+  ctStatusLabel,
+  matchesCtFilter,
+  type CtClientFilter,
+} from "@/lib/ct-client-status";
 
 type AccountsProps = {
   mode: "accounts";
   candidates: BulkEmailCandidate[];
-  nextMonthLabel: string;
-  monthAfterLabel: string;
+  months: CalendarReminderMonth[];
+  years: number[];
+  defaultMonthKey: string;
+  defaultYear: number;
   defaultSubject: string;
   defaultMessage: string;
   senderEmail: string;
@@ -33,10 +51,19 @@ type SaProps = {
 
 type Props = AccountsProps | SaProps;
 
+const CT_FILTERS: Array<{ id: CtClientFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "not_started", label: "Not started" },
+  { id: "drafted", label: "Drafted" },
+  { id: "ready", label: "Ready to file" },
+  { id: "submitted", label: "Submitted" },
+  { id: "accepted", label: "Accepted" },
+];
+
 function statusLabel(status: BulkSaEmailCandidate["status"]) {
   if (status === "accepted") return "Accepted";
   if (status === "submitted") return "Submitted";
-  if (status === "draft") return "Draft";
+  if (status === "draft") return "Drafted";
   return "Not started";
 }
 
@@ -48,33 +75,69 @@ export function BulkClientEmailForm(props: Props) {
     failed: number;
     results: Array<{ name: string; ok: boolean; error?: string }>;
   } | null>(null);
-  const [windowFilter, setWindowFilter] = useState<
-    "both" | "next_month" | "month_after"
-  >("both");
-  const [statusFilter, setStatusFilter] = useState<
-    "outstanding" | "all" | "submitted"
-  >("outstanding");
+  const [saStatusFilter, setSaStatusFilter] = useState<SaDeskFilter>("all");
+  const [ctStatusFilter, setCtStatusFilter] = useState<CtClientFilter>("all");
   const [subject, setSubject] = useState(props.defaultSubject);
   const [message, setMessage] = useState(props.defaultMessage);
 
+  const accountsMonthsInitial =
+    props.mode === "accounts" ? props.months : [];
+  const accountsDefaultYear =
+    props.mode === "accounts" ? props.defaultYear : new Date().getFullYear();
+  const accountsYears = props.mode === "accounts" ? props.years : [];
+  const [year, setYear] = useState(accountsDefaultYear);
+  const months = useMemo(() => {
+    if (props.mode !== "accounts") return [];
+    return year === accountsDefaultYear
+      ? accountsMonthsInitial
+      : calendarYearReminderMonths(new Date(year, 0, 1));
+  }, [props.mode, year, accountsDefaultYear, accountsMonthsInitial]);
+  const [monthKey, setMonthKey] = useState(() => {
+    if (props.mode !== "accounts") return "";
+    return (
+      props.months.find((m) => m.key === props.defaultMonthKey)?.key ??
+      props.months[0]?.key ??
+      ""
+    );
+  });
+  const month = months.find((m) => m.key === monthKey) ?? months[0];
+
   const accountsVisible = useMemo(() => {
     if (props.mode !== "accounts") return [];
-    if (windowFilter === "both") return props.candidates;
-    return props.candidates.filter((c) => c.dueWindow === windowFilter);
-  }, [props, windowFilter]);
+    return props.candidates.filter((c) => {
+      if (monthKey && c.dueMonthKey !== monthKey) return false;
+      return matchesCtFilter(
+        {
+          status: c.ctStatus,
+          periodLabel: null,
+          dueIso: c.accountsDue,
+          dueLabel: null,
+          urgency: "ok",
+          filed: c.ctStatus === "submitted" || c.ctStatus === "accepted",
+        },
+        ctStatusFilter,
+      );
+    });
+  }, [props, monthKey, ctStatusFilter]);
 
   const saVisible = useMemo(() => {
     if (props.mode !== "sa") return [];
-    if (statusFilter === "all") return props.candidates;
-    if (statusFilter === "submitted") {
-      return props.candidates.filter(
-        (c) => c.status === "submitted" || c.status === "accepted",
+    return props.candidates.filter((c) => {
+      const filing =
+        c.status === "accepted"
+          ? "accepted"
+          : c.status === "submitted"
+            ? "submitted"
+            : c.status === "draft"
+              ? "draft"
+              : null;
+      const stage = mergeSaWorkStage(
+        normalizeWorkStage(c.workStage),
+        filing,
       );
-    }
-    return props.candidates.filter(
-      (c) => c.status === "none" || c.status === "draft",
-    );
-  }, [props, statusFilter]);
+      return matchesSaDeskFilter(stage, saStatusFilter, filing);
+    });
+  }, [props, saStatusFilter]);
 
   const visibleIds =
     props.mode === "accounts"
@@ -98,11 +161,7 @@ export function BulkClientEmailForm(props: Props) {
               .filter((c) => c.contactEmail)
               .map((c) => c.clientId)
           : props.candidates
-              .filter(
-                (c) =>
-                  c.contactEmail &&
-                  (c.status === "none" || c.status === "draft"),
-              )
+              .filter((c) => c.contactEmail)
               .map((c) => c.id),
       ),
   );
@@ -115,6 +174,26 @@ export function BulkClientEmailForm(props: Props) {
     ),
   );
 
+  function switchMonth(key: string) {
+    setMonthKey(key);
+    const m = months.find((x) => x.key === key);
+    if (m && props.mode === "accounts") {
+      setSubject(`CT600 due — {{client_name}} · ${m.label}`);
+    }
+  }
+
+  function switchYear(nextYear: number) {
+    setYear(nextYear);
+    const nextMonths = calendarYearReminderMonths(new Date(nextYear, 0, 1));
+    const keep =
+      nextMonths.find((m) => m.key.slice(5) === monthKey.slice(5)) ??
+      nextMonths[0];
+    if (keep) {
+      setMonthKey(keep.key);
+      setSubject(`CT600 due — {{client_name}} · ${keep.label}`);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="panel p-5 text-sm text-ink-soft">
@@ -124,9 +203,8 @@ export function BulkClientEmailForm(props: Props) {
         </p>
         {props.mode === "accounts" ? (
           <p className="mt-2">
-            Limited companies with annual accounts due in{" "}
-            <strong className="text-ink">{props.nextMonthLabel}</strong> or{" "}
-            <strong className="text-ink">{props.monthAfterLabel}</strong>.
+            Limited companies with a CT600 filing deadline in the selected
+            month. Deadlines are 12 months after the accounting period ends.
           </p>
         ) : (
           <p className="mt-2">
@@ -142,40 +220,54 @@ export function BulkClientEmailForm(props: Props) {
       </div>
 
       {props.mode === "accounts" ? (
-        <div className="flex flex-wrap gap-2">
-          {(
-            [
-              ["both", "Both months"],
-              ["next_month", props.nextMonthLabel],
-              ["month_after", props.monthAfterLabel],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              className={`filing-filter ${windowFilter === id ? "is-active" : ""}`}
-              onClick={() => setWindowFilter(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <>
+          <div className="flex flex-wrap gap-2">
+            {accountsYears.map((y) => (
+              <button
+                key={y}
+                type="button"
+                className={`filing-filter ${year === y ? "is-active" : ""}`}
+                onClick={() => switchYear(y)}
+              >
+                {y}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {months.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                className={`filing-filter ${monthKey === m.key ? "is-active" : ""}`}
+                onClick={() => switchMonth(m.key)}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {CT_FILTERS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                className={`filing-filter ${ctStatusFilter === f.id ? "is-active" : ""}`}
+                onClick={() => setCtStatusFilter(f.id)}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </>
       ) : (
         <div className="flex flex-wrap gap-2">
-          {(
-            [
-              ["outstanding", "Still to file"],
-              ["submitted", "Submitted"],
-              ["all", "Everyone"],
-            ] as const
-          ).map(([id, label]) => (
+          {SA_DESK_FILTERS.map((f) => (
             <button
-              key={id}
+              key={f.id}
               type="button"
-              className={`filing-filter ${statusFilter === id ? "is-active" : ""}`}
-              onClick={() => setStatusFilter(id)}
+              className={`filing-filter ${saStatusFilter === f.id ? "is-active" : ""}`}
+              onClick={() => setSaStatusFilter(f.id)}
             >
-              {label}
+              {f.label}
             </button>
           ))}
         </div>
@@ -187,6 +279,11 @@ export function BulkClientEmailForm(props: Props) {
             <p className="font-semibold text-ink">
               {visibleIds.length} listed · {withEmail.length} ready to email
             </p>
+            {props.mode === "accounts" && month ? (
+              <p className="mt-1 text-sm text-ink-soft">
+                CT600 due · {month.label}
+              </p>
+            ) : null}
             {missingEmail.length > 0 && (
               <p className="mt-1 text-sm text-ink-soft">
                 {missingEmail.length} missing email — add it on the person or
@@ -231,7 +328,7 @@ export function BulkClientEmailForm(props: Props) {
                     {props.mode === "sa" ? "Person" : "Client"}
                   </th>
                   <th className="px-4 py-2">
-                    {props.mode === "sa" ? "Filing due" : "Accounts due"}
+                    {props.mode === "sa" ? "Filing due" : "CT600 due"}
                   </th>
                   <th className="px-4 py-2">Email</th>
                 </tr>
@@ -260,15 +357,13 @@ export function BulkClientEmailForm(props: Props) {
                       </td>
                       <td className="px-4 py-2">
                         <Link
-                          href={`/clients/${c.slug}`}
+                          href={`/clients/${c.slug}/corporation-tax`}
                           className="font-semibold text-sea hover:underline"
                         >
                           {c.name}
                         </Link>
                         <p className="text-xs text-ink-soft">
-                          {c.dueWindow === "next_month"
-                            ? props.nextMonthLabel
-                            : props.monthAfterLabel}
+                          {ctStatusLabel(c.ctStatus)}
                         </p>
                       </td>
                       <td className="mono px-4 py-2">
@@ -333,7 +428,7 @@ export function BulkClientEmailForm(props: Props) {
                     >
                       {props.mode === "sa"
                         ? "No Self Assessment people in this filter."
-                        : "No clients with accounts due in the selected month window."}
+                        : "No clients with a CT600 deadline in the selected month."}
                     </td>
                   </tr>
                 )}

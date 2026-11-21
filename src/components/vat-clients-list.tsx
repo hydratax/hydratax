@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { PendingLink } from "@/components/pending-link";
 import { DeskFilterBar } from "@/components/desk-filter-bar";
+import { DeskStatusButton } from "@/components/desk-status-button";
 import { useDeskFilterPrefs } from "@/hooks/use-desk-filter-prefs";
 import {
   cardTintClass,
@@ -135,69 +136,72 @@ export function VatClientsList({
             colorForMapsTo(filterPrefs.prefs, statusKey),
           );
           return (
-            <PendingLink
+            <div
               key={c.id}
-              href={`/clients/${c.slug}/vat`}
               className={`panel panel-interactive client-card relative z-0 flex h-full flex-col p-5 hover:z-10 ${tint}`}
-              pendingLabel="Opening VAT…"
             >
-              {(pending) => (
-                <>
-                  <div className="flex items-start justify-between gap-3">
-                    <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
-                      {c.name}
-                    </h2>
-                    <span
-                      className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}
-                    >
-                      {pending ? "Opening…" : "Open"}
+              <div className="flex items-start justify-between gap-3">
+                <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
+                  <PendingLink
+                    href={`/clients/${c.slug}/vat`}
+                    className="text-ink after:absolute after:inset-0 after:z-[1]"
+                    pendingLabel="Opening VAT…"
+                  >
+                    {c.name}
+                  </PendingLink>
+                </h2>
+                <DeskStatusButton
+                  clientId={c.id}
+                  desk="vat"
+                  options={MAP_OPTIONS}
+                  value={
+                    vat.status === "not_started" ? "drafted" : vat.status
+                  }
+                />
+              </div>
+
+              <p className="mt-1 text-sm text-ink-soft">
+                {vat.periodLabel}
+                {c.type === "limited_company" ? " · Limited company" : ""}
+              </p>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span
+                  className={chipColorClass(
+                    colorForMapsTo(
+                      filterPrefs.prefs,
+                      vat.status === "not_started"
+                        ? "all"
+                        : (vat.status as VatWorkflowStatus),
+                    ),
+                  )}
+                >
+                  {vatStatusLabel(vat.status)}
+                </span>
+                {vat.nextDueLabel ? (
+                  <span className="filing-btn filing-btn--muted">
+                    Due {vat.nextDueLabel}
+                  </span>
+                ) : null}
+              </div>
+
+              <p className="mt-3 text-sm text-ink">
+                {vat.nextDueLabel ? (
+                  <>
+                    Next quarter due{" "}
+                    <span className="paye-digits font-semibold">
+                      {vat.nextDueLabel}
                     </span>
-                  </div>
+                  </>
+                ) : (
+                  <span className="text-ink-soft">No due date yet</span>
+                )}
+              </p>
 
-                  <p className="mt-1 text-sm text-ink-soft">
-                    {vat.periodLabel}
-                    {c.type === "limited_company" ? " · Limited company" : ""}
-                  </p>
-
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span
-                      className={chipColorClass(
-                        colorForMapsTo(
-                          filterPrefs.prefs,
-                          vat.status === "not_started"
-                            ? "all"
-                            : (vat.status as VatWorkflowStatus),
-                        ),
-                      )}
-                    >
-                      {vatStatusLabel(vat.status)}
-                    </span>
-                    {vat.nextDueLabel ? (
-                      <span className="filing-btn filing-btn--muted">
-                        Due {vat.nextDueLabel}
-                      </span>
-                    ) : null}
-                  </div>
-
-                  <p className="mt-3 text-sm text-ink">
-                    {vat.nextDueLabel ? (
-                      <>
-                        Next quarter due{" "}
-                        <span className="paye-digits font-semibold">
-                          {vat.nextDueLabel}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-ink-soft">No due date yet</span>
-                    )}
-                  </p>
-
-                  <p className="mono mt-auto pt-4 text-xs text-ink-soft">
-                    {c.vrn ? `VRN ${c.vrn}` : "No VRN yet"}
-                  </p>
-                </>
-              )}
-            </PendingLink>
+              <p className="mono mt-auto pt-4 text-xs text-ink-soft">
+                {c.vrn ? `VRN ${c.vrn}` : "No VRN yet"}
+              </p>
+            </div>
           );
         })}
       </div>

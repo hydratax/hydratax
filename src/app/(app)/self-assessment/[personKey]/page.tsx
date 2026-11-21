@@ -1,5 +1,11 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
+import { DeskStatusButton } from "@/components/desk-status-button";
+import {
+  SA_DESK_FILTERS,
+  mergeSaWorkStage,
+  normalizeWorkStage,
+  saDeskFilterFromStage,
+} from "@/lib/client-work-stage";
 import {
   getSa100Draft,
   isSa100BlankStart,
@@ -94,6 +100,20 @@ export default async function PersonSelfAssessmentPage({
       : null;
 
   const yearHrefBase = `/self-assessment/${personKeySlug(person.key)}`;
+  const filingStatus =
+    sa100Returns.find((r) => r.taxYear === activeYear)?.status ??
+    sa100Draft?.status ??
+    null;
+  const deskStage = saDeskFilterFromStage(
+    mergeSaWorkStage(
+      normalizeWorkStage(homeClient?.deskProfile?.workStage),
+      filingStatus,
+    ),
+    filingStatus,
+  );
+  const statusOptions = SA_DESK_FILTERS.filter((f) => f.id !== "all").map(
+    (f) => ({ id: f.id, label: f.label }),
+  );
 
   return (
     <div className="space-y-8">
@@ -109,9 +129,13 @@ export default async function PersonSelfAssessmentPage({
             Personal SA100 · tax year 6 April to 5 April · file by 31 January
           </p>
         </div>
-        <Link href="/clients?desk=sa" className="btn btn-secondary">
-          Back to people
-        </Link>
+        <DeskStatusButton
+          clientId={saClientId}
+          desk="sa"
+          options={statusOptions}
+          value={deskStage}
+          className="[&_button]:rounded-lg [&_button]:border [&_button]:border-line [&_button]:bg-sand/40 [&_button]:px-3 [&_button]:py-2 [&_button]:text-sm [&_button]:font-semibold [&_button]:text-ink"
+        />
       </div>
 
       {(!yearParam || !saIdentifiersComplete(selected)) ? (

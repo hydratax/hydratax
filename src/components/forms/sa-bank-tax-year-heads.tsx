@@ -35,6 +35,10 @@ import {
   missingMonthsForTaxYearLabel,
   missingPeriodIsoBounds,
 } from "@/lib/bank/missing-statement-months";
+import { parseMtdItsaFile } from "@/lib/mtd/parse-mtd-itsa-file";
+import { itsaQuartersForTaxYear } from "@/lib/mtd/itsa-quarters";
+import { MtdFileUploadButton } from "@/components/forms/mtd-file-upload-button";
+import { applyMtdItsaFiguresToSa100 } from "@/server/actions/mtd-itsa";
 
 type EmailActivity = {
   id: string;
@@ -447,6 +451,63 @@ export function SaBankTaxYearHeads({
             </summary>
 
             <div className="space-y-2 border-t border-line px-3 py-3">
+              <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-line bg-white px-3 py-2.5">
+                <div className="min-w-0 text-sm">
+                  <p className="font-semibold text-ink">
+                    MTD for Income Tax · quarterly updates
+                  </p>
+                  <p className="mt-0.5 text-xs text-ink-soft">
+                    Upload a bridging CSV/TXT to fill SA103F boxes. Updates are
+                    cumulative summaries — the annual return is still due 31
+                    January. Deadlines:{" "}
+                    {itsaQuartersForTaxYear(
+                      Number(year.label.slice(0, 4)),
+                    )
+                      .map(
+                        (q) =>
+                          `Q${q.index} by ${q.due.slice(8, 10)}/${q.due.slice(5, 7)}`,
+                      )
+                      .join(" · ")}
+                    .
+                  </p>
+                </div>
+                <MtdFileUploadButton
+                  disabled={pending}
+                  onFile={async (file) => {
+                    setError(null);
+                    setOk(null);
+                    const parsed = await parseMtdItsaFile(file);
+                    if (!parsed.ok) {
+                      setError(parsed.error);
+                      return;
+                    }
+                    start(async () => {
+                      try {
+                        const res = await applyMtdItsaFiguresToSa100({
+                          clientId,
+                          taxpayerId,
+                          taxYear: year.label,
+                          figures: parsed.figures as Record<string, number>,
+                        });
+                        if (!res.ok) {
+                          setError(
+                            "error" in res
+                              ? String(res.error)
+                              : "Could not apply MTD file",
+                          );
+                          return;
+                        }
+                        setOk(
+                          `Filled ${res.filledCount} SA103F box${res.filledCount === 1 ? "" : "es"} from MTD file for ${year.label}`,
+                        );
+                        router.refresh();
+                      } catch (err) {
+                        setError(messageFromUnknown(err));
+                      }
+                    });
+                  }}
+                />
+              </div>
               {missing.length && periodPhrase && bounds ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                   <p className="font-semibold">SA · Missing bank statements</p>

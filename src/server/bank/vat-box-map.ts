@@ -143,10 +143,12 @@ export type MapBankToVatResult = {
  *
  * @param lines - Categorised bank transactions for the period
  * @param overrides - Optional per-category treatment overrides
+ * @param directionOverrides - Optional per-category direction (SA-style allocate)
  */
 export function mapBankToVatBoxes(
   lines: Array<{ category: string; amountPence: number; dated: string }>,
   overrides?: Partial<Record<string, VatTreatment>>,
+  directionOverrides?: Partial<Record<string, VatDirection>>,
 ): MapBankToVatResult {
   let box1 = 0; // VAT due on sales
   let box4 = 0; // VAT reclaimed
@@ -171,7 +173,8 @@ export function mapBankToVatBoxes(
   for (const line of lines) {
     const mapping = getVatMapping(line.category);
     const treatment = overrides?.[line.category] ?? mapping.treatment;
-    const direction = mapping.direction;
+    const direction =
+      directionOverrides?.[line.category] ?? mapping.direction;
     const frac = vatFraction(treatment);
     const gross = Math.abs(line.amountPence);
 
@@ -201,6 +204,20 @@ export function mapBankToVatBoxes(
     bucket.vatPence += vatElement;
     bucket.netPence += netElement;
     buckets.set(key, bucket);
+
+    // Accountant allocate dropdowns are explicit — honour the chosen boxes with
+    // the absolute amount (do not flip purchases↔refunds from bank sign alone).
+    const explicitDirection = directionOverrides?.[line.category] != null;
+    if (explicitDirection) {
+      if (direction === "output") {
+        box1 += vatElement;
+        box6 += netElement;
+      } else if (direction === "input") {
+        box4 += vatElement;
+        box7 += netElement;
+      }
+      continue;
+    }
 
     if (direction === "output" && line.amountPence > 0) {
       // Sales — output VAT

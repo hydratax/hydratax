@@ -46,13 +46,29 @@
 
 html {
   overflow-x: clip;
+  /* Fallback when body subpixel gaps appear above sticky headers. */
+  background-color: var(--sea);
 }
 
 body {
-  background:
+  /* Sea base + 3px sea strip on top so DPR gaps above the trial banner stay teal, not paper. */
+  background-color: var(--sea);
+  background-image:
+    linear-gradient(var(--sea), var(--sea)),
     radial-gradient(1100px 520px at 12% -8%, var(--glow), transparent 58%),
     radial-gradient(800px 420px at 92% 4%, rgba(217, 119, 6, 0.08), transparent 52%),
     linear-gradient(165deg, #eef2f4 0%, var(--paper) 42%, #e8eef0 100%);
+  background-size:
+    100% 3px,
+    auto,
+    auto,
+    auto;
+  background-repeat: no-repeat;
+  background-position:
+    top left,
+    0 0,
+    0 0,
+    0 0;
   color: var(--foreground);
   font-family: var(--font-dm-sans), system-ui, sans-serif;
   min-height: 100vh;
@@ -87,8 +103,7 @@ body {
     overflow-wrap: anywhere;
   }
 
-  .pricing-plan .btn,
-  .pricing-hero .btn {
+  .pricing-plan .btn {
     white-space: normal;
     text-align: center;
     line-height: 1.25;
@@ -150,40 +165,11 @@ body {
 }
 
 .pricing-page {
-  --pricing-surface: #f3f6f5;
-  --pricing-ink-wash: #0c1614;
-}
-
-.pricing-hero {
-  position: relative;
-  overflow: hidden;
-  background:
-    radial-gradient(ellipse 70% 80% at 85% 20%, rgba(20, 184, 166, 0.22), transparent 55%),
-    linear-gradient(160deg, #071210 0%, #0c1f1c 42%, #102926 100%);
-  padding: 4.5rem 0 2.5rem;
-  color: white;
-}
-
-@media (min-width: 768px) {
-  .pricing-hero {
-    padding: 4.5rem 0 3.5rem;
-  }
-}
-
-.pricing-hero__glow {
-  pointer-events: none;
-  position: absolute;
-  inset: auto -8rem -10rem auto;
-  width: 28rem;
-  height: 28rem;
-  border-radius: 999px;
-  background: rgba(15, 118, 110, 0.28);
-  filter: blur(60px);
+  --pricing-surface: #f7f9f8;
 }
 
 .pricing-body {
-  background:
-    linear-gradient(180deg, #e8efed 0%, var(--pricing-surface) 18%, #f7f8f7 100%);
+  background: linear-gradient(180deg, #ffffff 0%, var(--pricing-surface) 40%, #f7f8f7 100%);
 }
 
 .pricing-rail {

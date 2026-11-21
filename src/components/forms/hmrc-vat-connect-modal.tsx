@@ -4,7 +4,7 @@ import { UkDateField } from "@/components/forms/uk-date-field";
 
 import { useEffect, useState, useTransition } from "react";
 import { saveVatHmrcConnectDetails } from "@/server/actions/vat";
-import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { humanizeHmrcFailure } from "@/lib/hmrc-user-messages";
 
 const ARN_STORAGE_KEY = "hydratax_hmrc_agent_arn";
 
@@ -31,14 +31,14 @@ export function HmrcVatConnectModal({
   const [vatRegDate, setVatRegDate] = useState(
     initialVatRegistrationDate?.slice(0, 10) ?? "",
   );
-  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   useEffect(() => {
     if (!open) return;
     setVrn(initialVrn?.replace(/\D/g, "").slice(0, 9) ?? "");
     setVatRegDate(initialVatRegistrationDate?.slice(0, 10) ?? "");
-    setError(null);
+    setNotice(null);
     try {
       setArn(localStorage.getItem(ARN_STORAGE_KEY) ?? "");
     } catch {
@@ -49,8 +49,12 @@ export function HmrcVatConnectModal({
   if (!open) return null;
 
   const agentBlocked = filingAs === "agent" && !signedIn;
+  const arnReady = filingAs !== "agent" || arn.trim().length > 0;
   const canSubmit =
-    vrn.length === 9 && /^\d{4}-\d{2}-\d{2}$/.test(vatRegDate) && !agentBlocked;
+    vrn.length === 9 &&
+    /^\d{4}-\d{2}-\d{2}$/.test(vatRegDate) &&
+    arnReady &&
+    !agentBlocked;
 
   return (
     <div
@@ -81,8 +85,26 @@ export function HmrcVatConnectModal({
           className="mt-6 space-y-5"
           onSubmit={(e) => {
             e.preventDefault();
-            setError(null);
-            if (agentBlocked || !canSubmit) return;
+            setNotice(null);
+            if (agentBlocked) {
+              setNotice("Sign in to HydraTax before connecting as a tax agent.");
+              return;
+            }
+            if (vrn.length !== 9) {
+              setNotice(
+                "Enter the full 9-digit VAT number before connecting to HMRC.",
+              );
+              return;
+            }
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(vatRegDate)) {
+              setNotice("Enter the VAT registration date before connecting.");
+              return;
+            }
+            if (filingAs === "agent" && !arn.trim()) {
+              setNotice("Enter your Agent Reference Number (ARN).");
+              return;
+            }
+            if (!canSubmit) return;
             start(async () => {
               try {
                 const res = await saveVatHmrcConnectDetails({
@@ -100,9 +122,13 @@ export function HmrcVatConnectModal({
                   /* ignore */
                 }
                 window.location.href = res.authorizeUrl;
-              } catch {
-                // Desk UI: freeze — FormErrorBanner is silent on desk surface.
-                setError("connect_failed");
+              } catch (err) {
+                setNotice(
+                  humanizeHmrcFailure(
+                    err instanceof Error ? err.message : null,
+                    "Could not start the HMRC connection. Check the details and try again.",
+                  ),
+                );
               }
             });
           }}
@@ -127,7 +153,7 @@ export function HmrcVatConnectModal({
                     checked={filingAs === opt.id}
                     onChange={() => {
                       setFilingAs(opt.id);
-                      setError(null);
+                      setNotice(null);
                     }}
                   />
                   {opt.label}
@@ -137,15 +163,21 @@ export function HmrcVatConnectModal({
           </fieldset>
 
           <div>
-            <label className="label" htmlFor="hmrc-vrn">
-              VAT Number
-            </label>
+            <div className="flex items-baseline justify-between gap-2">
+              <label className="label" htmlFor="hmrc-vrn">
+                VAT Number (9 digits)
+              </label>
+              <span className="mono text-xs text-ink-soft" aria-live="polite">
+                {vrn.length}/9
+              </span>
+            </div>
             <input
               id="hmrc-vrn"
               className="input mt-1.5 mono"
               inputMode="numeric"
               autoComplete="off"
-              placeholder="9-digit VRN"
+              placeholder="123456789"
+              maxLength={9}
               value={vrn}
               onChange={(e) =>
                 setVrn(e.target.value.replace(/\D/g, "").slice(0, 9))
@@ -183,7 +215,11 @@ export function HmrcVatConnectModal({
             </div>
           )}
 
-          <FormErrorBanner error={error} />
+          {notice ? (
+            <p role="status" className="text-sm font-semibold text-ink">
+              {notice}
+            </p>
+          ) : null}
 
           <button
             type="submit"
@@ -193,8 +229,8 @@ export function HmrcVatConnectModal({
             {pending
               ? "Connecting…"
               : filingAs === "agent"
-                ? "Submit to HMRC as agent →"
-                : "Submit to HMRC →"}
+                ? "Connect to HMRC as agent →"
+                : "Connect to HMRC →"}
           </button>
         </form>
       </div>

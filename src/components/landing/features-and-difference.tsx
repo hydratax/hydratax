@@ -125,7 +125,7 @@ export function FeaturesAndDifference() {
               onClick={() => setFeatureIndex(i)}
               className={`rounded-full px-3 py-1.5 text-xs font-bold transition ${
                 i === featureIndex
-                  ? "bg-ink text-white"
+                  ? "bg-sea text-white"
                   : "border border-line bg-white text-ink-soft hover:border-sea"
               }`}
             >
@@ -154,20 +154,20 @@ export function FeaturesAndDifference() {
 
       <section
         id="why-hydratax"
-        className="border-t border-line bg-ink text-white"
+        className="border-t border-line bg-sand/40"
         onMouseEnter={() => setPausedWhy(true)}
         onMouseLeave={() => setPausedWhy(false)}
       >
         <div className="mx-auto max-w-6xl px-4 py-16 md:px-6 md:py-20">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div className="max-w-2xl">
-              <p className="text-sm font-semibold uppercase tracking-[0.14em] text-teal-300/80">
+              <p className="text-sm font-semibold uppercase tracking-[0.14em] text-sea">
                 Why HydraTax
               </p>
-              <h2 className="display mt-2 text-3xl md:text-5xl">
+              <h2 className="display mt-2 text-3xl text-ink md:text-5xl">
                 What sets Hydra apart
               </h2>
-              <p className="mt-3 text-white/65">
+              <p className="mt-3 text-ink-soft">
                 Slide through the reasons practices choose Hydra — or jump to a
                 head.
               </p>
@@ -180,7 +180,7 @@ export function FeaturesAndDifference() {
                   aria-label={`Why Hydra slide ${i + 1}`}
                   onClick={() => setWhyIndex(i)}
                   className={`h-2.5 rounded-full transition ${
-                    i === whyIndex ? "w-8 bg-teal-300" : "w-2.5 bg-white/25"
+                    i === whyIndex ? "w-8 bg-sea" : "w-2.5 bg-line"
                   }`}
                 />
               ))}
@@ -189,13 +189,15 @@ export function FeaturesAndDifference() {
 
           <div
             key={why.title}
-            className="animate-slide-swap mt-10 rounded-2xl border border-white/15 bg-white/[0.06] p-8 backdrop-blur md:p-10"
+            className="animate-slide-swap mt-10 rounded-2xl border border-line bg-white p-8 md:p-10"
           >
-            <p className="mono text-xs text-teal-300/80">
+            <p className="mono text-xs text-sea">
               0{whyIndex + 1} — Hydra difference
             </p>
-            <h3 className="display mt-3 text-3xl md:text-4xl">{why.title}</h3>
-            <p className="mt-4 max-w-3xl text-base leading-relaxed text-white/70 md:text-lg">
+            <h3 className="display mt-3 text-3xl text-ink md:text-4xl">
+              {why.title}
+            </h3>
+            <p className="mt-4 max-w-3xl text-base leading-relaxed text-ink-soft md:text-lg">
               {why.body}
             </p>
             <div className="mt-8 flex flex-wrap gap-2">
@@ -206,8 +208,8 @@ export function FeaturesAndDifference() {
                   onClick={() => setWhyIndex(i)}
                   className={`rounded-lg border px-3 py-2 text-left text-xs font-semibold transition ${
                     i === whyIndex
-                      ? "border-teal-300/50 bg-white/10 text-white"
-                      : "border-white/10 text-white/50 hover:border-white/25"
+                      ? "border-sea bg-sea/5 text-ink"
+                      : "border-line text-ink-soft hover:border-sea/40"
                   }`}
                 >
                   {d.title}

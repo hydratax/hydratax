@@ -68,15 +68,27 @@ export function SiteHeader({
     };
   }, [mobileOpen]);
 
+  // Background/blur stay on the nav row only — never behind FreeTrialBanner.
+  // -top-px + pt-px + bg-sea seals DPR subpixel gaps that otherwise flash paper white.
   const shell = dark
     ? mobileOpen
-      ? "fixed inset-x-0 top-0 z-50 bg-sea-deep"
-      : "absolute inset-x-0 top-0 z-20"
+      ? "fixed inset-x-0 -top-px z-50 bg-sea pt-px"
+      : "absolute inset-x-0 -top-px z-20 bg-sea pt-px"
     : overlay
       ? mobileOpen
-        ? "fixed inset-x-0 top-0 z-50 bg-white shadow-md"
-        : "absolute inset-x-0 top-0 z-20 bg-white/55 backdrop-blur-xl"
-      : "sticky top-0 z-30 border-b border-line/80 bg-white/90 backdrop-blur-md";
+        ? "fixed inset-x-0 -top-px z-50 bg-sea pt-px"
+        : "absolute inset-x-0 -top-px z-20 bg-sea pt-px"
+      : "sticky -top-px z-30 bg-sea pt-px";
+
+  const navRow = dark
+    ? mobileOpen
+      ? "border-b border-white/10 bg-sea-deep"
+      : ""
+    : overlay
+      ? mobileOpen
+        ? "border-b border-line/80 bg-white shadow-md"
+        : "border-b border-line/40 bg-white/55 backdrop-blur-xl"
+      : "border-b border-line/80 bg-white/90 backdrop-blur-md";
 
   const brand = dark ? "text-white" : "text-ink";
   const navMuted = dark
@@ -96,6 +108,7 @@ export function SiteHeader({
   return (
     <header className={shell}>
       <FreeTrialBanner dark={dark} />
+      <div className={navRow}>
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-6 md:py-4">
         <Link href="/" className="inline-flex min-w-0 items-center gap-2.5" onClick={closeMobile}>
           <span
@@ -189,6 +202,7 @@ export function SiteHeader({
             )}
           </button>
         </div>
+      </div>
       </div>
 
       {mobileOpen ? (

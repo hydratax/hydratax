@@ -180,6 +180,33 @@ export const HMRC_FAQS: RuleFaq[] = [
       "No. Customers who started Making Tax Digital for Income Tax from 6 April 2026 still need to submit their 2025–26 Self Assessment return in the usual way by 31 January 2027. Quarterly updates during 2026–27 are summaries and do not replace that return (HMRC SA campaign, Nov 2026).",
     sourceUrl: "https://www.gov.uk/self-assessment-tax-returns",
   },
+  {
+    id: "sa-mtd-itsa-mandation",
+    domain: "sa",
+    question: "When must sole traders and landlords use Making Tax Digital for Income Tax?",
+    answer:
+      "Phased mandation by qualifying income: more than £50,000 from 6 April 2026; more than £30,000 from 6 April 2027; more than £20,000 from 6 April 2028. Keep digital records in compatible software and send quarterly income/expense updates (standard periods end 5 Jul / 5 Oct / 5 Jan / 5 Apr, due 7 Aug / 7 Nov / 7 Feb / 7 May). HMRC will not apply penalty points for late quarterly updates in 2026–27, but updates are still required before the annual return can be submitted.",
+    sourceUrl:
+      "https://www.gov.uk/guidance/use-making-tax-digital-for-income-tax/using-making-tax-digital-for-income-tax-for-the-first-time",
+  },
+  {
+    id: "sa-mtd-itsa-file-upload",
+    domain: "sa",
+    question: "Can I upload an MTD bridging file to fill Self Assessment boxes?",
+    answer:
+      "Yes. HydraTax accepts a CSV/TXT/JSON bridging file with SA103F box labels (e.g. Box 15 turnover) or common head names. Figures are treated as cumulative year-to-date pounds for the selected tax year and written into the SA100 draft self-employment section — then review before quarterly update or annual submit.",
+    sourceUrl:
+      "https://www.gov.uk/guidance/use-making-tax-digital-for-income-tax",
+  },
+  {
+    id: "vat-mtd-file-upload",
+    domain: "vat",
+    question: "Can I upload an MTD VAT file to fill the nine boxes?",
+    answer:
+      "Yes. Upload a CSV/TXT/JSON bridging file with Box 1–9 labels (or TaxMan-style 4=…12= lines). HydraTax fills the digital record for the selected VAT period. Quarters are driven from the VAT registration date (first period is clamped so it does not start before registration). Digital links via CSV import are accepted under VAT Notice 700/22.",
+    sourceUrl:
+      "https://www.gov.uk/government/publications/vat-notice-70022-making-tax-digital-for-vat/vat-notice-70022-making-tax-digital-for-vat",
+  },
 
   // —— PAYE / NI ——
   {

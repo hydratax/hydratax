@@ -8,16 +8,37 @@ import {
   type VatReminderMonth,
 } from "@/server/actions/client-communications";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
+import { calendarYearReminderMonths } from "@/lib/filing-due";
+import {
+  matchesVatFilter,
+  vatStatusLabel,
+  type VatClientFilter,
+} from "@/lib/vat-client-status";
+
+const VAT_FILTERS: Array<{ id: VatClientFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "drafted", label: "Drafted" },
+  { id: "emailed", label: "Emailed to client" },
+  { id: "completed", label: "Completed" },
+  { id: "submitted", label: "Submitted" },
+  { id: "approved", label: "Approved" },
+];
 
 export function BulkVatEmailForm({
   candidates,
-  months,
+  months: initialMonths,
+  years,
+  defaultMonthKey,
+  defaultYear,
   defaultSubject,
   defaultMessage,
   senderEmail,
 }: {
   candidates: BulkVatEmailCandidate[];
   months: VatReminderMonth[];
+  years: number[];
+  defaultMonthKey: string;
+  defaultYear: number;
   defaultSubject: string;
   defaultMessage: string;
   senderEmail: string;
@@ -29,10 +50,41 @@ export function BulkVatEmailForm({
     failed: number;
     results: Array<{ name: string; ok: boolean; error?: string }>;
   } | null>(null);
-  const [monthKey, setMonthKey] = useState(months[0]?.key ?? "");
+  const [year, setYear] = useState(defaultYear);
+  const months = useMemo(
+    () =>
+      year === defaultYear
+        ? initialMonths
+        : calendarYearReminderMonths(new Date(year, 0, 1)),
+    [year, defaultYear, initialMonths],
+  );
+  const [monthKey, setMonthKey] = useState(
+    () =>
+      initialMonths.find((m) => m.key === defaultMonthKey)?.key ??
+      initialMonths[0]?.key ??
+      "",
+  );
   const month = months.find((m) => m.key === monthKey) ?? months[0]!;
+  const [statusFilter, setStatusFilter] = useState<VatClientFilter>("all");
   const [subject, setSubject] = useState(defaultSubject);
   const [message, setMessage] = useState(defaultMessage);
+
+  const filteredCandidates = useMemo(
+    () =>
+      candidates.filter((c) =>
+        matchesVatFilter(
+          {
+            status: c.vatStatus,
+            nextDueIso: null,
+            nextDueLabel: null,
+            periodLabel: null,
+          },
+          statusFilter,
+        ),
+      ),
+    [candidates, statusFilter],
+  );
+
   const [selected, setSelected] = useState<Set<string>>(
     () =>
       new Set(
@@ -42,12 +94,12 @@ export function BulkVatEmailForm({
   const [addId, setAddId] = useState("");
 
   const selectedRows = useMemo(
-    () => candidates.filter((c) => selected.has(c.clientId)),
-    [candidates, selected],
+    () => filteredCandidates.filter((c) => selected.has(c.clientId)),
+    [filteredCandidates, selected],
   );
   const availableToAdd = useMemo(
-    () => candidates.filter((c) => !selected.has(c.clientId)),
-    [candidates, selected],
+    () => filteredCandidates.filter((c) => !selected.has(c.clientId)),
+    [filteredCandidates, selected],
   );
   const ready = selectedRows.filter((c) => c.contactEmail);
 
@@ -56,6 +108,18 @@ export function BulkVatEmailForm({
     const m = months.find((x) => x.key === key);
     if (m) {
       setSubject(`VAT return — {{client_name}} · ${m.label}`);
+    }
+  }
+
+  function switchYear(nextYear: number) {
+    setYear(nextYear);
+    const nextMonths = calendarYearReminderMonths(new Date(nextYear, 0, 1));
+    const keep =
+      nextMonths.find((m) => m.key.slice(5) === monthKey.slice(5)) ??
+      nextMonths[0];
+    if (keep) {
+      setMonthKey(keep.key);
+      setSubject(`VAT return — {{client_name}} · ${keep.label}`);
     }
   }
 
@@ -73,6 +137,19 @@ export function BulkVatEmailForm({
       </div>
 
       <div className="flex flex-wrap gap-2">
+        {years.map((y) => (
+          <button
+            key={y}
+            type="button"
+            className={`filing-filter ${year === y ? "is-active" : ""}`}
+            onClick={() => switchYear(y)}
+          >
+            {y}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
         {months.map((m) => (
           <button
             key={m.key}
@@ -81,6 +158,19 @@ export function BulkVatEmailForm({
             onClick={() => switchMonth(m.key)}
           >
             {m.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {VAT_FILTERS.map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            className={`filing-filter ${statusFilter === f.id ? "is-active" : ""}`}
+            onClick={() => setStatusFilter(f.id)}
+          >
+            {f.label}
           </button>
         ))}
       </div>
@@ -94,13 +184,17 @@ export function BulkVatEmailForm({
             </p>
             <p className="mt-1 text-sm text-ink-soft">
               {month?.label} quarterly VAT reminder
+              {statusFilter !== "all"
+                ? ` · ${VAT_FILTERS.find((f) => f.id === statusFilter)?.label}`
+                : ""}
             </p>
           </div>
 
           <ul className="max-h-[360px] divide-y divide-line overflow-auto">
             {selectedRows.length === 0 ? (
               <li className="px-4 py-8 text-center text-sm text-ink-soft">
-                No recipients yet — add a VAT client below.
+                No recipients yet — add a VAT client below, or clear the status
+                filter.
               </li>
             ) : (
               selectedRows.map((c) => (
@@ -118,6 +212,7 @@ export function BulkVatEmailForm({
                     <p className="mt-0.5 text-xs text-ink-soft">
                       {c.vrn ? `VRN ${c.vrn}` : "VAT registered"}
                       {c.contactEmail ? ` · ${c.contactEmail}` : " · No email"}
+                      {` · ${vatStatusLabel(c.vatStatus)}`}
                     </p>
                   </div>
                   <button

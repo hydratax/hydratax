@@ -18,7 +18,7 @@ import {
 } from "@/server/companies-house/api";
 import {
   EMPTY_COMPARATIVES,
-  listCorporationTaxPeriodsSinceIncorporation,
+  listRelevantCorporationTaxPeriods,
 } from "@/lib/accounting-periods";
 import { loadPriorYearComparatives } from "@/server/accounts/load-prior-year-comparatives";
 import { emptyBankLedger } from "@/lib/bank-ledger";
@@ -50,11 +50,10 @@ export default async function CorporationTaxPage({
   const incorporatedOn = ch?.incorporatedOn?.slice(0, 10) ?? null;
   const companyNumber =
     ch?.companyNumber || client.companyNumber || null;
-  const ctPeriods = listCorporationTaxPeriodsSinceIncorporation({
+  const ctPeriods = listRelevantCorporationTaxPeriods({
     incorporatedOn,
     accountsPeriodEnd: ch?.accountsPeriodEnd,
     lastAccountsMadeUpTo: ch?.lastAccountsMadeUpTo,
-    yearsAhead: 0,
   });
 
   const initialStart =

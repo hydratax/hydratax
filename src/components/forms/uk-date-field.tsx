@@ -86,10 +86,13 @@ type Props = Omit<
   value?: string;
   defaultValue?: string;
   onChange?: (iso: string) => void;
-  /** Year range for the picker (DOB-friendly by default). */
+  /** Year range for the picker (practice dates default 2010–2035). */
   minYear?: number;
   maxYear?: number;
 };
+
+/** Always six week-rows so month navigation does not resize the popover. */
+const CALENDAR_CELLS = 42;
 
 /**
  * UK date field with a HydraTax calendar popover (dd/mm/yyyy display,
@@ -104,8 +107,8 @@ export function UkDateField({
   value: controlled,
   defaultValue = "",
   onChange,
-  minYear = 1920,
-  maxYear = 2100,
+  minYear = 2010,
+  maxYear = 2035,
   placeholder = "dd/mm/yyyy",
   autoComplete = "bday",
   ...rest
@@ -202,7 +205,8 @@ export function UkDateField({
     ...Array.from({ length: lead }, () => null),
     ...Array.from({ length: dim }, (_, i) => i + 1),
   ];
-  while (cells.length % 7 !== 0) cells.push(null);
+  while (cells.length < CALENDAR_CELLS) cells.push(null);
+  if (cells.length > CALENDAR_CELLS) cells.length = CALENDAR_CELLS;
 
   return (
     <div ref={rootRef} className="relative">
@@ -325,7 +329,7 @@ export function UkDateField({
           </div>
 
           {panel === "years" ? (
-            <div className="grid max-h-52 grid-cols-4 gap-1 overflow-y-auto pr-0.5">
+            <div className="grid grid-cols-4 gap-1">
               {years.map((y) => (
                 <button
                   key={y}
@@ -380,7 +384,7 @@ export function UkDateField({
                   </span>
                 ))}
               </div>
-              <div className="grid grid-cols-7 gap-0.5">
+              <div className="grid h-[12rem] grid-cols-7 grid-rows-6 gap-0.5">
                 {cells.map((day, i) => {
                   if (day == null) {
                     return <span key={`e-${i}`} className="h-8" />;

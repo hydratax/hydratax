@@ -8,6 +8,7 @@ import {
   popularArticles,
   searchArticles,
 } from "@/lib/support-content";
+
 export function SupportHub() {
   const [query, setQuery] = useState("");
   const results = useMemo(() => searchArticles(query), [query]);
@@ -15,24 +16,22 @@ export function SupportHub() {
 
   return (
     <div className="space-y-12">
-      <section className="relative overflow-hidden rounded-2xl bg-ink px-6 py-12 text-white md:px-10 md:py-16">
-        <div className="pointer-events-none absolute -right-10 top-0 h-64 w-64 rounded-full bg-teal-500/20 blur-3xl animate-float" />
-        <div className="pointer-events-none absolute -left-8 bottom-0 h-48 w-48 rounded-full bg-amber-500/15 blur-3xl animate-float-delayed" />
-        <div className="relative max-w-2xl">
-          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-teal-300/80">
+      <section className="rounded-2xl border border-line bg-white px-6 py-10 md:px-10 md:py-12">
+        <div className="max-w-2xl">
+          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sea">
             Hydra Support
           </p>
-          <h1 className="display mt-3 text-4xl md:text-5xl">
+          <h1 className="display mt-3 text-4xl text-ink md:text-5xl">
             Answers for every head of the practice
           </h1>
-          <p className="mt-3 text-white/65">
+          <p className="mt-3 text-ink-soft">
             Search guides for CT600, MTD VAT, Self Assessment, payroll, and HMRC
             connection issues — written for accountants using HydraTax.
           </p>
           <label className="mt-8 block">
             <span className="sr-only">Search support</span>
             <input
-              className="input border-0 bg-white/95 text-ink shadow-lg"
+              className="input"
               placeholder="Describe your issue, question, or idea…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -82,7 +81,7 @@ export function SupportHub() {
                   <Link
                     key={cat.id}
                     href={`/support/category/${cat.id}`}
-                    className="gloss-card panel panel-interactive block p-5"
+                    className="gloss-card panel panel-interactive block h-full p-5"
                   >
                     <h3 className="display text-xl text-ink">{cat.title}</h3>
                     <p className="mt-2 text-sm text-ink-soft">{cat.blurb}</p>
@@ -102,7 +101,7 @@ export function SupportHub() {
                 <Link
                   key={a.slug}
                   href={`/support/${a.slug}`}
-                  className="gloss-card panel panel-interactive block p-5"
+                  className="gloss-card panel panel-interactive block h-full p-5"
                 >
                   <h3 className="font-semibold text-ink">{a.title}</h3>
                   <p className="mt-1 text-sm text-ink-soft">{a.summary}</p>
@@ -117,8 +116,8 @@ export function SupportHub() {
         <div>
           <h2 className="display text-2xl text-ink">Still stuck?</h2>
           <p className="mt-2 text-sm text-ink-soft">
-            Send the client name, filing type, period, and correlation ID from
-            the audit trail — Hydra support can move faster with those details.
+            Send the client name, filing type, period, and any reference from
+            the filing desk — support can move faster with those details.
           </p>
         </div>
         <Link

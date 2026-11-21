@@ -4,6 +4,7 @@ import {
   corporationTaxAccountingPeriods,
   defaultAccountingReferenceDate,
   listCorporationTaxPeriodsSinceIncorporation,
+  listRelevantCorporationTaxPeriods,
   twelveMonthCtPeriodEnd,
 } from "@/lib/accounting-periods";
 
@@ -93,5 +94,39 @@ describe("Companies House vs CT600 first year", () => {
       (p) => p.start === "2025-03-01" && p.end === "2026-02-28",
     );
     expect(fullYear).toBeTruthy();
+  });
+
+  it("proposes first-year CT600 split for a new incorporation", () => {
+    const periods = listRelevantCorporationTaxPeriods({
+      incorporatedOn: "2025-01-15",
+      now: new Date("2026-11-21T12:00:00Z"),
+    });
+    expect(periods).toHaveLength(2);
+    expect(periods[0]).toMatchObject({
+      start: "2025-01-15",
+      end: "2026-01-14",
+      filingDue: "2027-01-31",
+      firstYear: true,
+    });
+    expect(periods[1]).toMatchObject({
+      start: "2026-01-15",
+      end: "2026-01-31",
+      filingDue: "2027-01-31",
+      firstYear: true,
+    });
+  });
+
+  it("lists only the latest year for an established company", () => {
+    const periods = listRelevantCorporationTaxPeriods({
+      incorporatedOn: "2020-01-12",
+      lastAccountsMadeUpTo: "2025-01-31",
+      now: new Date("2026-11-21T12:00:00Z"),
+    });
+    expect(periods).toHaveLength(1);
+    expect(periods[0]).toMatchObject({
+      start: "2025-02-01",
+      end: "2026-01-31",
+      filingDue: "2027-01-31",
+    });
   });
 });

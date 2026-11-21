@@ -51,6 +51,21 @@ describe("mapBankToVatBoxes", () => {
     expect(Number(result.boxes.vatDueSales)).toBe(5_00);
     expect(Number(result.boxes.totalValueSalesExVAT)).toBe(100_00);
   });
+
+  it("honours explicit purchase allocate even when the bank line is money-in", () => {
+    const result = mapBankToVatBoxes(
+      [
+        { category: "turnover", amountPence: 120_00, dated: "2026-01-10" },
+        { category: "consultancy", amountPence: 120_00, dated: "2026-01-11" },
+        { category: "expense_queries", amountPence: -100_00, dated: "2026-01-12" },
+      ],
+      { consultancy: "standard", expense_queries: "zero" },
+      { consultancy: "input", expense_queries: "input" },
+    );
+    expect(Number(result.boxes.vatDueSales)).toBe(20_00);
+    expect(Number(result.boxes.vatReclaimedCurrPeriod)).toBe(20_00);
+    expect(Number(result.boxes.totalValuePurchasesExVAT)).toBe(200_00);
+  });
 });
 
 describe("vatFraction", () => {

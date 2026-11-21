@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { PendingLink } from "@/components/pending-link";
 import { DeskFilterBar } from "@/components/desk-filter-bar";
+import { DeskStatusButton } from "@/components/desk-status-button";
 import { useDeskFilterPrefs } from "@/hooks/use-desk-filter-prefs";
 import {
   cardTintClass,
@@ -138,64 +139,65 @@ export function CtClientsList({ clients }: { clients: CtClientListItem[] }) {
             tint = cardTintClass("violet");
           }
           return (
-            <PendingLink
+            <div
               key={c.id}
-              href={`/clients/${c.slug}/corporation-tax`}
               className={`panel panel-interactive client-card relative z-0 flex h-full flex-col p-5 hover:z-10 ${tint}`}
-              pendingLabel="Opening CT600…"
             >
-              {(pending) => (
-                <>
-                  <div className="flex items-start justify-between gap-3">
-                    <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
-                      {c.name}
-                    </h2>
-                    <span
-                      className={`open-chip shrink-0 ${pending ? "is-pending" : ""}`}
-                    >
-                      {pending ? "Opening…" : "Open"}
-                    </span>
-                  </div>
+              <div className="flex items-start justify-between gap-3">
+                <h2 className="display min-w-0 flex-1 text-2xl leading-tight text-ink">
+                  <PendingLink
+                    href={`/clients/${c.slug}/corporation-tax`}
+                    className="text-ink after:absolute after:inset-0 after:z-[1]"
+                    pendingLabel="Opening CT600…"
+                  >
+                    {c.name}
+                  </PendingLink>
+                </h2>
+                <DeskStatusButton
+                  clientId={c.id}
+                  desk="ct"
+                  options={MAP_OPTIONS}
+                  value={ct.status}
+                />
+              </div>
 
-                  <p className="mt-1 text-sm text-ink-soft">
-                    {ct.periodLabel ?? "Accounting period not set"}
-                  </p>
+              <p className="mt-1 text-sm text-ink-soft">
+                {ct.periodLabel ?? "Accounting period not set"}
+              </p>
 
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span
-                      className={chipColorClass(
-                        colorForMapsTo(filterPrefs.prefs, ct.status),
-                      )}
-                    >
-                      {ctStatusLabel(ct.status)}
-                    </span>
-                    {ct.dueLabel ? (
-                      <span
-                        className={
-                          ct.filed
-                            ? chipColorClass(
-                                colorForMapsTo(filterPrefs.prefs, "submitted"),
-                              )
-                            : ct.urgency === "overdue"
-                              ? "filing-btn filing-btn--tint-red"
-                              : ct.urgency === "due_soon"
-                                ? "filing-btn filing-btn--tint-violet"
-                                : "filing-btn filing-btn--muted"
-                        }
-                      >
-                        {ct.filed ? ct.dueLabel : `Due ${ct.dueLabel}`}
-                      </span>
-                    ) : null}
-                  </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span
+                  className={chipColorClass(
+                    colorForMapsTo(filterPrefs.prefs, ct.status),
+                  )}
+                >
+                  {ctStatusLabel(ct.status)}
+                </span>
+                {ct.dueLabel ? (
+                  <span
+                    className={
+                      ct.filed
+                        ? chipColorClass(
+                            colorForMapsTo(filterPrefs.prefs, "submitted"),
+                          )
+                        : ct.urgency === "overdue"
+                          ? "filing-btn filing-btn--tint-red"
+                          : ct.urgency === "due_soon"
+                            ? "filing-btn filing-btn--tint-violet"
+                            : "filing-btn filing-btn--muted"
+                    }
+                  >
+                    {ct.filed ? ct.dueLabel : `Due ${ct.dueLabel}`}
+                  </span>
+                ) : null}
+              </div>
 
-                  <p className="mono mt-auto pt-4 text-xs text-ink-soft">
-                    {c.utr
-                      ? `Company UTR ${maskUtr(c.utr)}`
-                      : "No company UTR yet"}
-                  </p>
-                </>
-              )}
-            </PendingLink>
+              <p className="mono mt-auto pt-4 text-xs text-ink-soft">
+                {c.utr
+                  ? `Company UTR ${maskUtr(c.utr)}`
+                  : "No company UTR yet"}
+              </p>
+            </div>
           );
         })}
       </div>

@@ -2,6 +2,7 @@ import { requireSession } from "@/server/auth/session";
 import { isPlatformAdmin } from "@/server/auth/admin";
 import { isPresentationDemoMode } from "@/server/demo/presentation-mode";
 import { AppShellHeader } from "@/components/app-shell-header";
+import { LearnerbeeCoachBubble } from "@/components/learnerbee/coach-bubble";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const session = await requireSession();
@@ -58,6 +59,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       <main className="mx-auto max-w-6xl px-4 py-8 md:px-6 md:py-10">
         {children}
       </main>
+      <LearnerbeeCoachBubble />
     </div>
   );
 }

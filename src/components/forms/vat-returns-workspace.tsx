@@ -3,11 +3,19 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  draftVatBoxesFromBank,
   prepareVatReturnFromBoxes,
   pullVatBoxesFromBooks,
   refreshVatObligationsFromHmrc,
   submitPreparedVatReturn,
 } from "@/server/actions/vat";
+import {
+  buildVatOverridesFromChoices,
+  categoriesNeedingVatAllocate,
+  type VatAllocateChoice,
+} from "@/lib/vat-box-allocate";
+import { parseMtdVatFile } from "@/lib/mtd/parse-mtd-vat-file";
+import { MtdFileUploadButton } from "@/components/forms/mtd-file-upload-button";
 import { disconnectHmrcAction } from "@/server/actions/hmrc-connect";
 import {
   gatherFraudMetadata,
@@ -15,6 +23,7 @@ import {
 } from "@/components/fraud-metadata";
 import { HmrcVatConnectModal } from "@/components/forms/hmrc-vat-connect-modal";
 import {
+  txsForPeriod,
   VatBooksBankPanel,
   VatQuarterBreakdowns,
 } from "@/components/forms/vat-bank-desk";
@@ -26,6 +35,11 @@ import { money } from "@/lib/format";
 import { pence } from "@/server/money/pence";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { EmailToClientButton } from "@/components/forms/email-to-client-button";
+import {
+  humanizeHmrcFailure,
+  isHmrcSuccessResult,
+  messageForHmrcResult,
+} from "@/lib/hmrc-user-messages";
 import {
   TrialSubmitConfirmPanel,
   useTrialSubmitGate,
@@ -71,6 +85,7 @@ type Obligation = {
   due: string;
   status: string;
   received?: string;
+  title?: string;
 };
 
 type ReturnRow = {
@@ -89,6 +104,7 @@ type BankTx = {
   amountPence: number;
   category: string;
   confidence: string;
+  source?: string | null;
 };
 
 type BoxKey = (typeof VAT_BOX_DEFINITIONS)[number]["key"];
@@ -128,8 +144,20 @@ function parsePounds(raw: string): number {
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
+/** Accounting display: thousands commas + two decimal places (en-GB). */
 function penceToField(penceValue: number): string {
-  return (penceValue / 100).toFixed(2);
+  return new Intl.NumberFormat("en-GB", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(penceValue / 100);
+}
+
+function formatAccountingField(raw: string): string {
+  const cleaned = raw.replace(/[£,\s]/g, "").trim();
+  if (!cleaned) return "";
+  const n = Number.parseFloat(cleaned);
+  if (!Number.isFinite(n)) return raw;
+  return penceToField(Math.round(n * 100));
 }
 
 function prettyDate(iso: string) {
@@ -165,7 +193,7 @@ function boxesFromStored(
   for (const key of Object.keys(EMPTY_BOXES) as BoxKey[]) {
     const raw = stored[key];
     if (raw == null || raw === "") continue;
-    next[key] = String(raw);
+    next[key] = formatAccountingField(String(raw));
   }
   return next;
 }
@@ -194,6 +222,7 @@ export function VatReturnsWorkspace({
   vatRegistrationDate = null,
   connected,
   signedIn,
+  initialHmrcResult = null,
   obligations,
   returns,
   bankTransactionCount = 0,
@@ -209,6 +238,8 @@ export function VatReturnsWorkspace({
   vatRegistrationDate?: string | null;
   connected: boolean;
   signedIn: boolean;
+  /** From `?hmrc=` after OAuth return. */
+  initialHmrcResult?: string | null;
   obligations: Obligation[];
   returns: ReturnRow[];
   bankTransactionCount?: number;
@@ -222,6 +253,15 @@ export function VatReturnsWorkspace({
   const router = useRouter();
   const [connectOpen, setConnectOpen] = useState(false);
   const [pullOpen, setPullOpen] = useState(false);
+  const [pullPeriod, setPullPeriod] = useState<{
+    periodKey: string;
+    start: string;
+    end: string;
+    title?: string;
+  } | null>(null);
+  const [vatAllocateByCategory, setVatAllocateByCategory] = useState<
+    Record<string, VatAllocateChoice>
+  >({});
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [pending, start] = useTransition();
@@ -242,10 +282,40 @@ export function VatReturnsWorkspace({
   );
   const [boxes, setBoxes] = useState<BoxInputs>({ ...EMPTY_BOXES });
   const [message, setMessage] = useState<string | null>(null);
+  const [hmrcNotice, setHmrcNotice] = useState<{
+    text: string;
+    ok: boolean;
+  } | null>(() => {
+    const text = messageForHmrcResult(initialHmrcResult);
+    if (!text) return null;
+    return { text, ok: isHmrcSuccessResult(initialHmrcResult) };
+  });
   const [error, setError] = useState<string | null>(null);
   const userCustomPeriodsRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipNextAutosaveRef = useRef(true);
+  const hmrcQueryClearedRef = useRef(false);
+
+  useEffect(() => {
+    if (!initialHmrcResult || hmrcQueryClearedRef.current) return;
+    hmrcQueryClearedRef.current = true;
+    const text = messageForHmrcResult(initialHmrcResult);
+    if (text) {
+      setHmrcNotice({
+        text,
+        ok: isHmrcSuccessResult(initialHmrcResult),
+      });
+    }
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("hmrc")) {
+        url.searchParams.delete("hmrc");
+        window.history.replaceState({}, "", url.pathname + url.search);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [initialHmrcResult]);
 
   const hasVrn = Boolean(vrn);
   const hasVatRegDate = Boolean(
@@ -690,16 +760,92 @@ export function VatReturnsWorkspace({
   }
 
   function confirmPullStatements(selected: BankStatementDocSummary[]) {
-    if (!obligation || !vatIdsReady || selected.length === 0) return;
+    const period = pullPeriod ?? obligation;
+    if (!period || !vatIdsReady || selected.length === 0) return;
     setPullOpen(false);
     start(async () => {
       setError(null);
       try {
-        const res = await pullVatBoxesFromBooks({
+        // Pull statements into the ledger / period view — boxes filled separately.
+        await pullVatBoxesFromBooks({
+          clientId,
+          periodStart: period.start,
+          periodEnd: period.end,
+          documentIds: selected.map((d) => d.id),
+        });
+        setMessage(
+          `Transactions pulled for ${period.title ?? period.periodKey}. Allocate heads, then fill boxes from the transactions card.`,
+        );
+        router.refresh();
+        openPeriodTransactionsCard(period);
+      } catch {
+        /* freeze */
+      } finally {
+        setPullPeriod(null);
+      }
+    });
+  }
+
+  function openPeriodTransactionsCard(
+    period: { periodKey: string; start: string },
+    highlightCategory?: string,
+  ) {
+    requestAnimationFrame(() => {
+      const id = `vat-categorised-${period.periodKey}-${period.start}`;
+      const el = document.getElementById(id);
+      if (!el) return;
+      const details = el.closest("details");
+      if (details && !details.open) details.open = true;
+      const head =
+        highlightCategory != null
+          ? el.querySelector(
+              `[data-vat-head="${CSS.escape(highlightCategory)}"]`,
+            )
+          : null;
+      const target = head instanceof HTMLElement ? head : el;
+      if (head instanceof HTMLElement) {
+        const expandBtn = head.querySelector(
+          'button[aria-expanded="false"]',
+        );
+        if (expandBtn instanceof HTMLElement) expandBtn.click();
+      }
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function fillBoxesFromTransactionsCard() {
+    if (!obligation || !vatIdsReady) return;
+    const periodLines = txsForPeriod(
+      bankTransactions,
+      {
+        periodKey: obligation.periodKey,
+        start: obligation.start,
+        end: obligation.end,
+      },
+      vatRegistrationDate,
+    );
+    const needing = categoriesNeedingVatAllocate(
+      periodLines.map((t) => t.category),
+      vatAllocateByCategory,
+    );
+    if (periodLines.length > 0 && needing.length > 0) {
+      setMessage(
+        "Allocate each transaction head to a VAT box, then fill boxes from the transactions card.",
+      );
+      openPeriodTransactionsCard(obligation, needing[0]);
+      return;
+    }
+    start(async () => {
+      setError(null);
+      try {
+        const { treatments, directions } =
+          buildVatOverridesFromChoices(vatAllocateByCategory);
+        const res = await draftVatBoxesFromBank({
           clientId,
           periodStart: obligation.start,
           periodEnd: obligation.end,
-          documentIds: selected.map((d) => d.id),
+          treatmentOverrides: treatments,
+          directionOverrides: directions,
         });
         if (!res.ok || !res.boxes) return;
         const filled = boxesFromRollup(res.boxes);
@@ -707,18 +853,8 @@ export function VatReturnsWorkspace({
         skipNextAutosaveRef.current = false;
         persistBoxesNow(filled);
         setMessage(
-          `VAT boxes filled from ${res.periodLines} bank line${res.periodLines === 1 ? "" : "s"}`,
+          `VAT boxes filled from transactions card · ${res.periodLines} line${res.periodLines === 1 ? "" : "s"}`,
         );
-        router.refresh();
-        requestAnimationFrame(() => {
-          const id = `vat-categorised-${obligation.periodKey}-${obligation.start}`;
-          const el = document.getElementById(id);
-          if (el) {
-            const details = el.closest("details");
-            if (details && !details.open) details.open = true;
-            el.scrollIntoView({ behavior: "smooth", block: "start" });
-          }
-        });
       } catch {
         /* freeze */
       }
@@ -843,9 +979,9 @@ export function VatReturnsWorkspace({
         ) : null}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] lg:items-start lg:gap-6">
-        <aside className="flex min-w-0 flex-col gap-4">
-          <div className="panel w-full p-4">
+      <div className="grid gap-4 lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] lg:items-stretch lg:gap-6">
+        <aside className="flex min-h-0 min-w-0 flex-col gap-4">
+          <div className="panel w-full shrink-0 p-4">
             <h2 className="inline-flex items-center gap-1 text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
               VAT periods
               <AbbrInfo code="VAT" />
@@ -976,17 +1112,18 @@ export function VatReturnsWorkspace({
             </div>
           </div>
 
-          <div className="w-full">
+          <div className="flex min-h-0 w-full flex-1 flex-col">
             <VatBooksBankPanel
               clientId={clientId}
               clientSlug={clientSlug}
               bankStatements={bankStatements}
               allowUpload
+              fillHeight
             />
           </div>
 
           {filedReturns.length > 0 ? (
-            <div className="panel w-full p-3">
+            <div className="panel w-full shrink-0 p-3">
               <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
                 Submitted
               </h2>
@@ -1028,10 +1165,10 @@ export function VatReturnsWorkspace({
           ) : null}
         </aside>
 
-        {/* Main filing card */}
-        <section className="min-w-0">
-          <div className="panel overflow-hidden">
-            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
+        {/* Main filing card — stretches to match left column bottom */}
+        <section className="flex min-h-0 min-w-0 flex-col">
+          <div className="panel flex h-full min-h-0 flex-col overflow-hidden">
+            <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-line px-5 py-4">
               <div>
                 <h2 className="display text-2xl text-ink">
                   File next VAT return to HMRC
@@ -1066,12 +1203,19 @@ export function VatReturnsWorkspace({
               )}
             </div>
 
-            <div className="p-5">
+            <div className="flex flex-1 flex-col p-5">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
-                  Create digital record
-                </h3>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
+                    Create digital record
+                  </h3>
+                  {obligation ? (
+                    <p className="mt-1 text-xs text-ink-soft">
+                      {formatPeriodRange(obligation.start, obligation.end)}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   <button
                     type="button"
                     className="btn btn-secondary text-xs"
@@ -1079,48 +1223,92 @@ export function VatReturnsWorkspace({
                       pending ||
                       !obligation ||
                       !vatIdsReady ||
-                      (bankStatements.length === 0 &&
-                        bankTransactionCount <= 0)
+                      bankTransactionCount <= 0
                     }
-                    onClick={() => {
-                      if (!obligation || !vatIdsReady) return;
-                      setPullOpen(true);
-                    }}
+                    onClick={() => fillBoxesFromTransactionsCard()}
                   >
                     {pending
-                      ? "Pulling…"
-                      : obligation
-                        ? `Fill boxes from books · ${periodTitle(obligation)}`
-                        : "Select a VAT period first"}
+                      ? "Filling…"
+                      : "Fill boxes from transactions card"}
                   </button>
-                  {obligation ? (
-                    <span className="text-xs text-ink-soft">
-                      {formatPeriodRange(obligation.start, obligation.end)}
-                    </span>
-                  ) : null}
+                  <MtdFileUploadButton
+                    disabled={pending || !obligation || !vatIdsReady}
+                    onFile={async (file) => {
+                      if (!obligation || !vatIdsReady) return;
+                      setError(null);
+                      const parsed = await parseMtdVatFile(file);
+                      if (!parsed.ok) return;
+                      const filled: BoxInputs = {
+                        ...EMPTY_BOXES,
+                        vatDueSales: penceToField(
+                          Math.round(parsed.boxes.vatDueSales * 100),
+                        ),
+                        vatDueAcquisitions: penceToField(
+                          Math.round(parsed.boxes.vatDueAcquisitions * 100),
+                        ),
+                        totalVatDue: penceToField(
+                          Math.round(parsed.boxes.totalVatDue * 100),
+                        ),
+                        vatReclaimedCurrPeriod: penceToField(
+                          Math.round(
+                            parsed.boxes.vatReclaimedCurrPeriod * 100,
+                          ),
+                        ),
+                        netVatDue: penceToField(
+                          Math.round(parsed.boxes.netVatDue * 100),
+                        ),
+                        totalValueSalesExVAT: penceToField(
+                          Math.round(parsed.boxes.totalValueSalesExVAT * 100),
+                        ),
+                        totalValuePurchasesExVAT: penceToField(
+                          Math.round(
+                            parsed.boxes.totalValuePurchasesExVAT * 100,
+                          ),
+                        ),
+                        totalValueGoodsSuppliedExVAT: penceToField(
+                          Math.round(
+                            parsed.boxes.totalValueGoodsSuppliedExVAT * 100,
+                          ),
+                        ),
+                        totalAcquisitionsExVAT: penceToField(
+                          Math.round(
+                            parsed.boxes.totalAcquisitionsExVAT * 100,
+                          ),
+                        ),
+                      };
+                      setBoxes(filled);
+                      skipNextAutosaveRef.current = false;
+                      persistBoxesNow(filled);
+                      setMessage(
+                        `VAT boxes filled from MTD file · ${parsed.filledCount} figure${parsed.filledCount === 1 ? "" : "s"}`,
+                      );
+                    }}
+                  />
                 </div>
               </div>
-              <ul className="mt-3 w-full space-y-1">
+              <ul className="mt-4 flex min-h-0 w-full flex-1 flex-col gap-2">
                 {VAT_BOX_DEFINITIONS.map((def) => {
                   const computed = COMPUTED.includes(def.key);
                   const value = computed
                     ? derived[def.key as "totalVatDue" | "netVatDue"]
                     : boxes[def.key];
+                  const infoCode = `VAT${def.id}` as const;
                   return (
                     <li
                       key={def.key}
-                      className={`grid grid-cols-[1.75rem_minmax(0,1fr)_auto] items-center gap-x-3 rounded-lg px-1.5 py-1.5 ${
+                      className={`grid min-h-[3.25rem] flex-1 grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-x-3 rounded-lg px-2.5 py-2.5 sm:min-h-[3.5rem] ${
                         computed ? "bg-sea/5" : ""
                       }`}
                     >
-                      <span className="flex size-7 items-center justify-center rounded-full bg-sea text-[11px] font-bold text-white">
+                      <span className="flex size-9 items-center justify-center rounded-full bg-sea text-sm font-bold text-white">
                         {def.id}
                       </span>
-                      <span className="min-w-0 text-sm leading-snug text-ink">
-                        {BOX_SHORT[def.key]}
+                      <span className="inline-flex min-w-0 items-center gap-1.5 text-sm leading-snug text-ink sm:text-[0.95rem]">
+                        <span className="min-w-0">{BOX_SHORT[def.key]}</span>
+                        <AbbrInfo code={infoCode} force className="shrink-0" />
                       </span>
                       <input
-                        className={`input mono !h-8 !min-h-0 !w-[6.5rem] shrink-0 py-1 text-right text-sm ${
+                        className={`input mono figures !h-11 !min-h-0 !w-[9.25rem] shrink-0 py-2.5 text-right text-sm tabular-nums ${
                           computed ? "font-semibold" : ""
                         }`}
                         inputMode="decimal"
@@ -1128,14 +1316,35 @@ export function VatReturnsWorkspace({
                         disabled={!vatIdsReady}
                         value={value}
                         placeholder="0.00"
+                        onFocus={(e) => {
+                          if (computed) return;
+                          const raw = String(value ?? "")
+                            .replace(/[£,\s]/g, "")
+                            .trim();
+                          // Clear zero placeholders so the accountant can type straight away.
+                          if (!raw || Number.parseFloat(raw) === 0) {
+                            setBox(def.key, "");
+                            return;
+                          }
+                          e.currentTarget.select();
+                        }}
                         onChange={(e) => setBox(def.key, e.target.value)}
+                        onBlur={() => {
+                          if (computed) return;
+                          const formatted = formatAccountingField(
+                            boxes[def.key] ?? "",
+                          );
+                          if (formatted !== boxes[def.key]) {
+                            setBox(def.key, formatted);
+                          }
+                        }}
                         aria-label={`Box ${def.id}`}
                       />
                     </li>
                   );
                 })}
               </ul>
-              <p className="mt-3 text-xs text-ink-soft">
+              <p className="mt-4 shrink-0 text-sm text-ink-soft">
                 Net VAT due:{" "}
                 <span className="mono font-semibold text-ink">
                   {money(derived.pence.netVatDue)}
@@ -1143,7 +1352,7 @@ export function VatReturnsWorkspace({
               </p>
             </div>
 
-            <div className="space-y-3 border-t border-line bg-sand/30 px-5 py-4">
+            <div className="mt-auto space-y-3 border-t border-line bg-sand/30 px-5 py-4">
               <FormErrorBanner error={error} />
               <TrialSubmitConfirmPanel
                 gateError={trialGate.gateError}
@@ -1154,46 +1363,84 @@ export function VatReturnsWorkspace({
                 onConfirm={() => {
                   if (!obligation || !vatIdsReady) return;
                   trialGate.endTrialThen(async ({ confirmEndTrial }) => {
-                    await prepareVatReturnFromBoxes({
-                      clientId,
-                      periodKey: obligation.periodKey,
-                      periodStart: obligation.start,
-                      periodEnd: obligation.end,
-                      boxes: derived.pence,
-                    });
-                    const fraudMetadata = gatherFraudMetadata();
-                    const res = await submitPreparedVatReturn({
-                      clientId,
-                      periodKey: obligation.periodKey,
-                      periodStart: obligation.start,
-                      periodEnd: obligation.end,
-                      fraudMetadata,
-                      confirmEndTrial,
-                    });
-                    const bundle =
-                      (res as { hmrcFormBundleNumber?: string })
-                        .hmrcFormBundleNumber ??
-                      (res as { result?: { hmrcFormBundleNumber?: string } })
-                        .result?.hmrcFormBundleNumber ??
-                      "accepted";
-                    setMessage(`Submitted to HMRC · ${bundle}`);
-                    router.refresh();
+                    try {
+                      await prepareVatReturnFromBoxes({
+                        clientId,
+                        periodKey: obligation.periodKey,
+                        periodStart: obligation.start,
+                        periodEnd: obligation.end,
+                        boxes: derived.pence,
+                      });
+                      const fraudMetadata = gatherFraudMetadata();
+                      const res = await submitPreparedVatReturn({
+                        clientId,
+                        periodKey: obligation.periodKey,
+                        periodStart: obligation.start,
+                        periodEnd: obligation.end,
+                        fraudMetadata,
+                        confirmEndTrial,
+                      });
+                      const bundle =
+                        (res as { hmrcFormBundleNumber?: string })
+                          .hmrcFormBundleNumber ??
+                        (res as { result?: { hmrcFormBundleNumber?: string } })
+                          .result?.hmrcFormBundleNumber ??
+                        "accepted";
+                      setHmrcNotice(null);
+                      setMessage(`Submitted to HMRC · ${bundle}`);
+                      router.refresh();
+                    } catch (err) {
+                      if (!trialGate.captureSubmitError(err)) {
+                        setMessage(null);
+                        setHmrcNotice({
+                          text: humanizeHmrcFailure(
+                            err instanceof Error ? err.message : null,
+                          ),
+                          ok: false,
+                        });
+                      }
+                    }
                   });
                 }}
               />
+              {hmrcNotice ? (
+                <p
+                  role="status"
+                  className={`text-sm font-semibold ${
+                    hmrcNotice.ok ? "text-ok" : "text-ink"
+                  }`}
+                >
+                  {hmrcNotice.text}
+                </p>
+              ) : null}
               {message && (
                 <p className="text-sm font-semibold text-ok">{message}</p>
               )}
               <div className="flex flex-wrap gap-2">
-                {connected && vatIdsReady ? (
+                {!vatIdsReady ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => setConnectOpen(true)}
+                  >
+                    Enter VRN, registration date & connect
+                  </button>
+                ) : !connected ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => setConnectOpen(true)}
+                  >
+                    Connect to HMRC to submit
+                  </button>
+                ) : (
                   <button
                     type="button"
                     className="btn btn-primary"
                     disabled={
                       pending ||
                       trialGate.pending ||
-                      !obligation ||
-                      !vatIdsReady
+                      !obligation
                     }
                     onClick={() =>
                       start(async () => {
@@ -1227,23 +1474,19 @@ export function VatReturnsWorkspace({
                           router.refresh();
                         } catch (err) {
                           if (!trialGate.captureSubmitError(err)) {
-                            // Freeze — do not surface technical error text.
+                            setMessage(null);
+                            setHmrcNotice({
+                              text: humanizeHmrcFailure(
+                                err instanceof Error ? err.message : null,
+                              ),
+                              ok: false,
+                            });
                           }
                         }
                       })
                     }
                   >
                     {pending ? "Submitting…" : "Submit VAT return to HMRC"}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => setConnectOpen(true)}
-                  >
-                    {vatIdsReady
-                      ? "Connect to HMRC"
-                      : "Enter VRN, registration date & connect"}
                   </button>
                 )}
                 {obligation ? (
@@ -1282,24 +1525,41 @@ export function VatReturnsWorkspace({
         vatRegistrationDate={vatRegistrationDate}
         hasEarlierQuarters={hasEarlierQuarters}
         hasLaterQuarters={hasLaterQuarters}
-        canAddQuarter={hasVatRegDate}
         onSeePrevious={() =>
           setWindowStart((s) => Math.max(0, s - VAT_PERIOD_WINDOW_SIZE))
         }
         onBackToCurrent={() => setWindowStart(latestStart)}
-        onAddQuarter={addNextQuarter}
+        canPull={vatIdsReady && bankStatements.length > 0}
+        pullPending={pending}
+        onPullFromBank={(period) => {
+          setPullPeriod(period);
+          setSelected(period.periodKey);
+          setPullOpen(true);
+        }}
+        vatAllocateByCategory={vatAllocateByCategory}
+        onVatAllocateChange={(category, choice) =>
+          setVatAllocateByCategory((prev) => ({
+            ...prev,
+            [category]: choice,
+          }))
+        }
       />
 
       <VatPullStatementsDialog
         open={pullOpen}
         statements={bankStatements}
         periodLabel={
-          obligation
-            ? `${periodTitle(obligation)} · ${formatPeriodRange(obligation.start, obligation.end)}`
-            : "Select a period"
+          pullPeriod
+            ? `${pullPeriod.title ?? pullPeriod.periodKey} · ${formatPeriodRange(pullPeriod.start, pullPeriod.end)}`
+            : obligation
+              ? `${periodTitle(obligation)} · ${formatPeriodRange(obligation.start, obligation.end)}`
+              : "Select a period"
         }
         pending={pending}
-        onCancel={() => setPullOpen(false)}
+        onCancel={() => {
+          setPullOpen(false);
+          setPullPeriod(null);
+        }}
         onConfirm={confirmPullStatements}
       />
 

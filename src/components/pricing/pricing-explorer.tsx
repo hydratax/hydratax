@@ -58,6 +58,7 @@ export function PricingExplorer({
   const searchParams = useSearchParams();
   const resumePlan = (searchParams.get("plan") ?? "").trim();
   const resumedRef = useRef(false);
+  const panelTopRef = useRef<HTMLDivElement>(null);
   const [activeId, setActiveId] = useState<string>(() => {
     if (typeof window === "undefined") return PRICING_SECTIONS[0].id;
     return (
@@ -68,14 +69,31 @@ export function PricingExplorer({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  function selectSection(id: string, opts?: { scroll?: boolean }) {
+    setActiveId(id);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", `#${id}`);
+    }
+    if (opts?.scroll !== false) {
+      requestAnimationFrame(() => {
+        panelTopRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+    }
+  }
+
   useEffect(() => {
-    const apply = () => {
-      const fromHash = sectionIdFromHash(window.location.hash);
-      if (fromHash) setActiveId(fromHash);
+    const fromHash = sectionIdFromHash(window.location.hash);
+    if (fromHash) setActiveId(fromHash);
+    const onHash = () => {
+      const id = sectionIdFromHash(window.location.hash);
+      if (id) selectSection(id, { scroll: true });
     };
-    apply();
-    window.addEventListener("hashchange", apply);
-    return () => window.removeEventListener("hashchange", apply);
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hash listener once
   }, []);
 
   const section = useMemo(
@@ -167,12 +185,7 @@ export function PricingExplorer({
                     type="button"
                     role="tab"
                     aria-selected={active}
-                    onClick={() => {
-                      setActiveId(s.id);
-                      if (typeof window !== "undefined") {
-                        window.history.replaceState(null, "", `#${s.id}`);
-                      }
-                    }}
+                    onClick={() => selectSection(s.id)}
                     className={`pricing-rail__item ${active ? "is-active" : ""}`}
                   >
                     {s.title}
@@ -182,7 +195,10 @@ export function PricingExplorer({
             </nav>
 
             <div role="tabpanel">
-              <div className="max-w-2xl border-b border-line pb-8">
+              <div
+                ref={panelTopRef}
+                className="max-w-2xl scroll-mt-24 border-b border-line pb-8"
+              >
                 <h2 className="display text-3xl text-ink md:text-5xl">
                   {section.title}
                 </h2>

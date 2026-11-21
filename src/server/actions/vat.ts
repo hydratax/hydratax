@@ -315,7 +315,7 @@ export async function submitPreparedVatReturn(
     // without a real OAuth token + app credentials.
     if (!isDemoMode()) {
       throw new Error(
-        "HMRC VAT is not connected. Connect this client via OAuth (and set HMRC_CLIENT_ID) before submitting.",
+        "This client is not connected to HMRC yet. Connect first, then submit.",
       );
     }
     const payload = boxesToHmrcPayload(boxes);
@@ -376,9 +376,12 @@ export async function submitPreparedVatReturn(
   }
 
   if (!res.ok) {
-    const snippet = res.rawText.slice(0, 500);
+    const { humanizeHmrcFailure } = await import("@/lib/hmrc-user-messages");
     throw new Error(
-      `HMRC rejected the VAT return (HTTP ${res.status})${snippet ? `: ${snippet}` : ""}`,
+      humanizeHmrcFailure(
+        res.rawText,
+        "HMRC rejected the VAT return. Check the boxes and period, then try again.",
+      ),
     );
   }
 
@@ -690,6 +693,10 @@ export async function draftVatBoxesFromBank(input: {
   clientId: string;
   periodStart: string;
   periodEnd: string;
+  /** Per-category VAT treatment overrides from the transactions card. */
+  treatmentOverrides?: Partial<Record<string, import("@/server/bank/vat-box-map").VatTreatment>>;
+  /** Per-category direction overrides (output / input / none). */
+  directionOverrides?: Partial<Record<string, import("@/server/bank/vat-box-map").VatDirection>>;
 }) {
   await requireSession();
   const { clientId, periodStart, periodEnd } = input;
@@ -735,7 +742,11 @@ export async function draftVatBoxesFromBank(input: {
     };
   }
 
-  const result = mapBankToVatBoxes(periodTxs);
+  const result = mapBankToVatBoxes(
+    periodTxs,
+    input.treatmentOverrides,
+    input.directionOverrides,
+  );
 
   return {
     ok: true as const,

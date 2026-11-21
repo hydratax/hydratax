@@ -37,9 +37,11 @@ type BankTx = {
   amountPence: number;
   category: string;
   confidence: string;
+  source?: string | null;
 };
 
-const PREVIEW_STATEMENT_COUNT = 5;
+/** Keep the VAT sidebar short so it aligns with the filing card. */
+const PREVIEW_STATEMENT_COUNT = 3;
 
 function canOpenDoc(url: string) {
   return (
@@ -53,7 +55,7 @@ function periodTitle(p: Period) {
   return p.title ?? formatVatPeriodLabel(p.start, p.end);
 }
 
-function txsForPeriod(
+export function txsForPeriod(
   transactions: BankTx[],
   period: Period,
   vatRegistrationDate: string | null | undefined,
@@ -77,11 +79,14 @@ export function VatBooksBankPanel({
   clientSlug,
   bankStatements = [],
   allowUpload = true,
+  fillHeight = false,
 }: {
   clientId: string;
   clientSlug?: string;
   bankStatements?: BankStatementDocSummary[];
   allowUpload?: boolean;
+  /** Stretch to fill the left column under VAT periods (aligned bottoms). */
+  fillHeight?: boolean;
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -93,7 +98,14 @@ export function VatBooksBankPanel({
   const booksHref = clientSlug
     ? `/clients/${clientSlug}/bank`
     : `/clients/${clientId}/bank`;
-  const preview = bankStatements.slice(0, PREVIEW_STATEMENT_COUNT);
+  // Prefer VAT-desk uploads on this page, then fall back to other desks.
+  const ordered = [...bankStatements].sort((a, b) => {
+    const aVat = a.desk === "vat" ? 0 : 1;
+    const bVat = b.desk === "vat" ? 0 : 1;
+    if (aVat !== bVat) return aVat - bVat;
+    return b.createdAt.localeCompare(a.createdAt);
+  });
+  const preview = ordered.slice(0, PREVIEW_STATEMENT_COUNT);
   const moreCount = Math.max(0, bankStatements.length - preview.length);
 
   function runUpload(file: File) {
@@ -161,12 +173,20 @@ export function VatBooksBankPanel({
   }
 
   return (
-    <div className="panel flex w-full flex-col gap-3 p-4">
+    <div
+      className={`panel flex w-full flex-col gap-3 p-4 ${
+        fillHeight ? "h-full min-h-0" : ""
+      }`}
+    >
       <h3 className="shrink-0 text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
         Books bank data
       </h3>
 
-      <div className="rounded-lg border border-line bg-paper">
+      <div
+        className={`min-h-0 rounded-lg border border-line bg-paper ${
+          fillHeight ? "flex-1 overflow-y-auto" : ""
+        }`}
+      >
         {preview.length > 0 ? (
           <div>
             {groupBankStatementsByDesk(preview).map((group) => (
@@ -178,7 +198,7 @@ export function VatBooksBankPanel({
                   {group.docs.map((doc) => (
                     <li
                       key={doc.id}
-                      className="flex items-start justify-between gap-2 px-3 py-2.5"
+                      className="flex items-start justify-between gap-2 px-3 py-2"
                     >
                       <div className="min-w-0">
                         <p className="truncate text-xs font-semibold text-ink">
@@ -211,7 +231,7 @@ export function VatBooksBankPanel({
             ) : null}
           </div>
         ) : (
-          <div className="flex h-full min-h-[5.5rem] items-center justify-center px-3 py-4 text-center">
+          <div className="flex h-full min-h-[5.5rem] flex-1 items-center justify-center px-3 py-4 text-center">
             <p className="text-xs leading-snug text-ink-soft">
               No statements yet — upload saves under{" "}
               {BANK_STATEMENT_DESK_LABEL.vat} in Books.
@@ -220,7 +240,7 @@ export function VatBooksBankPanel({
         )}
       </div>
 
-      <div className="shrink-0 space-y-2">
+      <div className="mt-auto shrink-0 space-y-2">
         <input
           ref={fileRef}
           type="file"
@@ -254,7 +274,8 @@ export function VatBooksBankPanel({
 
 /**
  * One collapsible breakdown card per visible VAT quarter — window controls
- * stay in sync with the periods sidebar.
+ * stay in sync with the periods sidebar. New cards appear when a quarter is
+ * added in the VAT periods panel (no Add Quarter here).
  */
 export function VatQuarterBreakdowns({
   clientId,
@@ -264,10 +285,13 @@ export function VatQuarterBreakdowns({
   vatRegistrationDate = null,
   hasEarlierQuarters,
   hasLaterQuarters,
-  canAddQuarter,
   onSeePrevious,
   onBackToCurrent,
-  onAddQuarter,
+  onPullFromBank,
+  vatAllocateByCategory,
+  onVatAllocateChange,
+  canPull = true,
+  pullPending = false,
 }: {
   clientId: string;
   visiblePeriods: Period[];
@@ -276,12 +300,18 @@ export function VatQuarterBreakdowns({
   vatRegistrationDate?: string | null;
   hasEarlierQuarters: boolean;
   hasLaterQuarters: boolean;
-  canAddQuarter: boolean;
   onSeePrevious: () => void;
   onBackToCurrent: () => void;
-  onAddQuarter: () => void;
+  onPullFromBank: (period: Period) => void;
+  vatAllocateByCategory?: Record<string, import("@/lib/vat-box-allocate").VatAllocateChoice>;
+  onVatAllocateChange?: (
+    category: string,
+    choice: import("@/lib/vat-box-allocate").VatAllocateChoice,
+  ) => void;
+  canPull?: boolean;
+  pullPending?: boolean;
 }) {
-  if (visiblePeriods.length === 0 && !canAddQuarter) return null;
+  if (visiblePeriods.length === 0) return null;
 
   return (
     <div className="space-y-3">
@@ -291,8 +321,8 @@ export function VatQuarterBreakdowns({
             Transaction breakdown
           </h2>
           <p className="mt-1 text-xs text-ink-soft">
-            One card per visible quarter — reassign heads, then fill boxes from
-            books.
+            One card per visible quarter — pull bank lines, allocate heads to
+            VAT boxes, then fill the return above.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -314,15 +344,6 @@ export function VatQuarterBreakdowns({
               Back to current
             </button>
           ) : null}
-          {canAddQuarter ? (
-            <button
-              type="button"
-              className="btn btn-secondary text-xs"
-              onClick={onAddQuarter}
-            >
-              Add Quarter
-            </button>
-          ) : null}
         </div>
       </div>
 
@@ -337,25 +358,42 @@ export function VatQuarterBreakdowns({
         return (
           <details
             key={`${period.periodKey}-${period.start}`}
-            className="panel overflow-hidden"
+            className="panel overflow-hidden bg-white"
           >
-            <summary className="cursor-pointer list-none px-4 py-3 marker:content-none [&::-webkit-details-marker]:hidden">
+            <summary className="cursor-pointer list-none bg-white px-4 py-3 marker:content-none [&::-webkit-details-marker]:hidden">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="text-sm font-bold uppercase tracking-[0.12em] text-ink-soft">
                     Transaction breakdown
                   </p>
                   <p className="mt-0.5 text-sm text-ink">
-                    {title} · {lines.length} line
+                    {title} · {formatPeriodRange(period.start, period.end)} ·{" "}
+                    {lines.length} line
                     {lines.length === 1 ? "" : "s"}
                   </p>
                 </div>
-                <span className="text-xs text-ink-soft" aria-hidden>
-                  ▾
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-secondary text-xs"
+                    disabled={!canPull || pullPending}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onPullFromBank(period);
+                    }}
+                  >
+                    {pullPending
+                      ? "Pulling…"
+                      : "Pull transactions from bank"}
+                  </button>
+                  <span className="text-xs text-ink-soft" aria-hidden>
+                    ▾
+                  </span>
+                </div>
               </div>
             </summary>
-            <div className="border-t border-line px-2 pb-3 pt-1" id={id}>
+            <div className="border-t border-line bg-white px-2 pb-3 pt-1" id={id}>
               <BankCategorisedView
                 clientId={clientId}
                 transactions={lines}
@@ -363,6 +401,8 @@ export function VatQuarterBreakdowns({
                 missingDesk="VAT"
                 periodStart={period.start}
                 periodEnd={period.end}
+                vatAllocateByCategory={vatAllocateByCategory}
+                onVatAllocateChange={onVatAllocateChange}
               />
               <p className="mt-2 px-3 text-xs text-ink-soft">
                 Range {formatPeriodRange(period.start, period.end)}

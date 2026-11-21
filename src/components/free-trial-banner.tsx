@@ -3,14 +3,9 @@ import { PRACTICE_TRIAL } from "@/lib/trial";
 
 /** Slim site-wide strip promoting the Practice desk free trial. */
 export function FreeTrialBanner({ dark = false }: { dark?: boolean }) {
+  const fill = dark ? "bg-sea-deep" : "bg-sea";
   return (
-    <div
-      className={
-        dark
-          ? "border-b border-teal-800 bg-sea-deep text-white"
-          : "border-b border-teal-700 bg-sea text-white"
-      }
-    >
+    <div className={`relative ${fill} text-white`}>
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-2 gap-y-1 px-3 py-2 text-center text-xs sm:gap-x-3 sm:px-4 sm:text-sm md:px-6">
         <span className="font-bold tracking-wide text-white">
           {PRACTICE_TRIAL.shortBadge}

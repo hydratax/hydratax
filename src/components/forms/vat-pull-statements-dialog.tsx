@@ -78,12 +78,12 @@ export function VatPullStatementsDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink/15 p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="vat-pull-statements-title"
     >
-      <div className="panel flex max-h-[min(90vh,36rem)] w-full max-w-lg flex-col overflow-hidden shadow-xl">
+      <div className="panel flex max-h-[min(90vh,36rem)] w-full max-w-lg flex-col overflow-hidden bg-white shadow-xl">
         <div className="border-b border-line px-5 py-4">
           <h2
             id="vat-pull-statements-title"

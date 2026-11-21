@@ -22,6 +22,57 @@ export function buildAuthorizeUrl(state: string, scopes = HMRC_SCOPES.combined):
   return url.toString();
 }
 
+/**
+ * Quick check before sending the accountant to HMRC login — catches an
+ * invalid Client ID so they see a desk message instead of HMRC JSON.
+ */
+export async function probeHmrcClientCredentials(): Promise<
+  | { ok: true }
+  | { ok: false; code: "app_not_configured" | "app_credentials_invalid" }
+> {
+  const cfg = getHmrcConfig();
+  if (!cfg.clientId?.trim() || !cfg.clientSecret?.trim()) {
+    return { ok: false, code: "app_not_configured" };
+  }
+
+  const url = new URL(cfg.authBase);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("client_id", cfg.clientId);
+  url.searchParams.set("scope", HMRC_SCOPES.vat);
+  url.searchParams.set("redirect_uri", cfg.redirectUri);
+  url.searchParams.set("state", "hydratax-probe");
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      redirect: "manual",
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
+
+    // Valid apps typically 302 to the HMRC sign-in page.
+    if (res.status >= 300 && res.status < 400) {
+      return { ok: true };
+    }
+
+    const text = await res.text();
+    if (
+      /client_id is invalid|invalid_client|unauthorized_client|client.id.is.invalid/i.test(
+        text,
+      )
+    ) {
+      return { ok: false, code: "app_credentials_invalid" };
+    }
+
+    // Unknown response — do not block the real connect attempt.
+    return { ok: true };
+  } catch {
+    return { ok: true };
+  }
+}
+
 export async function exchangeAuthorizationCode(code: string): Promise<TokenSet> {
   const cfg = getHmrcConfig();
   const body = new URLSearchParams({

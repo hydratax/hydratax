@@ -6,9 +6,10 @@ import { requireSession } from "@/server/auth/session";
 import { listClients, getClient } from "@/server/actions/clients";
 import { clientSlugFor } from "@/lib/client-slug";
 import {
-  accountsDueMonthWindow,
-  monthWindowLabel,
-  type AccountsDueMonthWindow,
+  calendarYearReminderMonths,
+  currentMonthKey,
+  monthKeyFromIso,
+  type CalendarReminderMonth,
 } from "@/lib/filing-due";
 import type { ClientCompaniesHouseSnapshot } from "@/server/companies-house/enrich-client";
 import {
@@ -28,6 +29,16 @@ import { filingSaTaxYear } from "@/lib/sa-tax-year";
 import { personKeySlug } from "@/lib/sa-taxpayer";
 import { listPracticeDirectors } from "@/server/actions/sa-directors";
 import { listSa100Returns } from "@/server/actions/sa100";
+import { listRelevantCorporationTaxPeriods } from "@/lib/accounting-periods";
+import {
+  deriveCtClientSummary,
+  type CtWorkflowStatus,
+} from "@/lib/ct-client-status";
+import {
+  deriveVatClientSummary,
+  type VatWorkflowStatus,
+} from "@/lib/vat-client-status";
+import { normalizeWorkStage } from "@/lib/client-work-stage";
 
 export type ClientEmailLogRecord = {
   id: string;
@@ -49,8 +60,12 @@ export type BulkEmailCandidate = {
   name: string;
   companyNumber: string | null;
   contactEmail: string | null;
+  /** CT600 filing due (12 months after AP end), not Companies House accounts due. */
   accountsDue: string | null;
-  dueWindow: AccountsDueMonthWindow;
+  /** YYYY-MM of accountsDue */
+  dueMonthKey: string;
+  workStage?: string | null;
+  ctStatus: CtWorkflowStatus;
 };
 
 export type BulkSaEmailCandidate = {
@@ -63,6 +78,8 @@ export type BulkSaEmailCandidate = {
   taxYear: string;
   filingDue: string;
   status: "none" | "draft" | "submitted" | "accepted";
+  /** Desk pipeline stage for SA bulk-email filters. */
+  workStage?: string | null;
   href: string;
 };
 
@@ -227,13 +244,23 @@ export async function listClientEmailLogs(
 
 export async function listBulkEmailCandidates(): Promise<{
   candidates: BulkEmailCandidate[];
-  nextMonthLabel: string;
-  monthAfterLabel: string;
+  months: CalendarReminderMonth[];
+  years: number[];
+  defaultMonthKey: string;
+  defaultYear: number;
 }> {
   const session = await requireSession();
   if (session.role === "readonly") throw new Error("Forbidden");
 
   const now = new Date();
+  const year = now.getFullYear();
+  const years = [year, year + 1];
+  const months = calendarYearReminderMonths(now);
+  const yearKeys = new Set(
+    years.flatMap((y) =>
+      calendarYearReminderMonths(new Date(y, 0, 1)).map((m) => m.key),
+    ),
+  );
   const clients = await listClients();
   const peers = clients.map((c) => ({ id: c.id, name: c.name }));
 
@@ -245,9 +272,28 @@ export async function listBulkEmailCandidates(): Promise<{
       ("companiesHouse" in client
         ? (client.companiesHouse as ClientCompaniesHouseSnapshot | null)
         : null) ?? null;
-    const accountsDue = ch?.accountsNextDue ?? null;
-    const dueWindow = accountsDueMonthWindow(accountsDue, now);
-    if (!dueWindow) continue;
+    const workStage = normalizeWorkStage(client.deskProfile?.workStage);
+    const periods = listRelevantCorporationTaxPeriods({
+      incorporatedOn: ch?.incorporatedOn ?? null,
+      accountsPeriodEnd: ch?.accountsPeriodEnd ?? null,
+      lastAccountsMadeUpTo: ch?.lastAccountsMadeUpTo ?? null,
+      now,
+    });
+    const inWindow = periods
+      .map((p) => ({
+        due: p.filingDue,
+        key: monthKeyFromIso(p.filingDue),
+      }))
+      .filter((p) => p.key && yearKeys.has(p.key))
+      .sort((a, b) => (a.due ?? "").localeCompare(b.due ?? ""));
+    const pick = inWindow[0] ?? null;
+    if (!pick?.key || !pick.due) continue;
+
+    const ct = deriveCtClientSummary({
+      workStage,
+      companiesHouse: ch,
+      now,
+    });
 
     candidates.push({
       clientId: client.id,
@@ -255,8 +301,10 @@ export async function listBulkEmailCandidates(): Promise<{
       name: client.name,
       companyNumber: client.companyNumber ?? null,
       contactEmail: client.contactEmail ?? null,
-      accountsDue,
-      dueWindow,
+      accountsDue: pick.due,
+      dueMonthKey: pick.key,
+      workStage,
+      ctStatus: ct.status,
     });
   }
 
@@ -268,8 +316,10 @@ export async function listBulkEmailCandidates(): Promise<{
 
   return {
     candidates,
-    nextMonthLabel: monthWindowLabel("next_month", now),
-    monthAfterLabel: monthWindowLabel("month_after", now),
+    months,
+    years,
+    defaultMonthKey: currentMonthKey(now),
+    defaultYear: year,
   };
 }
 
@@ -314,16 +364,16 @@ export async function listBulkSaEmailCandidates(): Promise<{
       taxYear: filingYear.label,
       filingDue: filingYear.filingDue,
       status,
+      workStage: client.deskProfile?.workStage ?? null,
       href: `/clients/${slug}/self-assessment`,
     });
   }
 
   for (const d of directors) {
     if (seen.has(d.homeClientId) || seen.has(d.key)) continue;
+    const home = clients.find((c) => c.id === d.homeClientId);
     const email =
-      d.taxpayer?.email?.trim() ||
-      clients.find((c) => c.id === d.homeClientId)?.contactEmail ||
-      null;
+      d.taxpayer?.email?.trim() || home?.contactEmail || null;
     seen.add(d.key);
     candidates.push({
       id: d.key,
@@ -334,6 +384,7 @@ export async function listBulkSaEmailCandidates(): Promise<{
       taxYear: d.filing.taxYear || filingYear.label,
       filingDue: d.filing.filingDue || filingYear.filingDue,
       status: d.filing.status || "none",
+      workStage: home?.deskProfile?.workStage ?? null,
       href: `/self-assessment/${personKeySlug(d.key)}`,
     });
   }
@@ -580,7 +631,7 @@ export async function sendBulkClientEmails(input: z.infer<typeof bulkSchema>) {
         clientId,
         name: clientId,
         ok: false,
-        error: "Not eligible (accounts not due next month or month after)",
+        error: "Not eligible for CT600 reminder this year",
       });
       continue;
     }
@@ -640,7 +691,7 @@ export async function getDefaultBulkEmailDraft() {
   const session = await requireSession();
   const sender = resolveClientEmailSender(session);
   return {
-    subject: "Annual accounts due — {{client_name}}",
+    subject: "CT600 due — {{client_name}}",
     messageTemplate: defaultAccountsReminderTemplate(),
     senderEmail: sender.senderEmail,
     senderName: sender.senderName,
@@ -754,32 +805,14 @@ export type BulkVatEmailCandidate = {
   name: string;
   vrn: string | null;
   contactEmail: string | null;
+  workStage?: string | null;
+  vatStatus: VatWorkflowStatus | "not_started";
 };
 
-export type VatReminderMonth = {
-  /** YYYY-MM */
-  key: string;
-  label: string;
-  /** ISO date used as period-end placeholder in templates */
-  periodEnd: string;
-};
+export type VatReminderMonth = CalendarReminderMonth;
 
 function vatReminderMonths(now = new Date()): VatReminderMonth[] {
-  const months: VatReminderMonth[] = [];
-  for (let i = 0; i < 6; i += 1) {
-    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    const y = d.getFullYear();
-    const m = d.getMonth();
-    const key = `${y}-${String(m + 1).padStart(2, "0")}`;
-    const lastDay = new Date(y, m + 1, 0).getDate();
-    const periodEnd = `${y}-${String(m + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-    const label = d.toLocaleDateString("en-GB", {
-      month: "long",
-      year: "numeric",
-    });
-    months.push({ key, label, periodEnd });
-  }
-  return months;
+  return calendarYearReminderMonths(now);
 }
 
 function isVatRegisteredClient(c: {
@@ -792,31 +825,60 @@ function isVatRegisteredClient(c: {
 export async function listBulkVatEmailCandidates(): Promise<{
   candidates: BulkVatEmailCandidate[];
   months: VatReminderMonth[];
+  years: number[];
+  defaultMonthKey: string;
+  defaultYear: number;
 }> {
   const session = await requireSession();
   if (session.role === "readonly") throw new Error("Forbidden");
 
+  const now = new Date();
   const clients = await listClients();
   const peers = clients.map((c) => ({ id: c.id, name: c.name }));
   const candidates: BulkVatEmailCandidate[] = clients
     .filter(isVatRegisteredClient)
-    .map((c) => ({
-      clientId: c.id,
-      slug: clientSlugFor({ id: c.id, name: c.name }, peers),
-      name: c.name,
-      vrn: c.vrn ?? null,
-      contactEmail: c.contactEmail ?? null,
-    }))
+    .map((c) => {
+      const workStage = normalizeWorkStage(c.deskProfile?.workStage);
+      const workLog = c.deskProfile?.workLog ?? null;
+      const portal = c.deskProfile?.portal ?? null;
+      const vat = deriveVatClientSummary({
+        workStage,
+        workLog,
+        portal,
+        now,
+      });
+      return {
+        clientId: c.id,
+        slug: clientSlugFor({ id: c.id, name: c.name }, peers),
+        name: c.name,
+        vrn: c.vrn ?? null,
+        contactEmail: c.contactEmail ?? null,
+        workStage,
+        vatStatus: vat.status,
+      };
+    })
     .sort((a, b) => a.name.localeCompare(b.name, "en-GB"));
 
-  return { candidates, months: vatReminderMonths() };
+  const year = now.getFullYear();
+  return {
+    candidates,
+    months: vatReminderMonths(now),
+    years: [year, year + 1],
+    defaultMonthKey: currentMonthKey(now),
+    defaultYear: year,
+  };
 }
 
 export async function getDefaultVatBulkEmailDraft(monthKey?: string) {
   const session = await requireSession();
   const sender = resolveClientEmailSender(session);
-  const months = vatReminderMonths();
-  const month = months.find((m) => m.key === monthKey) ?? months[0]!;
+  const now = new Date();
+  const months = vatReminderMonths(now);
+  const fallbackKey = currentMonthKey(now);
+  const month =
+    months.find((m) => m.key === monthKey) ??
+    months.find((m) => m.key === fallbackKey) ??
+    months[0]!;
   return {
     subject: `VAT return — {{client_name}} · ${month.label}`,
     messageTemplate: defaultVatReminderTemplate(),

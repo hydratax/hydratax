@@ -1,7 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FaqItem } from "@/lib/product-faqs";
+
+function scrollOpenedIntoView(node: HTMLElement | null) {
+  if (!node) return;
+  requestAnimationFrame(() => {
+    node.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
+  });
+}
 
 export function FaqSection({
   title = "Frequently asked questions",
@@ -10,33 +17,51 @@ export function FaqSection({
   title?: string;
   items: FaqItem[];
 }) {
-  const [open, setOpen] = useState<number | null>(0);
+  const [open, setOpen] = useState<number | null>(null);
+  const itemRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const userOpenedRef = useRef(false);
+
+  useEffect(() => {
+    if (!userOpenedRef.current || open == null) return;
+    scrollOpenedIntoView(itemRefs.current[open] ?? null);
+  }, [open]);
+
   if (!items.length) return null;
 
   return (
     <section className="mt-12">
       <h2 className="display text-3xl text-ink">{title}</h2>
-      <div className="mt-5 divide-y divide-line rounded-xl border border-line bg-white/80">
+      <div className="mt-5 divide-y divide-line rounded-xl border border-line bg-white">
         {items.map((item, i) => {
           const isOpen = open === i;
           return (
-            <div key={item.q}>
+            <div
+              key={item.q}
+              ref={(el) => {
+                itemRefs.current[i] = el;
+              }}
+              id={`faq-${i}`}
+              className="scroll-mt-24"
+            >
               <button
                 type="button"
                 className="flex w-full items-center justify-between gap-4 px-4 py-4 text-left"
                 aria-expanded={isOpen}
-                onClick={() => setOpen(isOpen ? null : i)}
+                onClick={() => {
+                  userOpenedRef.current = true;
+                  setOpen(isOpen ? null : i);
+                }}
               >
                 <span className="font-semibold text-ink">{item.q}</span>
                 <span className="text-sea" aria-hidden>
                   {isOpen ? "−" : "+"}
                 </span>
               </button>
-              {isOpen && (
+              {isOpen ? (
                 <p className="px-4 pb-4 text-sm leading-relaxed text-ink-soft">
                   {item.a}
                 </p>
-              )}
+              ) : null}
             </div>
           );
         })}
