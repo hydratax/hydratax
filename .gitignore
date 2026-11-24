@@ -78,3 +78,14 @@ scripts/ct600-ets-try-passwords.cjs
 scripts/fulfill-*-now.cjs
 scripts/*-now.cjs
 *.local.cjs
+
+# Companies House bulk dump + local directory index (never commit ? multi?GB)
+/data/Companies House/
+/data/companies-house/**/*.zip
+/data/companies-house/**/*.csv
+/data/companies-house/**/*.sqlite
+/data/companies-house/**/*.sqlite-*
+/data/companies-house/hubs/
+/data/companies-house/search/
+/data/companies-house/sitemaps/
+!/data/companies-house/README.md

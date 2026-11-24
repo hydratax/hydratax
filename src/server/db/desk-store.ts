@@ -790,6 +790,48 @@ export async function deskDeleteBankTransactionsForClient(clientId: string) {
   }
 }
 
+/** Delete selected bank lines for a client (one statement / bank card). */
+export async function deskDeleteBankTransactionsByIds(
+  clientId: string,
+  transactionIds: string[],
+): Promise<number> {
+  const ids = [...new Set(transactionIds.filter(Boolean))];
+  if (!ids.length) return 0;
+
+  if (isD1Configured()) {
+    const chunkSize = 50;
+    let removed = 0;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const placeholders = chunk.map(() => "?").join(", ");
+      await d1Execute(
+        `DELETE FROM bank_transactions WHERE client_id = ? AND id IN (${placeholders})`,
+        [clientId, ...chunk],
+      );
+      removed += chunk.length;
+    }
+    return removed;
+  }
+
+  const supabase = await getSupabaseDataClient();
+  if (!supabase) throw new Error("Desk storage is not configured");
+  const chunkSize = 100;
+  let removed = 0;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const { error, count } = await supabase
+      .from("bank_transactions")
+      .delete({ count: "exact" })
+      .eq("client_id", clientId)
+      .in("id", chunk);
+    if (error) {
+      throw new Error(`Could not delete bank transactions: ${error.message}`);
+    }
+    removed += count ?? chunk.length;
+  }
+  return removed;
+}
+
 /** Remove exact duplicate rows (same date, description, amount), keeping the oldest id. */
 export async function deskDedupeBankTransactionsForClient(
   clientId: string,
@@ -1004,6 +1046,45 @@ export async function deskUpdateBankCategoriesBulk(
     .from("bank_transactions")
     .select("client_id")
     .eq("id", transactionIds[0])
+    .maybeSingle();
+  return data?.client_id ? String(data.client_id) : null;
+}
+
+/** Per-row description updates (e.g. rename bank tag on a statement card). */
+export async function deskUpdateBankDescriptions(
+  updates: Array<{ id: string; description: string }>,
+): Promise<string | null> {
+  if (!updates.length) return null;
+
+  if (isD1Configured()) {
+    for (const row of updates) {
+      await d1Execute(
+        "UPDATE bank_transactions SET description = ? WHERE id = ?",
+        [row.description, row.id],
+      );
+    }
+    const rows = await d1Query(
+      "SELECT client_id FROM bank_transactions WHERE id = ? LIMIT 1",
+      [updates[0]!.id],
+    );
+    return rows[0] ? String(rows[0].client_id) : null;
+  }
+
+  const supabase = await getSupabaseDataClient();
+  if (!supabase) throw new Error("Desk storage is not configured");
+  for (const row of updates) {
+    const { error } = await supabase
+      .from("bank_transactions")
+      .update({ description: row.description })
+      .eq("id", row.id);
+    if (error) {
+      throw new Error(`Could not update bank description: ${error.message}`);
+    }
+  }
+  const { data } = await supabase
+    .from("bank_transactions")
+    .select("client_id")
+    .eq("id", updates[0]!.id)
     .maybeSingle();
   return data?.client_id ? String(data.client_id) : null;
 }

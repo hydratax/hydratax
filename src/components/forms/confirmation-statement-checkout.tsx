@@ -460,7 +460,7 @@ export function ConfirmationStatementCheckout({
       try {
         const signedIn = await hasSignedInSession();
         if (!signedIn) {
-          window.location.assign(authEntryHref("sign-in", resumePath));
+          window.location.assign(authEntryHref("create-account", resumePath));
           return;
         }
 
@@ -489,7 +489,7 @@ export function ConfirmationStatementCheckout({
         });
         if (!res.ok) {
           if (res.needsAuth) {
-            window.location.assign(authEntryHref("sign-in", resumePath));
+            window.location.assign(authEntryHref("create-account", resumePath));
             return;
           }
           setError(res.error);
@@ -518,7 +518,7 @@ export function ConfirmationStatementCheckout({
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Checkout failed";
         if (/NEXT_REDIRECT|sign in|unauthori|session/i.test(msg)) {
-          window.location.assign(authEntryHref("sign-in", resumePath));
+          window.location.assign(authEntryHref("create-account", resumePath));
           return;
         }
         setError(msg);
@@ -637,8 +637,20 @@ export function ConfirmationStatementCheckout({
           {signedIn === false ? (
             <div className="rounded-xl border border-sea/30 bg-sea/5 p-4 space-y-3">
               <p className="text-sm text-ink-soft">
-                Sign in to continue and pay.
+                Create an account to keep a record of this filing, then continue
+                to pay.
               </p>
+              <Link
+                href={authEntryHref(
+                  "create-account",
+                  register
+                    ? cs01ResumePath(register.companyNumber)
+                    : "/companies-house/confirmation-statement",
+                )}
+                className="btn btn-primary inline-flex w-full justify-center"
+              >
+                Create account to continue
+              </Link>
               <Link
                 href={authEntryHref(
                   "sign-in",
@@ -646,9 +658,9 @@ export function ConfirmationStatementCheckout({
                     ? cs01ResumePath(register.companyNumber)
                     : "/companies-house/confirmation-statement",
                 )}
-                className="btn btn-primary inline-flex w-full justify-center"
+                className="btn btn-secondary inline-flex w-full justify-center"
               >
-                Sign in to continue
+                Sign in
               </Link>
             </div>
           ) : authFromClient && authCodeFormatOk ? (

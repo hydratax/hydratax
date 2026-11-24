@@ -405,6 +405,21 @@ export async function fulfillPaidChRequest(opts: {
     /* audit must not block fulfillment */
   }
 
+  if (submitted && record.practiceId) {
+    try {
+      const { completeSignupFilingIntents } = await import(
+        "@/server/billing/signup-filing-intents"
+      );
+      await completeSignupFilingIntents({
+        practiceId: record.practiceId,
+        serviceId: record.serviceId,
+        companyNumber: record.companyNumber,
+      });
+    } catch {
+      /* reminders stop best-effort */
+    }
+  }
+
   return {
     ok: submitted,
     requestId,

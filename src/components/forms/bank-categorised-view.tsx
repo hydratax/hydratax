@@ -10,7 +10,9 @@ import {
   resolveCategoryLabel,
 } from "@/lib/bank-categories";
 import {
+  deleteBankTransactions,
   mapProvisionalReviewHead,
+  renameBankOnTransactions,
   updateBankCategoriesBulk,
   updateBankCategory,
 } from "@/server/actions/bank";
@@ -29,10 +31,12 @@ import {
   type VatAllocateChoice,
 } from "@/lib/vat-box-allocate";
 import { ManualCashTransactionCard } from "@/components/forms/manual-cash-transaction-card";
+import { isManualBankSource } from "@/lib/bank/manual-tx-meta";
 import {
-  isManualBankSource,
-  parseBankDescriptionMeta,
-} from "@/lib/bank/manual-tx-meta";
+  bankKey,
+  parseBankTaggedDescription,
+  transactionDedupeKey,
+} from "@/lib/bank/bank-tx-meta";
 
 type Tx = {
   id: string;
@@ -95,6 +99,10 @@ export function BankCategorisedView({
   periodEnd,
   vatAllocateByCategory,
   onVatAllocateChange,
+  groupByBank = false,
+  highlightDuplicateKeys,
+  defaultOpenBankKey,
+  embedded = false,
 }: {
   clientId: string;
   transactions: Tx[];
@@ -107,18 +115,93 @@ export function BankCategorisedView({
   /** When set, each head shows an SA-style VAT box allocation dropdown. */
   vatAllocateByCategory?: Record<string, VatAllocateChoice>;
   onVatAllocateChange?: (category: string, choice: VatAllocateChoice) => void;
+  groupByBank?: boolean;
+  highlightDuplicateKeys?: string[] | null;
+  defaultOpenBankKey?: string | null;
+  /** Nested under a bank card — skip outer missing banner / totals. */
+  embedded?: boolean;
 }) {
   const router = useRouter();
   const [customCategories, setCustomCategories] =
     useState<CustomCategoryRow[]>(initialCustom);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [openBanks, setOpenBanks] = useState<Record<string, boolean>>({});
+  const [renamingBankKey, setRenamingBankKey] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>(ALL_CATEGORIES);
   const [searchQuery, setSearchQuery] = useState("");
   /** Per-category search when a section’s transaction list is open */
   const [sectionSearch, setSectionSearch] = useState<Record<string, string>>(
     {},
   );
+  const dupKeys = useMemo(
+    () => new Set(highlightDuplicateKeys ?? []),
+    [highlightDuplicateKeys],
+  );
+
+  const banks = useMemo(() => {
+    if (!groupByBank) return null;
+    const map = new Map<string, { label: string; txs: Tx[] }>();
+    for (const t of transactions) {
+      const meta = parseBankTaggedDescription(t.description);
+      const label = meta.bankName?.trim() || "Unnamed bank";
+      const key = bankKey(label);
+      const slot = map.get(key) ?? { label, txs: [] };
+      slot.txs.push(t);
+      map.set(key, slot);
+    }
+    return [...map.entries()]
+      .map(([key, v]) => ({ key, label: v.label, txs: v.txs }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [transactions, groupByBank]);
+
+  useEffect(() => {
+    if (!defaultOpenBankKey) return;
+    setOpenBanks((prev) => ({ ...prev, [defaultOpenBankKey]: true }));
+  }, [defaultOpenBankKey]);
+
+  /** When “already present” fires, open every bank card that holds those lines. */
+  useEffect(() => {
+    if (!groupByBank || !banks || dupKeys.size === 0) return;
+    const keysToOpen: string[] = [];
+    for (const bank of banks) {
+      const hasDup = bank.txs.some((t) =>
+        dupKeys.has(
+          transactionDedupeKey(t.dated, t.description, t.amountPence),
+        ),
+      );
+      if (hasDup) keysToOpen.push(bank.key);
+    }
+    if (!keysToOpen.length) return;
+    setOpenBanks((prev) => {
+      const next = { ...prev };
+      for (const key of keysToOpen) next[key] = true;
+      return next;
+    });
+  }, [groupByBank, banks, dupKeys]);
+
+  /** Inside a bank card, open category sections that contain highlighted duplicates. */
+  useEffect(() => {
+    if (dupKeys.size === 0) return;
+    const cats = new Set<string>();
+    for (const t of transactions) {
+      if (
+        dupKeys.has(
+          transactionDedupeKey(t.dated, t.description, t.amountPence),
+        )
+      ) {
+        cats.add(t.category || "uncategorised");
+      }
+    }
+    if (!cats.size) return;
+    setOpenSections((prev) => {
+      const next = { ...prev };
+      for (const cat of cats) next[cat] = true;
+      return next;
+    });
+  }, [dupKeys, transactions]);
+
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkCategory, setBulkCategory] = useState("expense_queries");
   const [mapTarget, setMapTarget] = useState<Record<string, string>>({});
@@ -139,10 +222,11 @@ export function BankCategorisedView({
     if (!isSearching) return [];
     return transactions
       .filter((t) => {
-        const meta = parseBankDescriptionMeta(t.description);
+        const meta = parseBankTaggedDescription(t.description);
         return (
           meta.description.toLowerCase().includes(searchTrimmed) ||
-          (meta.notes ?? "").toLowerCase().includes(searchTrimmed)
+          (meta.notes ?? "").toLowerCase().includes(searchTrimmed) ||
+          (meta.bankName ?? "").toLowerCase().includes(searchTrimmed)
         );
       })
       .sort((a, b) => b.dated.localeCompare(a.dated));
@@ -314,10 +398,13 @@ export function BankCategorisedView({
 
   function renderRow(t: Tx, showCurrentCategory = false) {
     const isSelected = selectedIds.has(t.id);
-    const meta = parseBankDescriptionMeta(t.description);
+    const meta = parseBankTaggedDescription(t.description);
     const manual =
       meta.manual || isManualBankSource(t.source);
     const displayDesc = meta.description;
+    const isDup = dupKeys.has(
+      transactionDedupeKey(t.dated, t.description, t.amountPence),
+    );
     const noteText =
       meta.notes ||
       (manual ? "Cash / manual entry — allocate to a head for the practice boxes." : null);
@@ -325,11 +412,13 @@ export function BankCategorisedView({
       <tr
         key={t.id}
         className={`group ${
-          isSelected
-            ? "bg-sea/5"
-            : manual
-              ? "bg-amber-50/80 hover:bg-amber-50"
-              : "hover:bg-sand/30"
+          isDup
+            ? "bg-amber-100/90 ring-1 ring-inset ring-amber-300"
+            : isSelected
+              ? "bg-sea/5"
+              : manual
+                ? "bg-amber-50/80 hover:bg-amber-50"
+                : "hover:bg-sand/30"
         }`}
       >
         <td className="px-3 py-2 align-middle">
@@ -434,10 +523,215 @@ export function BankCategorisedView({
     );
   }
 
+  if (groupByBank && banks && banks.length > 0) {
+    return (
+      <div className="space-y-3">
+        {dupKeys.size > 0 ? (
+          <p
+            id="sa-duplicate-transactions"
+            className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950"
+          >
+            {dupKeys.size} transaction{dupKeys.size === 1 ? "" : "s"} already
+            present — highlighted below.
+          </p>
+        ) : null}
+        {banks.map((bank) => {
+          const bankHasDups =
+            dupKeys.size > 0 &&
+            bank.txs.some((t) =>
+              dupKeys.has(
+                transactionDedupeKey(t.dated, t.description, t.amountPence),
+              ),
+            );
+          const isOpen =
+            openBanks[bank.key] ??
+            (bank.key === defaultOpenBankKey || bankHasDups);
+          const isRenaming = renamingBankKey === bank.key;
+          return (
+            <details
+              key={bank.key}
+              open={isOpen}
+              className="overflow-hidden rounded-xl border border-line bg-white transition-colors [&:not([open])]:hover:bg-sea/10"
+              onToggle={(e) => {
+                const open = (e.target as HTMLDetailsElement).open;
+                setOpenBanks((prev) => ({ ...prev, [bank.key]: open }));
+              }}
+            >
+              <summary className="cursor-pointer list-none px-4 py-3 marker:content-none [&::-webkit-details-marker]:hidden">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    {isRenaming ? (
+                      <div
+                        className="flex flex-wrap items-center gap-2"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="text"
+                          className="input max-w-xs text-sm font-semibold"
+                          value={renameDraft}
+                          autoFocus
+                          placeholder="Bank name"
+                          aria-label="Bank name"
+                          onChange={(e) => setRenameDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                              e.preventDefault();
+                              setRenamingBankKey(null);
+                            }
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              const next = renameDraft.trim();
+                              if (!next || next === bank.label) {
+                                setRenamingBankKey(null);
+                                return;
+                              }
+                              start(async () => {
+                                const res = await renameBankOnTransactions({
+                                  clientId,
+                                  transactionIds: bank.txs.map((t) => t.id),
+                                  bankName: next,
+                                });
+                                if (res.ok) {
+                                  setRenamingBankKey(null);
+                                  setOpenBanks((prev) => ({
+                                    ...prev,
+                                    [bankKey(res.bankName)]: true,
+                                  }));
+                                  router.refresh();
+                                }
+                              });
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-primary px-2.5 py-1 text-xs"
+                          disabled={pending || !renameDraft.trim()}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const next = renameDraft.trim();
+                            if (!next || next === bank.label) {
+                              setRenamingBankKey(null);
+                              return;
+                            }
+                            start(async () => {
+                              const res = await renameBankOnTransactions({
+                                clientId,
+                                transactionIds: bank.txs.map((t) => t.id),
+                                bankName: next,
+                              });
+                              if (res.ok) {
+                                setRenamingBankKey(null);
+                                setOpenBanks((prev) => ({
+                                  ...prev,
+                                  [bankKey(res.bankName)]: true,
+                                }));
+                                router.refresh();
+                              }
+                            });
+                          }}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary px-2.5 py-1 text-xs"
+                          disabled={pending}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setRenamingBankKey(null);
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-ink">{bank.label}</p>
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-sea underline-offset-2 hover:underline"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setRenameDraft(
+                              bank.label === "Unnamed bank" ? "" : bank.label,
+                            );
+                            setRenamingBankKey(bank.key);
+                          }}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-danger underline-offset-2 hover:underline"
+                          disabled={pending}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (
+                              !window.confirm(
+                                `Delete ${bank.label} and its ${bank.txs.length} transaction${bank.txs.length === 1 ? "" : "s"}?`,
+                              )
+                            ) {
+                              return;
+                            }
+                            start(async () => {
+                              const res = await deleteBankTransactions({
+                                clientId,
+                                transactionIds: bank.txs.map((t) => t.id),
+                              });
+                              if (res.ok) router.refresh();
+                            });
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                    <p className="text-xs text-ink-soft">
+                      {bank.txs.length} transaction
+                      {bank.txs.length === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                  <span className="text-xl leading-none text-ink" aria-hidden>
+                    ▾
+                  </span>
+                </div>
+              </summary>
+              <div className="border-t border-line">
+                <BankCategorisedView
+                  clientId={clientId}
+                  transactions={bank.txs}
+                  customCategories={customCategories}
+                  missingDesk={missingDesk}
+                  periodStart={periodStart}
+                  periodEnd={periodEnd}
+                  vatAllocateByCategory={vatAllocateByCategory}
+                  onVatAllocateChange={onVatAllocateChange}
+                  highlightDuplicateKeys={highlightDuplicateKeys}
+                  embedded
+                />
+              </div>
+            </details>
+          );
+        })}
+        <ManualCashTransactionCard
+          clientId={clientId}
+          periodStart={periodStart}
+          periodEnd={periodEnd}
+        />
+      </div>
+    );
+  }
+
   if (!transactions.length) {
     return (
       <div className="space-y-3 p-4">
-        {missingStatementsNote ? (
+        {!embedded && missingStatementsNote ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
             <p className="font-semibold">
               {missingDesk} · Missing bank statements
@@ -449,18 +743,20 @@ export function BankCategorisedView({
           No bank lines yet. Upload a statement, or add a cash / manual
           transaction below — then allocate heads to the practice boxes.
         </p>
-        <ManualCashTransactionCard
-          clientId={clientId}
-          periodStart={periodStart}
-          periodEnd={periodEnd}
-        />
+        {!embedded ? (
+          <ManualCashTransactionCard
+            clientId={clientId}
+            periodStart={periodStart}
+            periodEnd={periodEnd}
+          />
+        ) : null}
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      {missingStatementsNote ? (
+      {!embedded && missingStatementsNote ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
           <p className="font-semibold">
             {missingDesk} · Missing bank statements
@@ -496,19 +792,6 @@ export function BankCategorisedView({
           </p>
         </div>
       </div>
-
-      {summary.reviewHeads > 0 ? (
-        <div className="mx-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-ink">
-          <strong className="font-semibold">
-            {summary.reviewHeads} provisional review head
-            {summary.reviewHeads === 1 ? "" : "s"}
-          </strong>
-          {" — "}
-          material unknown payees were grouped automatically. Open each{" "}
-          <em>Review:</em> section and map the whole head to the correct
-          accounts category (rules stick for next statements).
-        </div>
-      ) : null}
 
       <div className="flex flex-wrap items-end gap-3 border-b border-line px-4 pb-4">
         <label className="flex min-w-[16rem] flex-[2] flex-col gap-1 text-sm">
@@ -964,14 +1247,16 @@ export function BankCategorisedView({
         </div>
       )}
 
-      <div className="border-t border-line pt-2">
-        <ManualCashTransactionCard
-          clientId={clientId}
-          periodStart={periodStart}
-          periodEnd={periodEnd}
-          compact
-        />
-      </div>
+      {!embedded ? (
+        <div className="border-t border-line pt-2">
+          <ManualCashTransactionCard
+            clientId={clientId}
+            periodStart={periodStart}
+            periodEnd={periodEnd}
+            compact
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { UkDateField } from "@/components/forms/uk-date-field";
 
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   YearEndFilingForm,
@@ -24,6 +24,7 @@ type FiledReturn = {
   periodStart: string;
   periodEnd: string;
   status: string;
+  questionnaire?: Record<string, unknown> | null;
 };
 
 type PeriodCard = {
@@ -67,14 +68,22 @@ function writeJson(key: string, value: unknown) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function amendmentIndexOf(r: FiledReturn): number {
+  const q = (r as { questionnaire?: Record<string, unknown> }).questionnaire;
+  return Number(q?.amendmentIndex) || 0;
+}
+
 function returnForPeriod(
   period: Pick<PeriodCard, "start" | "end">,
   returns: FiledReturn[],
+  amendmentIndex = 0,
 ) {
+  const matches = returns.filter(
+    (r) => r.periodStart === period.start && r.periodEnd === period.end,
+  );
   return (
-    returns.find(
-      (r) => r.periodStart === period.start && r.periodEnd === period.end,
-    ) ?? null
+    matches.find((r) => amendmentIndexOf(r) === amendmentIndex) ??
+    (amendmentIndex === 0 ? matches[0] ?? null : null)
   );
 }
 
@@ -120,6 +129,17 @@ function toCardFromCustom(start: string, end: string): PeriodCard {
     days,
     filingDue: addCalendarYear(end, 1) ?? end,
     paymentDue: paymentDueFromPeriodEnd(end),
+  };
+}
+
+/** Latest completed 1 Apr → 31 Mar year when Companies House periods are empty. */
+function defaultFilingPeriod(now = new Date()): { start: string; end: string } {
+  const y = now.getFullYear();
+  const month = now.getMonth(); // 0-based
+  const endYear = month < 3 ? y - 1 : y;
+  return {
+    start: `${endYear - 1}-04-01`,
+    end: `${endYear}-03-31`,
   };
 }
 
@@ -180,6 +200,7 @@ export function Ct600PeriodWorkspace({
     Array<{ start: string; end: string }>
   >([]);
   const [hydrated, setHydrated] = useState(false);
+  const seededDefault = useRef(false);
 
   useEffect(() => {
     setDismissed(readJson<string[]>(dismissedStorageKey(clientId), []));
@@ -189,6 +210,7 @@ export function Ct600PeriodWorkspace({
         [],
       ),
     );
+    seededDefault.current = false;
     setHydrated(true);
   }, [clientId]);
 
@@ -204,7 +226,7 @@ export function Ct600PeriodWorkspace({
     for (const card of [...standard, ...customs]) {
       byKey.set(periodKey(card.start, card.end), card);
     }
-    const list = [...byKey.values()]
+    let list = [...byKey.values()]
       .filter((p) => {
         const key = periodKey(p.start, p.end);
         const submitted = isSubmittedStatus(statusForPeriod(p, returns));
@@ -217,6 +239,12 @@ export function Ct600PeriodWorkspace({
         a.start < b.start ? -1 : a.start > b.start ? 1 : a.end.localeCompare(b.end),
       );
 
+    // Always show a current filing card when the desk would otherwise be empty.
+    if (list.length === 0) {
+      const def = defaultFilingPeriod();
+      list = [toCardFromCustom(def.start, def.end)];
+    }
+
     const latestCompletedEnd = list
       .filter((p) => p.end < today)
       .reduce<string | null>((max, p) => (!max || p.end > max ? p.end : max), null);
@@ -226,6 +254,21 @@ export function Ct600PeriodWorkspace({
       isCurrentFiling: Boolean(latestCompletedEnd && p.end === latestCompletedEnd),
     }));
   }, [periods, customPeriods, dismissed, returns]);
+
+  useEffect(() => {
+    if (!hydrated || seededDefault.current) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const hasCompleted = periods.some((p) => p.end < today);
+    if (hasCompleted || customPeriods.length > 0) {
+      seededDefault.current = true;
+      return;
+    }
+    const def = defaultFilingPeriod();
+    const next = [{ start: def.start, end: def.end }];
+    setCustomPeriods(next);
+    writeJson(customStorageKey(clientId), next);
+    seededDefault.current = true;
+  }, [hydrated, periods, customPeriods.length, clientId]);
 
   function openPeriod(start: string, end: string) {
     setSelected({ start, end });
@@ -351,33 +394,37 @@ export function Ct600PeriodWorkspace({
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3">
-        <div className="panel flex w-full flex-col gap-2 p-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-sea">
-            Custom period
+        <div className="panel flex w-full flex-col gap-2 border-sea/30 p-4 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-sea">
+            Add accounting period
           </p>
           <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
             <div>
-              <label className="text-[11px] text-ink-soft">Start</label>
+              <label className="text-[11px] font-semibold text-ink-soft">
+                Start
+              </label>
               <UkDateField
-                className="input mt-1 w-full text-xs"
+                className="input mt-1 w-full text-sm"
                 value={customStart}
                 onChange={(iso) => setCustomStart(iso)}
               />
             </div>
             <div>
-              <label className="text-[11px] text-ink-soft">End</label>
+              <label className="text-[11px] font-semibold text-ink-soft">
+                End
+              </label>
               <UkDateField
-                className="input mt-1 w-full text-xs"
+                className="input mt-1 w-full text-sm"
                 value={customEnd}
                 onChange={(iso) => setCustomEnd(iso)}
               />
             </div>
             <button
               type="button"
-              className="btn btn-primary text-xs"
+              className="btn btn-primary text-sm shadow-md"
               onClick={applyCustom}
             >
-              Add
+              Add period
             </button>
           </div>
           {customError ? (
@@ -386,13 +433,27 @@ export function Ct600PeriodWorkspace({
         </div>
 
         {hydrated &&
-          ordered.map((p) => {
-            const match = returnForPeriod(p, returns);
+          ordered.flatMap((p) => {
+            const periodReturns = returns
+              .filter(
+                (r) => r.periodStart === p.start && r.periodEnd === p.end,
+              )
+              .sort((a, b) => amendmentIndexOf(a) - amendmentIndexOf(b));
+            const revisions =
+              periodReturns.length > 0
+                ? periodReturns
+                : [null];
+            return revisions.map((rev) => {
+            const amendmentIndex = rev ? amendmentIndexOf(rev) : 0;
+            const match =
+              rev ?? returnForPeriod(p, returns, amendmentIndex);
             const filed = match?.status ?? null;
             const submitted = isSubmittedStatus(filed);
+            const arLabel =
+              amendmentIndex > 0 ? ` AR ${amendmentIndex}` : "";
             return (
               <div
-                key={periodKey(p.start, p.end)}
+                key={`${periodKey(p.start, p.end)}:AR${amendmentIndex}`}
                 role={submitted ? undefined : "button"}
                 tabIndex={submitted ? undefined : 0}
                 className={`panel flex w-full flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 ${
@@ -418,10 +479,15 @@ export function Ct600PeriodWorkspace({
                   <div className="flex w-full flex-wrap items-center gap-2">
                     <span className="text-xs font-bold uppercase tracking-[0.12em] text-sea">
                       {p.label}
+                      {arLabel}
                     </span>
                     {filed ? (
-                      <span className="badge badge-ok">{filed}</span>
-                    ) : p.isCurrentFiling ? (
+                      <span className="badge badge-ok">
+                        {submitted && amendmentIndex === 0
+                          ? `${filed} · locked`
+                          : filed}
+                      </span>
+                    ) : p.isCurrentFiling && amendmentIndex === 0 ? (
                       <span className="rounded-md border border-sea/30 bg-sea/5 px-2 py-0.5 text-xs font-semibold text-sea">
                         Current
                       </span>
@@ -431,6 +497,9 @@ export function Ct600PeriodWorkspace({
                     {formatGbDate(p.start)}
                     <span className="mx-2 text-ink-soft">→</span>
                     {formatGbDate(p.end)}
+                    {arLabel ? (
+                      <span className="ml-2 text-lg text-ink-soft">{arLabel.trim()}</span>
+                    ) : null}
                   </p>
                   <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-xs text-ink-soft">
                     <div>
@@ -488,6 +557,7 @@ export function Ct600PeriodWorkspace({
                 </div>
               </div>
             );
+            });
           })}
       </div>
     </div>

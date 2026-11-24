@@ -132,6 +132,15 @@ export async function buildUserDataExport(subject: {
     ),
     rows(() =>
       admin
+        .from("signup_filing_intents")
+        .select(
+          "button_id, button_label, resume_path, company_number, service_id, status, reminder_weekday, last_reminded_at, completed_at, created_at",
+        )
+        .eq("user_id", userId)
+        .limit(500),
+    ),
+    rows(() =>
+      admin
         .from("support_tickets")
         .select("ticket_ref, subject, message, help_topic, module, status, page_url, created_at, updated_at")
         .eq("raised_by", userId)

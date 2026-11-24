@@ -11,17 +11,47 @@ import {
   advancedSearchCompanies,
   isCompaniesHouseApiConfigured,
 } from "@/server/companies-house/api";
+import {
+  isDirectoryDbAvailable,
+  listCompaniesFromDirectoryDb,
+} from "@/server/companies-house/directory-db";
 
 export const revalidate = 86_400;
 
 /**
  * Single company sitemap at /company/sitemap.xml (seeded from industry/location hubs).
- * When coverage grows past ~45k URLs, switch back to generateSitemaps shards + an index.
+ * Prefers local Basic Company Data SQLite when present (no CH API). Falls back to API.
+ * When coverage grows past ~45k URLs, use `npm run ch:generate-sitemaps` shards.
  */
 const collectSeedCompanies = cache(async (): Promise<SitemapCompany[]> => {
+  const byNumber = new Map<string, SitemapCompany>();
+
+  if (isDirectoryDbAvailable()) {
+    for (const q of hubSeedQueries()) {
+      const rows = listCompaniesFromDirectoryDb({
+        sicCode: q.sic,
+        location: q.location,
+        size: COMPANY_SITEMAP_HUB_SAMPLE,
+      });
+      for (const row of rows ?? []) {
+        if (!byNumber.has(row.companyNumber)) {
+          byNumber.set(row.companyNumber, {
+            companyNumber: row.companyNumber,
+            title: row.title,
+            href: row.href,
+          });
+        }
+      }
+    }
+    if (byNumber.size > 0) {
+      return Array.from(byNumber.values()).sort((a, b) =>
+        a.companyNumber.localeCompare(b.companyNumber),
+      );
+    }
+  }
+
   if (!isCompaniesHouseApiConfigured()) return [];
 
-  const byNumber = new Map<string, SitemapCompany>();
   for (const q of hubSeedQueries()) {
     try {
       const items = await advancedSearchCompanies({

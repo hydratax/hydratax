@@ -10,6 +10,7 @@ import {
   isCompaniesHouseApiConfigured,
   lookupCompanyBundle,
 } from "@/server/companies-house/api";
+import { getOptionalSession } from "@/server/auth/session";
 
 export async function generateMetadata({
   params,
@@ -89,6 +90,7 @@ export default async function CompanyHubPage({
   }
 
   const registerUrl = `https://find-and-update.company-information.service.gov.uk/company/${companyNumber}`;
+  const session = await getOptionalSession();
 
   return (
     <div className="min-h-screen">
@@ -99,6 +101,7 @@ export default async function CompanyHubPage({
           officers={bundle.officers}
           pscs={bundle.pscs}
           registerUrl={registerUrl}
+          signedIn={Boolean(session)}
         />
       </main>
       <SiteFooter />

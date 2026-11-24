@@ -32,6 +32,12 @@ export type Sa100Stored = {
   submittedAt?: string;
   createdAt: string;
   updatedAt: string;
+  /** 0 = original; 1–5 = AR1–AR5 amendment copies. */
+  amendmentIndex?: number;
+  /** Parent return id when this row is an amendment. */
+  amendmentOfId?: string | null;
+  /** Explicit lock (submitted originals / filed ARs). */
+  locked?: boolean;
 };
 
 type StoreWithSa100 = typeof demoStore & { sa100Returns?: Sa100Stored[] };
@@ -78,6 +84,11 @@ function hydrateStored(raw: unknown): Sa100Stored | null {
   const r = raw as Sa100Stored;
   if (!r.id || !r.clientId || !r.taxYear || !r.draft) return null;
   try {
+    const amendmentIndex = Number(r.amendmentIndex) || 0;
+    const locked =
+      r.locked === true ||
+      ((r.status === "submitted" || r.status === "accepted") &&
+        amendmentIndex === 0);
     return {
       ...r,
       draft: sa100DraftSchema.parse(r.draft),
@@ -88,6 +99,9 @@ function hydrateStored(raw: unknown): Sa100Stored | null {
         r.attachedSupplements ??
         supplementCodesForDraft(sa100DraftSchema.parse(r.draft)),
       status: r.status ?? "draft",
+      amendmentIndex,
+      amendmentOfId: r.amendmentOfId ?? null,
+      locked,
       createdAt: r.createdAt || new Date().toISOString(),
       updatedAt: r.updatedAt || new Date().toISOString(),
     };
@@ -131,6 +145,9 @@ async function writeDurableReturns(
       submittedAt: r.submittedAt,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
+      amendmentIndex: r.amendmentIndex ?? 0,
+      amendmentOfId: r.amendmentOfId ?? null,
+      locked: r.locked ?? false,
     })),
   };
 
@@ -171,37 +188,36 @@ async function writeDurableReturns(
     );
 }
 
+function revisionKey(r: Pick<Sa100Stored, "taxYear" | "taxpayerId" | "amendmentIndex">) {
+  return `${rowKey(r)}:AR${Number(r.amendmentIndex) || 0}`;
+}
+
 async function upsertDurableReturn(row: Sa100Stored): Promise<void> {
   const all = await loadDurableReturns(row.clientId);
-  const idx = all.findIndex(
-    (r) =>
+  const ar = Number(row.amendmentIndex) || 0;
+  // Replace same year/person/AR revision when saving a draft; keep filed + other ARs.
+  const next = all.filter((r) => {
+    if (r.id === row.id) return false;
+    if (
+      row.status === "draft" &&
+      r.status === "draft" &&
       r.taxYear === row.taxYear &&
       sameTaxpayer(r, row.taxpayerId) &&
-      (r.status === "draft" || r.id === row.id),
-  );
-  // Replace matching draft for same year/person; keep other years / filed rows.
-  const next = all.filter(
-    (r) =>
-      !(
-        r.taxYear === row.taxYear &&
-        sameTaxpayer(r, row.taxpayerId) &&
-        r.status === "draft" &&
-        row.status === "draft"
-      ),
-  );
-  if (idx >= 0 && all[idx] && all[idx]!.status !== "draft") {
-    next.push(row);
-  } else {
-    next.push(row);
-  }
+      (Number(r.amendmentIndex) || 0) === ar
+    ) {
+      return false;
+    }
+    return true;
+  });
+  next.push(row);
   // De-dupe by id
   const byId = new Map<string, Sa100Stored>();
   for (const r of next) byId.set(r.id, r);
-  // Also ensure one draft per year+taxpayer
+  // One draft per year+taxpayer+AR revision
   const drafts = new Map<string, Sa100Stored>();
   const filed: Sa100Stored[] = [];
   for (const r of byId.values()) {
-    if (r.status === "draft") drafts.set(rowKey(r), r);
+    if (r.status === "draft") drafts.set(revisionKey(r), r);
     else filed.push(r);
   }
   const blankKey = sa100BlankStartKey(row.taxpayerId, row.taxYear);
@@ -220,15 +236,18 @@ export async function getSa100Draft(
   clientId: string,
   taxYear = "2025-26",
   taxpayerId?: string | null,
+  amendmentIndex: number = 0,
 ) {
   await getClient(clientId);
+  const ar = Number(amendmentIndex) || 0;
   const durable = await loadDurableReturns(clientId);
   const hit =
     durable.find(
       (r) =>
         r.taxYear === taxYear &&
         r.status === "draft" &&
-        sameTaxpayer(r, taxpayerId),
+        sameTaxpayer(r, taxpayerId) &&
+        (Number(r.amendmentIndex) || 0) === ar,
     ) ?? null;
 
   const list = returns();
@@ -240,7 +259,8 @@ export async function getSa100Draft(
       r.clientId === clientId &&
       r.taxYear === taxYear &&
       r.status === "draft" &&
-      sameTaxpayer(r, taxpayerId)
+      sameTaxpayer(r, taxpayerId) &&
+      (Number(r.amendmentIndex) || 0) === ar
     ) {
       if (!hit || r.id !== hit.id) list.splice(i, 1);
     }
@@ -250,6 +270,112 @@ export async function getSa100Draft(
     return hit;
   }
   return null;
+}
+
+/**
+ * Create AR1–AR5: deep-copy a submitted/accepted return into an editable draft.
+ * Locks the parent; Form Allocations / tax return cards use the same AR label.
+ */
+export async function createSa100Amendment(input: {
+  clientId: string;
+  taxYear: string;
+  taxpayerId?: string | null;
+  /** Prefer amending a specific return id (original or prior AR). */
+  sourceReturnId?: string | null;
+}): Promise<
+  | { ok: true; row: Sa100Stored; amendmentIndex: number }
+  | { ok: false; error: string }
+> {
+  const session = await requireSession();
+  if (session.role === "readonly") {
+    return { ok: false, error: "Read-only access." };
+  }
+  await getClient(input.clientId);
+  const { nextAmendmentIndex, amendmentCardLabel } = await import(
+    "@/lib/amendment-revision"
+  );
+
+  const all = (await listSa100Returns(input.clientId, input.taxpayerId)).filter(
+    (r) => r.taxYear === input.taxYear,
+  );
+  const source =
+    (input.sourceReturnId
+      ? all.find((r) => r.id === input.sourceReturnId)
+      : null) ??
+    all.find(
+      (r) =>
+        (r.status === "submitted" || r.status === "accepted") &&
+        (Number(r.amendmentIndex) || 0) === 0,
+    ) ??
+    all.find((r) => r.status === "submitted" || r.status === "accepted") ??
+    null;
+  if (!source) {
+    return { ok: false, error: "Submit the return before amending." };
+  }
+
+  const nextIndex = nextAmendmentIndex(
+    all.map((r) => Number(r.amendmentIndex) || 0),
+  );
+  if (nextIndex == null) {
+    return { ok: false, error: "Maximum five amendments (AR5) for this year." };
+  }
+
+  const now = new Date().toISOString();
+  const draftCopy = sa100DraftSchema.parse(
+    JSON.parse(JSON.stringify(source.draft)),
+  );
+  const row: Sa100Stored = {
+    id: crypto.randomUUID(),
+    clientId: input.clientId,
+    taxpayerId: input.taxpayerId ?? source.taxpayerId ?? null,
+    taxYear: input.taxYear,
+    status: "draft",
+    draft: draftCopy,
+    calculation: calculateSa302(draftCopy),
+    attachedSupplements: supplementCodesForDraft(draftCopy),
+    createdAt: now,
+    updatedAt: now,
+    amendmentIndex: nextIndex,
+    amendmentOfId: source.id,
+    locked: false,
+  };
+
+  // Lock originals / filed parents in durable store
+  const durable = await loadDurableReturns(input.clientId);
+  for (const r of durable) {
+    if (
+      r.taxYear === input.taxYear &&
+      sameTaxpayer(r, input.taxpayerId ?? source.taxpayerId) &&
+      (r.status === "submitted" || r.status === "accepted")
+    ) {
+      r.locked = true;
+    }
+  }
+  durable.push(row);
+  const byId = new Map(durable.map((r) => [r.id, r]));
+  await writeDurableReturns(input.clientId, [...byId.values()]);
+
+  const mem = returns();
+  if (!mem.some((r) => r.id === row.id)) mem.push(row);
+
+  await appendAuditEvent({
+    practiceId: session.practiceId,
+    clientId: input.clientId,
+    actorId: session.userId,
+    action: "sa100.amendment.created",
+    entityType: "sa100_return",
+    entityId: row.id,
+    detail: {
+      taxYear: input.taxYear,
+      amendmentIndex: nextIndex,
+      label: amendmentCardLabel(input.taxYear, nextIndex),
+      sourceReturnId: source.id,
+    },
+  });
+
+  revalidatePath(`/clients/${input.clientId}/self-assessment`);
+  revalidatePath(`/self-assessment`);
+  return { ok: true, row, amendmentIndex: nextIndex };
 }
 
 export async function listSa100Returns(
@@ -287,18 +413,25 @@ export async function listSa100Returns(
     () => [] as Sa100Stored[],
   );
 
-  const byYear = new Map<string, Sa100Stored>();
-  for (const r of fromDocs) byYear.set(rowKey(r), r);
-  for (const r of fromDurable) byYear.set(rowKey(r), r);
+  const byRev = new Map<string, Sa100Stored>();
+  const revKey = (r: Sa100Stored) =>
+    `${rowKey(r)}:AR${Number(r.amendmentIndex) || 0}`;
+  for (const r of fromDocs) {
+    const hydrated = { ...r, amendmentIndex: 0, locked: true };
+    byRev.set(revKey(hydrated), hydrated);
+  }
+  for (const r of fromDurable) byRev.set(revKey(r), r);
   for (const r of fromMemory) {
     // Memory may hold a just-saved draft not yet re-read from durable.
     if (r.status === "draft" || durableIds.has(r.id)) {
-      byYear.set(rowKey(r), r);
+      byRev.set(revKey(r), r);
     }
   }
-  return Array.from(byYear.values()).sort((a, b) =>
-    b.createdAt.localeCompare(a.createdAt),
-  );
+  return Array.from(byRev.values()).sort((a, b) => {
+    const y = b.taxYear.localeCompare(a.taxYear);
+    if (y !== 0) return y;
+    return (Number(a.amendmentIndex) || 0) - (Number(b.amendmentIndex) || 0);
+  });
 }
 
 async function filedReturnsFromDocuments(
@@ -445,6 +578,8 @@ export async function saveSa100Draft(input: {
   clientId: string;
   draft: Sa100Draft;
   taxpayerId?: string | null;
+  /** AR1–AR5 revision; 0 = original draft. */
+  amendmentIndex?: number;
   /** Skip SA100/SA302 PDF build — keeps Continue snappy between wizard steps. */
   skipPdfs?: boolean;
 }) {
@@ -484,11 +619,26 @@ export async function saveSa100Draft(input: {
   const calculation = calculateSa302(draft);
   const attachedSupplements = supplementCodesForDraft(draft);
   const now = new Date().toISOString();
+  const amendmentIndex = Number(input.amendmentIndex) || 0;
   const existing = await getSa100Draft(
     input.clientId,
     draft.taxYear,
     input.taxpayerId,
+    amendmentIndex,
   );
+  if (existing?.locked) {
+    throw new Error(
+      "This return is locked. Use Amend Return to create an AR draft.",
+    );
+  }
+  if (
+    existing &&
+    (existing.status === "submitted" || existing.status === "accepted")
+  ) {
+    throw new Error(
+      "This return is locked. Use Amend Return to create an AR draft.",
+    );
+  }
 
   const isNew = !existing;
   let row = existing;
@@ -510,6 +660,9 @@ export async function saveSa100Draft(input: {
       attachedSupplements,
       createdAt: now,
       updatedAt: now,
+      amendmentIndex,
+      amendmentOfId: null,
+      locked: false,
     };
     returns().push(row);
 
@@ -871,6 +1024,7 @@ export async function submitSa100Return(
   row.hmrcCorrelationId = correlationId;
   row.submittedAt = now;
   row.updatedAt = now;
+  row.locked = true;
 
   await upsertDurableReturn(row);
 

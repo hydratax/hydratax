@@ -1,9 +1,12 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useId, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
-import { downloadCt600Draft } from "@/server/actions/ct600";
+import {
+  createCt600Amendment,
+  downloadCt600Draft,
+} from "@/server/actions/ct600";
 import { emailClientArtifact } from "@/server/actions/email-artifacts";
 
 export type YearEndFiledContext = {
@@ -64,6 +67,7 @@ export function YearEndFiledActionsMenu({
   const [body, setBody] = useState(defaultBody);
   const [mounted, setMounted] = useState(false);
   const [pending, start] = useTransition();
+  const router = useRouter();
 
   useEffect(() => {
     setMounted(true);
@@ -94,11 +98,32 @@ export function YearEndFiledActionsMenu({
     setEmailOpen(false);
   }, [open, filed.contactEmail, defaultSubject, defaultBody]);
 
-  const amendHref = `/clients/${encodeURIComponent(filed.clientId)}/year-end?mode=both${
-    filed.companyNumber
-      ? `&company=${encodeURIComponent(filed.companyNumber)}`
-      : ""
-  }&start=${encodeURIComponent(filed.periodStart)}&end=${encodeURIComponent(filed.periodEnd)}&amend=1`;
+  function amendReturn() {
+    start(async () => {
+      try {
+        const res = await createCt600Amendment({
+          clientId: filed.clientId,
+          sourceReturnId: filed.returnId,
+        });
+        if (!res.ok) return;
+        setOpen(false);
+        const qs = new URLSearchParams({
+          mode: "both",
+          start: res.periodStart,
+          end: res.periodEnd,
+          returnId: res.returnId,
+          ar: String(res.amendmentIndex),
+        });
+        if (filed.companyNumber) qs.set("company", filed.companyNumber);
+        router.push(
+          `/clients/${encodeURIComponent(filed.clientId)}/year-end?${qs.toString()}`,
+        );
+        router.refresh();
+      } catch {
+        /* freeze */
+      }
+    });
+  }
 
   function download(kind: "ct600" | "accounts" | "computation") {
     start(async () => {
@@ -267,18 +292,12 @@ export function YearEndFiledActionsMenu({
                     </div>
                   </div>
                 )}
-                <Link
-                  href={amendHref}
-                  onClick={() => setOpen(false)}
-                  className="block rounded-xl border border-line px-3.5 py-3 transition hover:border-sea/50 hover:bg-sea/5"
-                >
-                  <p className="font-semibold text-ink">
-                    Submit amended return
-                  </p>
-                  <p className="mt-0.5 text-sm leading-snug text-ink-soft">
-                    Open year-end again to correct and re-file.
-                  </p>
-                </Link>
+                <ActionButton
+                  disabled={pending}
+                  onClick={amendReturn}
+                  title="Amend Return"
+                  blurb="Create an editable AR copy of this period’s CT600 and accounts (AR1–AR5)."
+                />
               </div>
             </div>
           </div>,

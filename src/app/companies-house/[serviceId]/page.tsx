@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getChService } from "@/lib/ch-services";
 import { ChRequestForm } from "@/components/forms/ch-request-form";
 import { IncorporationWizard } from "@/components/forms/incorporation-wizard";
@@ -18,6 +18,10 @@ import { getIncorporationFilingReadiness } from "@/server/companies-house/filing
 import { getOptionalSession } from "@/server/auth/session";
 import { sanitizePublicChFormDefaults } from "@/lib/ch-public-form-defaults";
 import { getPracticeCompanyAuthCode } from "@/server/actions/clients";
+import {
+  ACCOUNT_REQUIRED_CH_SERVICES,
+  authEntryHref,
+} from "@/lib/auth-return";
 
 const WIZARD_SERVICE_IDS = [
   "incorporation",
@@ -202,6 +206,34 @@ export default async function ChServicePage({
   const service = getChService(serviceId);
   if (!service) notFound();
   const session = await getOptionalSession();
+
+  // Confirmation statement / accounts need an account so every filing is recorded.
+  if (!session && ACCOUNT_REQUIRED_CH_SERVICES.has(serviceId)) {
+    const qs = new URLSearchParams();
+    for (const key of [
+      "company",
+      "clientId",
+      "name",
+      "pay",
+      "resume",
+      "mode",
+      "step",
+    ] as const) {
+      const val = query[key]?.trim();
+      if (val) qs.set(key, val);
+    }
+    const next = qs.size
+      ? `/companies-house/${serviceId}?${qs.toString()}`
+      : `/companies-house/${serviceId}`;
+    const cta =
+      serviceId === "confirmation-statement"
+        ? "ch-service-confirmation-statement"
+        : serviceId === "accounts-ixbrl"
+          ? "ch-service-accounts-ixbrl"
+          : undefined;
+    redirect(authEntryHref("create-account", next, cta ? { cta } : undefined));
+  }
+
   const formDefaults = sanitizePublicChFormDefaults(query, {
     signedIn: Boolean(session),
   });

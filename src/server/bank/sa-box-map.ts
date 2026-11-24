@@ -274,8 +274,6 @@ export type SaFormSuggestSignals = {
 
 const RENTAL_OCC_RE =
   /\b(landlord|landlady|lettings?|rental|property\s*invest|buy[\s-]?to[\s-]?let|b2l)\b/i;
-const EMPLOY_OCC_RE =
-  /\b(employee|employed|payroll|paye|director|salary|salaried)\b/i;
 
 /**
  * Pick the best form for a bank category given person signals.
@@ -288,20 +286,7 @@ export function suggestSaFormForCategory(
   const occ = signals.occupation ?? "";
   const rental =
     Boolean(signals.hasRental) || RENTAL_OCC_RE.test(occ);
-  const employed =
-    Boolean(signals.hasEmployment) || EMPLOY_OCC_RE.test(occ);
-  const selfEmp =
-    signals.hasSelfEmployment !== false &&
-    (Boolean(signals.hasSelfEmployment) ||
-      (!rental && !employed) ||
-      Boolean(occ.trim()));
 
-  if (
-    category === "directors_remuneration" ||
-    (category === "salaries" && employed && !selfEmp)
-  ) {
-    return employed ? "sa102" : "sa103f";
-  }
   if (
     rental &&
     (category === "rent_rates" ||
@@ -312,9 +297,7 @@ export function suggestSaFormForCategory(
   ) {
     return "sa105";
   }
-  if (employed && !selfEmp && !rental && category === "turnover") {
-    return "sa102";
-  }
+  // Bank heads never default to SA102 — employment pay comes from PAYE / P60.
   return "sa103f";
 }
 

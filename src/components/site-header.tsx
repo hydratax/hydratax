@@ -68,27 +68,29 @@ export function SiteHeader({
     };
   }, [mobileOpen]);
 
-  // Background/blur stay on the nav row only — never behind FreeTrialBanner.
-  // -top-px + pt-px + bg-sea seals DPR subpixel gaps that otherwise flash paper white.
+  // Shell stays transparent so heroes show through; only the trial banner is solid sea.
+  // Mobile open gets an opaque shell so the drawer covers the page cleanly.
   const shell = dark
     ? mobileOpen
-      ? "fixed inset-x-0 -top-px z-50 bg-sea pt-px"
-      : "absolute inset-x-0 -top-px z-20 bg-sea pt-px"
+      ? "fixed inset-x-0 top-0 z-50 bg-sea-deep"
+      : "absolute inset-x-0 top-0 z-20 bg-transparent"
     : overlay
       ? mobileOpen
-        ? "fixed inset-x-0 -top-px z-50 bg-sea pt-px"
-        : "absolute inset-x-0 -top-px z-20 bg-sea pt-px"
-      : "sticky -top-px z-30 bg-sea pt-px";
+        ? "fixed inset-x-0 top-0 z-50 bg-white"
+        : "absolute inset-x-0 top-0 z-20 bg-transparent"
+      : "sticky top-0 z-30 bg-transparent";
 
   const navRow = dark
     ? mobileOpen
       ? "border-b border-white/10 bg-sea-deep"
-      : ""
+      : "bg-transparent"
     : overlay
       ? mobileOpen
         ? "border-b border-line/80 bg-white shadow-md"
-        : "border-b border-line/40 bg-white/55 backdrop-blur-xl"
-      : "border-b border-line/80 bg-white/90 backdrop-blur-md";
+        : "bg-transparent"
+      : mobileOpen
+        ? "border-b border-line/80 bg-white shadow-md"
+        : "bg-transparent";
 
   const brand = dark ? "text-white" : "text-ink";
   const navMuted = dark

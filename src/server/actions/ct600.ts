@@ -359,13 +359,103 @@ export async function listCt600Returns(clientId: string) {
     }
   }
 
-  // One row per accounting period — keep the newest draft/submission.
-  const byPeriod = new Map<string, (typeof rows)[number]>();
+  // One row per accounting period + AR revision (meta on questionnaire).
+  const byRev = new Map<string, (typeof rows)[number]>();
   for (const row of rows) {
-    const key = `${row.periodStart}|${row.periodEnd}`;
-    if (!byPeriod.has(key)) byPeriod.set(key, row);
+    const q = (row.questionnaire ?? {}) as Record<string, unknown>;
+    const ar = Number(q.amendmentIndex) || 0;
+    const key = `${row.periodStart}|${row.periodEnd}|AR${ar}`;
+    const prev = byRev.get(key);
+    if (!prev || String(row.createdAt) > String(prev.createdAt)) {
+      byRev.set(key, row);
+    }
   }
-  return [...byPeriod.values()];
+  return [...byRev.values()].sort((a, b) =>
+    b.periodEnd.localeCompare(a.periodEnd),
+  );
+}
+
+/**
+ * Create AR1–AR5 for a filed CT600: copy figures onto a new draft row.
+ * Original stays locked; open the AR via year-end with returnId.
+ */
+export async function createCt600Amendment(input: {
+  clientId: string;
+  sourceReturnId: string;
+}): Promise<
+  | { ok: true; returnId: string; amendmentIndex: number; periodStart: string; periodEnd: string }
+  | { ok: false; error: string }
+> {
+  const session = await requireSession();
+  if (session.role === "readonly") {
+    return { ok: false, error: "Read-only access." };
+  }
+  await getClient(input.clientId);
+  const { nextAmendmentIndex, amendmentCardLabel } = await import(
+    "@/lib/amendment-revision"
+  );
+
+  const source = await loadDraft(input.sourceReturnId, input.clientId);
+  if (!source) return { ok: false, error: "Return not found." };
+  const status = String(source.status ?? "").toLowerCase();
+  if (!["submitted", "accepted", "rejected", "error"].includes(status)) {
+    return { ok: false, error: "Submit the return before amending." };
+  }
+
+  const all = await listCt600Returns(input.clientId);
+  const samePeriod = all.filter(
+    (r) =>
+      r.periodStart === source.periodStart && r.periodEnd === source.periodEnd,
+  );
+  const indexes = samePeriod.map((r) => {
+    const q = (r.questionnaire ?? {}) as Record<string, unknown>;
+    return Number(q.amendmentIndex) || 0;
+  });
+  const nextIndex = nextAmendmentIndex(indexes);
+  if (nextIndex == null) {
+    return { ok: false, error: "Maximum five amendments (AR5) for this period." };
+  }
+
+  const srcQ = (source.questionnaire ?? {}) as Record<string, unknown>;
+  const figures = JSON.parse(JSON.stringify(source.figures ?? {}));
+  const id = crypto.randomUUID();
+  const periodStart = String(source.periodStart ?? "");
+  const periodEnd = String(source.periodEnd ?? "");
+  if (!periodStart || !periodEnd) {
+    return { ok: false, error: "Return period is missing." };
+  }
+  const taxableProfitPence =
+    typeof source.taxableProfitPence === "number"
+      ? source.taxableProfitPence
+      : undefined;
+  await persistDraft({
+    id,
+    clientId: input.clientId,
+    periodStart,
+    periodEnd,
+    status: "draft",
+    figures,
+    questionnaire: {
+      ...srcQ,
+      amendmentIndex: nextIndex,
+      amendmentOfId: source.id,
+      amendmentLabel: amendmentCardLabel(
+        `${periodStart}–${periodEnd}`,
+        nextIndex,
+      ),
+    } as Ct600QuestionnaireAnswers,
+    taxableProfitPence,
+  });
+
+  revalidatePath(`/clients/${input.clientId}/corporation-tax`);
+  revalidatePath(`/clients/${input.clientId}/year-end`);
+  return {
+    ok: true,
+    returnId: id,
+    amendmentIndex: nextIndex,
+    periodStart,
+    periodEnd,
+  };
 }
 
 export async function submitCt600(

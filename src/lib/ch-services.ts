@@ -228,7 +228,7 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     id: "confirmation-statement",
     title: "Confirmation statement (CS01)",
     summary:
-      "Confirm company information is up to date. £65 total (Companies House £50 + Hydra £15) with the first statement in each 12-month payment period.",
+      "Confirm company information is up to date. £55 total for individuals (Companies House £50 + Hydra £5) with the first statement in each 12-month payment period. Practice desks include confirmation statements.",
     channel: "Digital",
     chFeePounds: 50,
     popular: true,
@@ -300,7 +300,7 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     id: "accounts-ixbrl",
     title: "Annual accounts (iXBRL)",
     summary:
-      "File statutory accounts to Companies House via software. Companies House statutory fee £0 — Hydra software fee £25.",
+      "File statutory accounts to Companies House via software. Companies House statutory fee £0 — Hydra software fee £15 for individuals (included on practice desks).",
     channel: "Software",
     chFeePounds: 0,
     popular: true,
@@ -313,7 +313,7 @@ export const CH_SERVICE_DETAILS: ChServiceDetail[] = [
     ],
     importantNotes: [
       "Statutory CH fee for software accounts filing is £0 on the current fee schedule for standard delivery.",
-      "Hydra software fee for this filing is £25.",
+      "Hydra software fee for individuals is £15; practice desks include accounts filings.",
       "Deadlines and accounts content remain your / your client’s responsibility under the Companies Act.",
     ],
     govUkLinks: [

@@ -38,6 +38,8 @@ export async function GET(request: NextRequest) {
     url.searchParams.get("org_type") || readIntentCookie(request, "ht_auth_org");
   const orgType =
     orgTypeRaw && ORG_TYPES.has(orgTypeRaw) ? orgTypeRaw : null;
+  const signupCta =
+    url.searchParams.get("cta") || readIntentCookie(request, "ht_auth_cta");
 
   const isPasswordRecovery = next.startsWith("/reset-password");
 
@@ -52,6 +54,7 @@ export async function GET(request: NextRequest) {
     const res = NextResponse.redirect(`${origin}${dest}`);
     res.cookies.set("ht_auth_next", "", { path: "/", maxAge: 0 });
     res.cookies.set("ht_auth_org", "", { path: "/", maxAge: 0 });
+    res.cookies.set("ht_auth_cta", "", { path: "/", maxAge: 0 });
     return res;
   };
 
@@ -137,6 +140,7 @@ export async function GET(request: NextRequest) {
     }
     redirectResponse.cookies.set("ht_auth_next", "", { path: "/", maxAge: 0 });
     redirectResponse.cookies.set("ht_auth_org", "", { path: "/", maxAge: 0 });
+    redirectResponse.cookies.set("ht_auth_cta", "", { path: "/", maxAge: 0 });
     redirectResponse.headers.set("Cache-Control", "private, no-store");
     return redirectResponse;
   }
@@ -166,10 +170,25 @@ export async function GET(request: NextRequest) {
       const { ensureSupabasePractice } = await import(
         "@/server/auth/ensure-practice"
       );
-      await ensureSupabasePractice({
+      const practice = await ensureSupabasePractice({
         ...user,
         user_metadata: { ...meta, ...updates },
       });
+      try {
+        const { recordSignupFilingIntent } = await import(
+          "@/server/billing/signup-filing-intents"
+        );
+        const ctaFromMeta =
+          typeof meta.signup_cta === "string" ? meta.signup_cta : null;
+        await recordSignupFilingIntent({
+          userId: user.id,
+          practiceId: practice.practiceId,
+          resumePath: next,
+          ctaId: signupCta || ctaFromMeta,
+        });
+      } catch {
+        /* best-effort intent record */
+      }
     } catch {
       /* practice seeded on first desk visit */
     }
@@ -310,6 +329,7 @@ export async function GET(request: NextRequest) {
 
   redirectResponse.cookies.set("ht_auth_next", "", { path: "/", maxAge: 0 });
   redirectResponse.cookies.set("ht_auth_org", "", { path: "/", maxAge: 0 });
+  redirectResponse.cookies.set("ht_auth_cta", "", { path: "/", maxAge: 0 });
   redirectResponse.headers.set("Cache-Control", "private, no-store");
 
   return redirectResponse;

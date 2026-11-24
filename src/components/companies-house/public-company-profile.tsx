@@ -14,6 +14,7 @@ import {
   shortSicLabel,
   type DirectoryCompanyLink,
 } from "@/lib/company-directory";
+import { filingHrefForSession } from "@/lib/auth-return";
 
 function deadlineTone(days: number | null) {
   if (days == null) return "muted" as const;
@@ -146,18 +147,48 @@ export function PublicCompanyProfile({
   similarByIndustry = [],
   similarByLocation = [],
   now = new Date(),
+  signedIn = false,
 }: {
   profile: PublicCompanyInput;
   similarByIndustry?: DirectoryCompanyLink[];
   similarByLocation?: DirectoryCompanyLink[];
   now?: Date;
+  /** When false, filing CTAs send the visitor to create an account first. */
+  signedIn?: boolean;
 }) {
   const facts = companyProfileFacts(profile, now);
   const number = encodeURIComponent(facts.companyNumber);
   const registerUrl = `https://find-and-update.company-information.service.gov.uk/company/${number}`;
-  const fileHref = `/companies-house/year-end?mode=both&company=${number}`;
-  const confirmationHref = `/companies-house/confirmation-statement?company=${number}`;
-  const accountsHref = `/companies-house/accounts-ixbrl?company=${number}`;
+  const fileHref = filingHrefForSession(
+    `/companies-house/year-end?mode=both&company=${number}`,
+    signedIn,
+    "file-ct600-accounts",
+  );
+  const confirmationHref = filingHrefForSession(
+    `/companies-house/confirmation-statement?company=${number}`,
+    signedIn,
+    "confirmation-statement",
+  );
+  const accountsHref = filingHrefForSession(
+    `/companies-house/accounts-ixbrl?company=${number}`,
+    signedIn,
+    "accounts-only",
+  );
+  const csDeadlineHref = filingHrefForSession(
+    `/companies-house/confirmation-statement?company=${number}`,
+    signedIn,
+    "file-cs01-deadline",
+  );
+  const accountsDeadlineHref = filingHrefForSession(
+    `/companies-house/accounts-ixbrl?company=${number}`,
+    signedIn,
+    "file-accounts-deadline",
+  );
+  const ct600DeadlineHref = filingHrefForSession(
+    `/companies-house/year-end?mode=both&company=${number}`,
+    signedIn,
+    "start-ct600-deadline",
+  );
   const sicCode = profile.sic_codes?.[0] ?? null;
   const industryLabel = shortSicLabel(sicCode);
   const location = facts.location;
@@ -328,7 +359,7 @@ export function PublicCompanyProfile({
               label="Accounts due"
               iso={facts.accountsDue}
               now={now}
-              actionHref={accountsHref}
+              actionHref={accountsDeadlineHref}
               actionLabel="File accounts"
               index={0}
             />
@@ -336,7 +367,7 @@ export function PublicCompanyProfile({
               label="Corporation tax (CT600)"
               iso={facts.ct600Due}
               now={now}
-              actionHref={fileHref}
+              actionHref={ct600DeadlineHref}
               actionLabel="Start CT600"
               index={1}
             />
@@ -344,7 +375,7 @@ export function PublicCompanyProfile({
               label="Confirmation statement"
               iso={facts.confirmationDate}
               now={now}
-              actionHref={confirmationHref}
+              actionHref={csDeadlineHref}
               actionLabel="File CS01"
               index={2}
             />

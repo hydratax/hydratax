@@ -21,6 +21,7 @@ import {
   isCompaniesHouseApiConfigured,
 } from "@/server/companies-house/api";
 import { findSimilarCompanies } from "@/server/companies-house/similar-companies";
+import { getOptionalSession } from "@/server/auth/session";
 
 export const revalidate = 86_400;
 
@@ -79,11 +80,14 @@ export default async function PublicCompanyPage({
   }
 
   const facts = companyProfileFacts(profile);
-  const similar = await findSimilarCompanies({
-    companyNumber: profile.company_number,
-    sicCode: profile.sic_codes?.[0] ?? null,
-    location: facts.location,
-  });
+  const [similar, session] = await Promise.all([
+    findSimilarCompanies({
+      companyNumber: profile.company_number,
+      sicCode: profile.sic_codes?.[0] ?? null,
+      location: facts.location,
+    }),
+    getOptionalSession(),
+  ]);
 
   return (
     <div className="min-h-screen bg-paper">
@@ -93,6 +97,7 @@ export default async function PublicCompanyPage({
           profile={profile}
           similarByIndustry={similar.byIndustry}
           similarByLocation={similar.byLocation}
+          signedIn={Boolean(session)}
         />
         <script
           type="application/ld+json"

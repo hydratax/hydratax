@@ -18,7 +18,13 @@ export type AuthEntry = "sign-in" | "create-account" | "quick-signup";
 export function authEntryHref(
   entry: AuthEntry,
   returnPath: string,
-  params?: { step?: "submit"; pay?: boolean; resume?: boolean },
+  params?: {
+    step?: "submit";
+    pay?: boolean;
+    resume?: boolean;
+    /** Public CTA id — which File with HydraTax button was pressed. */
+    cta?: string;
+  },
 ): string {
   const destination = appendReturnParams(returnPath, params ?? {});
   const page =
@@ -27,7 +33,10 @@ export function authEntryHref(
       : entry === "quick-signup"
         ? "quick-signup"
         : "create-account";
-  return `/${page}?next=${encodeURIComponent(destination)}`;
+  const qs = new URLSearchParams();
+  qs.set("next", destination);
+  if (params?.cta?.trim()) qs.set("cta", params.cta.trim());
+  return `/${page}?${qs.toString()}`;
 }
 
 const MAX_RETURN_PATH_LENGTH = 2048;
@@ -76,3 +85,22 @@ export function isOneOffFilingPath(path: string | null | undefined): boolean {
     p.startsWith("/companies-house/incorporation")
   );
 }
+
+/**
+ * Public / marketing filing CTAs must not open submit flows while signed out —
+ * HydraTax needs an account to keep the filing record.
+ */
+export function filingHrefForSession(
+  path: string,
+  signedIn: boolean,
+  cta?: string,
+): string {
+  if (signedIn) return path;
+  return authEntryHref("create-account", path, cta ? { cta } : undefined);
+}
+
+/** Service ids that must not run until the visitor has a HydraTax account. */
+export const ACCOUNT_REQUIRED_CH_SERVICES = new Set([
+  "confirmation-statement",
+  "accounts-ixbrl",
+]);

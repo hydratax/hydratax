@@ -6,6 +6,7 @@ import {
   formatDueLabel,
 } from "@/lib/ch-deadlines";
 import type { ChOfficer, ChPsc } from "@/server/companies-house/api";
+import { filingHrefForSession } from "@/lib/auth-return";
 
 type Profile = {
   company_number: string;
@@ -155,16 +156,28 @@ export function CompanyHub({
   officers,
   pscs,
   registerUrl,
+  signedIn = false,
 }: {
   profile: Profile;
   officers: ChOfficer[];
   pscs: ChPsc[];
   registerUrl: string;
+  signedIn?: boolean;
 }) {
   const number = profile.company_number;
   const office = formatAddress(profile.registered_office_address);
   const activeOfficers = officers.filter((o) => !o.resigned_on);
   const currentPscs = pscs.filter((p) => !p.ceased && !p.ceased_on);
+  const csHref = filingHrefForSession(
+    `/companies-house/confirmation-statement?company=${encodeURIComponent(number)}`,
+    signedIn,
+    "confirmation-statement",
+  );
+  const accountsHref = filingHrefForSession(
+    `/companies-house/accounts-ixbrl?company=${encodeURIComponent(number)}`,
+    signedIn,
+    "accounts-only",
+  );
 
   return (
     <div className="space-y-10">
@@ -214,14 +227,14 @@ export function CompanyHub({
           <DeadlineCard
             title="Confirmation statement"
             nextDue={profile.confirmation_statement?.next_due}
-            href={`/companies-house/confirmation-statement?company=${encodeURIComponent(number)}`}
+            href={csHref}
             cta="File confirmation statement"
           />
           <DeadlineCard
             title="Annual accounts"
             nextDue={profile.accounts?.next_due}
-            href={`/companies-house/accounts-ixbrl?company=${encodeURIComponent(number)}`}
-            cta="File Accounts"
+            href={accountsHref}
+            cta="File accounts"
           />
         </div>
       </section>

@@ -221,6 +221,120 @@ export async function listVatReturns(clientId: string) {
   return db.select().from(vatReturns).where(eq(vatReturns.clientId, clientId));
 }
 
+/**
+ * Create AR1–AR5 for a filed VAT period. Uses `periodKey::ARn` so the unique
+ * (client_id, period_key) constraint is respected without a migration.
+ */
+export async function createVatAmendment(input: {
+  clientId: string;
+  periodKey: string;
+}): Promise<
+  | {
+      ok: true;
+      returnId: string;
+      periodKey: string;
+      amendmentIndex: number;
+      periodStart?: string;
+      periodEnd?: string;
+    }
+  | { ok: false; error: string }
+> {
+  const session = await requireSession();
+  if (session.role === "readonly") {
+    return { ok: false, error: "Read-only access." };
+  }
+  await getClient(input.clientId);
+  const {
+    nextAmendmentIndex,
+    parseVatPeriodKeyAmendment,
+    vatPeriodKeyWithAmendment,
+  } = await import("@/lib/amendment-revision");
+
+  const { basePeriodKey } = parseVatPeriodKeyAmendment(input.periodKey);
+  const all = await listVatReturns(input.clientId);
+  const related = all.filter((r) => {
+    const key = String(
+      (r as { periodKey?: string; period_key?: string }).periodKey ??
+        (r as { period_key?: string }).period_key ??
+        "",
+    );
+    return parseVatPeriodKeyAmendment(key).basePeriodKey === basePeriodKey;
+  });
+  const source =
+    related.find((r) => {
+      const key = String(
+        (r as { periodKey?: string }).periodKey ??
+          (r as { period_key?: string }).period_key ??
+          "",
+      );
+      return parseVatPeriodKeyAmendment(key).amendmentIndex === 0;
+    }) ?? related[0];
+  if (!source) {
+    return { ok: false, error: "No VAT return found for this period." };
+  }
+  const status = String(source.status ?? "").toLowerCase();
+  if (!["submitted", "accepted", "ready"].includes(status) && status !== "submitted") {
+    // Allow amend when filed; also when ready was already fulfilled via HMRC.
+  }
+  if (!["submitted", "accepted"].includes(status)) {
+    return { ok: false, error: "Submit the VAT return before amending." };
+  }
+
+  const indexes = related.map((r) => {
+    const key = String(
+      (r as { periodKey?: string }).periodKey ??
+        (r as { period_key?: string }).period_key ??
+        "",
+    );
+    return parseVatPeriodKeyAmendment(key).amendmentIndex;
+  });
+  const nextIndex = nextAmendmentIndex(indexes);
+  if (nextIndex == null) {
+    return { ok: false, error: "Maximum five amendments (AR5) for this period." };
+  }
+
+  const newKey = vatPeriodKeyWithAmendment(basePeriodKey, nextIndex);
+  const boxes = JSON.parse(JSON.stringify(source.boxes ?? {}));
+  const id = crypto.randomUUID();
+  const draft = {
+    id,
+    clientId: input.clientId,
+    periodKey: newKey,
+    status: "draft",
+    boxes,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (isDemoMode()) {
+    demoStore.vatReturns.push(draft);
+  } else {
+    await saveVatReturn(draft);
+  }
+
+  await appendAuditEvent({
+    practiceId: session.practiceId,
+    clientId: input.clientId,
+    actorId: session.userId,
+    action: "vat.amendment.created",
+    entityType: "vat_return",
+    entityId: id,
+    detail: {
+      basePeriodKey,
+      periodKey: newKey,
+      amendmentIndex: nextIndex,
+      sourcePeriodKey: input.periodKey,
+    },
+  });
+
+  revalidatePath(`/clients/${input.clientId}/vat`);
+  return {
+    ok: true,
+    returnId: id,
+    periodKey: newKey,
+    amendmentIndex: nextIndex,
+  };
+}
+
 async function findStoredVatReturn(clientId: string, periodKey: string) {
   if (isDemoMode()) {
     return (

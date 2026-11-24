@@ -26,6 +26,10 @@ import {
   formatMissingMonthsSummary,
   missingBankMonthsByTaxYear,
 } from "@/lib/bank/missing-statement-months";
+import {
+  bankKey,
+  extractBankNameFromFilename,
+} from "@/lib/bank/bank-tx-meta";
 
 type DocRow = {
   id: string;
@@ -56,6 +60,7 @@ export function SaPersonalBooks({
   hasEmployment = false,
   hasSelfEmployment = true,
   clientEmail,
+  returns = [],
 }: {
   clientId: string;
   taxpayerId: string;
@@ -68,6 +73,12 @@ export function SaPersonalBooks({
   hasEmployment?: boolean;
   hasSelfEmployment?: boolean;
   clientEmail?: string | null;
+  returns?: Array<{
+    taxYear: string;
+    status: string;
+    amendmentIndex?: number | null;
+    locked?: boolean | null;
+  }>;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -77,6 +88,10 @@ export function SaPersonalBooks({
   const [ok, setOk] = useState<string | null>(null);
   const [kind, setKind] = useState<SaBookKind>("bank_statement");
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  /** Per selected file — bank nickname for multi-statement upload. */
+  const [bankNameByFile, setBankNameByFile] = useState<Record<string, string>>(
+    {},
+  );
   const [selectedStatementIds, setSelectedStatementIds] = useState<string[]>(
     [],
   );
@@ -86,9 +101,14 @@ export function SaPersonalBooks({
   const [convertErr, setConvertErr] = useState<string | null>(null);
   const [preview, setPreview] = useState<ConvertedBankLine[] | null>(null);
   const [previewLabel, setPreviewLabel] = useState<string | null>(null);
+  const [previewBankName, setPreviewBankName] = useState<string | null>(null);
   const [previewSource, setPreviewSource] = useState<
     "pdf" | "ocr" | "csv" | "spreadsheet" | null
   >(null);
+  const [duplicateKeys, setDuplicateKeys] = useState<string[] | null>(null);
+  const [openBankKey, setOpenBankKey] = useState<string | null>(null);
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
 
   const tradeLabel = occupationFamilyLabel(occupation);
 
@@ -269,13 +289,22 @@ export function SaPersonalBooks({
           merged.push(line);
         }
 
+        const label =
+          names.length === 1 ? names[0]! : `${names.length} statements`;
+        const bankFromDocs = selectedStatements
+          .map((d) => extractBankNameFromFilename(d.filename))
+          .filter((n) => n && n !== "Unnamed bank");
+        const bankName =
+          bankFromDocs.length === 1
+            ? bankFromDocs[0]!
+            : extractBankNameFromFilename(label);
         setPreview(merged);
         setPreviewSource(lastSource);
-        setPreviewLabel(
-          names.length === 1
-            ? names[0]
-            : `${names.length} statements`,
-        );
+        setPreviewLabel(label);
+        setPreviewBankName(bankName);
+        setDuplicateKeys(null);
+        setOpenBankKey(bankKey(bankName));
+        setReassignOpen(true);
         setConvertMsg(
           `Converted ${merged.length} transaction${merged.length === 1 ? "" : "s"} from ${names.length} file${names.length === 1 ? "" : "s"}${tradeLabel ? ` · allocated for ${tradeLabel}` : ""}.${warnings.length ? ` ${warnings.join(" ")}` : ""}`,
         );
@@ -293,8 +322,8 @@ export function SaPersonalBooks({
         );
         setTimeout(() => {
           document
-            .getElementById("sa-statement-convert-preview")
-            ?.scrollIntoView({ behavior: "smooth" });
+            .getElementById("sa-categorised-transactions")
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
         }, 50);
       } catch (err) {
         setConvertErr(messageFromUnknown(err, "Conversion failed"));
@@ -302,24 +331,301 @@ export function SaPersonalBooks({
     });
   }
 
+  function namedUploadFile(file: File): File {
+    if (kind !== "bank_statement") return file;
+    const bank = (bankNameByFile[file.name] ?? "").trim();
+    if (!bank) return file;
+    const nextName = file.name.startsWith(`${bank} — `)
+      ? file.name
+      : `${bank} — ${file.name}`;
+    return new File([file], nextName, { type: file.type });
+  }
+
+  const showReassign =
+    transactions.length > 0 || Boolean(preview && preview.length > 0);
+
   return (
     <section className="space-y-6">
-      <div className="panel p-5">
+      {transactions.length > 0 ? (
+        <SaBankTaxYearHeads
+          clientId={clientId}
+          taxpayerId={taxpayerId}
+          transactions={transactions}
+          clientEmail={clientEmail}
+          returns={returns}
+          formSignals={{
+            occupation,
+            hasRental,
+            hasEmployment,
+            hasSelfEmployment,
+          }}
+        />
+      ) : null}
+
+      {showReassign ? (
+        <details
+          className="group rounded-xl border border-line bg-white transition-colors [&:not([open])]:hover:bg-sea/10"
+          open={reassignOpen || Boolean(preview?.length) || Boolean(openBankKey)}
+          onToggle={(e) =>
+            setReassignOpen((e.target as HTMLDetailsElement).open)
+          }
+        >
+          <summary className="flex min-h-[4.25rem] cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 marker:content-none [&::-webkit-details-marker]:hidden">
+            <div>
+              <p className="text-base font-semibold text-ink">
+                Reassign bank statements
+              </p>
+              <p className="mt-0.5 text-xs text-ink-soft">
+                {transactions.length > 0
+                  ? `${transactions.length} transaction${transactions.length === 1 ? "" : "s"} · by bank`
+                  : preview && preview.length > 0
+                    ? `${preview.length} converted line${preview.length === 1 ? "" : "s"} ready`
+                    : "Per-bank cards · merge, rename, delete"}
+              </p>
+            </div>
+            <span
+              className="shrink-0 text-xl leading-none text-ink transition group-open:rotate-180"
+              aria-hidden
+            >
+              ▾
+            </span>
+          </summary>
+          <div
+            id="sa-categorised-transactions"
+            className="space-y-4 border-t border-line p-3"
+          >
+            {preview && preview.length > 0 ? (
+              <div className="space-y-3 rounded-xl border border-sea/30 bg-sea/5 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold text-ink">
+                      Converted · {previewBankName ?? "Unnamed bank"}
+                    </h3>
+                    <p className="mt-0.5 text-xs text-ink-soft">
+                      {preview.length} lines
+                      {previewLabel ? ` · ${previewLabel}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <div className="relative">
+                      <button
+                        type="button"
+                        className="btn btn-secondary text-sm"
+                        aria-expanded={downloadOpen}
+                        aria-haspopup="menu"
+                        onClick={() => setDownloadOpen((v) => !v)}
+                      >
+                        Download ▾
+                      </button>
+                      {downloadOpen ? (
+                        <div
+                          role="menu"
+                          className="absolute right-0 z-20 mt-1 min-w-[9rem] overflow-hidden rounded-lg border border-line bg-white py-1 shadow-md"
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="block w-full px-3 py-2 text-left text-sm text-ink hover:bg-sand/60"
+                            onClick={() => {
+                              setDownloadOpen(false);
+                              downloadBankCsv(
+                                preview,
+                                `${(previewLabel ?? "statement").replace(/\.[^.]+$/, "").replace(/\s+/g, "-")}-converted.csv`,
+                              );
+                            }}
+                          >
+                            CSV
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="block w-full px-3 py-2 text-left text-sm text-ink hover:bg-sand/60"
+                            onClick={() => {
+                              setDownloadOpen(false);
+                              void downloadBankXlsx(
+                                preview,
+                                `${(previewLabel ?? "statement").replace(/\.[^.]+$/, "").replace(/\s+/g, "-")}-converted.xlsx`,
+                              );
+                            }}
+                          >
+                            Excel
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary text-sm"
+                      disabled={pending}
+                      onClick={() =>
+                        start(async () => {
+                          setConvertErr(null);
+                          try {
+                            const bank =
+                              previewBankName ??
+                              extractBankNameFromFilename(
+                                previewLabel ?? "statement",
+                              );
+                            const res = await importBankConvertedLines({
+                              clientId,
+                              lines: preview,
+                              filename: previewLabel ?? undefined,
+                              source: previewSource ?? "pdf",
+                              occupation,
+                              bankName: bank,
+                              mode: "copy_replace",
+                            });
+                            if (!res.ok) {
+                              setConvertErr(res.error);
+                              return;
+                            }
+                            setConvertMsg(res.message);
+                            setDuplicateKeys([]);
+                            setOpenBankKey(bankKey(res.bankName ?? bank));
+                            setReassignOpen(true);
+                            setPreview(null);
+                            setSelectedStatementIds([]);
+                            setShowStatementPicker(false);
+                            router.refresh();
+                            setTimeout(() => {
+                              document
+                                .getElementById("sa-categorised-transactions")
+                                ?.scrollIntoView({
+                                  behavior: "smooth",
+                                  block: "start",
+                                });
+                            }, 80);
+                          } catch (err) {
+                            setConvertErr(
+                              messageFromUnknown(
+                                err,
+                                "Could not copy and replace",
+                              ),
+                            );
+                          }
+                        })
+                      }
+                    >
+                      {pending ? "Copying…" : "Copy and Replace"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary text-sm"
+                      disabled={pending}
+                      onClick={() =>
+                        start(async () => {
+                          setConvertErr(null);
+                          try {
+                            const bank =
+                              previewBankName ??
+                              extractBankNameFromFilename(
+                                previewLabel ?? "statement",
+                              );
+                            const res = await importBankConvertedLines({
+                              clientId,
+                              lines: preview,
+                              filename: previewLabel ?? undefined,
+                              source: previewSource ?? "pdf",
+                              occupation,
+                              bankName: bank,
+                              mode: "merge",
+                            });
+                            if (!res.ok) {
+                              setConvertErr(res.error);
+                              return;
+                            }
+                            setConvertMsg(res.message);
+                            setDuplicateKeys(res.duplicateKeys ?? []);
+                            setOpenBankKey(bankKey(res.bankName ?? bank));
+                            setReassignOpen(true);
+                            if ((res.addedCount ?? 0) > 0) {
+                              setPreview(null);
+                              setSelectedStatementIds([]);
+                              setShowStatementPicker(false);
+                            }
+                            router.refresh();
+                            const hasDups =
+                              (res.duplicateKeys?.length ?? 0) > 0;
+                            setTimeout(() => {
+                              document
+                                .getElementById(
+                                  hasDups
+                                    ? "sa-duplicate-transactions"
+                                    : "sa-categorised-transactions",
+                                )
+                                ?.scrollIntoView({
+                                  behavior: "smooth",
+                                  block: "start",
+                                });
+                            }, 80);
+                          } catch (err) {
+                            setConvertErr(
+                              messageFromUnknown(err, "Could not save"),
+                            );
+                          }
+                        })
+                      }
+                    >
+                      {pending ? "Saving…" : "SAVE"}
+                    </button>
+                  </div>
+                </div>
+                <FormErrorBanner error={convertErr} />
+                <div className="max-h-64 overflow-auto rounded-lg border border-line bg-white">
+                  <table className="w-full min-w-[520px] text-left text-sm">
+                    <thead className="sticky top-0 bg-sand/90 text-xs uppercase tracking-wide text-ink-soft">
+                      <tr>
+                        <th className="px-3 py-2 font-semibold">Date</th>
+                        <th className="px-3 py-2 font-semibold">Description</th>
+                        <th className="px-3 py-2 text-right font-semibold">
+                          Amount
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.slice(0, 80).map((line, i) => (
+                        <tr
+                          key={`${line.dated}-${line.description}-${i}`}
+                          className="border-t border-line/70"
+                        >
+                          <td className="mono whitespace-nowrap px-3 py-1.5 text-ink-soft">
+                            {line.dated}
+                          </td>
+                          <td className="px-3 py-1.5 text-ink">
+                            {line.description}
+                          </td>
+                          <td
+                            className={`mono whitespace-nowrap px-3 py-1.5 text-right ${
+                              line.amountPence < 0 ? "text-danger" : "text-ok"
+                            }`}
+                          >
+                            {gbp(line.amountPence)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+
+            {transactions.length > 0 ? (
+              <BankCategorisedView
+                clientId={clientId}
+                transactions={transactions}
+                customCategories={customCategories}
+                missingDesk="SA"
+                groupByBank
+                highlightDuplicateKeys={duplicateKeys}
+                defaultOpenBankKey={openBankKey}
+              />
+            ) : null}
+          </div>
+        </details>
+      ) : null}
+
+      <div id="sa-personal-books" className="panel scroll-mt-24 p-5">
         <h2 className="display text-2xl text-ink">Personal books</h2>
-        <p className="mt-1 text-sm text-ink-soft">
-          Receipts, bank statements and other records for this return.
-          {tradeLabel ? (
-            <>
-              {" "}
-              Allocation uses occupation: <span className="font-semibold text-ink">{tradeLabel}</span>
-              {occupation?.trim() ? ` (${occupation.trim()})` : ""}.
-            </>
-          ) : occupation?.trim() ? (
-            <> Occupation on file: {occupation.trim()}.</>
-          ) : (
-            <> Set occupation on the person profile for smarter bank allocation (e.g. taxi driver).</>
-          )}
-        </p>
 
         <form
           ref={formRef}
@@ -337,6 +643,13 @@ export function SaPersonalBooks({
               setError("Choose one or more files to upload.");
               return;
             }
+            if (
+              selected === "bank_statement" &&
+              files.some((f) => !(bankNameByFile[f.name] ?? "").trim())
+            ) {
+              setError("Name each bank for the statements you are uploading.");
+              return;
+            }
             start(async () => {
               try {
                 const uploaded: string[] = [];
@@ -344,17 +657,18 @@ export function SaPersonalBooks({
                   const fd = new FormData();
                   fd.set("clientId", clientId);
                   fd.set("category", saBookCategory(taxpayerId, selected));
-                  fd.set("file", file);
+                  fd.set("file", namedUploadFile(file));
                   const doc = await uploadClientDocument(fd);
                   uploaded.push(doc.filename);
                 }
                 setOk(
                   uploaded.length === 1
                     ? `Uploaded ${uploaded[0]}`
-                    : `Uploaded ${uploaded.length} files`,
+                    : `Uploaded ${uploaded.length} statements`,
                 );
                 setKind(selected);
                 setUploadFiles([]);
+                setBankNameByFile({});
                 formRef.current?.reset();
                 const select = formRef.current?.elements.namedItem(
                   "kind",
@@ -384,7 +698,7 @@ export function SaPersonalBooks({
             </select>
           </label>
           <label className="min-w-[12rem] flex-[2] text-sm font-semibold">
-            File
+            File{kind === "bank_statement" ? "s" : ""}
             <input
               ref={fileInputRef}
               type="file"
@@ -393,7 +707,15 @@ export function SaPersonalBooks({
               accept=".pdf,.jpg,.jpeg,.png,.webp,.csv,.xls,.xlsx,application/pdf,image/*,text/csv"
               className="mt-1.5 block w-full text-sm font-normal file:mr-3 file:rounded-md file:border-0 file:bg-sea file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white"
               onChange={(e) => {
-                setUploadFiles(Array.from(e.target.files ?? []));
+                const next = Array.from(e.target.files ?? []);
+                setUploadFiles(next);
+                setBankNameByFile((prev) => {
+                  const keep: Record<string, string> = {};
+                  for (const f of next) {
+                    keep[f.name] = prev[f.name] ?? "";
+                  }
+                  return keep;
+                });
               }}
             />
           </label>
@@ -410,28 +732,49 @@ export function SaPersonalBooks({
           </button>
         </form>
 
+        {kind === "bank_statement" && uploadFiles.length > 0 ? (
+          <div className="mt-3 space-y-2 rounded-xl border border-sea/25 bg-sea/5 p-3">
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-sea">
+              Name each bank
+            </p>
+            <p className="text-xs text-ink-soft">
+              Add as many statements as you need — one bank name per file (e.g.
+              Barclays, Monzo, Starling).
+            </p>
+            <ul className="space-y-2">
+              {uploadFiles.map((f) => (
+                <li
+                  key={f.name}
+                  className="grid gap-2 sm:grid-cols-[1fr_12rem] sm:items-center"
+                >
+                  <span className="truncate text-sm font-medium text-ink">
+                    {f.name}
+                  </span>
+                  <input
+                    type="text"
+                    className="input text-sm"
+                    placeholder="Bank name"
+                    value={bankNameByFile[f.name] ?? ""}
+                    onChange={(e) =>
+                      setBankNameByFile((prev) => ({
+                        ...prev,
+                        [f.name]: e.target.value,
+                      }))
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         <FormErrorBanner error={error} />
         {ok ? <p className="mt-2 text-sm text-ok">{ok}</p> : null}
-        {uploadFiles.length > 1 ? (
-          <p className="mt-2 text-xs text-ink-soft">
-            {uploadFiles.length} files selected:{" "}
-            {uploadFiles.map((f) => f.name).join(", ")}
-          </p>
-        ) : null}
 
         {kind === "bank_statement" ? (
           <div className="mt-4 space-y-3 rounded-xl border border-line bg-sand/30 p-4">
             <div>
-              <h3 className="text-sm font-semibold text-ink">
-                Convert &amp; allocate statements
-              </h3>
-              <p className="mt-1 text-xs text-ink-soft">
-                Extract transactions from PDF, photo, CSV or Excel in this same
-                section, preview allocation, then save to personal books.
-                {tradeLabel
-                  ? ` Allocation favours expense heads for ${tradeLabel.toLowerCase()}.`
-                  : ""}
-              </p>
+              <h3 className="text-sm font-semibold text-ink">Convert/Allocate</h3>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <button
@@ -454,7 +797,7 @@ export function SaPersonalBooks({
                 className="btn btn-primary"
                 onClick={runConvert}
               >
-                {pending ? "Converting…" : "Convert & allocate"}
+                {pending ? "Converting…" : "Convert/Allocate"}
               </button>
             </div>
             {showStatementPicker ? (
@@ -464,8 +807,8 @@ export function SaPersonalBooks({
                 </p>
                 {bankStatementDocs.length === 0 ? (
                   <p className="mt-2 text-sm text-ink-soft">
-                    No bank statements uploaded yet. Use Upload above, then
-                    choose them here.
+                    No bank statements uploaded yet. Use Upload above, name each
+                    bank, then choose them here.
                   </p>
                 ) : (
                   <ul className="mt-2 max-h-48 space-y-1.5 overflow-auto">
@@ -537,166 +880,6 @@ export function SaPersonalBooks({
           )}
         </div>
       </div>
-
-      {preview && preview.length > 0 ? (
-        <div
-          id="sa-statement-convert-preview"
-          className="panel space-y-4 border-sea/30 p-5"
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="display text-xl text-ink">Converted transactions</h3>
-              <p className="mt-1 text-sm text-ink-soft">
-                {preview.length} lines ready
-                {previewLabel ? ` from ${previewLabel}` : ""}. Download CSV, or
-                save into this person’s books to review allocation.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="btn btn-secondary text-sm"
-                onClick={() =>
-                  downloadBankCsv(
-                    preview,
-                    `${(previewLabel ?? "statement").replace(/\.[^.]+$/, "").replace(/\s+/g, "-")}-converted.csv`,
-                  )
-                }
-              >
-                Download CSV
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary text-sm"
-                onClick={() =>
-                  void downloadBankXlsx(
-                    preview,
-                    `${(previewLabel ?? "statement").replace(/\.[^.]+$/, "").replace(/\s+/g, "-")}-converted.xlsx`,
-                  )
-                }
-              >
-                Download Excel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary text-sm"
-                disabled={pending}
-                onClick={() =>
-                  start(async () => {
-                    setConvertErr(null);
-                    try {
-                      const res = await importBankConvertedLines({
-                        clientId,
-                        lines: preview,
-                        filename: previewLabel ?? undefined,
-                        source: previewSource ?? "pdf",
-                        occupation,
-                      });
-                      if (!res.ok) {
-                        setConvertErr(res.error);
-                        return;
-                      }
-                      setConvertMsg(res.message);
-                      setPreview(null);
-                      setSelectedStatementIds([]);
-                      setShowStatementPicker(false);
-                      router.refresh();
-                      setTimeout(() => {
-                        document
-                          .getElementById("sa-categorised-transactions")
-                          ?.scrollIntoView({ behavior: "smooth" });
-                      }, 50);
-                    } catch (err) {
-                      setConvertErr(
-                        messageFromUnknown(err, "Could not save to books"),
-                      );
-                    }
-                  })
-                }
-              >
-                {pending ? "Saving…" : "Save to books"}
-              </button>
-            </div>
-          </div>
-          <div className="max-h-80 overflow-auto rounded-lg border border-line">
-            <table className="w-full min-w-[520px] text-left text-sm">
-              <thead className="sticky top-0 bg-sand/90 text-xs uppercase tracking-wide text-ink-soft">
-                <tr>
-                  <th className="px-3 py-2 font-semibold">Date</th>
-                  <th className="px-3 py-2 font-semibold">Description</th>
-                  <th className="px-3 py-2 text-right font-semibold">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {preview.slice(0, 80).map((line, i) => (
-                  <tr
-                    key={`${line.dated}-${line.description}-${i}`}
-                    className="border-t border-line/70"
-                  >
-                    <td className="mono whitespace-nowrap px-3 py-1.5 text-ink-soft">
-                      {line.dated}
-                    </td>
-                    <td className="px-3 py-1.5 text-ink">{line.description}</td>
-                    <td
-                      className={`mono whitespace-nowrap px-3 py-1.5 text-right ${
-                        line.amountPence < 0 ? "text-danger" : "text-ok"
-                      }`}
-                    >
-                      {gbp(line.amountPence)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {preview.length > 80 ? (
-              <p className="border-t border-line px-3 py-2 text-xs text-ink-soft">
-                Showing first 80 of {preview.length} lines.
-              </p>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      {transactions.length > 0 ? (
-        <div className="space-y-6">
-          <SaBankTaxYearHeads
-            clientId={clientId}
-            taxpayerId={taxpayerId}
-            transactions={transactions}
-            clientEmail={clientEmail}
-            formSignals={{
-              occupation,
-              hasRental,
-              hasEmployment,
-              hasSelfEmployment,
-            }}
-          />
-          <details className="group rounded-xl border border-line bg-white">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-semibold text-ink marker:content-none [&::-webkit-details-marker]:hidden">
-              <span>
-                Reassign bank categories
-                <span className="ml-2 text-sm font-normal text-ink-soft">
-                  (move lines before allocating to SA forms)
-                </span>
-              </span>
-              <span
-                className="shrink-0 text-ink-soft transition group-open:rotate-180"
-                aria-hidden
-              >
-                ▾
-              </span>
-            </summary>
-            <div id="sa-categorised-transactions" className="border-t border-line p-3">
-              <BankCategorisedView
-                clientId={clientId}
-                transactions={transactions}
-                customCategories={customCategories}
-                missingDesk="SA"
-              />
-            </div>
-          </details>
-        </div>
-      ) : null}
     </section>
   );
 }

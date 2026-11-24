@@ -115,6 +115,7 @@ export function CreateAccountForm() {
     searchParams.get("next") ||
       (planParam ? `/pricing?plan=${encodeURIComponent(planParam)}` : null),
   );
+  const ctaId = (searchParams.get("cta") ?? "").trim() || undefined;
   const inviteEmail = (searchParams.get("email") ?? "").trim();
   const hasInvite = Boolean(searchParams.get("invite") || inviteEmail);
   const [orgType, setOrgType] = useState<(typeof ORG_TYPES)[number]["id"]>(
@@ -147,7 +148,9 @@ export function CreateAccountForm() {
             ? "Finish creating your login to join the practice that invited you. You can set up two-factor authentication afterwards from Account settings."
             : planParam
               ? "Tell us who you are, create your login, then we take you to checkout for the plan you chose."
-              : "Are you a sole trader, company director, partnership, or practice? Create your login first — then pick a plan."}
+              : returnPath !== "/dashboard"
+                ? "Create your login — we will take you straight back to the filing you started."
+                : "Are you a sole trader, company director, partnership, or practice? Create your login first — then pick a plan."}
         </p>
       </div>
 
@@ -170,6 +173,8 @@ export function CreateAccountForm() {
                 password: String(fd.get("password") ?? ""),
                 confirmPassword: String(fd.get("confirmPassword") ?? ""),
                 startTrial: false,
+                next: returnPath,
+                cta: ctaId,
               });
               if (!result.ok) {
                 setError(
@@ -251,6 +256,7 @@ export function CreateAccountForm() {
           <GoogleAuthButton
             next={returnPath}
             orgType={orgType}
+            cta={ctaId}
             label="Sign up with Google"
             onError={(msg) => {
               setError(

@@ -59,12 +59,9 @@ export function PricingExplorer({
   const resumePlan = (searchParams.get("plan") ?? "").trim();
   const resumedRef = useRef(false);
   const panelTopRef = useRef<HTMLDivElement>(null);
-  const [activeId, setActiveId] = useState<string>(() => {
-    if (typeof window === "undefined") return PRICING_SECTIONS[0].id;
-    return (
-      sectionIdFromHash(window.location.hash) ?? PRICING_SECTIONS[0].id
-    );
-  });
+  // Always start on the first section so SSR and the first client render match.
+  // Hash deep-links are applied after mount in the effect below.
+  const [activeId, setActiveId] = useState<string>(PRICING_SECTIONS[0].id);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -833,12 +830,12 @@ function CompaniesHouseCards() {
   return (
     <div className="mt-10 grid items-stretch gap-6 md:grid-cols-2 lg:grid-cols-3">
       <p className="md:col-span-2 lg:col-span-3 text-sm text-ink-soft">
-        One price per filing — statutory Companies House fee included. Small Firm
-        and Enterprise desks include unlimited confirmation statements and annual
-        accounts.
+        One price per filing for individuals — Companies House fee plus Hydra
+        software fee. Small Firm and Enterprise desks include unlimited
+        confirmation statements and annual accounts.
       </p>
       {COMPANIES_HOUSE_SERVICES.map((service) => {
-        const totalDesk = hydraTotal(service.chFeePounds, service.id, "desk");
+        const totalSolo = hydraTotal(service.chFeePounds, service.id, "solo");
 
         return (
           <article
@@ -855,7 +852,7 @@ function CompaniesHouseCards() {
             <div className="mt-auto pt-6">
               <p className="price-figure mt-2">
                 <span className="price-amount text-3xl">
-                  {formatGBP(totalDesk)}
+                  {formatGBP(totalSolo)}
                 </span>
                 <span className="price-period">/filing</span>
               </p>

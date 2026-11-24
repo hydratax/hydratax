@@ -16,7 +16,7 @@
  * Phase A (shipped here): hubs + profile pages + FAQ schema + AI-bot robots
  *   rules + company sitemap shards seeded from hub searches.
  * Phase B: persist every viewed/searched company → growing sitemap coverage.
- * Phase C: import Companies House bulk/basic data → full ~5M URL shards + IndexNow.
+ * Phase C: local Basic Company Data → SQLite hubs (no cloud) + optional sitemap shards.
  * Phase D: Search Console monitoring, internal-link refresh, freshness signals
  *   (accounts due / CS due) on titles where useful.
  */

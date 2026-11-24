@@ -24,6 +24,7 @@ import {
 import type { Sa100Stored } from "@/server/actions/sa100";
 import {
   assignSaFiledDocument,
+  createSa100Amendment,
   deleteSa100Return,
   recordSa302Upload,
   recordSubmittedSaReturn,
@@ -34,6 +35,12 @@ import { messageFromUnknown } from "@/lib/action-error";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
 import { SaTaxYearActionsMenu } from "@/components/forms/sa-tax-year-actions-menu";
 import { AbbrInfo } from "@/components/desk/abbr-info";
+import {
+  amendmentCardLabel,
+  canCreateAmendment,
+  isFilingRevisionLocked,
+  isSubmittedFilingStatus,
+} from "@/lib/amendment-revision";
 
 export type SaFiledDocRow = {
   id: string;
@@ -59,14 +66,27 @@ export function SaTaxYearWorkspace({
   contactEmail = null,
   identifiersReady = true,
   identifiersMissing = [],
+  activeAmendmentIndex = 0,
   children,
 }: {
   baseHref: string;
   activeYear: string | null;
-  returns: Array<Pick<Sa100Stored, "id" | "taxYear" | "status">>;
+  returns: Array<
+    Pick<
+      Sa100Stored,
+      | "id"
+      | "taxYear"
+      | "status"
+      | "amendmentIndex"
+      | "amendmentOfId"
+      | "locked"
+    >
+  >;
   filedDocs?: SaFiledDocRow[];
   clientId: string;
   taxpayerId?: string | null;
+  /** Active amendment revision from ?ar= */
+  activeAmendmentIndex?: number;
   clientName?: string;
   contactEmail?: string | null;
   /** NINO + personal UTR + DOB + address required before opening any SA100. */
@@ -100,14 +120,34 @@ export function SaTaxYearWorkspace({
   const [removedYears, setRemovedYears] = useState<string[]>([]);
   const addMenuRef = useRef<HTMLDivElement>(null);
 
-  const returnYears = useMemo(() => {
-    const map = new Map<
-      string,
-      Pick<Sa100Stored, "id" | "taxYear" | "status">
-    >();
-    for (const r of returns) map.set(r.taxYear, r);
+  type ReturnRow = (typeof returns)[number];
+
+  const returnsByYear = useMemo(() => {
+    const map = new Map<string, ReturnRow[]>();
+    for (const r of returns) {
+      const list = map.get(r.taxYear) ?? [];
+      list.push(r);
+      map.set(r.taxYear, list);
+    }
+    for (const list of map.values()) {
+      list.sort(
+        (a, b) =>
+          (Number(a.amendmentIndex) || 0) - (Number(b.amendmentIndex) || 0),
+      );
+    }
     return map;
   }, [returns]);
+
+  /** Prefer original (AR0) for legacy year lookups. */
+  const returnYears = useMemo(() => {
+    const map = new Map<string, ReturnRow>();
+    for (const [year, list] of returnsByYear) {
+      const original =
+        list.find((r) => (Number(r.amendmentIndex) || 0) === 0) ?? list[0];
+      if (original) map.set(year, original);
+    }
+    return map;
+  }, [returnsByYear]);
 
   const docsByYear = useMemo(() => {
     const map = new Map<
@@ -133,44 +173,87 @@ export function SaTaxYearWorkspace({
     [filedDocs],
   );
 
+  type YearCard = {
+    year: SaTaxYear;
+    amendmentIndex: number;
+    match: ReturnRow | null;
+    displayLabel: string;
+    locked: boolean;
+  };
+
   const yearCards = useMemo(() => {
-    // Only show years the user has started (draft/filed) or explicitly added
-    // via “Add tax year” above — never auto-drop an empty filing year onto the desk.
+    // Always surface the current filing year so the desk is never empty;
+    // other years appear once started, uploaded, or added via “Add tax year”.
     const fromReturns = returns.map((r) => r.taxYear);
     const fromDocs = filedDocs
       .map((d) => d.taxYear)
       .filter((y): y is string => Boolean(y));
     const labels = Array.from(
-      new Set([...fromReturns, ...fromDocs, ...extraYears]),
+      new Set([
+        filingYear.label,
+        ...fromReturns,
+        ...fromDocs,
+        ...extraYears,
+      ]),
     ).filter(
       (l) => !hiddenYears.includes(l) && !removedYears.includes(l),
     );
-    const years: SaTaxYear[] = [];
+    const cards: YearCard[] = [];
     for (const label of labels) {
       const y = parseSaTaxYearLabel(label);
       if (!y) continue;
+      const rows = returnsByYear.get(y.label) ?? [];
       const hasWork =
-        returnYears.has(y.label) ||
+        rows.length > 0 ||
         docsByYear.has(y.label) ||
-        extraYears.includes(y.label);
-      // Hide empty overdue years even if they slipped into the set.
-      if (
-        !hasWork &&
-        saFilingUrgency(y, "none") === "overdue"
-      ) {
+        extraYears.includes(y.label) ||
+        y.label === filingYear.label;
+      if (!hasWork && saFilingUrgency(y, "none") === "overdue") {
         continue;
       }
-      years.push(y);
+      if (rows.length === 0) {
+        cards.push({
+          year: y,
+          amendmentIndex: 0,
+          match: null,
+          displayLabel: y.label,
+          locked: false,
+        });
+        continue;
+      }
+      for (const match of rows) {
+        const amendmentIndex = Number(match.amendmentIndex) || 0;
+        cards.push({
+          year: y,
+          amendmentIndex,
+          match,
+          displayLabel: amendmentCardLabel(y.label, amendmentIndex),
+          locked: isFilingRevisionLocked({
+            status: match.status,
+            amendmentIndex,
+            locked: match.locked,
+          }),
+        });
+      }
+      // Ensure AR0 shell exists when only AR drafts are present
+      if (!rows.some((r) => (Number(r.amendmentIndex) || 0) === 0)) {
+        /* rows already cover all stored revisions */
+      }
     }
-    years.sort((a, b) => b.label.localeCompare(a.label));
-    return years;
+    cards.sort((a, b) => {
+      const y = b.year.label.localeCompare(a.year.label);
+      if (y !== 0) return y;
+      return a.amendmentIndex - b.amendmentIndex;
+    });
+    return cards;
   }, [
+    filingYear.label,
     returns,
     filedDocs,
     extraYears,
     hiddenYears,
     removedYears,
-    returnYears,
+    returnsByYear,
     docsByYear,
   ]);
 
@@ -190,7 +273,7 @@ export function SaTaxYearWorkspace({
     rootRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [mode, activeYear]);
 
-  function openFiling(year: SaTaxYear) {
+  function openFiling(year: SaTaxYear, amendmentIndex = 0) {
     if (!identifiersReady) {
       const missing = identifiersMissing.length
         ? identifiersMissing
@@ -213,17 +296,53 @@ export function SaTaxYearWorkspace({
       });
       return;
     }
+    const rows = returnsByYear.get(year.label) ?? [];
+    const match =
+      rows.find((r) => (Number(r.amendmentIndex) || 0) === amendmentIndex) ??
+      null;
+    if (
+      match &&
+      isFilingRevisionLocked({
+        status: match.status,
+        amendmentIndex,
+        locked: match.locked,
+      })
+    ) {
+      // Locked — freeze open; use Amend Return for an editable AR copy.
+      return;
+    }
     setErr(null);
     const url = new URL(baseHref, window.location.origin);
     url.searchParams.set("year", year.label);
+    if (amendmentIndex > 0) url.searchParams.set("ar", String(amendmentIndex));
+    else url.searchParams.delete("ar");
     setMode("file");
     router.push(`${url.pathname}?${url.searchParams.toString()}`);
+  }
+
+  function amendReturn(year: SaTaxYear, sourceReturnId?: string | null) {
+    start(async () => {
+      setErr(null);
+      const res = await createSa100Amendment({
+        clientId,
+        taxYear: year.label,
+        taxpayerId,
+        sourceReturnId,
+      });
+      if (!res.ok) {
+        // Desk UI: freeze on failure — no banner.
+        return;
+      }
+      router.refresh();
+      openFiling(year, res.amendmentIndex);
+    });
   }
 
   function backToPick() {
     setMode("pick");
     const url = new URL(baseHref, window.location.origin);
     url.searchParams.delete("year");
+    url.searchParams.delete("ar");
     const qs = url.searchParams.toString();
     router.push(qs ? `${url.pathname}?${qs}` : url.pathname);
   }
@@ -261,7 +380,7 @@ export function SaTaxYearWorkspace({
   function addPreviousYear() {
     const oldest = yearCards[yearCards.length - 1];
     const start = oldest
-      ? Number(oldest.label.slice(0, 4)) - 1
+      ? Number(oldest.year.label.slice(0, 4)) - 1
       : Number(filingYear.label.slice(0, 4)) - 1;
     addYearLabel(saTaxYearFromStartYear(start).label);
   }
@@ -269,7 +388,7 @@ export function SaTaxYearWorkspace({
   function addNextYear() {
     const newest = yearCards[0];
     const start = newest
-      ? Number(newest.label.slice(0, 4)) + 1
+      ? Number(newest.year.label.slice(0, 4)) + 1
       : Number(filingYear.label.slice(0, 4)) + 1;
     addYearLabel(saTaxYearFromStartYear(start).label);
   }
@@ -452,7 +571,7 @@ export function SaTaxYearWorkspace({
         <div className={`relative ${addMenuOpen ? "z-40" : ""}`} ref={addMenuRef}>
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-lg border border-line bg-white px-3 py-2 text-sm font-semibold text-ink shadow-sm hover:border-sea/40 hover:bg-sand/40"
+            className="btn btn-primary inline-flex items-center gap-2 shadow-md"
             aria-expanded={addMenuOpen}
             aria-haspopup="menu"
             onClick={() => {
@@ -466,7 +585,7 @@ export function SaTaxYearWorkspace({
               height="12"
               viewBox="0 0 12 12"
               aria-hidden
-              className={`text-ink-soft transition ${addMenuOpen ? "rotate-180" : ""}`}
+              className={`transition ${addMenuOpen ? "rotate-180" : ""}`}
             >
               <path
                 d="M2.5 4.5 6 8l3.5-3.5"
@@ -532,39 +651,53 @@ export function SaTaxYearWorkspace({
           ) : null}
         </div>
       </div>
-      <p className="text-sm text-ink-soft">
-        Add the accounting year you want to file, then open it to complete the
-        SA100. Books dates follow that year.
-      </p>
       <div id="sa-tax-years-error">
         <FormErrorBanner error={err} />
       </div>
       {msg ? <p className="text-sm text-ok">{msg}</p> : null}
 
       <ul className="space-y-3 overflow-visible">
-        {yearCards.map((year) => {
-          const match = returnYears.get(year.label) ?? null;
-          const docs = docsByYear.get(year.label);
+        {yearCards.map((card) => {
+          const { year, amendmentIndex, match, displayLabel, locked } = card;
+          const docs =
+            amendmentIndex === 0 ? docsByYear.get(year.label) : undefined;
           // Prefer the return row status — draft PDFs must not look "Submitted".
           const status =
             match?.status ??
             (docs?.return && !match ? "accepted" : "none");
-          const submitted = status === "submitted" || status === "accepted";
+          const submitted = isSubmittedFilingStatus(status);
           const isDraft = status === "draft";
           const urgency = saFilingUrgency(year, status);
-          const badge = isDraft
-            ? "Draft"
-            : saUrgencyLabel(urgency, submitted);
+          const badge = locked
+            ? submitted
+              ? "Submitted · locked"
+              : "Locked"
+            : isDraft
+              ? amendmentIndex > 0
+                ? `Draft · AR ${amendmentIndex}`
+                : "Draft"
+              : saUrgencyLabel(urgency, submitted);
+          const yearRows = returnsByYear.get(year.label) ?? [];
+          const canAmend =
+            amendmentIndex === 0 &&
+            (submitted ||
+              yearRows.some((r) => isSubmittedFilingStatus(r.status)));
+          const amendBlocked = !canCreateAmendment(
+            yearRows.map((r) => Number(r.amendmentIndex) || 0),
+          );
           return (
-            <li key={year.label} className="relative overflow-visible">
+            <li
+              key={`${year.label}:AR${amendmentIndex}`}
+              className="relative overflow-visible"
+            >
               <details
-                className={`panel group overflow-visible ${saCardUrgencyClass(urgency, submitted)}`}
+                className={`panel group overflow-visible ${saCardUrgencyClass(urgency, submitted)} ${locked ? "opacity-95" : ""}`}
               >
                 <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 p-4 marker:content-none [&::-webkit-details-marker]:hidden">
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="display text-xl text-ink">
-                        {year.label}
+                        {displayLabel}
                       </span>
                       <span className="text-xs text-ink-soft">
                         {formatSaTaxYearRange(year)}
@@ -572,7 +705,7 @@ export function SaTaxYearWorkspace({
                       {badge ? (
                         <span
                           className={`rounded-md px-2 py-0.5 text-xs font-semibold ${
-                            submitted
+                            submitted || locked
                               ? "bg-emerald-50 text-emerald-800"
                               : isDraft
                                 ? "bg-sand text-ink"
@@ -600,10 +733,11 @@ export function SaTaxYearWorkspace({
                     >
                       <button
                         type="button"
-                        className="px-3 py-2 text-sm font-semibold text-sea hover:bg-sea/5"
-                        onClick={() => openFiling(year)}
+                        className="px-3 py-2 text-sm font-semibold text-sea hover:bg-sea/5 disabled:cursor-default disabled:opacity-50"
+                        disabled={locked}
+                        onClick={() => openFiling(year, amendmentIndex)}
                       >
-                        Open return →
+                        {locked ? "Locked" : "Open return →"}
                       </button>
                       <SaTaxYearActionsMenu
                         label="▾"
@@ -611,16 +745,25 @@ export function SaTaxYearWorkspace({
                           clientId,
                           clientName,
                           contactEmail,
-                          taxYearLabel: year.label,
+                          taxYearLabel: displayLabel,
                           statusLabel: badge || "Not started",
                           returnId: match?.id ?? null,
                           sa100DocumentId: docs?.return?.id ?? null,
                           sa302DocumentId: docs?.sa302?.id ?? null,
+                          canAmend,
+                          amendDisabledReason: amendBlocked
+                            ? "Maximum five amendments (AR5) for this year."
+                            : null,
                         }}
-                        onOpenReturn={() => openFiling(year)}
+                        onOpenReturn={() => openFiling(year, amendmentIndex)}
                         onUploadSa100={() => pickUpload(year.label, "return")}
                         onUploadSa302={() => pickUpload(year.label, "sa302")}
                         onDelete={() => askDeleteYear(year, status)}
+                        onAmendReturn={
+                          canAmend
+                            ? () => amendReturn(year, match?.id ?? null)
+                            : undefined
+                        }
                       />
                     </div>
                     <span
@@ -744,10 +887,17 @@ export function SaTaxYearWorkspace({
                           className="input py-1 text-xs"
                           id={`assign-year-${d.id}`}
                           defaultValue={
-                            yearCards[yearCards.length - 1]?.label ?? ""
+                            yearCards.find((c) => c.amendmentIndex === 0)
+                              ?.year.label ??
+                            yearCards[0]?.year.label ??
+                            ""
                           }
                         >
-                          {yearCards.map((y) => (
+                          {[
+                            ...new Map(
+                              yearCards.map((c) => [c.year.label, c.year]),
+                            ).values(),
+                          ].map((y) => (
                             <option key={y.label} value={y.label}>
                               {y.label}
                             </option>

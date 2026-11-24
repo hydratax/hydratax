@@ -394,6 +394,8 @@ export function Sa100Wizard({
   taxYear = TAX_YEAR_LABEL,
   initial,
   initialReturnId = null,
+  amendmentIndex = 0,
+  readOnly = false,
 }: {
   clientId: string;
   clientName: string;
@@ -409,6 +411,10 @@ export function Sa100Wizard({
   initial?: Partial<Sa100Draft> | null;
   /** Existing draft id so remounts keep PDF downloads + Submit */
   initialReturnId?: string | null;
+  /** AR1–AR5 revision index (0 = original). */
+  amendmentIndex?: number;
+  /** Locked filed return — view only. */
+  readOnly?: boolean;
 }) {
   const router = useRouter();
   const yearMeta = useMemo(
@@ -610,10 +616,12 @@ export function Sa100Wizard({
       setI(nextStep);
       setFieldErrors({});
       setOk(opts.message ?? "Progress saved.");
+      if (readOnly) return;
       void saveSa100Draft({
         clientId,
         draft: toSave,
         taxpayerId,
+        amendmentIndex,
         skipPdfs: true,
       })
         .then((saved) => setReturnId(saved.id))
@@ -622,12 +630,14 @@ export function Sa100Wizard({
         );
       return;
     }
+    if (readOnly) return;
     start(async () => {
       try {
         const saved = await saveSa100Draft({
           clientId,
           draft: toSave,
           taxpayerId,
+          amendmentIndex,
           skipPdfs: !opts?.withPdfs,
         });
         setReturnId(saved.id);
@@ -2178,12 +2188,14 @@ export function Sa100Wizard({
                   );
                   return;
                 }
+                if (readOnly) return;
                 start(async () => {
                   try {
                     const saved = await saveSa100Draft({
                       clientId,
                       draft,
                       taxpayerId,
+                      amendmentIndex,
                       skipPdfs: false,
                     });
                     setReturnId(saved.id);

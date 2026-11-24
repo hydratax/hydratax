@@ -7,7 +7,11 @@ import { clearNavPending, markNavPending } from "@/components/pending-link";
 
 type OrgType = "company" | "sole_trader" | "partnership" | "practice";
 
-function setAuthIntentCookies(next: string, orgType?: OrgType) {
+function setAuthIntentCookies(
+  next: string,
+  orgType?: OrgType,
+  cta?: string,
+) {
   const secure =
     typeof window !== "undefined" && window.location.protocol === "https:";
   const maxAge = 600;
@@ -17,6 +21,11 @@ function setAuthIntentCookies(next: string, orgType?: OrgType) {
     document.cookie = `ht_auth_org=${encodeURIComponent(orgType)}; ${base}`;
   } else {
     document.cookie = "ht_auth_org=; Path=/; Max-Age=0";
+  }
+  if (cta?.trim()) {
+    document.cookie = `ht_auth_cta=${encodeURIComponent(cta.trim())}; ${base}`;
+  } else {
+    document.cookie = "ht_auth_cta=; Path=/; Max-Age=0";
   }
 }
 
@@ -30,11 +39,14 @@ function hasPkceVerifierCookie(): boolean {
 export function GoogleAuthButton({
   next = "/dashboard",
   orgType,
+  cta,
   label = "Continue with Google",
   onError,
 }: {
   next?: string;
   orgType?: OrgType;
+  /** Public File with HydraTax button id for resume + reminders. */
+  cta?: string;
   label?: string;
   onError?: (message: string) => void;
 }) {
@@ -61,7 +73,7 @@ export function GoogleAuthButton({
       }
 
       const destination = next.startsWith("/") ? next : "/dashboard";
-      setAuthIntentCookies(destination, orgType);
+      setAuthIntentCookies(destination, orgType, cta);
 
       const supabase = createClient();
       const redirectTo = `${window.location.origin}/auth/callback`;

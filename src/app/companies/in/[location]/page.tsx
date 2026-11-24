@@ -6,6 +6,7 @@ import { SiteHeader } from "@/components/site-header";
 import {
   locationFromSlug,
   locationHubPath,
+  locationSlug,
   SEO_LOCATION_HUBS,
 } from "@/lib/company-directory";
 import { siteUrl } from "@/lib/site";
@@ -16,7 +17,7 @@ export const revalidate = 86_400;
 
 export async function generateStaticParams() {
   return SEO_LOCATION_HUBS.map((location) => ({
-    location: location.toLowerCase(),
+    location: locationSlug(location),
   }));
 }
 

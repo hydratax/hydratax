@@ -198,6 +198,10 @@ export type DeskProfile = {
     submittedAt?: string;
     createdAt: string;
     updatedAt: string;
+    /** 0 = original; 1–5 = AR1–AR5. */
+    amendmentIndex?: number;
+    amendmentOfId?: string | null;
+    locked?: boolean;
   }>;
   /**
    * After an SA100 draft is deleted, suppress income-desk / accumulate re-seed

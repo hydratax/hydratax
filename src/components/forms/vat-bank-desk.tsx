@@ -22,6 +22,10 @@ import {
   previewBankStatementLines,
 } from "@/server/actions/bank";
 import { uploadClientDocument } from "@/server/actions/documents";
+import {
+  bankKey,
+  extractBankNameFromFilename,
+} from "@/lib/bank/bank-tx-meta";
 
 type Period = {
   periodKey: string;
@@ -92,8 +96,15 @@ export function VatBooksBankPanel({
   const fileRef = useRef<HTMLInputElement>(null);
   const [pending, start] = useTransition();
   const [fileName, setFileName] = useState<string | null>(null);
+  const [bankName, setBankName] = useState("");
 
   if (!allowUpload) return null;
+
+  function resolvedBank(filename: string) {
+    const typed = bankName.trim();
+    if (typed) return typed;
+    return extractBankNameFromFilename(filename);
+  }
 
   const booksHref = clientSlug
     ? `/clients/${clientSlug}/bank`
@@ -129,6 +140,7 @@ export function VatBooksBankPanel({
           /* storage optional */
         }
 
+        const bank = resolvedBank(file.name);
         if (isSheet) {
           const fd = new FormData();
           fd.set("file", file);
@@ -140,6 +152,7 @@ export function VatBooksBankPanel({
             filename: file.name,
             source:
               sheetPreview.source === "spreadsheet" ? "spreadsheet" : "csv",
+            bankName: bank,
             mode: "merge",
           });
         } else {
@@ -160,11 +173,14 @@ export function VatBooksBankPanel({
             lines: converted.lines,
             filename: file.name,
             source: convertSource,
+            bankName: bank,
             mode: "merge",
           });
         }
         setFileName(null);
+        setBankName("");
         if (fileRef.current) fileRef.current.value = "";
+        void bankKey(bank);
         router.refresh();
       } catch {
         /* freeze */
@@ -241,6 +257,17 @@ export function VatBooksBankPanel({
       </div>
 
       <div className="mt-auto shrink-0 space-y-2">
+        <label className="block text-[10px] font-bold uppercase tracking-[0.12em] text-ink-soft">
+          Bank name
+          <input
+            type="text"
+            className="input mt-1 w-full text-xs"
+            placeholder="e.g. Tide, Barclays"
+            value={bankName}
+            disabled={pending}
+            onChange={(e) => setBankName(e.target.value)}
+          />
+        </label>
         <input
           ref={fileRef}
           type="file"
@@ -249,7 +276,13 @@ export function VatBooksBankPanel({
           onChange={(e) => {
             const f = e.target.files?.[0] ?? null;
             setFileName(f?.name ?? null);
-            if (f) runUpload(f);
+            if (f) {
+              if (!bankName.trim()) {
+                const guessed = extractBankNameFromFilename(f.name);
+                if (guessed !== "Unnamed bank") setBankName(guessed);
+              }
+              runUpload(f);
+            }
           }}
         />
         <button
@@ -403,6 +436,7 @@ export function VatQuarterBreakdowns({
                 periodEnd={period.end}
                 vatAllocateByCategory={vatAllocateByCategory}
                 onVatAllocateChange={onVatAllocateChange}
+                groupByBank
               />
               <p className="mt-2 px-3 text-xs text-ink-soft">
                 Range {formatPeriodRange(period.start, period.end)}

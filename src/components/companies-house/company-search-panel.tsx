@@ -53,22 +53,41 @@ export function CompanySearchPanel({
     }
 
     let cancelled = false;
+    // Drop stale hits as soon as the query changes (e.g. "hydra" → "hydra retail").
+    setItems([]);
+    setHint(null);
+    setNavigating(false);
     const timer = setTimeout(async () => {
       setSearching(true);
       setError(null);
       try {
-        const res = await fetch(
-          `/api/companies-house/search?q=${encodeURIComponent(query)}`,
-        );
-        const data = (await res.json()) as {
-          items?: SearchItem[];
-          message?: string;
-          error?: string;
+        const run = async () => {
+          const res = await fetch(
+            `/api/companies-house/search?q=${encodeURIComponent(query)}`,
+          );
+          const data = (await res.json()) as {
+            items?: SearchItem[];
+            message?: string;
+            error?: string;
+            busy?: boolean;
+          };
+          return { res, data };
         };
+
+        let { res, data } = await run();
+        // One quiet retry when Companies House is rate-limiting us.
+        if (!cancelled && (data.busy || /busy|Too Many|429/i.test(data.error ?? ""))) {
+          await new Promise((r) => setTimeout(r, 1600));
+          if (!cancelled) ({ res, data } = await run());
+        }
         if (cancelled) return;
         if (!res.ok) {
           setItems([]);
-          setHint(data.error ?? "Search failed");
+          setHint(
+            data.busy
+              ? "Companies House is busy — try again in a moment."
+              : (data.error ?? "Search failed"),
+          );
           setOpen(true);
           return;
         }
@@ -84,7 +103,7 @@ export function CompanySearchPanel({
       } finally {
         if (!cancelled) setSearching(false);
       }
-    }, 300);
+    }, 450);
 
     return () => {
       cancelled = true;
@@ -114,7 +133,6 @@ export function CompanySearchPanel({
 
   const isHero = variant === "hero";
   const isProfileLight = variant === "page" || variant === "embedded";
-  const busy = searching || navigating;
 
   return (
     <div
@@ -169,7 +187,7 @@ export function CompanySearchPanel({
           }}
           onKeyDown={(e) => {
             if (e.key === "Escape") setOpen(false);
-            if (e.key === "Enter" && items[0]) {
+            if (e.key === "Enter" && !searching && !navigating && items[0]) {
               e.preventDefault();
               openCompany(items[0]);
             }
@@ -189,7 +207,7 @@ export function CompanySearchPanel({
           }
         />
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-ink-soft">
-          {busy ? "Opening…" : "Companies House"}
+          {navigating ? "Opening…" : searching ? "Searching…" : "Companies House"}
         </span>
 
         {open && (searching || items.length > 0 || hint) && (

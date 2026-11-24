@@ -40,7 +40,7 @@ export const CH_SERVICE_FAQS: Record<string, FaqItem[]> = {
     },
     {
       q: "When is the confirmation statement fee due?",
-      a: "£65 total (Companies House £50 + Hydra £15) with the first confirmation statement in each 12-month payment period. Extra statements in the same period do not attract another Companies House annual fee.",
+      a: "£55 total for individuals (Companies House £50 + Hydra £5) with the first confirmation statement in each 12-month payment period. Extra statements in the same period do not attract another Companies House annual fee. Practice desks include confirmation statements at the desk rate.",
     },
     {
       q: "What if I miss the confirmation statement deadline?",
@@ -50,7 +50,7 @@ export const CH_SERVICE_FAQS: Record<string, FaqItem[]> = {
   "accounts-ixbrl": [
     {
       q: "Is there a Companies House fee for accounts?",
-      a: "Companies House statutory fee for standard software accounts is £0. Hydra’s software fee for this filing is £25.",
+      a: "Companies House statutory fee for standard software accounts is £0. Hydra’s software fee for individuals is £15; practice desks include accounts filings.",
     },
     {
       q: "What accounts types can I file?",

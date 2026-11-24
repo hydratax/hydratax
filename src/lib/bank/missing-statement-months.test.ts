@@ -76,6 +76,19 @@ describe("formatMissingPeriodPhrase", () => {
       "Bank statements missing from 06 April 2024 to 28 Feb 2025",
     );
   });
+
+  it("caps the tax-year end month at 5 April", () => {
+    const now = new Date("2026-11-15T12:00:00Z");
+    const row = missingMonthsForTaxYearLabel(
+      "2025-26",
+      ["2025-05-01"],
+      now,
+    );
+    expect(row).not.toBeNull();
+    expect(row!.missingMonths.at(-1)).toBe("Apr 2026");
+    const phrase = formatMissingPeriodPhrase(row!);
+    expect(phrase).toMatch(/to 05 Apr 2026$/);
+  });
 });
 
 describe("missingBankMonthsInPeriod", () => {

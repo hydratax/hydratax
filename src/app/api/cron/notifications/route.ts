@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sendFilingReminders } from "@/server/billing/filing-reminders";
 import { sendCompanyFilingReminders } from "@/server/billing/company-filing-reminders";
+import { sendSignupFilingIntentReminders } from "@/server/billing/signup-filing-intents";
 import { checkR2StorageQuota } from "@/server/storage/r2-quota";
 import { authorizeBearer } from "@/lib/webhook-auth";
 import { clientIpFromHeaders } from "@/lib/rate-limit";
@@ -34,17 +35,23 @@ export async function GET(req: Request) {
   // throws, so a failing reminder job cannot starve retention (or vice versa).
   const retention = await runRetentionJobsBestEffort();
   try {
-    const [filingReminders, companyFilingReminders, r2Quota] =
-      await Promise.all([
-        sendFilingReminders(),
-        sendCompanyFilingReminders(),
-        checkR2StorageQuota(),
-      ]);
+    const [
+      filingReminders,
+      companyFilingReminders,
+      signupFilingIntents,
+      r2Quota,
+    ] = await Promise.all([
+      sendFilingReminders(),
+      sendCompanyFilingReminders(),
+      sendSignupFilingIntentReminders(),
+      checkR2StorageQuota(),
+    ]);
     return NextResponse.json(
       {
         ok: true,
         filingReminders,
         companyFilingReminders,
+        signupFilingIntents,
         r2Quota,
         retention,
       },

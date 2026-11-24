@@ -8,6 +8,11 @@ import { SiteHeader } from "@/components/site-header";
 import { CompanySearchPanel } from "@/components/companies-house/company-search-panel";
 import { FaqSection } from "@/components/faq-section";
 import { faqsForProduct } from "@/lib/product-faqs";
+import {
+  ACCOUNT_REQUIRED_CH_SERVICES,
+  filingHrefForSession,
+} from "@/lib/auth-return";
+import { getOptionalSession } from "@/server/auth/session";
 
 export const metadata = {
   title:
@@ -25,7 +30,14 @@ export const metadata = {
   alternates: { canonical: "/companies-house" },
 };
 
-export default function CompaniesHousePage() {
+export default async function CompaniesHousePage() {
+  const session = await getOptionalSession();
+  const signedIn = Boolean(session);
+  const csHref = filingHrefForSession(
+    "/companies-house/confirmation-statement",
+    signedIn,
+    "ch-service-confirmation-statement",
+  );
   const popular = CH_SERVICE_DETAILS.filter((s) => s.popular);
 
   return (
@@ -33,7 +45,7 @@ export default function CompaniesHousePage() {
       <SiteHeader />
 
       <main>
-        <header className="company-profile-hero relative overflow-hidden border-b border-line/70">
+        <header className="company-profile-hero relative overflow-x-clip overflow-y-visible border-b border-line/70">
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0 opacity-[0.32]"
@@ -101,7 +113,7 @@ export default function CompaniesHousePage() {
                     Incorporate a company
                   </Link>
                   <Link
-                    href="/companies-house/confirmation-statement"
+                    href={csHref}
                     className="btn btn-secondary inline-flex justify-center rounded-xl px-4 py-3 text-center text-sm font-semibold transition hover:-translate-y-0.5"
                   >
                     Confirmation statement
@@ -116,10 +128,10 @@ export default function CompaniesHousePage() {
               </div>
             </div>
 
-            <div className="relative mt-10">
-              <div className="gloss-card relative overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-5 md:p-6 shadow-[0_18px_40px_-28px_rgba(15,118,110,0.28)]">
+            <div className="relative z-20 mt-10">
+              <div className="gloss-card relative overflow-visible rounded-2xl border border-line/80 bg-white/90 p-5 md:p-6 shadow-[0_18px_40px_-28px_rgba(15,118,110,0.28)]">
                 <div className="gloss-shine" aria-hidden />
-                <div className="relative">
+                <div className="relative overflow-visible">
                   <CompanySearchPanel
                     variant="embedded"
                     heading="Find your company"
@@ -144,10 +156,17 @@ export default function CompaniesHousePage() {
             <div className="grid gap-3 md:grid-cols-3">
               {popular.map((s, i) => {
                 const price = formatChServicePrice(s);
+                const href = filingHrefForSession(
+                  `/companies-house/${s.id}`,
+                  signedIn || !ACCOUNT_REQUIRED_CH_SERVICES.has(s.id),
+                  ACCOUNT_REQUIRED_CH_SERVICES.has(s.id)
+                    ? `ch-service-${s.id}`
+                    : undefined,
+                );
                 return (
                   <Link
                     key={s.id}
-                    href={`/companies-house/${s.id}`}
+                    href={href}
                     className="company-deadline-tile gloss-card group relative block overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-5 transition duration-300 hover:-translate-y-1.5 hover:border-sea/40 hover:shadow-[0_22px_44px_-22px_rgba(15,118,110,0.4)]"
                     style={{ animationDelay: `${0.05 + i * 0.07}s` }}
                   >
@@ -184,10 +203,17 @@ export default function CompaniesHousePage() {
           <ul className="grid gap-3 sm:grid-cols-2">
             {CH_SERVICE_DETAILS.map((s, i) => {
               const price = formatChServicePrice(s);
+              const href = filingHrefForSession(
+                `/companies-house/${s.id}`,
+                signedIn || !ACCOUNT_REQUIRED_CH_SERVICES.has(s.id),
+                ACCOUNT_REQUIRED_CH_SERVICES.has(s.id)
+                  ? `ch-service-${s.id}`
+                  : undefined,
+              );
               return (
                 <li key={s.id}>
                   <Link
-                    href={`/companies-house/${s.id}`}
+                    href={href}
                     className="company-related-link gloss-card group relative flex items-start justify-between gap-4 overflow-hidden rounded-2xl border border-line/80 bg-white/90 px-5 py-4 transition duration-300 hover:-translate-y-1 hover:border-sea/40 hover:shadow-[0_18px_36px_-22px_rgba(15,118,110,0.35)]"
                     style={{ animationDelay: `${0.04 + i * 0.02}s` }}
                   >

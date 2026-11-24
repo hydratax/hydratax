@@ -41,6 +41,8 @@ export default async function CorporationTaxPage({
     periodStart: String(r.periodStart),
     periodEnd: String(r.periodEnd),
     status: String(r.status),
+    questionnaire:
+      (r.questionnaire as Record<string, unknown> | null | undefined) ?? null,
   }));
   const filedElsewhere = query.note === "filed-elsewhere";
   const ch =

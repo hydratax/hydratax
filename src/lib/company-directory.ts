@@ -48,23 +48,42 @@ export function industryHubPath(sic: string) {
   return `/companies/industry/${encodeURIComponent(sic.replace(/\D/g, "").slice(0, 5))}`;
 }
 
-export function locationHubPath(location: string) {
-  const slug = location
+export function locationSlug(location: string) {
+  return location
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return `/companies/in/${encodeURIComponent(slug)}`;
 }
 
+export function locationHubPath(location: string) {
+  return `/companies/in/${encodeURIComponent(locationSlug(location))}`;
+}
+
+/**
+ * Resolve a URL slug / query value to a canonical SEO location label.
+ * Unknown places are title-cased so free-form filters still work.
+ */
 export function locationFromSlug(slug: string) {
-  const decoded = decodeURIComponent(slug).trim();
+  const decoded = decodeURIComponent(slug).trim().toLowerCase();
   if (!decoded) return null;
+  const known = SEO_LOCATION_HUBS.find(
+    (place) => locationSlug(place) === decoded || place.toLowerCase() === decoded,
+  );
+  if (known) return known;
   return decoded
     .split("-")
     .filter(Boolean)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+/** Canonical place name for CH advanced search, or null if empty. */
+export function resolveLocationFilter(
+  raw: string | null | undefined,
+): string | null {
+  if (!raw?.trim()) return null;
+  return locationFromSlug(raw.trim());
 }
 
 export function sicLabel(sic: string | null | undefined): string {

@@ -28,7 +28,6 @@ import {
   requestMissingSaBankStatements,
 } from "@/server/actions/sa-bank-missing-request";
 import { FormErrorBanner } from "@/components/forms/form-error-banner";
-import { AbbrInfo } from "@/components/desk/abbr-info";
 import { messageFromUnknown } from "@/lib/action-error";
 import {
   formatMissingPeriodPhrase,
@@ -39,6 +38,11 @@ import { parseMtdItsaFile } from "@/lib/mtd/parse-mtd-itsa-file";
 import { itsaQuartersForTaxYear } from "@/lib/mtd/itsa-quarters";
 import { MtdFileUploadButton } from "@/components/forms/mtd-file-upload-button";
 import { applyMtdItsaFiguresToSa100 } from "@/server/actions/mtd-itsa";
+import {
+  amendmentCardLabel,
+  isFilingRevisionLocked,
+  isSubmittedFilingStatus,
+} from "@/lib/amendment-revision";
 
 type EmailActivity = {
   id: string;
@@ -81,12 +85,23 @@ function shortFormLabel(choice: SaAllocateChoice) {
   return "SA103F";
 }
 
-const CHOICE_OPTIONS = Object.keys(
-  SA_ALLOCATE_CHOICE_LABEL,
-) as SaAllocateChoice[];
+/** Desk allocate targets — employment (SA102) is filled from PAYE, not bank heads. */
+const CHOICE_OPTIONS: SaAllocateChoice[] = [
+  "sa103f",
+  "sa105",
+  "unallocated",
+];
+
+/** MTD for Income Tax quarterly card — live on the desk from 6 April 2027. */
+function showMtdItsaCard(now = new Date()) {
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const d = now.getDate();
+  return y > 2027 || (y === 2027 && (m > 3 || (m === 3 && d >= 6)));
+}
 
 /**
- * bankbee SA desk — bank lines by UK tax year, allocate to SA103F / SA105 / SA102.
+ * bankbee SA desk — bank lines by UK tax year, allocate to SA103F / SA105.
  */
 export function SaBankTaxYearHeads({
   clientId,
@@ -94,17 +109,26 @@ export function SaBankTaxYearHeads({
   transactions,
   formSignals = {},
   clientEmail,
+  returns = [],
 }: {
   clientId: string;
   taxpayerId: string;
   transactions: Tx[];
   formSignals?: SaFormSuggestSignals;
   clientEmail?: string | null;
+  /** SA returns for this person — drives AR Form Allocations cards + locks. */
+  returns?: Array<{
+    taxYear: string;
+    status: string;
+    amendmentIndex?: number | null;
+    locked?: boolean | null;
+  }>;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const [allocOpen, setAllocOpen] = useState(true);
   const [openYears, setOpenYears] = useState<Record<string, boolean>>({});
   const [openHeads, setOpenHeads] = useState<Record<string, boolean>>({});
   const [headSearch, setHeadSearch] = useState<Record<string, string>>({});
@@ -143,18 +167,15 @@ export function SaBankTaxYearHeads({
   function defaultFormForHead(
     field: SaSelfEmploymentMoneyField,
     rows: Tx[],
-  ): SaAllocateForm {
+  ): Exclude<SaAllocateForm, "sa102"> {
     const cats = rows.map((r) => r.category);
-    const votes: SaAllocateForm[] = cats.map((c) =>
-      suggestSaFormForCategory(c, formSignals),
-    );
-    const score = { sa103f: 0, sa105: 0, sa102: 0 };
-    for (const v of votes) score[v] += 1;
-    if (score.sa105 >= score.sa103f && score.sa105 >= score.sa102) {
-      return "sa105";
+    const votes = cats.map((c) => suggestSaFormForCategory(c, formSignals));
+    const score = { sa103f: 0, sa105: 0 };
+    for (const v of votes) {
+      if (v === "sa105") score.sa105 += 1;
+      else score.sa103f += 1;
     }
-    if (score.sa102 > score.sa103f) return "sa102";
-    return "sa103f";
+    return score.sa105 >= score.sa103f ? "sa105" : "sa103f";
   }
 
   function choiceFor(
@@ -162,7 +183,8 @@ export function SaBankTaxYearHeads({
     field: SaSelfEmploymentMoneyField,
     rows: Tx[],
   ): SaAllocateChoice {
-    return formByHead[headKey] ?? defaultFormForHead(field, rows);
+    const raw = formByHead[headKey] ?? defaultFormForHead(field, rows);
+    return raw === "sa102" ? "sa103f" : raw;
   }
 
   function headsForYear(txs: Tx[]) {
@@ -198,6 +220,7 @@ export function SaBankTaxYearHeads({
     field: SaSelfEmploymentMoneyField,
     key: string,
     form: SaAllocateForm,
+    amendmentIndex = 0,
   ) {
     setError(null);
     setOk(null);
@@ -210,6 +233,7 @@ export function SaBankTaxYearHeads({
           taxYear,
           field,
           form,
+          amendmentIndex,
         });
         if (!res.ok) {
           setError(res.error);
@@ -231,10 +255,12 @@ export function SaBankTaxYearHeads({
       field: SaSelfEmploymentMoneyField;
       rows: Tx[];
     }>,
+    amendmentIndex = 0,
   ) {
+    const prefix = `${taxYear}:AR${amendmentIndex}`;
     const payload = heads
       .map((h) => {
-        const key = `${taxYear}:${h.field}`;
+        const key = `${prefix}:${h.field}`;
         const choice = choiceFor(key, h.field, h.rows);
         if (choice === "unallocated") return null;
         return { field: h.field, form: choice };
@@ -248,7 +274,7 @@ export function SaBankTaxYearHeads({
       return;
     }
 
-    const key = `all:${taxYear}`;
+    const key = `all:${prefix}`;
     setError(null);
     setOk(null);
     setBusyKey(key);
@@ -258,6 +284,7 @@ export function SaBankTaxYearHeads({
           clientId,
           taxpayerId,
           taxYear,
+          amendmentIndex,
           heads: payload,
         });
         if (!res.ok) {
@@ -380,36 +407,90 @@ export function SaBankTaxYearHeads({
 
   if (!transactions.length) return null;
 
+  const yearCardCount = byYear.years.reduce((n, { year }) => {
+    const yearReturns = returns.filter((r) => r.taxYear === year.label);
+    const revCount = yearReturns.length
+      ? new Set(yearReturns.map((r) => Number(r.amendmentIndex) || 0)).size
+      : 1;
+    return n + Math.max(revCount, 1);
+  }, 0);
+
   return (
     <div id="sa-bank-tax-year-heads" className="space-y-4">
-      <div>
-        <h3 className="display text-xl text-ink">Bank → SA forms by tax year</h3>
-        <p className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-ink-soft">
-          Statements are split by UK tax year (6 Apr → 5 Apr). Pick
-          <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
-            SA103
-            <AbbrInfo code="SA103" />
-          </span>
-          ,
-          <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
-            SA105
-            <AbbrInfo code="SA105" />
-          </span>
-          ,
-          <span className="inline-flex items-center gap-0.5 font-semibold text-ink">
-            SA102
-            <AbbrInfo code="SA102" />
-          </span>
-          , or Keep unallocated per head — then Allocate all at the bottom of
-          the year.
-        </p>
-      </div>
-
       <FormErrorBanner error={error} />
       {ok ? <p className="text-sm text-ok">{ok}</p> : null}
 
-      {byYear.years.map(({ year, txs }) => {
-        const yearOpen = openYears[year.label] ?? false;
+      <details
+        className="group rounded-xl border border-line bg-white transition-colors [&:not([open])]:hover:bg-sea/10"
+        open={allocOpen}
+        onToggle={(e) => {
+          if (e.target !== e.currentTarget) return;
+          setAllocOpen((e.target as HTMLDetailsElement).open);
+        }}
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:content-none [&::-webkit-details-marker]:hidden">
+          <div>
+            <p className="font-semibold text-ink">Form Allocations</p>
+            <p className="mt-0.5 text-xs text-ink-soft">
+              {yearCardCount} tax year{yearCardCount === 1 ? "" : "s"} ·{" "}
+              {transactions.length} transaction
+              {transactions.length === 1 ? "" : "s"}
+            </p>
+          </div>
+          <span
+            className="shrink-0 text-xl leading-none text-ink transition group-open:rotate-180"
+            aria-hidden
+          >
+            ▾
+          </span>
+        </summary>
+
+        <div className="space-y-3 border-t border-line p-3">
+      {byYear.years.flatMap(({ year, txs }) => {
+        const yearReturns = returns.filter((r) => r.taxYear === year.label);
+        const revisions =
+          yearReturns.length > 0
+            ? [
+                ...new Map(
+                  yearReturns.map((r) => [
+                    Number(r.amendmentIndex) || 0,
+                    r,
+                  ]),
+                ).values(),
+              ].sort(
+                (a, b) =>
+                  (Number(a.amendmentIndex) || 0) -
+                  (Number(b.amendmentIndex) || 0),
+              )
+            : [
+                {
+                  taxYear: year.label,
+                  status: "draft",
+                  amendmentIndex: 0,
+                  locked: false,
+                },
+              ];
+        // Always show AR0; append AR drafts as duplicate year cards.
+        const cards = revisions.length
+          ? revisions
+          : [
+              {
+                taxYear: year.label,
+                status: "draft",
+                amendmentIndex: 0,
+                locked: false,
+              },
+            ];
+
+        return cards.map((rev) => {
+        const amendmentIndex = Number(rev.amendmentIndex) || 0;
+        const cardKey = `${year.label}:AR${amendmentIndex}`;
+        const locked = isFilingRevisionLocked({
+          status: rev.status,
+          amendmentIndex,
+          locked: rev.locked,
+        });
+        const yearOpen = openYears[cardKey] ?? false;
         const { heads, review } = headsForYear(txs);
         const coverage = missingMonthsForTaxYearLabel(year.label, allDates);
         const missing = coverage?.missingMonths ?? [];
@@ -417,16 +498,18 @@ export function SaBankTaxYearHeads({
           ? formatMissingPeriodPhrase(coverage)
           : null;
         const bounds = coverage ? missingPeriodIsoBounds(coverage) : null;
-        const emailKey = `email:${year.label}`;
+        const emailKey = `email:${cardKey}`;
+        const titleLabel = amendmentCardLabel(year.label, amendmentIndex);
         return (
           <details
-            key={year.label}
+            key={cardKey}
             open={yearOpen}
-            className="rounded-xl border border-line bg-white"
+            className={`rounded-xl border border-line bg-white transition-colors [&:not([open])]:hover:bg-sea/10 ${locked ? "opacity-95" : ""}`}
             onToggle={(e) => {
+              e.stopPropagation();
               setOpenYears((prev) => ({
                 ...prev,
-                [year.label]: (e.target as HTMLDetailsElement).open,
+                [cardKey]: (e.target as HTMLDetailsElement).open,
               }));
             }}
           >
@@ -434,7 +517,14 @@ export function SaBankTaxYearHeads({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <p className="font-semibold text-ink">
-                    Tax year {year.label} (Form Allocations)
+                    Tax year {titleLabel}
+                    {locked ? (
+                      <span className="ml-2 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                        {isSubmittedFilingStatus(rev.status)
+                          ? "Submitted · locked"
+                          : "Locked"}
+                      </span>
+                    ) : null}
                   </p>
                   <p className="text-xs text-ink-soft">
                     {formatSaTaxYearRange(year)} · {txs.length} transaction
@@ -451,6 +541,7 @@ export function SaBankTaxYearHeads({
             </summary>
 
             <div className="space-y-2 border-t border-line px-3 py-3">
+              {showMtdItsaCard() ? (
               <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-line bg-white px-3 py-2.5">
                 <div className="min-w-0 text-sm">
                   <p className="font-semibold text-ink">
@@ -508,6 +599,7 @@ export function SaBankTaxYearHeads({
                   }}
                 />
               </div>
+              ) : null}
               {missing.length && periodPhrase && bounds ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                   <p className="font-semibold">SA · Missing bank statements</p>
@@ -543,13 +635,17 @@ export function SaBankTaxYearHeads({
               ) : null}
 
               {heads.map((head) => {
-                const headKey = `${year.label}:${head.field}`;
+                const headKey = `${year.label}:AR${amendmentIndex}:${head.field}`;
                 const headOpen = openHeads[headKey] ?? false;
                 const choice = choiceFor(headKey, head.field, head.rows);
+                const formChoice =
+                  choice === "sa102" ? ("sa103f" as const) : choice;
                 const target =
-                  choice === "unallocated"
+                  formChoice === "unallocated"
                     ? null
-                    : resolveAllocateTarget(choice, head.field);
+                    : resolveAllocateTarget(formChoice, head.field);
+                const boxTitle =
+                  target?.boxLabel ?? `Box ${head.box} · ${head.label}`;
                 return (
                   <div
                     key={headKey}
@@ -567,24 +663,27 @@ export function SaBankTaxYearHeads({
                         }
                       >
                         <p className="text-sm font-semibold text-ink">
-                          Box {head.box} · {head.label}
+                          {boxTitle}
                         </p>
                         <p className="text-xs text-ink-soft">
                           {head.rows.length} transaction
                           {head.rows.length === 1 ? "" : "s"} ·{" "}
                           {gbp(head.amountPence)}
-                          {target ? <> → {target.boxLabel}</> : null}
-                          {choice === "unallocated" ? (
+                          {formChoice === "unallocated" ? (
                             <> · kept unallocated</>
-                          ) : null}
+                          ) : formChoice === "sa105" ? (
+                            <> · UK property</>
+                          ) : (
+                            <> · self-employment</>
+                          )}
                         </p>
                       </button>
                       <label className="flex items-center gap-1 text-xs text-ink-soft">
                         <span className="sr-only">Allocate to form</span>
                         <select
                           className="input py-1 text-xs"
-                          value={choice}
-                          disabled={pending}
+                          value={formChoice}
+                          disabled={pending || locked}
                           onChange={(e) =>
                             setFormByHead((prev) => ({
                               ...prev,
@@ -602,17 +701,27 @@ export function SaBankTaxYearHeads({
                       <button
                         type="button"
                         className="btn btn-primary text-xs"
-                        disabled={pending || choice === "unallocated"}
+                        disabled={
+                          pending || locked || formChoice === "unallocated"
+                        }
                         onClick={() => {
-                          if (choice === "unallocated") return;
-                          allocate(year.label, head.field, headKey, choice);
+                          if (locked || formChoice === "unallocated") return;
+                          allocate(
+                            year.label,
+                            head.field,
+                            headKey,
+                            formChoice,
+                            amendmentIndex,
+                          );
                         }}
                       >
                         {busyKey === headKey
                           ? "Allocating…"
-                          : choice === "unallocated"
-                            ? "Unallocated"
-                            : `Allocate to ${shortFormLabel(choice)}`}
+                          : locked
+                            ? "Locked"
+                            : formChoice === "unallocated"
+                              ? "Unallocated"
+                              : `Allocate to ${shortFormLabel(formChoice)}`}
                       </button>
                       <button
                         type="button"
@@ -735,19 +844,26 @@ export function SaBankTaxYearHeads({
                   <button
                     type="button"
                     className="btn btn-primary text-sm"
-                    disabled={pending}
-                    onClick={() => allocateAllYear(year.label, heads)}
+                    disabled={pending || locked}
+                    onClick={() =>
+                      allocateAllYear(year.label, heads, amendmentIndex)
+                    }
                   >
-                    {busyKey === `all:${year.label}`
+                    {busyKey === `all:${year.label}:AR${amendmentIndex}`
                       ? "Allocating all…"
-                      : "Allocate all heads"}
+                      : locked
+                        ? "Locked"
+                        : "Allocate all heads"}
                   </button>
                 </div>
               ) : null}
             </div>
           </details>
         );
+        });
       })}
+        </div>
+      </details>
 
       {byYear.unassigned.length > 0 ? (
         <p className="text-xs text-ink-soft">

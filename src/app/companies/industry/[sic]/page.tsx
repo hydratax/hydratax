@@ -3,8 +3,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
+import { IndustryLocationFilter } from "@/components/companies-house/industry-location-filter";
 import {
   industryHubPath,
+  resolveLocationFilter,
   shortSicLabel,
   sicLabel,
   SEO_INDUSTRY_HUBS,
@@ -21,39 +23,58 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({
   params,
+  searchParams,
 }: {
   params: Promise<{ sic: string }>;
+  searchParams: Promise<{ location?: string }>;
 }): Promise<Metadata> {
   const { sic: raw } = await params;
+  const query = await searchParams;
   const sic = raw.replace(/\D/g, "").slice(0, 5);
   if (!sic) return { title: "Industry companies — HydraTax" };
   const label = shortSicLabel(sic);
-  const title = `${label} companies UK (SIC ${sic})`;
-  const description = `Browse active UK ${label.toLowerCase()} companies (SIC ${sic}). See Companies House due dates and file confirmation statements, accounts or CT600 with HydraTax.`;
+  const place = resolveLocationFilter(query.location);
+  const title = place
+    ? `${label} companies in ${place} (SIC ${sic})`
+    : `${label} companies UK (SIC ${sic})`;
+  const description = place
+    ? `Browse active UK ${label.toLowerCase()} companies in ${place} (SIC ${sic}). See Companies House due dates and file with HydraTax.`
+    : `Browse active UK ${label.toLowerCase()} companies (SIC ${sic}). See Companies House due dates and file confirmation statements, accounts or CT600 with HydraTax.`;
+  const canonical = place
+    ? `${siteUrl()}${industryHubPath(sic)}?location=${encodeURIComponent(place.toLowerCase())}`
+    : `${siteUrl()}${industryHubPath(sic)}`;
   return {
     title,
     description,
-    alternates: { canonical: `${siteUrl()}${industryHubPath(sic)}` },
+    alternates: { canonical },
     openGraph: {
       title,
       description,
-      url: `${siteUrl()}${industryHubPath(sic)}`,
+      url: canonical,
     },
   };
 }
 
 export default async function IndustryHubPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ sic: string }>;
+  searchParams: Promise<{ location?: string }>;
 }) {
   const { sic: raw } = await params;
+  const query = await searchParams;
   const sic = raw.replace(/\D/g, "").slice(0, 5);
   if (sic.length < 4 || !isCompaniesHouseApiConfigured()) notFound();
 
+  const place = resolveLocationFilter(query.location);
   const label = shortSicLabel(sic);
   const fullLabel = sicLabel(sic);
-  const companies = await listCompaniesForHub({ sicCode: sic, size: 48 });
+  const companies = await listCompaniesForHub({
+    sicCode: sic,
+    location: place ?? undefined,
+    size: 48,
+  });
 
   return (
     <div className="min-h-screen company-profile">
@@ -94,21 +115,34 @@ export default async function IndustryHubPage({
               </Link>
               <span className="mx-2 text-line">/</span>
               <span className="text-ink">{label}</span>
+              {place ? (
+                <>
+                  <span className="mx-2 text-line">/</span>
+                  <span className="text-ink">{place}</span>
+                </>
+              ) : null}
             </nav>
 
-            <div className="company-profile-hero-copy mt-8 max-w-3xl">
-              <p className="gloss-badge inline-flex rounded-lg bg-sea/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-sea">
-                SIC {sic} · Companies House
-              </p>
-              <h1 className="display mt-4 text-[clamp(2rem,4.6vw,3.4rem)] leading-[1.08] tracking-tight text-ink">
-                {label} companies
-              </h1>
-              <p className="mt-4 max-w-2xl text-base text-ink-soft">
-                Active Companies House companies under SIC {sic}
-                {fullLabel !== label ? ` (${fullLabel})` : ""}. Open a company
-                to see accounts and confirmation statement dates, then file
-                online.
-              </p>
+            <div className="mt-8 flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+              <div className="company-profile-hero-copy max-w-3xl">
+                <p className="gloss-badge inline-flex rounded-lg bg-sea/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-sea">
+                  SIC {sic} · Companies House
+                </p>
+                <h1 className="display mt-4 text-[clamp(2rem,4.6vw,3.4rem)] leading-[1.08] tracking-tight text-ink">
+                  {place ? `${label} in ${place}` : `${label} companies`}
+                </h1>
+                <p className="mt-4 max-w-2xl text-base text-ink-soft">
+                  Active Companies House companies under SIC {sic}
+                  {fullLabel !== label ? ` (${fullLabel})` : ""}
+                  {place ? ` with a registered office in ${place}` : ""}. Open a
+                  company to see accounts and confirmation statement dates, then
+                  file online.
+                </p>
+              </div>
+              <IndustryLocationFilter
+                sic={sic}
+                selected={place ? place.toLowerCase() : null}
+              />
             </div>
           </div>
         </header>
@@ -117,7 +151,9 @@ export default async function IndustryHubPage({
           <div className="mx-auto max-w-6xl px-4 py-10 md:px-6 md:py-12">
             {companies.length === 0 ? (
               <p className="text-sm text-ink-soft">
-                No companies returned for this SIC right now. Try the{" "}
+                No companies returned
+                {place ? ` for ${label} in ${place}` : " for this SIC"} right
+                now. Try another city or the{" "}
                 <Link href="/companies" className="font-semibold text-sea">
                   company search
                 </Link>

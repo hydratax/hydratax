@@ -3,12 +3,17 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  createVatAmendment,
   draftVatBoxesFromBank,
   prepareVatReturnFromBoxes,
   pullVatBoxesFromBooks,
   refreshVatObligationsFromHmrc,
   submitPreparedVatReturn,
 } from "@/server/actions/vat";
+import {
+  amendmentCardLabel,
+  parseVatPeriodKeyAmendment,
+} from "@/lib/amendment-revision";
 import {
   buildVatOverridesFromChoices,
   categoriesNeedingVatAllocate,
@@ -1129,7 +1134,16 @@ export function VatReturnsWorkspace({
               </h2>
               <ul className="mt-2 divide-y divide-line text-sm">
                 {filedReturns.map((r) => {
-                  const label = returnPeriodLabel(r);
+                  const parsed = parseVatPeriodKeyAmendment(r.periodKey);
+                  const baseLabel = returnPeriodLabel({
+                    ...r,
+                    periodKey: parsed.basePeriodKey,
+                  });
+                  const label = amendmentCardLabel(
+                    baseLabel,
+                    parsed.amendmentIndex,
+                  );
+                  const locked = parsed.amendmentIndex === 0;
                   return (
                     <li
                       key={r.id}
@@ -1138,10 +1152,35 @@ export function VatReturnsWorkspace({
                       <span className="font-semibold">{label}</span>
                       <div className="flex items-center gap-2">
                         <span className="badge badge-ok">
-                          {r.status.toLowerCase() === "accepted"
-                            ? "Accepted"
-                            : "Submitted"}
+                          {locked
+                            ? "Submitted · locked"
+                            : r.status.toLowerCase() === "accepted"
+                              ? "Accepted"
+                              : "Submitted"}
                         </span>
+                        {locked ? (
+                          <button
+                            type="button"
+                            className="btn btn-secondary text-xs"
+                            disabled={pending}
+                            onClick={() =>
+                              start(async () => {
+                                try {
+                                  const res = await createVatAmendment({
+                                    clientId,
+                                    periodKey: r.periodKey,
+                                  });
+                                  if (!res.ok) return;
+                                  router.refresh();
+                                } catch {
+                                  /* freeze */
+                                }
+                              })
+                            }
+                          >
+                            Amend Return
+                          </button>
+                        ) : null}
                         <EmailToClientButton
                           clientId={clientId}
                           defaultEmail={contactEmail}

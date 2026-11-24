@@ -10,6 +10,8 @@ import {
   SEO_LOCATION_HUBS,
 } from "@/lib/company-directory";
 import { siteUrl } from "@/lib/site";
+import { filingHrefForSession } from "@/lib/auth-return";
+import { getOptionalSession } from "@/server/auth/session";
 
 export const metadata: Metadata = {
   title: "UK company directory — find any Companies House company",
@@ -24,12 +26,25 @@ export const metadata: Metadata = {
   },
 };
 
-export default function CompaniesDirectoryPage() {
+export default async function CompaniesDirectoryPage() {
+  const session = await getOptionalSession();
+  const signedIn = Boolean(session);
+  const csHref = filingHrefForSession(
+    "/companies-house/confirmation-statement",
+    signedIn,
+    "ch-service-confirmation-statement",
+  );
+  const accountsHref = filingHrefForSession(
+    "/companies-house/accounts-ixbrl",
+    signedIn,
+    "ch-service-accounts-ixbrl",
+  );
+
   return (
     <div className="min-h-screen company-profile">
       <SiteHeader />
       <main>
-        <header className="company-profile-hero relative overflow-hidden border-b border-line/70">
+        <header className="company-profile-hero relative overflow-x-clip overflow-y-visible border-b border-line/70">
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0 opacity-[0.32]"
@@ -78,18 +93,15 @@ export default function CompaniesDirectoryPage() {
                 <p className="relative text-[11px] font-bold uppercase tracking-[0.16em] text-sea">
                   File with HydraTax
                 </p>
-                <p className="relative mt-2 text-sm text-ink-soft">
-                  Already know the filing? Jump straight in.
-                </p>
                 <div className="relative mt-5 flex flex-col gap-2.5">
                   <Link
-                    href="/companies-house/confirmation-statement"
+                    href={csHref}
                     className="btn btn-primary company-cta-primary inline-flex justify-center rounded-xl px-4 py-3 text-center text-sm font-bold"
                   >
                     Confirmation statement
                   </Link>
                   <Link
-                    href="/companies-house/accounts-ixbrl"
+                    href={accountsHref}
                     className="btn btn-secondary inline-flex justify-center rounded-xl px-4 py-3 text-center text-sm font-semibold transition hover:-translate-y-0.5"
                   >
                     Annual accounts
@@ -104,10 +116,10 @@ export default function CompaniesDirectoryPage() {
               </div>
             </div>
 
-            <div className="company-profile-body relative mt-10">
-              <div className="gloss-card relative overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-5 md:p-6 shadow-[0_18px_40px_-28px_rgba(15,118,110,0.28)]">
+            <div className="company-profile-body relative z-20 mt-10">
+              <div className="gloss-card relative overflow-visible rounded-2xl border border-line/80 bg-white/90 p-5 md:p-6 shadow-[0_18px_40px_-28px_rgba(15,118,110,0.28)]">
                 <div className="gloss-shine" aria-hidden />
-                <div className="relative">
+                <div className="relative overflow-visible">
                   <CompanySearchPanel
                     variant="embedded"
                     heading="Search Companies House"
@@ -136,7 +148,7 @@ export default function CompaniesDirectoryPage() {
                 <li key={hub.sic}>
                   <Link
                     href={industryHubPath(hub.sic)}
-                    className="company-deadline-tile gloss-card group relative block overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-5 transition duration-300 hover:-translate-y-1.5 hover:border-sea/40 hover:shadow-[0_22px_44px_-22px_rgba(15,118,110,0.4)]"
+                    className="company-deadline-tile gloss-card group relative block overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-5 transition duration-300 hover:-translate-y-1.5 hover:border-sea/40 hover:bg-sea/10 hover:shadow-[0_22px_44px_-22px_rgba(15,118,110,0.4)]"
                     style={{ animationDelay: `${0.04 + i * 0.03}s` }}
                   >
                     <div className="gloss-shine" aria-hidden />
@@ -171,7 +183,7 @@ export default function CompaniesDirectoryPage() {
               <li key={place}>
                 <Link
                   href={locationHubPath(place)}
-                  className="company-deadline-tile gloss-card group relative block overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-5 transition duration-300 hover:-translate-y-1.5 hover:border-sea/40 hover:shadow-[0_22px_44px_-22px_rgba(15,118,110,0.4)]"
+                  className="company-deadline-tile gloss-card group relative block overflow-hidden rounded-2xl border border-line/80 bg-white/90 p-5 transition duration-300 hover:-translate-y-1.5 hover:border-sea/40 hover:bg-sea/10 hover:shadow-[0_22px_44px_-22px_rgba(15,118,110,0.4)]"
                   style={{ animationDelay: `${0.04 + i * 0.025}s` }}
                 >
                   <div className="gloss-shine" aria-hidden />

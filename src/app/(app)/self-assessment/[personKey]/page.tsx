@@ -42,7 +42,7 @@ export default async function PersonSelfAssessmentPage({
   searchParams,
 }: {
   params: Promise<{ personKey: string }>;
-  searchParams?: Promise<{ year?: string }>;
+  searchParams?: Promise<{ year?: string; ar?: string }>;
 }) {
   await requireModule("self_assessment");
   const { personKey: rawKey } = await params;
@@ -54,6 +54,10 @@ export default async function PersonSelfAssessmentPage({
   const yearParam = sp.year?.trim() || "";
   const activeYear =
     (yearParam && parseSaTaxYearLabel(yearParam)?.label) || filingYear.label;
+  const activeAmendmentIndex = Math.min(
+    5,
+    Math.max(0, Math.floor(Number(sp.ar) || 0)),
+  );
 
   const directors = await listPracticeDirectors();
   const person =
@@ -81,7 +85,12 @@ export default async function PersonSelfAssessmentPage({
     customCats,
     blankStart,
   ] = await Promise.all([
-    getSa100Draft(saClientId, activeYear, selected.id).catch(() => null),
+    getSa100Draft(
+      saClientId,
+      activeYear,
+      selected.id,
+      activeAmendmentIndex,
+    ).catch(() => null),
     listSa100Returns(saClientId, selected.id).catch(() => []),
     listClientDocuments(saClientId).catch(() => []),
     listSaFiledDocuments(saClientId, selected.id).catch(() => []),
@@ -101,7 +110,11 @@ export default async function PersonSelfAssessmentPage({
 
   const yearHrefBase = `/self-assessment/${personKeySlug(person.key)}`;
   const filingStatus =
-    sa100Returns.find((r) => r.taxYear === activeYear)?.status ??
+    sa100Returns.find(
+      (r) =>
+        r.taxYear === activeYear &&
+        (Number(r.amendmentIndex) || 0) === activeAmendmentIndex,
+    )?.status ??
     sa100Draft?.status ??
     null;
   const deskStage = saDeskFilterFromStage(
@@ -125,9 +138,6 @@ export default async function PersonSelfAssessmentPage({
           <h1 className="display mt-1 text-4xl text-ink md:text-5xl">
             {selected.fullName}
           </h1>
-          <p className="mt-1 text-sm text-ink-soft">
-            Personal SA100 · tax year 6 April to 5 April · file by 31 January
-          </p>
         </div>
         <DeskStatusButton
           clientId={saClientId}
@@ -163,10 +173,14 @@ export default async function PersonSelfAssessmentPage({
       <SaTaxYearWorkspace
         baseHref={yearHrefBase}
         activeYear={yearParam ? activeYear : null}
+        activeAmendmentIndex={activeAmendmentIndex}
         returns={sa100Returns.map((r) => ({
           id: r.id,
           taxYear: r.taxYear,
           status: r.status,
+          amendmentIndex: r.amendmentIndex ?? 0,
+          amendmentOfId: r.amendmentOfId ?? null,
+          locked: r.locked ?? false,
         }))}
         filedDocs={saFiledDocs}
         clientId={saClientId}
@@ -177,7 +191,7 @@ export default async function PersonSelfAssessmentPage({
         identifiersMissing={saIdentifiersMissing(selected)}
       >
         <Sa100Wizard
-          key={`${selected.id}-sa100-${activeYear}-${sa100Draft?.id ?? "new"}`}
+          key={`${selected.id}-sa100-${activeYear}-AR${activeAmendmentIndex}-${sa100Draft?.id ?? "new"}`}
           clientId={saClientId}
           clientName={selected.fullName}
           contactEmail={selected.email || homeClient?.contactEmail || null}
@@ -186,7 +200,9 @@ export default async function PersonSelfAssessmentPage({
           taxpayerId={selected.id}
           companyName={null}
           taxYear={activeYear}
+          amendmentIndex={activeAmendmentIndex}
           initialReturnId={sa100Draft?.id ?? null}
+          readOnly={Boolean(sa100Draft?.locked)}
           initial={{
             ...(sa100Draft
               ? accumulated
@@ -211,6 +227,12 @@ export default async function PersonSelfAssessmentPage({
           taxpayerName={selected.fullName}
           occupation={selected.occupation ?? ""}
           clientEmail={selected.email || null}
+          returns={sa100Returns.map((r) => ({
+            taxYear: r.taxYear,
+            status: r.status,
+            amendmentIndex: r.amendmentIndex ?? 0,
+            locked: r.locked ?? false,
+          }))}
           hasRental={(selected.otherIncomes ?? []).some(
             (o) => o.kind === "rental",
           )}

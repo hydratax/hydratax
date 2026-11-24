@@ -17,6 +17,10 @@ export type SaTaxYearActionsContext = {
   /** Uploaded document ids for filed PDFs */
   sa100DocumentId?: string | null;
   sa302DocumentId?: string | null;
+  /** Submitted/accepted original — show Amend Return */
+  canAmend?: boolean;
+  /** Already at AR5 */
+  amendDisabledReason?: string | null;
 };
 
 function defaultSaSubject(clientName: string, taxYear: string) {
@@ -36,6 +40,7 @@ export function SaTaxYearActionsMenu({
   onUploadSa100,
   onUploadSa302,
   onDelete,
+  onAmendReturn,
   className,
   label = "Actions",
 }: {
@@ -44,6 +49,7 @@ export function SaTaxYearActionsMenu({
   onUploadSa100: () => void;
   onUploadSa302: () => void;
   onDelete: () => void;
+  onAmendReturn?: () => void;
   className?: string;
   label?: string;
 }) {
@@ -204,6 +210,20 @@ export function SaTaxYearActionsMenu({
                   title="Open return"
                   blurb="Continue or review the SA100 for this tax year."
                 />
+                {ctx.canAmend && onAmendReturn ? (
+                  <ActionButton
+                    disabled={pending || Boolean(ctx.amendDisabledReason)}
+                    onClick={() => {
+                      setOpen(false);
+                      onAmendReturn();
+                    }}
+                    title="Amend Return"
+                    blurb={
+                      ctx.amendDisabledReason ||
+                      "Create an editable AR copy of this year’s return and form allocations."
+                    }
+                  />
+                ) : null}
                 {ctx.returnId && !String(ctx.returnId).startsWith("doc-") ? (
                   <>
                     <ActionButton

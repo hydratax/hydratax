@@ -34,6 +34,10 @@ const signUpSchema = z.object({
   password: newPasswordSchema,
   confirmPassword: z.string().max(200),
   startTrial: z.boolean().optional(),
+  /** Resume path after signup (e.g. company accounts filing). */
+  next: z.string().max(2048).optional(),
+  /** Which public File with HydraTax button started this signup. */
+  cta: z.string().max(80).optional(),
 });
 
 const signInSchema = z.object({
@@ -112,6 +116,9 @@ export async function signUpWithSupabase(
   });
   if (!signUpLimit.ok) return { ok: false, error: RATE_LIMITED_MESSAGE };
 
+  const { safeReturnPath } = await import("@/lib/auth-return");
+  const continueTo = safeReturnPath(data.next, "/dashboard");
+
   if (!isSupabaseConfigured()) {
     // Local fallback so the button always works without cloud keys
     memoryStore.accountProfile = {
@@ -128,11 +135,12 @@ export async function signUpWithSupabase(
     if (!isStripeConfigured() && data.startTrial) {
       await startLocalPracticeTrial(memoryStore.practice.id);
     }
-    return { ok: true, redirectTo: "/dashboard" };
+    return { ok: true, redirectTo: continueTo };
   }
 
   try {
     const supabase = await createClient();
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
     const { data: authData, error } = await supabase.auth.signUp({
       email: data.email,
       password: data.password,
@@ -144,8 +152,10 @@ export async function signUpWithSupabase(
           first_name: data.firstName,
           surname: data.surname,
           start_trial: data.startTrial ? "1" : "0",
+          signup_cta: data.cta?.trim() || "",
+          signup_next: continueTo,
         },
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/auth/callback`,
+        emailRedirectTo: `${appUrl}/auth/callback?next=${encodeURIComponent(continueTo)}`,
       },
     });
 
@@ -181,6 +191,20 @@ export async function signUpWithSupabase(
             email: data.email,
             firstName: data.firstName,
           });
+        }
+        // Record the exact File with HydraTax button so we can resume + remind.
+        try {
+          const { recordSignupFilingIntent } = await import(
+            "@/server/billing/signup-filing-intents"
+          );
+          await recordSignupFilingIntent({
+            userId: user.id,
+            practiceId: practice.practiceId,
+            resumePath: continueTo,
+            ctaId: data.cta,
+          });
+        } catch {
+          /* best-effort */
         }
       } catch {
         /* practice seeded on first dashboard visit */
@@ -243,16 +267,19 @@ export async function signUpWithSupabase(
           });
           return {
             ok: true,
-            redirectTo: "/sign-in?confirmed=1",
+            redirectTo: `/sign-in?confirmed=1&next=${encodeURIComponent(continueTo)}`,
           };
         }
       } catch (err) {
         console.error("[auth.signUp] confirm email failed", safeErr(err));
       }
-      return { ok: true, redirectTo: "/sign-in?confirm=1" };
+      return {
+        ok: true,
+        redirectTo: `/sign-in?confirm=1&next=${encodeURIComponent(continueTo)}`,
+      };
     }
 
-    return { ok: true, redirectTo: "/dashboard" };
+    return { ok: true, redirectTo: continueTo };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Could not create account";
     return { ok: false, error: friendlyAuthMessage(msg) };
@@ -339,6 +366,18 @@ export async function quickSignUpWithSupabase(
           practiceId: practice.practiceId,
           email: data.email,
         });
+        try {
+          const { recordSignupFilingIntent } = await import(
+            "@/server/billing/signup-filing-intents"
+          );
+          await recordSignupFilingIntent({
+            userId: user.id,
+            practiceId: practice.practiceId,
+            resumePath: continueTo,
+          });
+        } catch {
+          /* best-effort */
+        }
       } catch {
         /* practice seeded on first desk visit */
       }

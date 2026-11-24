@@ -440,7 +440,7 @@ export function AnnualAccountsWizard({
       return;
     }
     if (!signedIn) {
-      window.location.assign(signInHref);
+      window.location.assign(signUpHref);
       return;
     }
     if (!companyAuthCode.trim()) {

@@ -208,11 +208,6 @@ export function SaDirectorIncomeDesk({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="display text-2xl text-ink">Income by company</h3>
-            <p className="mt-1 max-w-2xl text-xs text-ink-soft">
-              PAYE pay and tax fill in automatically when this person’s NINO,
-              date of birth and address match an employee on that company’s
-              payroll. If any check fails, PAYE figures are left blank.
-            </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <p className="mono text-sm font-semibold text-sea">

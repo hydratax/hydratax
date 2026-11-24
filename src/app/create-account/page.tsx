@@ -17,7 +17,7 @@ export const metadata = {
 export default async function CreateAccountPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string; plan?: string }>;
+  searchParams: Promise<{ next?: string; plan?: string; cta?: string }>;
 }) {
   const sp = await searchParams;
   const planParam = (sp.plan ?? "").trim();

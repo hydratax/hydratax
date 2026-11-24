@@ -35,27 +35,78 @@ function authHeader() {
   return `Basic ${token}`;
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Space out outbound CH calls so hub pages + typeahead don't stampede the quota. */
+let chGate: Promise<void> = Promise.resolve();
+let chNextAt = 0;
+const CH_MIN_GAP_MS = 120;
+
+function withChGate<T>(fn: () => Promise<T>): Promise<T> {
+  const run = chGate.then(async () => {
+    const wait = Math.max(0, chNextAt - Date.now());
+    if (wait) await sleep(wait);
+    try {
+      return await fn();
+    } finally {
+      chNextAt = Date.now() + CH_MIN_GAP_MS;
+    }
+  });
+  chGate = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 async function chFetch<T>(path: string, revalidate = 0): Promise<T> {
   const base = getCompaniesHouseApiBase();
-  const res = await fetch(`${base}${path}`, {
-    headers: {
-      Authorization: authHeader(),
-      Accept: "application/json",
-    },
-    next: { revalidate },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
+  const maxAttempts = 5;
+  let lastStatus = 0;
+  let lastText = "";
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await withChGate(() =>
+      fetch(`${base}${path}`, {
+        headers: {
+          Authorization: authHeader(),
+          Accept: "application/json",
+        },
+        next: { revalidate },
+      }),
+    );
+    if (res.ok) {
+      return res.json() as Promise<T>;
+    }
+
+    lastStatus = res.status;
+    lastText = await res.text().catch(() => "");
     if (res.status === 404) {
       throw new Error(
         `Company not found on Companies House (${path}). Check the company number, or search by company name instead.`,
       );
     }
+
+    // CH advanced search often returns 429 under burst traffic — wait and retry.
+    if (res.status === 429 && attempt < maxAttempts) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(retryAfter * 1000, 12_000)
+        : Math.min(700 * 2 ** (attempt - 1), 6_000);
+      await sleep(waitMs);
+      continue;
+    }
+
     throw new Error(
-      `Companies House API ${res.status}: ${text.slice(0, 200) || res.statusText}`,
+      `Companies House API ${res.status}: ${lastText.slice(0, 200) || res.statusText}`,
     );
   }
-  return res.json() as Promise<T>;
+
+  throw new Error(
+    `Companies House API ${lastStatus}: ${lastText.slice(0, 200) || "request failed"}`,
+  );
 }
 
 export type ChSearchItem = {
@@ -123,13 +174,38 @@ export type ChPsc = {
   country_of_residence?: string;
 };
 
-/** Search by company name or number */
+type SearchCacheEntry = { at: number; items: ChSearchItem[] };
+const searchCache = new Map<string, SearchCacheEntry>();
+const searchInflight = new Map<string, Promise<ChSearchItem[]>>();
+const SEARCH_CACHE_MS = 5 * 60_000;
+
+/** Search by company name or number (short cache + single-flight to spare CH quota). */
 export async function searchCompanies(query: string, itemsPerPage = 10) {
-  const q = encodeURIComponent(query.trim());
-  const data = await chFetch<{ items?: ChSearchItem[] }>(
-    `/search/companies?q=${q}&items_per_page=${itemsPerPage}`,
-  );
-  return data.items ?? [];
+  const trimmed = query.trim();
+  const cacheKey = `${trimmed.toLowerCase()}|${itemsPerPage}`;
+  const hit = searchCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < SEARCH_CACHE_MS) {
+    return hit.items;
+  }
+
+  const existing = searchInflight.get(cacheKey);
+  if (existing) return existing;
+
+  const q = encodeURIComponent(trimmed);
+  const pending = (async () => {
+    const data = await chFetch<{ items?: ChSearchItem[] }>(
+      `/search/companies?q=${q}&items_per_page=${itemsPerPage}`,
+      300,
+    );
+    const items = data.items ?? [];
+    searchCache.set(cacheKey, { at: Date.now(), items });
+    return items;
+  })().finally(() => {
+    searchInflight.delete(cacheKey);
+  });
+
+  searchInflight.set(cacheKey, pending);
+  return pending;
 }
 
 export type AdvancedCompanySearchOpts = {

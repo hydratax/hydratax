@@ -32,12 +32,15 @@ const applySchema = z.object({
   field: z.string().min(1),
   /** Which supplementary form to write into (accountant override). */
   form: formEnum.default("sa103f"),
+  /** AR1–AR5 revision; default original draft. */
+  amendmentIndex: z.number().int().min(0).max(5).optional(),
 });
 
 const bulkSchema = z.object({
   clientId: z.string().min(1),
   taxpayerId: z.string().min(1),
   taxYear: z.string().regex(/^\d{4}-\d{2}$/),
+  amendmentIndex: z.number().int().min(0).max(5).optional(),
   heads: z
     .array(
       z.object({
@@ -116,6 +119,7 @@ export async function applyBankSaHeadToReturn(
     clientId: data.clientId,
     taxpayerId: data.taxpayerId,
     taxYear: data.taxYear,
+    amendmentIndex: data.amendmentIndex,
     heads: [{ field: data.field, form: data.form }],
   });
   if (!bulk.ok) return bulk;
@@ -173,11 +177,23 @@ export async function applyBankSaHeadsBulk(
     seExpensesBreakdownTotal,
   } = await import("@/lib/sa100/schema");
 
+  const amendmentIndex = Number(data.amendmentIndex) || 0;
   const existing = await getSa100Draft(
     data.clientId,
     data.taxYear,
     data.taxpayerId,
+    amendmentIndex,
   );
+  if (
+    existing?.locked ||
+    existing?.status === "submitted" ||
+    existing?.status === "accepted"
+  ) {
+    return {
+      ok: false as const,
+      error: "This return is locked. Use Amend Return to allocate on an AR draft.",
+    };
+  }
   let nextDraft: Sa100Draft =
     existing?.draft ?? emptySa100Draft({ taxYear: data.taxYear });
   nextDraft = { ...nextDraft, taxYear: data.taxYear };
@@ -236,6 +252,7 @@ export async function applyBankSaHeadsBulk(
     clientId: data.clientId,
     taxpayerId: data.taxpayerId,
     draft: nextDraft as never,
+    amendmentIndex,
     skipPdfs: true,
   });
 

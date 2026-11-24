@@ -13,6 +13,8 @@ import {
   getLastAccountsFiling,
   isCompaniesHouseApiConfigured,
 } from "@/server/companies-house/api";
+import { authEntryHref } from "@/lib/auth-return";
+import { getOptionalSession } from "@/server/auth/session";
 
 function parseMode(raw: string | undefined): YearEndFilingMode {
   if (raw === "accounts" || raw === "both" || raw === "ct600") return raw;
@@ -61,6 +63,26 @@ export default async function PublicYearEndFilingPage({
   const query = await searchParams;
   const companyNumber = query.company?.trim().toUpperCase() || null;
   const mode = parseMode(query.mode);
+
+  const session = await getOptionalSession();
+  if (!session) {
+    const qs = new URLSearchParams({ mode });
+    if (companyNumber) qs.set("company", companyNumber);
+    if (query.clientId?.trim()) qs.set("clientId", query.clientId.trim());
+    const modeCta =
+      mode === "both"
+        ? "file-ct600-accounts"
+        : mode === "accounts"
+          ? "accounts-only"
+          : "start-ct600-deadline";
+    redirect(
+      authEntryHref(
+        "create-account",
+        `/companies-house/year-end?${qs.toString()}`,
+        { cta: modeCta },
+      ),
+    );
+  }
 
   // Practice desk deep-link with clientId → use the authenticated client route
   if (query.clientId && companyNumber) {

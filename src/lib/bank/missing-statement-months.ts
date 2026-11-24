@@ -196,7 +196,15 @@ export function formatMissingPeriodPhrase(
   ) {
     startDay = 6; // UK tax year starts 6 April
   }
-  const endDay = lastDayOfMonth(last.y, last.m0);
+  // Cap the last missing month at 5 April when that month is the tax-year end.
+  let endDay = lastDayOfMonth(last.y, last.m0);
+  if (
+    year &&
+    last.y === Number(year.end.slice(0, 4)) &&
+    last.m0 === 3
+  ) {
+    endDay = 5;
+  }
   const startShown = formatStartDay(
     first.y,
     first.m0,
@@ -225,7 +233,14 @@ export function missingPeriodIsoBounds(
   ) {
     startDay = 6;
   }
-  const endDay = lastDayOfMonth(last.y, last.m0);
+  let endDay = lastDayOfMonth(last.y, last.m0);
+  if (
+    year &&
+    last.y === Number(year.end.slice(0, 4)) &&
+    last.m0 === 3
+  ) {
+    endDay = 5;
+  }
   return {
     startIso: `${first.y}-${String(first.m0 + 1).padStart(2, "0")}-${String(startDay).padStart(2, "0")}`,
     endIso: `${last.y}-${String(last.m0 + 1).padStart(2, "0")}-${String(endDay).padStart(2, "0")}`,

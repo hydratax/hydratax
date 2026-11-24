@@ -402,6 +402,7 @@ export async function executeAccountErasure(opts: {
     ["mfa_challenges", "user_id"],
     ["user_mfa_settings", "user_id"],
     ["email_preferences", "user_id"],
+    ["signup_filing_intents", "user_id"],
     ["user_gateway_credentials", "user_id"],
     ["practice_members", "user_id"],
     ["profiles", "id"],

@@ -7,14 +7,15 @@ export const HYDRA_SERVICE_FEE_POUNDS = 20;
 /**
  * Solo / one-off Companies House checkout — Hydra software fee only.
  * Companies House statutory fees stay in `chFeePounds` (GOV.UK).
- * Totals: incorporation £100 · same-day £171 · CS01 £65 · accounts £25 ·
+ * Totals: incorporation £100 · same-day £171 · CS01 £55 · accounts £15 ·
  * name £40 · same-day name £105.
+ * Practice desks keep {@link HYDRA_CH_DESK_FEES} (CS/accounts unlimited £0 add-on).
  */
 export const HYDRA_CH_SOLO_FEES: Record<string, number> = {
   incorporation: 0,
   "incorporation-same-day": 15,
-  "confirmation-statement": 15,
-  "accounts-ixbrl": 25,
+  "confirmation-statement": 5,
+  "accounts-ixbrl": 15,
   "change-of-name": 20,
   "change-of-name-same-day": 20,
 };
@@ -451,7 +452,7 @@ export const COMPANIES_HOUSE_SERVICES: ChService[] = [
     id: "accounts-ixbrl",
     title: "Annual accounts (iXBRL)",
     description:
-      "File statutory accounts to Companies House. Companies House statutory fee £0 — Hydra software fee £25.",
+      "File statutory accounts to Companies House. Companies House statutory fee £0 — Hydra software fee £15 for individuals (included on practice desks).",
     channel: "Software",
     chFeePounds: 0,
     popular: true,
@@ -726,12 +727,12 @@ export const PRICING_SECTIONS = [
     plans: [
       {
         name: "Confirmation statement",
-        price: hydraTotal(50, "confirmation-statement", "desk"),
+        price: hydraTotal(50, "confirmation-statement", "solo"),
         period: "/filing",
-        blurb: "Digital CS01 with director personal codes",
+        blurb: "Digital CS01 with director personal codes — £55 for individuals",
         features: [
           "Digital CS01",
-          "Unlimited on desk plans",
+          "£55 solo · unlimited on desk plans",
           "Filing receipt stored",
         ],
         cta: "View CH services",
@@ -740,7 +741,7 @@ export const PRICING_SECTIONS = [
       },
       {
         name: "Incorporation",
-        price: hydraTotal(100, "incorporation", "desk"),
+        price: hydraTotal(100, "incorporation", "solo"),
         period: "/filing",
         blurb: "Guided IN01 with live name check",
         features: [
@@ -754,12 +755,12 @@ export const PRICING_SECTIONS = [
       },
       {
         name: "iXBRL accounts",
-        price: hydraTotal(0, "accounts-ixbrl", "desk"),
+        price: hydraTotal(0, "accounts-ixbrl", "solo"),
         period: "/filing",
-        blurb: "Software accounts filing with iXBRL",
+        blurb: "Software accounts filing with iXBRL — £15 for individuals",
         features: [
           "Software accounts filing",
-          "Unlimited on desk plans",
+          "£15 solo · unlimited on desk plans",
           "Status tracking",
         ],
         cta: "View CH services",
