@@ -47,8 +47,20 @@ export function PendingLink({
       destination.pathname === window.location.pathname &&
       destination.search === window.location.search
     ) {
+      if (destination.hash) {
+        // Same-page section link — land on the target (or top if missing).
+        const id = destination.hash.slice(1);
+        const el =
+          document.getElementById(id) ||
+          document.querySelector(`[data-scroll-section="${CSS.escape(id)}"]`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+        else window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+      }
       return;
     }
+    // New page: start from the top immediately so the next view is not stuck
+    // on the previous scroll position (e.g. footer CTAs).
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     const label = typeof pendingLabel === "string" ? pendingLabel : "Opening…";
     markNavPending(label);
     setPending(true);

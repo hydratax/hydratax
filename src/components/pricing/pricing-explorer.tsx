@@ -83,7 +83,11 @@ export function PricingExplorer({
 
   useEffect(() => {
     const fromHash = sectionIdFromHash(window.location.hash);
-    if (fromHash) setActiveId(fromHash);
+    if (fromHash) {
+      // Deep-link from footer / CTAs (e.g. /pricing#practice) — switch tab and
+      // scroll the panel into view; do not leave the viewport on the old footer.
+      selectSection(fromHash, { scroll: true });
+    }
     const onHash = () => {
       const id = sectionIdFromHash(window.location.hash);
       if (id) selectSection(id, { scroll: true });
@@ -194,7 +198,9 @@ export function PricingExplorer({
             <div role="tabpanel">
               <div
                 ref={panelTopRef}
-                className="max-w-2xl scroll-mt-24 border-b border-line pb-8"
+                id={section.id}
+                data-scroll-section={section.id}
+                className="max-w-2xl scroll-mt-28 border-b border-line pb-8"
               >
                 <h2 className="display text-3xl text-ink md:text-5xl">
                   {section.title}

@@ -37,7 +37,10 @@ export function SiteHeader({
 }) {
   const [servicesOpen, setServicesOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [headerOffset, setHeaderOffset] = useState(112);
   const servicesRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  const pinChrome = !dark && !overlay;
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
@@ -68,8 +71,20 @@ export function SiteHeader({
     };
   }, [mobileOpen]);
 
-  // Shell stays transparent so heroes show through; only the trial banner is solid sea.
-  // Mobile open gets an opaque shell so the drawer covers the page cleanly.
+  // Keep fixed chrome height in sync so page content never slides under the bar.
+  useEffect(() => {
+    if (!pinChrome) return;
+    const el = headerRef.current;
+    if (!el) return;
+    const sync = () => setHeaderOffset(Math.ceil(el.getBoundingClientRect().height));
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [pinChrome, mobileOpen]);
+
+  // Heroes keep absolute/transparent chrome. All other public pages pin a solid
+  // fixed header so forms and cards cannot paint over the nav.
   const shell = dark
     ? mobileOpen
       ? "fixed inset-x-0 top-0 z-50 bg-sea-deep"
@@ -78,7 +93,7 @@ export function SiteHeader({
       ? mobileOpen
         ? "fixed inset-x-0 top-0 z-50 bg-white"
         : "absolute inset-x-0 top-0 z-20 bg-transparent"
-      : "sticky top-0 z-30 bg-transparent";
+      : "fixed inset-x-0 top-0 z-50 border-b border-line/70 bg-white";
 
   const navRow = dark
     ? mobileOpen
@@ -88,9 +103,7 @@ export function SiteHeader({
       ? mobileOpen
         ? "border-b border-line/80 bg-white shadow-md"
         : "bg-transparent"
-      : mobileOpen
-        ? "border-b border-line/80 bg-white shadow-md"
-        : "bg-transparent";
+      : "bg-white";
 
   const brand = dark ? "text-white" : "text-ink";
   const navMuted = dark
@@ -108,7 +121,8 @@ export function SiteHeader({
   }
 
   return (
-    <header className={shell}>
+    <>
+    <header ref={headerRef} className={shell}>
       <FreeTrialBanner dark={dark} />
       <div className={navRow}>
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-6 md:py-4">
@@ -275,5 +289,13 @@ export function SiteHeader({
         </>
       ) : null}
     </header>
+    {pinChrome ? (
+      <div
+        aria-hidden
+        className="shrink-0"
+        style={{ height: headerOffset }}
+      />
+    ) : null}
+    </>
   );
 }

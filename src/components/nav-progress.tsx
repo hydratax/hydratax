@@ -129,6 +129,10 @@ export function NavProgress() {
           window.clearTimeout(safetyRef.current);
           safetyRef.current = null;
         }
+        // Destination committed — ensure we are not still parked on the old scroll.
+        if (!window.location.hash) {
+          window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+        }
         setPhase("finishing");
         setWidth(100);
         hideRef.current = window.setTimeout(() => {
